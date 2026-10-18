@@ -1,0 +1,22 @@
+# Dependencies and builds
+node_modules/
+dist/
+build/
+.next/
+
+# Environment and secrets
+.env
+.env.*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Licensed font files (thmanyah license forbids public redistribution)
+fonts/
+*.otf
+*.ttf
+*.woff
+*.woff2
