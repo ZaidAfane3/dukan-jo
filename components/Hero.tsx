@@ -4,16 +4,16 @@ import { motion } from "framer-motion";
 import { usePrefs } from "./Prefs";
 
 const orders = [
-  { name: "Layla A.", total: "SAR 2,680", status: "Paid", tone: "bg-emerald-100 text-emerald-700" },
-  { name: "Omar K.", total: "SAR 3,594", status: "Pending", tone: "bg-amber-100 text-amber-700" },
-  { name: "Noor S.", total: "SAR 2,955", status: "Shipped", tone: "bg-indigo-100 text-indigo-700" },
+  { name: "Layla A.", total: "JOD 128", status: "Paid", tone: "bg-emerald-100 text-emerald-700" },
+  { name: "Omar K.", total: "JOD 245", status: "Pending", tone: "bg-amber-100 text-amber-700" },
+  { name: "Noor S.", total: "JOD 96", status: "Shipped", tone: "bg-indigo-100 text-indigo-700" },
 ];
 
 const products = [
-  { name: "Daily Backpack", price: "SAR 189", color: "from-indigo-400 to-indigo-600" },
-  { name: "Steel Bottle", price: "SAR 59", color: "from-sky-300 to-sky-500" },
-  { name: "Utility Jacket", price: "SAR 349", color: "from-teal-400 to-teal-600" },
-  { name: "Canvas Cap", price: "SAR 79", color: "from-orange-300 to-rose-400" },
+  { name: "Daily Backpack", price: "JOD 34", color: "from-indigo-400 to-indigo-600" },
+  { name: "Steel Bottle", price: "JOD 11", color: "from-sky-300 to-sky-500" },
+  { name: "Utility Jacket", price: "JOD 62", color: "from-teal-400 to-teal-600" },
+  { name: "Canvas Cap", price: "JOD 14", color: "from-orange-300 to-rose-400" },
 ];
 
 const bars = [30, 45, 38, 60, 52, 75, 68, 90];
@@ -76,7 +76,7 @@ export function Hero() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted">Revenue this month</p>
-                <p className="text-2xl font-extrabold">SAR 248,339</p>
+                <p className="text-2xl font-extrabold">JOD 48,339</p>
               </div>
               <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">+18%</span>
             </div>

@@ -20,7 +20,7 @@ const en = {
     sub: "Build your store in minutes and connect payments, shipping, inventory and marketing in one place. Your success shouldn't need complexity.",
     cta1: "Create your store free",
     cta2: "Take the tour",
-    note: "Built for merchants in Saudi Arabia and the Gulf.",
+    note: "Built for merchants in Jordan.",
     industriesTitle: "Launch in any industry",
 };
 
@@ -38,7 +38,7 @@ const ar: typeof en = {
     sub: "أنشئ متجرك في دقائق، واربط المدفوعات والشحن والمخزون والتسويق في مكان واحد. نجاحك لا يحتاج إلى تعقيد.",
     cta1: "أنشئ متجرك مجانًا",
     cta2: "جولة سريعة",
-    note: "مصمم للتجار في السعودية والخليج.",
+    note: "مصمم للتجار في الأردن.",
     industriesTitle: "انطلق بتجارتك مهما كان قطاعك",
 };
 

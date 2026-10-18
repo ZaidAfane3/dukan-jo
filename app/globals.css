@@ -34,10 +34,10 @@ body {
   color: rgb(var(--fg));
   background: rgb(var(--page));
   transition: background-color 0.3s ease, color 0.3s ease;
-  /* English: Brother 1816 (local install). Arabic: Thmanyah (local install).
-     Each font only covers its own script, so glyphs fall through per language.
-     Both are licensed fonts, so they are not served or committed. */
-  font-family: "Brother 1816", var(--font-latin), "thmanyah sans", Tahoma, system-ui, sans-serif;
+  /* Thmanyah covers both English and Arabic. It is a licensed font installed
+     locally, so it is not served or committed. Plus Jakarta Sans is the
+     fallback for visitors who don't have it. */
+  font-family: "thmanyah sans", var(--font-latin), Tahoma, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 

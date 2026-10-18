@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Logo } from "./Nav";
 import { industries as industryCopy, usePrefs } from "./Prefs";
 import { CountUp, Marquee, Reveal } from "./ui";
@@ -21,7 +21,7 @@ export function Stats() {
         {[
           { to: 68000, suffix: "+", label: "Active stores" },
           { to: 15, suffix: "M", label: "Orders processed in one day" },
-          { to: 50, prefix: "SAR ", suffix: "B+", label: "Merchant sales" },
+          { to: 120, prefix: "JOD ", suffix: "M+", label: "Merchant sales" },
         ].map((s, i) => (
           <Reveal key={s.label} delay={i * 0.1}>
             <p className="text-4xl font-extrabold text-primary sm:text-5xl">
@@ -83,30 +83,74 @@ const industryIcons = [
 
 export function Industries() {
   const [active, setActive] = useState(0);
+  const [canNext, setCanNext] = useState(true);
+  const scroller = useRef<HTMLDivElement>(null);
   const { lang, t } = usePrefs();
   const items = industryCopy[lang];
+  const rtl = lang === "ar";
+
+  /* True while there are more cards beyond the visible edge. */
+  const updateEdge = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const remaining = el.scrollWidth - el.clientWidth - Math.abs(el.scrollLeft);
+    setCanNext(remaining > 8);
+  }, []);
+
+  useEffect(() => {
+    updateEdge();
+    window.addEventListener("resize", updateEdge);
+    return () => window.removeEventListener("resize", updateEdge);
+  }, [updateEdge, lang]);
+
+  const next = () => {
+    const el = scroller.current;
+    if (!el) return;
+    /* In RTL, scrollLeft is negative and "next" moves toward the left. */
+    el.scrollBy({ left: (rtl ? -1 : 1) * 320, behavior: "smooth" });
+  };
 
   return (
     <section id="industries" className="mx-auto max-w-6xl px-5 py-20">
       <Reveal>
         <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{t.industriesTitle}</h2>
       </Reveal>
-      <div className="mt-10 flex gap-3 overflow-x-auto pb-3 [scrollbar-width:none] lg:justify-center">
-        {items.map((ind, i) => (
-          <button
-            key={i}
-            onClick={() => setActive(i)}
-            aria-pressed={active === i}
-            className={`flex w-32 shrink-0 flex-col items-center gap-3 rounded-2xl border px-4 py-5 text-sm font-semibold transition-all duration-300 ${
-              active === i
-                ? "border-ink bg-ink text-white shadow-lg"
-                : "border-primary/25 bg-card hover:-translate-y-1 hover:border-primary"
-            }`}
-          >
-            <span className={active === i ? "text-white" : "text-primary"}>{industryIcons[i]}</span>
-            <span className="text-center leading-snug">{ind.name}</span>
-          </button>
-        ))}
+      <div className="relative mt-10">
+        <div
+          ref={scroller}
+          onScroll={updateEdge}
+          className={`flex gap-4 overflow-x-auto scroll-smooth pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+            canNext ? "[mask-image:linear-gradient(to_right,#000_82%,transparent)] rtl:[mask-image:linear-gradient(to_left,#000_82%,transparent)]" : ""
+          }`}
+        >
+          {items.map((ind, i) => (
+            <button
+              key={i}
+              onClick={() => setActive(i)}
+              aria-pressed={active === i}
+              className={`flex w-44 shrink-0 flex-col items-center gap-4 rounded-3xl border px-4 py-7 text-base font-semibold transition-all duration-300 sm:w-52 ${
+                active === i
+                  ? "border-ink bg-ink text-white shadow-lg"
+                  : "border-primary/25 bg-card hover:-translate-y-1 hover:border-primary"
+              }`}
+            >
+              <span className={`scale-125 ${active === i ? "text-white" : "text-primary"}`}>{industryIcons[i]}</span>
+              <span className="text-center leading-snug">{ind.name}</span>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={next}
+          aria-label={rtl ? "التالي" : "Next"}
+          tabIndex={canNext ? 0 : -1}
+          className={`absolute end-2 top-1/2 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-primary/20 text-primary shadow-sm backdrop-blur transition-all duration-300 hover:scale-110 hover:bg-primary hover:text-white ${
+            canNext ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="m9 6 6 6-6 6" />
+          </svg>
+        </button>
       </div>
       <p key={`${active}-${lang}`} className="mt-8 animate-[fadeIn_0.5s_ease] text-center text-lg text-muted">
         {items[active].blurb}
@@ -156,7 +200,7 @@ const features = [
     id: "expand",
     tag: "Expansion",
     title: "Commerce without borders",
-    body: "Sell from the Gulf to the whole world.",
+    body: "Sell from Jordan to the whole world.",
     points: ["40+ languages supported", "Accept payments from 79+ countries", "Multiple branches and warehouses"],
   },
 ];
@@ -219,7 +263,7 @@ export function Features() {
 /* ---------- Pricing ---------- */
 const plans = [
   { name: "Starter", price: "Free", note: "Everything to get your first sale", items: ["1 store", "Free themes", "Basic analytics", "Community support"], featured: false },
-  { name: "Growth", price: "SAR 99", note: "per month, for scaling stores", items: ["Unlimited products", "Premium themes", "Abandoned-cart recovery", "Priority support"], featured: true },
+  { name: "Growth", price: "JOD 19", note: "per month, for scaling stores", items: ["Unlimited products", "Premium themes", "Abandoned-cart recovery", "Priority support"], featured: true },
   { name: "Enterprise", price: "Custom", note: "for large merchants and brands", items: ["Multi-branch and warehouses", "ERP integrations", "Flexible payment fees", "Dedicated manager"], featured: false },
 ];
 
@@ -316,7 +360,7 @@ export function Footer() {
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-5">
         <div className="md:col-span-1">
           <Logo />
-          <p className="mt-4 text-sm text-muted">Smart commerce for the Gulf and beyond.</p>
+          <p className="mt-4 text-sm text-muted">Smart commerce for Jordan and beyond.</p>
         </div>
         {footerCols.map((c) => (
           <div key={c.title}>
