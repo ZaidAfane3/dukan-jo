@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Colors are stored as RGB channels so Tailwind opacity modifiers work. */
+:root {
+  --fg: 20 18 58;
+  --ink: 20 18 58; /* dark brand surfaces (buttons, panels) */
+  --muted: 93 91 122;
+  --primary: 79 70 229;
+  --deep: 55 48 163;
+  --soft: 238 240 255;
+  --card: 255 255 255;
+  --page: 255 255 255;
+}
+
+[data-theme="dark"] {
+  --fg: 236 235 255;
+  --ink: 55 48 163;
+  --muted: 163 161 196;
+  --primary: 129 140 248;
+  --deep: 99 102 241;
+  --soft: 28 26 70;
+  --card: 24 22 58;
+  --page: 13 12 36;
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: rgb(var(--fg));
+  background: rgb(var(--page));
+  transition: background-color 0.3s ease, color 0.3s ease;
+  /* Latin first; Arabic falls through to Thmanyah when installed locally */
+  font-family: var(--font-latin), "thmanyahsans", Tahoma, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+[dir="rtl"] body {
+  font-family: "thmanyahsans", Tahoma, var(--font-latin), system-ui, sans-serif;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-marquee {
+  animation: marquee 40s linear infinite;
+}
+.animate-marquee-slow {
+  animation: marquee 60s linear infinite reverse;
+}
+.animate-floaty {
+  animation: floaty 6s ease-in-out infinite;
+}
+
+/* Keep the marquee direction consistent in RTL */
+[dir="rtl"] .animate-marquee,
+[dir="rtl"] .animate-marquee-slow {
+  direction: ltr;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .animate-marquee, .animate-marquee-slow, .animate-floaty { animation: none; }
+}
