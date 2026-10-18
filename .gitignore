@@ -20,3 +20,6 @@ fonts/
 *.ttf
 *.woff
 *.woff2
+
+# TypeScript build cache
+*.tsbuildinfo
