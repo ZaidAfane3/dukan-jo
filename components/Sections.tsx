@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Logo } from "./Nav";
+import { industries as industryCopy, usePrefs } from "./Prefs";
 import { CountUp, Marquee, Reveal } from "./ui";
 
 const cta = "rounded-xl bg-ink px-6 py-3.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-deep";
@@ -62,41 +63,53 @@ export function Brands() {
 }
 
 /* ---------- Industries ---------- */
-const industries = [
-  { name: "Fashion", blurb: "Sizes, variants and seasonal drops, handled." },
-  { name: "Digital products", blurb: "Instant delivery for downloads, courses and licenses." },
-  { name: "Health & fitness", blurb: "Subscriptions and bundles for wellness brands." },
-  { name: "Electronics", blurb: "Warranty, serial tracking and fast fulfilment." },
-  { name: "Jewelry", blurb: "Premium presentation with secure checkout." },
-  { name: "Beauty", blurb: "Routines, bundles and loyalty rewards." },
-  { name: "Food & cafes", blurb: "Menus, pickup and delivery in one flow." },
-  { name: "Home", blurb: "Large catalogs with flexible shipping." },
+const svg = (d: React.ReactNode) => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    {d}
+  </svg>
+);
+
+/* Own simple line icons, same order as the copy in Prefs.tsx */
+const industryIcons = [
+  svg(<><path d="M9 3h6l1 5-4 2-4-2 1-5Z" /><path d="M8 8c-1 4-2 8-3 13h14c-1-5-2-9-3-13" /></>),
+  svg(<><rect x="3" y="6" width="18" height="12" rx="4" /><path d="M8 10v4M6 12h4M16 11h.01M18 13h.01" /></>),
+  svg(<path d="M12 20s-8-5-8-11a4.5 4.5 0 0 1 8-2.5A4.5 4.5 0 0 1 20 9c0 6-8 11-8 11Z" />),
+  svg(<><rect x="3" y="5" width="18" height="11" rx="2" /><path d="M8 20h8M12 16v4" /></>),
+  svg(<><path d="M6 4h12l3 5-9 11L3 9l3-5Z" /><path d="M3 9h18M9 4l3 16M15 4l-3 16" /></>),
+  svg(<><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="M19 17l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" /></>),
+  svg(<><path d="M5 11h14a0 0 0 0 1 0 0 7 7 0 0 1-7 7 7 7 0 0 1-7-7Z" /><path d="M9 3c0 2 2 2 2 4M13 3c0 2 2 2 2 4M8 21h8" /></>),
+  svg(<><path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3" /><path d="M2 12a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v6H2v-6Z" /><path d="M5 18v2M19 18v2" /></>),
 ];
 
 export function Industries() {
   const [active, setActive] = useState(0);
+  const { lang, t } = usePrefs();
+  const items = industryCopy[lang];
+
   return (
     <section id="industries" className="mx-auto max-w-6xl px-5 py-20">
       <Reveal>
-        <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">Launch in any industry</h2>
+        <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{t.industriesTitle}</h2>
       </Reveal>
-      <div className="mt-10 flex gap-3 overflow-x-auto pb-2 [scrollbar-width:none]">
-        {industries.map((ind, i) => (
+      <div className="mt-10 flex gap-3 overflow-x-auto pb-3 [scrollbar-width:none] lg:justify-center">
+        {items.map((ind, i) => (
           <button
-            key={ind.name}
+            key={i}
             onClick={() => setActive(i)}
-            className={`shrink-0 rounded-2xl border px-6 py-4 text-sm font-semibold transition-all duration-300 ${
+            aria-pressed={active === i}
+            className={`flex w-32 shrink-0 flex-col items-center gap-3 rounded-2xl border px-4 py-5 text-sm font-semibold transition-all duration-300 ${
               active === i
-                ? "border-fg bg-ink text-white shadow-lg"
-                : "border-primary/20 bg-card hover:-translate-y-0.5 hover:border-primary"
+                ? "border-ink bg-ink text-white shadow-lg"
+                : "border-primary/25 bg-card hover:-translate-y-1 hover:border-primary"
             }`}
           >
-            {ind.name}
+            <span className={active === i ? "text-white" : "text-primary"}>{industryIcons[i]}</span>
+            <span className="text-center leading-snug">{ind.name}</span>
           </button>
         ))}
       </div>
-      <p key={active} className="mt-8 animate-[fadeIn_0.5s_ease] text-center text-lg text-muted">
-        {industries[active].blurb}
+      <p key={`${active}-${lang}`} className="mt-8 animate-[fadeIn_0.5s_ease] text-center text-lg text-muted">
+        {items[active].blurb}
       </p>
     </section>
   );

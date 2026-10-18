@@ -21,6 +21,7 @@ const en = {
     cta1: "Create your store free",
     cta2: "Take the tour",
     note: "Built for merchants in Saudi Arabia and the Gulf.",
+    industriesTitle: "Launch in any industry",
 };
 
 const ar: typeof en = {
@@ -38,9 +39,34 @@ const ar: typeof en = {
     cta1: "أنشئ متجرك مجانًا",
     cta2: "جولة سريعة",
     note: "مصمم للتجار في السعودية والخليج.",
+    industriesTitle: "انطلق بتجارتك مهما كان قطاعك",
 };
 
 export type Copy = typeof en;
+
+/* Industries: name + one-line blurb per language (same order as the icons). */
+export const industries: Record<Lang, { name: string; blurb: string }[]> = {
+  en: [
+    { name: "Fashion", blurb: "Sizes, variants and seasonal drops, handled." },
+    { name: "Digital products", blurb: "Instant delivery for downloads, courses and licenses." },
+    { name: "Health & fitness", blurb: "Subscriptions and bundles for wellness brands." },
+    { name: "Electronics", blurb: "Warranty, serial tracking and fast fulfilment." },
+    { name: "Jewelry", blurb: "Premium presentation with secure checkout." },
+    { name: "Beauty", blurb: "Routines, bundles and loyalty rewards." },
+    { name: "Food & cafes", blurb: "Menus, pickup and delivery in one flow." },
+    { name: "Home", blurb: "Large catalogs with flexible shipping." },
+  ],
+  ar: [
+    { name: "عبايات وأزياء", blurb: "المقاسات والألوان والتشكيلات الموسمية، كلها بسهولة." },
+    { name: "المنتجات الرقمية", blurb: "تسليم فوري للملفات والدورات والتراخيص." },
+    { name: "الصحة واللياقة", blurb: "اشتراكات وباقات لعلامات العافية والرياضة." },
+    { name: "الإلكترونيات", blurb: "ضمان وتتبع للأرقام التسلسلية وتجهيز سريع للطلبات." },
+    { name: "المجوهرات", blurb: "عرض فاخر مع دفع آمن." },
+    { name: "العناية والتجميل", blurb: "روتين وباقات ومكافآت ولاء لعملائك." },
+    { name: "المطاعم والمقاهي", blurb: "القوائم والاستلام والتوصيل في تجربة واحدة." },
+    { name: "مستلزمات المنزل", blurb: "كتالوجات كبيرة مع خيارات شحن مرنة." },
+  ],
+};
 export const dict: Record<Lang, Copy> = { en, ar };
 
 type Ctx = {
