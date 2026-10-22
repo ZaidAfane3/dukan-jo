@@ -4,7 +4,7 @@ import { commercialRegistration, registrationWords } from "./legal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Logo } from "./Nav";
 import { FlagJO } from "./Flag";
-import { LangSwitch, industries as industryCopy, usePrefs } from "./Prefs";
+import { industries as industryCopy, usePrefs } from "./Prefs";
 import { brandName, content } from "./content";
 import { SeenShipMark } from "./SeenShip";
 import { Reveal, Tilt, Typed } from "./ui";
@@ -689,7 +689,6 @@ export function Footer() {
                 <FlagJO />
                 {c.country}
               </p>
-              <LangSwitch />
             </div>
           </div>
 
