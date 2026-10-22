@@ -49,3 +49,5 @@ Many of the designs, including the AI-generated logos and pictures, must be chan
 ## Open question for the team
 
 The payment methods shown in the footer of the main page (Visa, Apple Pay, CliQ, PayPal) feel a bit out of place to Saad. Should they stay in the footer, move somewhere else, or be removed? What do you think, guys?
+
+The footer in general needs suggestions. Saad thinks it looks ugly as it is, so any ideas for a better layout, spacing or content are welcome.

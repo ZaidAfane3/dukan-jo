@@ -349,3 +349,30 @@ form[data-demo-lock] :disabled { cursor: not-allowed; opacity: 0.6; }
 @media (prefers-reduced-motion: reduce) {
   .dk-wave, .dk-halo { animation: none; }
 }
+
+/* The finale line of the industries: it pops up bigger, settles, and a ray of brand color crosses it */
+@keyframes dk-pop {
+  0% { opacity: 0; transform: scale(0.7); }
+  45% { opacity: 1; transform: scale(1.18); }
+  70% { transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.dk-pop { animation: dk-pop 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+@keyframes dk-text-brand {
+  0% { background-position: 160% 0; }
+  100% { background-position: -60% 0; }
+}
+.dk-text-brand {
+  background-image: linear-gradient(105deg, rgb(var(--deep)) 0%, rgb(var(--deep)) 38%, rgb(var(--primary)) 50%, rgb(var(--deep)) 62%, rgb(var(--deep)) 100%);
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: dk-pop 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both, dk-text-brand 2.6s ease-in-out 0.6s 1 both;
+}
+:root[data-theme="dark"] .dk-text-brand {
+  background-image: linear-gradient(105deg, #ffffff 0%, #ffffff 38%, #8ff5dc 50%, #ffffff 62%, #ffffff 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dk-pop, .dk-text-brand { animation: none; }
+}

@@ -118,7 +118,8 @@ export function Industries() {
         </div>
       </div>
 
-      <p key={`${finale ? "all" : active}-${lang}`} className="mt-6 animate-[fadeIn_0.5s_ease] text-center text-lg text-muted">
+      {/* In the finale this line pops up bigger, with a ray of light crossing it, and then settles */}
+      <p key={`${finale ? "all" : active}-${lang}`} className={`mt-6 text-center ${finale ? "dk-pop dk-text-brand text-2xl font-extrabold sm:text-3xl" : "animate-[fadeIn_0.5s_ease] text-lg text-muted"}`}>
         {finale ? (rtl ? "كل قطاع، ومنصة واحدة تجمعها." : "Every industry, one platform.") : items[active].blurb}
       </p>
     </section>
