@@ -38,3 +38,10 @@ components/   Nav, Hero, page sections, shared UI and preferences (theme, langua
 ## Status
 
 Early prototype. Testimonials and dashboard figures are placeholder sample content.
+
+## Note about logos
+
+Most of the logos in this project are temporary. They are placeholders for the prototype and are not the final design.
+This includes the Dukkan logo and the payment, shipping, ministry and demo-store logos. Do not treat them as permanent or approved artwork.
+
+Many of the designs, including the AI-generated logos and pictures, must be changed. Saad does not like them, so they need to be replaced with proper, original artwork before launch.

@@ -1,7 +1,7 @@
 "use client";
 
 import { commercialRegistration, registrationWords } from "./legal";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
 import { LangSwitch, ThemeToggle, usePrefs } from "./Prefs";
 
@@ -67,7 +67,8 @@ function ResourcesMenu() {
           <li role="none" className="mt-1 border-t border-fg/10 pt-1">
             <a href={commercialRegistration.url} target="_blank" rel="noreferrer" role="menuitem" onClick={() => setOpen(false)} className="block rounded-xl px-3 py-2.5 transition-colors hover:bg-soft">
               <span className="flex items-center gap-1.5 text-xs font-bold text-primary">
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m5 12 5 5 9-10" /></svg>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/logos/jo-ministry.png" alt="" className="h-6 w-auto" />
                 {reg.verified}
               </span>
               <span className="mt-0.5 block text-xs text-muted">
@@ -83,7 +84,7 @@ function ResourcesMenu() {
 
 export function Nav() {
   const [scrolled, setScrolled] = useState(false);
-  const { t } = usePrefs();
+  const { t, lang } = usePrefs();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -102,11 +103,13 @@ export function Nav() {
         <Logo />
         <ul className="hidden items-center gap-8 text-sm font-medium text-muted md:flex">
           {linkDefs.map((l) => (
-            <li key={l.href} data-nav-item>
-              <a href={l.href} className="transition-colors hover:text-fg">
-                {t[l.key]}
-              </a>
-            </li>
+            <Fragment key={l.href}>
+              <li data-nav-item>
+                <a href={l.href} className="transition-colors hover:text-fg">
+                  {t[l.key]}
+                </a>
+              </li>
+            </Fragment>
           ))}
           <ResourcesMenu />
         </ul>

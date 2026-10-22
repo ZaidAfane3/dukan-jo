@@ -19,7 +19,7 @@ const en = {
     h1b: "simple",
     h1c: " and smart.",
     sub: "Build your store in minutes and connect payments, shipping, inventory and marketing in one place. Your success shouldn't need complexity.",
-    cta1: "Create your store free",
+    cta1: "Create your store for free",
     cta2: "Try the demo",
     note: "Built for merchants in Jordan.",
     industriesTitle: "Launch in any industry",
@@ -53,7 +53,6 @@ export const industries: Record<Lang, { name: string; blurb: string }[]> = {
     { name: "Electronics", blurb: "Warranty, serial tracking and fast fulfilment." },
     { name: "Jewelry", blurb: "Premium presentation with secure checkout." },
     { name: "Beauty", blurb: "Routines, bundles and loyalty rewards." },
-    { name: "Food & cafes", blurb: "Menus, pickup and delivery in one flow." },
     { name: "Home", blurb: "Large catalogs with flexible shipping." },
   ],
   ar: [
@@ -63,7 +62,6 @@ export const industries: Record<Lang, { name: string; blurb: string }[]> = {
     { name: "الإلكترونيات", blurb: "ضمان وتتبع للأرقام التسلسلية وتجهيز سريع للطلبات." },
     { name: "المجوهرات", blurb: "عرض فاخر مع دفع آمن." },
     { name: "العناية والتجميل", blurb: "روتين وباقات ومكافآت ولاء لعملائك." },
-    { name: "المطاعم والمقاهي", blurb: "القوائم والاستلام والتوصيل في تجربة واحدة." },
     { name: "مستلزمات المنزل", blurb: "كتالوجات كبيرة مع خيارات شحن مرنة." },
   ],
 };

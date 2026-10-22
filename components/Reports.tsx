@@ -245,16 +245,19 @@ function widgetData(w: ReportWidget, section: number, index: number, range: numb
 }
 
 /* The logo of each payment method, in the same order as the items of the widget. "cash" is drawn here. */
-const PAY_LOGOS: Record<string, string[]> = { "p-methods": ["/logos/visa.png", "/logos/cliq.png", "cash"] };
+const PAY_LOGOS: Record<string, string[]> = { "p-methods": ["/logos/visa.png", "/logos/cliq.png", "cash", "/logos/paypal.png"] };
 
 function PayLogo({ src }: { src: string }) {
   if (src === "cash") {
+    /* Dukkan's own pictogram for cash on delivery, the same one the main page shows */
     return (
-      <span className="grid h-7 w-10 shrink-0 place-items-center rounded-md bg-primary/10 text-primary ring-1 ring-fg/10">
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <rect x="3" y="6" width="18" height="12" rx="2" />
-          <circle cx="12" cy="12" r="2.5" />
-          <path d="M6.5 9.5v.01M17.5 14.5v.01" />
+      <span className="grid h-7 w-10 shrink-0 place-items-center rounded-md bg-white text-primary ring-1 ring-fg/10">
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <g transform="rotate(-14 14 7)">
+            <rect x="8" y="2.5" width="12" height="7.5" rx="1.3" />
+            <circle cx="14" cy="6.25" r="1.7" />
+          </g>
+          <path d="M3 14.5h3l3.4 1.8h4.9c1.2 0 1.8 1.4.8 2.1L13 19.6H9L3 18.2" />
         </svg>
       </span>
     );

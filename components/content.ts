@@ -439,7 +439,7 @@ export const content: Record<Lang, Content> = {
         "Track every order, step by step, to the doorstep",
       ],
       login: {
-        brand: "Your Store",
+        brand: "Perfume Store",
         title: "Log in",
         label: "Mobile number",
         code: "+962",
@@ -472,7 +472,7 @@ export const content: Record<Lang, Content> = {
       hidePassword: "Hide password",
       register: "Register",
       loginBtn: "Log in",
-      loginId: "Email or phone number",
+      loginId: "Email / phone number",
       loginIdPh: "Enter your email or phone number",
       forgot: "Forgot your password?",
       or: "or",
@@ -680,7 +680,7 @@ export const content: Record<Lang, Content> = {
           { id: "v-pages", kind: "list", title: "Most visited pages", desc: "The pages in your store that visitors opened most often.", items: ["Home page", "All products", "Daily Backpack"] },
         ],
         payments: [
-          { id: "p-methods", kind: "breakdown", title: "Payment methods used", desc: "Shows how your payments are split by payment method in the selected period.", items: ["Card", "CliQ", "Cash on delivery"] },
+          { id: "p-methods", kind: "breakdown", title: "Payment methods used", desc: "Shows how your payments are split by payment method in the selected period.", items: ["Card", "CliQ", "Cash on delivery", "PayPal"] },
           { id: "p-online", kind: "rate", tone: "good", rateRange: [55, 92], title: "Share of electronic payments", desc: "The share of electronic payments out of all payment methods in the selected period.", items: ["Electronic payments", "All payments"] },
         ],
         inventory: [
@@ -928,7 +928,7 @@ export const content: Record<Lang, Content> = {
         tag: "Launch",
         title: "Start easy, even if you're busy",
         body: "No experience or full-time commitment needed to start selling.",
-        points: ["Guided setup that gets you live fast", "1,000+ services from trusted providers", "A community of merchants to learn from"],
+        points: ["Guided setup that gets you live fast", "Orders, products and reports in one dashboard", "Explore a ready demo store before you start"],
       },
       {
         id: "design",
@@ -964,6 +964,9 @@ export const content: Record<Lang, Content> = {
       { q: "Setup took an afternoon. Our first order came in that same night.", n: "Sample Merchant", s: "Fashion store" },
       { q: "Shipping and payments finally live in one dashboard. That alone saves me hours.", n: "Sample Merchant", s: "Home goods" },
       { q: "We went from a side project to a real brand without changing platform.", n: "Sample Merchant", s: "Beauty brand" },
+      { q: "Customers pay by CliQ or cash on delivery, and every order shows up in one place.", n: "Sample Merchant", s: "Gifts" },
+      { q: "The store designer let me change the look myself, without calling anyone.", n: "Sample Merchant", s: "Jewelry" },
+      { q: "The reports show me which products get left in carts, so I know who to remind.", n: "Sample Merchant", s: "Electronics" },
     ],
     finalCta: {
       title: "Own a professional store on Dukkan",
@@ -972,14 +975,14 @@ export const content: Record<Lang, Content> = {
     footer: {
       tagline: "Smart commerce for Jordan and beyond.",
       cols: [
-        { title: "About Dukkan", links: ["Join the Dukkan team", "Terms of use", "Privacy policy", "Contact us"] },
-        { title: "Resources", links: ["Help center", "FAQ"] },
+        { title: "About Dukkan", links: ["Join the Dukkan team", "Terms of use", "Privacy policy"] },
+        { title: "Resources", links: ["Help center", "FAQ", "Contact us"] },
       ],
       industriesTitle: "Industries",
       availableIn: "Available in:",
       country: "Jordan",
       contact: { phone: "+962 6 000 0000", place: "Amman, Jordan", email: "hello@dukkan.store" },
-      social: ["LinkedIn", "TikTok", "X", "YouTube", "Instagram"],
+      social: ["TikTok", "X", "YouTube", "Instagram"],
       legal: "© 2026 Dukkan. All rights reserved. Prototype, not a live service.",
     },
   },
@@ -1009,7 +1012,7 @@ export const content: Record<Lang, Content> = {
         "تتبّع كل طلب خطوة بخطوة حتى باب البيت",
       ],
       login: {
-        brand: "متجرك",
+        brand: "متجر عطور",
         title: "تسجيل الدخول",
         label: "رقم الجوال",
         code: "+962",
@@ -1042,7 +1045,7 @@ export const content: Record<Lang, Content> = {
       hidePassword: "إخفاء كلمة المرور",
       register: "إنشاء الحساب",
       loginBtn: "تسجيل الدخول",
-      loginId: "البريد الإلكتروني أو رقم الجوال",
+      loginId: "البريد الإلكتروني / رقم الجوال",
       loginIdPh: "أدخل بريدك الإلكتروني أو رقم جوالك",
       forgot: "نسيت كلمة المرور؟",
       or: "أو",
@@ -1250,7 +1253,7 @@ export const content: Record<Lang, Content> = {
           { id: "v-pages", kind: "list", title: "أكثر الصفحات زيارة", desc: "الصفحات في متجرك التي فتحها الزوار أكثر من غيرها.", items: ["الصفحة الرئيسية", "كل المنتجات", "حقيبة يومية"] },
         ],
         payments: [
-          { id: "p-methods", kind: "breakdown", title: "طرق الدفع المستخدمة", desc: "يوضّح توزيع المدفوعات حسب طريقة الدفع في الفترة الزمنية المحددة.", items: ["بطاقة", "كليك", "الدفع عند الاستلام"] },
+          { id: "p-methods", kind: "breakdown", title: "طرق الدفع المستخدمة", desc: "يوضّح توزيع المدفوعات حسب طريقة الدفع في الفترة الزمنية المحددة.", items: ["بطاقة", "كليك", "الدفع عند الاستلام", "باي بال"] },
           { id: "p-online", kind: "rate", tone: "good", rateRange: [55, 92], title: "نسبة المدفوعات الإلكترونية", desc: "نسبة المدفوعات الإلكترونية من إجمالي طرق الدفع خلال الفترة الزمنية المحددة.", items: ["المدفوعات الإلكترونية", "إجمالي المدفوعات"] },
         ],
         inventory: [
@@ -1498,7 +1501,7 @@ export const content: Record<Lang, Content> = {
         tag: "الانطلاق",
         title: "ابدأ بسهولة حتى مع انشغالك",
         body: "لا تحتاج إلى خبرة سابقة أو تفرّغ كامل لتبدأ البيع.",
-        points: ["إعداد موجَّه يجعل متجرك جاهزًا بسرعة", "أكثر من 1,000 خدمة من مزوّدين موثوقين", "مجتمع من التجار لتتبادل معهم الخبرات"],
+        points: ["إعداد موجَّه يجعل متجرك جاهزًا بسرعة", "الطلبات والمنتجات والتقارير في لوحة واحدة", "جرّب متجرًا تجريبيًا جاهزًا قبل أن تبدأ"],
       },
       {
         id: "design",
@@ -1534,6 +1537,9 @@ export const content: Record<Lang, Content> = {
       { q: "استغرق الإعداد عصر يوم واحد، وجاءنا أول طلب في الليلة نفسها.", n: "تاجر تجريبي", s: "متجر أزياء" },
       { q: "أخيرًا صار الشحن والمدفوعات في لوحة واحدة، وهذا وحده يوفّر عليّ ساعات.", n: "تاجر تجريبي", s: "مستلزمات منزلية" },
       { q: "انتقلنا من مشروع جانبي إلى علامة تجارية حقيقية دون أن نغيّر المنصة.", n: "تاجر تجريبي", s: "علامة تجميل" },
+      { q: "عملاؤنا يدفعون بكليك أو عند الاستلام، وكل الطلبات تصلني في مكان واحد.", n: "تاجر تجريبي", s: "متجر هدايا" },
+      { q: "مصمم المتجر سمح لي بتغيير الشكل بنفسي دون أن أتصل بأحد.", n: "تاجر تجريبي", s: "متجر مجوهرات" },
+      { q: "التقارير تُريني المنتجات التي تُترك في السلات، فأعرف لمن أرسل التذكير.", n: "تاجر تجريبي", s: "متجر إلكترونيات" },
     ],
     finalCta: {
       title: "امتلك متجرًا احترافيًا مع دكان",
@@ -1542,14 +1548,14 @@ export const content: Record<Lang, Content> = {
     footer: {
       tagline: "تجارة ذكية للأردن وما بعده.",
       cols: [
-        { title: "عن دكان", links: ["انضم لفريق دكان", "شروط الاستخدام", "سياسة الخصوصية", "تواصل معنا"] },
-        { title: "الموارد", links: ["مركز المساعدة", "الأسئلة الشائعة"] },
+        { title: "عن دكان", links: ["انضم لفريق دكان", "شروط الاستخدام", "سياسة الخصوصية"] },
+        { title: "الموارد", links: ["مركز المساعدة", "الأسئلة الشائعة", "تواصل معنا"] },
       ],
       industriesTitle: "القطاعات",
       availableIn: "متاح في:",
       country: "الأردن",
       contact: { phone: "+962 6 000 0000", place: "عمّان، الأردن", email: "hello@dukkan.store" },
-      social: ["لينكدإن", "تيك توك", "إكس", "يوتيوب", "إنستغرام"],
+      social: ["تيك توك", "إكس", "يوتيوب", "إنستغرام"],
       legal: "© 2026 دكان. جميع الحقوق محفوظة. نموذج أولي وليس خدمة فعلية.",
     },
   },

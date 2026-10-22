@@ -98,7 +98,7 @@ export function SignupForm() {
     /* "Try the platform" needs an account first, and goes to the tour after signing in */
     if (q.get("next") === "demo") {
       setTour(true);
-      setTab((t) => (q.get("tab") ? t : "create"));
+      setTab((t) => (q.get("tab") ? t : "login"));
     }
   }, []);
 
@@ -244,6 +244,16 @@ export function SignupForm() {
                 {passwordField}
                 <a href="#" className="block text-sm font-medium text-primary hover:underline">{c.forgot}</a>
               </>
+            )}
+
+            {/* New here? A small line under the sign-in form that goes to registration */}
+            {tab === "login" && (
+              <p className="text-center text-xs text-muted">
+                {lang === "ar" ? "ليس لديك حساب؟" : "Don't have an account?"}{" "}
+                <button type="button" onClick={() => setTab("create")} className="font-semibold text-primary underline-offset-2 hover:underline">
+                  {lang === "ar" ? "أنشئ حسابًا" : "Create one"}
+                </button>
+              </p>
             )}
 
             <button
