@@ -45,3 +45,7 @@ Most of the logos in this project are temporary. They are placeholders for the p
 This includes the Dukkan logo and the payment, shipping, ministry and demo-store logos. Do not treat them as permanent or approved artwork.
 
 Many of the designs, including the AI-generated logos and pictures, must be changed. Saad does not like them, so they need to be replaced with proper, original artwork before launch.
+
+## Open question for the team
+
+The payment methods shown in the footer of the main page (Visa, Apple Pay, CliQ, PayPal) feel a bit out of place to Saad. Should they stay in the footer, move somewhere else, or be removed? What do you think, guys?
