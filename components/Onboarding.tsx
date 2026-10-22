@@ -1,0 +1,1323 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { brandName, content } from "./content";
+import { FlagJO } from "./Flag";
+import { DashboardBar } from "./DashboardBar";
+import { usePrefs } from "./Prefs";
+import { pushNotification } from "./notifications";
+import { SeenShipLogo, SeenShipMark } from "./SeenShip";
+import { loadSetup, saveSetup } from "./setup";
+import { Tilt } from "./ui";
+import { latin } from "./digits";
+import { toSavedLogo } from "./designer/image";
+
+/* ====================================================================
+   Types and constants
+   ==================================================================== */
+
+const TOTAL_TASKS = 6;
+const MAX_DESCRIPTION = 200;
+const MAX_PROOFS = 5;
+const SWATCHES = ["#004956", "#0b6b4a", "#8b2f35", "#e0806e", "#e0a94e", "#4caf8a", "#5b8dd6", "#e06070"];
+
+type LogoFile = { url: string; name: string; size: string };
+type ProofFile = { id: string; name: string; size: string; url: string | null };
+
+type Store = {
+  name: string;
+  description: string;
+  logo: LogoFile | null;
+  logoData: string;
+  color: string;
+  phone: string;
+  slug: string;
+  product: { type: number; name: string; price: string; image: string | null } | null;
+  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string } | null;
+  pickup: boolean;
+};
+
+const EMPTY_STORE: Store = {
+  name: "",
+  description: "",
+  logo: null,
+  logoData: "",
+  color: "#004956",
+  phone: "",
+  slug: "",
+  product: null,
+  shipping: null,
+  pickup: false,
+};
+
+type StepProps = { store: Store; onSave: (patch: Partial<Store>) => void };
+
+const inputClass =
+  "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
+
+/* ====================================================================
+   Helpers
+   ==================================================================== */
+
+/** Accepts "004956", "#004956" or "#0af" and returns "#rrggbb", or null if invalid. */
+function normalizeHex(value: string): string | null {
+  let h = value.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(h)) h = h.split("").map((c) => c + c).join("");
+  return /^[0-9a-f]{6}$/i.test(h) ? `#${h.toLowerCase()}` : null;
+}
+
+function toRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** White or near-black text, whichever is easier to read on this color. */
+function textOn(hex: string): string {
+  const [r, g, b] = toRgb(hex).map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? "#0b1b1f" : "#ffffff";
+}
+
+/** The most colorful tone in an image (ignores near-white and transparent pixels). */
+function colorFromImage(url: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 32;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(null);
+      ctx.drawImage(img, 0, 0, size, size);
+      const data = ctx.getImageData(0, 0, size, size).data;
+      let r = 0, g = 0, b = 0, weight = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const [R, G, B, A] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
+        if (A < 200) continue;
+        const max = Math.max(R, G, B);
+        const min = Math.min(R, G, B);
+        if (max > 235 && min > 235) continue;
+        const w = 1 + (max - min) / 24; /* favor saturated pixels */
+        r += R * w;
+        g += G * w;
+        b += B * w;
+        weight += w;
+      }
+      if (!weight) return resolve(null);
+      resolve("#" + [r, g, b].map((v) => Math.round(v / weight).toString(16).padStart(2, "0")).join(""));
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function formatSize(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/** "Olive & Co" -> "olive-co" */
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30);
+}
+
+const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
+
+/* ====================================================================
+   Small shared pieces
+   ==================================================================== */
+
+function Label({ title, hint, optional }: { title: string; hint?: string; optional?: string }) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-center gap-2">
+        <span className="font-bold">{title}</span>
+        {optional && <span className="rounded-full bg-fg/10 px-2.5 py-0.5 text-[11px] font-medium text-muted">{optional}</span>}
+      </div>
+      {hint && <p className="mt-1 text-sm text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+function SaveButton({ disabled, onClick, children }: { disabled: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="h-12 w-full rounded-xl bg-ink text-sm font-semibold text-onink transition enabled:hover:-translate-y-0.5 enabled:hover:bg-deep disabled:cursor-not-allowed disabled:bg-primary/20 disabled:text-muted"
+    >
+      {children}
+    </button>
+  );
+}
+
+function PhoneField({ value, onChange, placeholder, label }: { value: string; onChange: (v: string) => void; placeholder: string; label: string }) {
+  return (
+    <span dir="ltr" className="flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25">
+      <span className="flex h-full items-center gap-2 border-e border-fg/15 bg-soft/60 px-3 font-semibold">
+        <FlagJO />+962
+      </span>
+      <input
+        type="tel"
+        inputMode="tel"
+        value={value}
+        onChange={(e) => onChange(latin(e.target.value).replace(/[^\d\s]/g, "").replace(/^[\s0]+/, ""))}
+        placeholder={placeholder}
+        aria-label={label}
+        className="h-full flex-1 bg-transparent px-3 outline-none placeholder:text-muted/70"
+      />
+    </span>
+  );
+}
+
+const phoneDigits = (v: string) => v.replace(/\D/g, "").length;
+
+const icon = {
+  viewBox: "0 0 24 24",
+  className: "h-5 w-5",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.7,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  "aria-hidden": true,
+};
+
+/* Dukkan's own simple line icons, one per task */
+const taskIcons = [
+  <svg key="0" {...icon}><circle cx="12" cy="12" r="9" /><path d="m12 7 1.6 3.4 3.7.5-2.7 2.5.7 3.7L12 15.3 8.7 17.1l.7-3.7L6.7 10.9l3.7-.5L12 7Z" /></svg>,
+  <svg key="1" {...icon}><path d="M5 5h4l1.5 4-2 1.2a11 11 0 0 0 5.3 5.3l1.2-2 4 1.5v4a2 2 0 0 1-2 2A15 15 0 0 1 3 7a2 2 0 0 1 2-2Z" /></svg>,
+  <svg key="2" {...icon}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1" /></svg>,
+  <svg key="3" {...icon}><path d="M9 3h6l1 4-4 2-4-2 1-4Z" /><path d="M8 8c-1 4-2 8-3 13h14c-1-5-2-9-3-13" /></svg>,
+  <svg key="4" {...icon}><path d="M2 6h11v10H2zM13 9h5l3 3v4h-8" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="18" r="2" /></svg>,
+  <svg key="5" {...icon}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M9 9v11" /></svg>,
+];
+
+/* Product-type icons (same ideas as the types, drawn for Dukkan) */
+const productIcons = [
+  <svg key="p0" {...icon}><path d="M9 3 3.5 6 5.5 10.5 8 9.5V20.5H16V9.5l2.5 1L20.5 6 15 3a3 3 0 0 1-6 0Z" /></svg>,
+  <svg key="p1" {...icon}><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v4h4M9 13h6M9 17h6" /></svg>,
+  <svg key="p2" {...icon}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18M7 15h4" /></svg>,
+  <svg key="p3" {...icon}><path d="M7 3v8a2 2 0 0 0 2 2v8M7 3v5M11 3v5M16 3c-2 1.5-3 4-3 7h3v11" /></svg>,
+];
+
+const chevron = (
+  <svg viewBox="0 0 24 24" className="h-5 w-5 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="m15 6-6 6 6 6" />
+  </svg>
+);
+
+/** The seven-task launch path: done tasks fill in, the next one pulses. */
+function LaunchPath({ done, labels }: { done: boolean[]; labels: string[] }) {
+  const current = done.findIndex((d) => !d);
+  return (
+    <ol className="mt-5 flex items-center" aria-label="Launch path">
+      {labels.map((label, i) => {
+        const isDone = done[i];
+        const isCurrent = i === current;
+        return (
+          <li key={label} className={`flex items-center ${i < labels.length - 1 ? "flex-1" : ""}`} aria-current={isCurrent ? "step" : undefined}>
+            <span
+              title={label}
+              className={`relative grid h-9 w-9 shrink-0 place-items-center rounded-full border-2 text-xs font-bold transition-all duration-500 ${
+                isDone
+                  ? "border-primary bg-primary text-white"
+                  : isCurrent
+                    ? "border-primary bg-card text-primary shadow-[0_0_0_6px_rgb(var(--primary)/0.18)]"
+                    : "border-fg/20 bg-card text-muted"
+              }`}
+            >
+              {isDone ? "✓" : i + 1}
+              {isCurrent && <span className="absolute inset-0 animate-ping rounded-full border-2 border-primary/50" aria-hidden />}
+            </span>
+            {i < labels.length - 1 && (
+              <span className="mx-1 h-1 flex-1 overflow-hidden rounded-full bg-fg/10">
+                <span className="block h-full rounded-full bg-primary transition-all duration-700" style={{ width: isDone ? "100%" : "0%" }} />
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Shell shared by every step: title on one side, back button on the other. */
+function StepShell({ title, iconIndex, onBack, backLabel, children }: { title: string; iconIndex: number; onBack: () => void; backLabel: string; children: React.ReactNode }) {
+  return (
+    <section className="mt-8 rounded-3xl border border-fg/15 bg-card p-5 sm:p-7">
+      <div className="flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-lg font-bold">
+          <span className="grid h-9 w-9 place-items-center rounded-full border border-primary text-primary">{taskIcons[iconIndex]}</span>
+          {title}
+        </h2>
+        <button type="button" onClick={onBack} aria-label={backLabel} title={backLabel} className="grid h-10 w-10 place-items-center rounded-full border border-primary/60 text-primary transition hover:bg-primary hover:text-white">
+          {chevron}
+        </button>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Tinted panel that holds a live preview. */
+function PreviewPanel({ hint, children }: { hint: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-3xl bg-soft p-4 pb-6">
+      <p className="px-2 pb-4 pt-2 text-center text-sm font-semibold">{hint}</p>
+      <Tilt max={20} className="store-preview">{children}</Tilt>
+    </div>
+  );
+}
+
+const card3d = "rounded-2xl bg-card shadow-[0_28px_55px_-25px_rgba(0,73,86,0.5)]";
+
+/* ====================================================================
+   Step 1: Store identity
+   ==================================================================== */
+
+function IdentityStep({ store, onSave }: StepProps) {
+  const { lang } = usePrefs();
+  const c = content[lang].onboarding;
+
+  const [name, setName] = useState(store.name);
+  const [description, setDescription] = useState(store.description);
+  const [logo, setLogo] = useState<LogoFile | null>(store.logo);
+  const [logoColor, setLogoColor] = useState<string | null>(null);
+  const [color, setColor] = useState(store.color);
+  const [hex, setHex] = useState(store.color.toUpperCase());
+  const fileInput = useRef<HTMLInputElement>(null);
+  const created = useRef<string[]>([]);
+  const savedUrl = useRef<string | null>(store.logo?.url ?? null);
+
+  /* Free preview URLs that were never saved when the step closes. */
+  useEffect(() => {
+    const urls = created.current;
+    return () => urls.forEach((u) => u !== savedUrl.current && URL.revokeObjectURL(u));
+  }, []);
+
+  /* Read the logo's main color so it can be offered as a swatch. Local only. */
+  useEffect(() => {
+    let cancelled = false;
+    setLogoColor(null);
+    if (logo) colorFromImage(logo.url).then((found) => !cancelled && setLogoColor(found));
+    return () => {
+      cancelled = true;
+    };
+  }, [logo]);
+
+  const apply = (value: string) => {
+    const ok = normalizeHex(value);
+    if (ok) {
+      setColor(ok);
+      setHex(ok.toUpperCase());
+    }
+  };
+
+  const onHexChange = (value: string) => {
+    setHex(value);
+    const ok = normalizeHex(value);
+    if (ok) setColor(ok);
+  };
+
+  const hexInvalid = hex.trim() !== "" && !normalizeHex(hex);
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    created.current.push(url);
+    setLogo({ url, name: file.name, size: formatSize(file.size) });
+  };
+
+  const ink = textOn(color);
+  const swatches = logoColor ? [logoColor, ...SWATCHES] : SWATCHES;
+
+  return (
+    <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
+      <div className="space-y-8 lg:order-2">
+        <div>
+          <Label title={c.nameLabel} hint={c.nameHint} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={c.namePh} maxLength={40} className={`${inputClass} h-12`} />
+        </div>
+
+        <div>
+          <Label title={c.descLabel} hint={c.descHint} optional={c.optional} />
+          <textarea value={description} onChange={(e) => setDescription(e.target.value.slice(0, MAX_DESCRIPTION))} placeholder={c.descPh} rows={4} className={`${inputClass} resize-none py-3`} />
+          <p dir="ltr" className="mt-2 text-xs text-muted">{description.length}/{MAX_DESCRIPTION}</p>
+        </div>
+
+        <div>
+          <Label title={c.logoLabel} hint={c.logoHint} optional={c.optional} />
+          <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
+          {logo ? (
+            <div className="flex items-center gap-4 rounded-2xl border border-fg/15 p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={logo.url} alt="" className="h-16 w-16 rounded-xl object-cover" />
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="truncate font-semibold">{logo.name}</p>
+                <p dir="ltr" className="text-xs text-muted">{logo.size}</p>
+              </div>
+              <button type="button" onClick={() => setLogo(null)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
+                {c.logoRemove}
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => fileInput.current?.click()} className="grid h-32 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5">
+              {c.logoUpload}
+            </button>
+          )}
+        </div>
+
+        <div>
+          <Label title={c.colorLabel} hint={c.colorHint} optional={c.optional} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {swatches.map((s, i) => {
+              const fromLogo = logoColor !== null && i === 0;
+              return (
+                <button
+                  key={`${s}-${i}`}
+                  type="button"
+                  onClick={() => apply(s)}
+                  aria-label={fromLogo ? c.fromLogo : s}
+                  title={fromLogo ? c.fromLogo : s}
+                  aria-pressed={color === s.toLowerCase()}
+                  className={`h-10 w-10 rounded-full transition hover:scale-110 ${color === s.toLowerCase() ? "ring-2 ring-fg ring-offset-2 ring-offset-card" : ""} ${fromLogo ? "outline outline-2 outline-offset-2 outline-dashed outline-primary/60" : ""}`}
+                  style={{ backgroundColor: s }}
+                />
+              );
+            })}
+          </div>
+          {logoColor && <p className="mt-2 text-xs text-muted">{c.fromLogo}</p>}
+
+          {/* Exact color: one big hex field, with the color dot inside it (click the dot for the picker) */}
+          <div dir="ltr" className="relative mt-4 max-w-xs">
+            <input
+              value={hex}
+              onChange={(e) => onHexChange(e.target.value)}
+              onBlur={() => !hexInvalid && apply(hex || color)}
+              maxLength={7}
+              spellCheck={false}
+              aria-label={c.hexLabel}
+              aria-invalid={hexInvalid}
+              placeholder="#004956"
+              className={`${inputClass} h-11 pe-14 text-sm font-semibold uppercase ${hexInvalid ? "!border-rose-500 !ring-rose-500/25" : ""}`}
+            />
+            <label className="absolute end-3 top-1/2 h-6 w-6 -translate-y-1/2 cursor-pointer overflow-hidden rounded-full border border-fg/20 shadow-sm transition hover:scale-110" title={c.pickColor}>
+              <span className="absolute inset-0 transition-colors duration-300" style={{ backgroundColor: color }} />
+              <input type="color" value={color} onChange={(e) => apply(e.target.value)} aria-label={c.pickColor} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+            </label>
+          </div>
+          <p className={`mt-2 text-xs ${hexInvalid ? "text-rose-600" : "text-muted"}`}>{hexInvalid ? c.hexInvalid : c.hexHint}</p>
+        </div>
+
+        <SaveButton
+          disabled={name.trim().length < 2}
+          onClick={async () => {
+            savedUrl.current = logo?.url ?? null;
+            const logoData = logo ? await toSavedLogo(logo.url) : "";
+            onSave({ name: name.trim(), description, logo, logoData, color });
+          }}
+        >
+          {c.save}
+        </SaveButton>
+      </div>
+
+      {/* Live 3D storefront */}
+      <div className="lg:order-1">
+        <PreviewPanel hint={c.previewHint}>
+          <div style={{ transformStyle: "preserve-3d" }}>
+            <div className={card3d} style={{ transform: "translateZ(10px)", transformStyle: "preserve-3d" }}>
+              <div className="flex items-center gap-1.5 px-4 py-3">
+                <i className="h-2.5 w-2.5 rounded-full bg-rose-300" />
+                <i className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+                <i className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+              </div>
+              <div className="rounded-b-2xl px-5 pb-7 pt-4 transition-colors duration-500" style={{ backgroundColor: color, color: ink, transformStyle: "preserve-3d" }}>
+                <div className="flex items-center justify-between opacity-90">
+                  <span className="h-3 w-14 rounded-full" style={{ backgroundColor: ink, opacity: 0.85 }} />
+                  <span className="flex gap-1">
+                    {[0, 1, 2].map((i) => (
+                      <i key={i} className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ink, opacity: 0.6 }} />
+                    ))}
+                  </span>
+                </div>
+                <div className="mt-4 h-9 rounded-lg" style={{ backgroundColor: ink, opacity: 0.14 }} />
+                <div className="mt-6 flex items-center gap-4" style={{ transformStyle: "preserve-3d" }}>
+                  <span
+                    key={logo?.url ?? "empty"}
+                    className="grid h-24 w-24 shrink-0 animate-[pop_0.5s_cubic-bezier(0.2,0.8,0.3,1.2)] place-items-center overflow-hidden rounded-full bg-white shadow-2xl"
+                    style={{ transform: "translateZ(55px)" }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {logo ? <img src={logo.url} alt="" className="h-full w-full object-cover" /> : <span className="text-3xl text-black/55">◎</span>}
+                  </span>
+                  <span className="min-w-0 truncate text-xl font-bold" style={{ transform: "translateZ(30px)" }}>{name || c.defaultName}</span>
+                </div>
+              </div>
+            </div>
+            <div className={`mt-4 p-4 ${card3d}`} style={{ transform: "translateZ(35px)" }}>
+              <p className="truncate font-bold" style={{ color }}>{name || c.defaultName}</p>
+              <p className="mt-1 line-clamp-2 min-h-[2.5rem] text-sm text-muted">{description || " "}</p>
+              <div className="mt-4 flex gap-2" aria-hidden>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <span key={i} className="h-8 w-8 rounded-full bg-fg/10" />
+                ))}
+              </div>
+            </div>
+          </div>
+        </PreviewPanel>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   Step 2: Customer service number
+   ==================================================================== */
+
+function ServiceStep({ store, onSave }: StepProps) {
+  const { lang } = usePrefs();
+  const c = content[lang].onboarding;
+  const sv = c.service;
+
+  /* The number he signed up with, if he created an account in this session. */
+  const [account, setAccount] = useState("");
+  const [useSame, setUseSame] = useState(true);
+  const [phone, setPhone] = useState(store.phone);
+
+  useEffect(() => {
+    let registered = "";
+    try {
+      registered = sessionStorage.getItem("seen-account-phone") ?? "";
+    } catch {
+      /* ignore */
+    }
+    setAccount(registered);
+    /* Reopening a saved step: keep "same number" on only if it matches. */
+    if (registered) setUseSame(!store.phone || store.phone === registered);
+    else setUseSame(false);
+  }, [store.phone]);
+
+  const hasAccount = account !== "";
+  const usingAccount = hasAccount && useSame;
+  const shown = usingAccount ? account : phone.trim();
+  const valid = phoneDigits(shown) >= 8;
+  const showError = !usingAccount && phone.trim() !== "" && phoneDigits(phone) < 8;
+
+  return (
+    <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
+      <div className="space-y-6 lg:order-2">
+        <div>
+          <Label title={sv.phoneLabel} hint={sv.hint} />
+
+          {hasAccount && (
+            <label className="flex cursor-pointer items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={useSame}
+                onChange={(e) => setUseSame(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--primary))]"
+              />
+              <span>
+                {sv.useSame} <span dir="ltr" className="font-bold">(+962 {account})</span>
+                <span className="ms-2 inline-block rounded-full bg-primary/15 px-2.5 py-0.5 align-middle text-[11px] font-bold text-deep dark:text-primary">{sv.registered}</span>
+              </span>
+            </label>
+          )}
+
+          {/* Another number: shown when "same number" is off, or when there is no account number */}
+          {!usingAccount && (
+            <div className={hasAccount ? "mt-5" : ""}>
+              {hasAccount && <p className="mb-2 text-sm font-semibold">{sv.otherLabel}</p>}
+              <PhoneField value={phone} onChange={setPhone} placeholder={sv.phonePh} label={sv.otherLabel} />
+              {showError && <p className="mt-2 text-xs text-rose-600">{sv.invalid}</p>}
+            </div>
+          )}
+        </div>
+        <SaveButton disabled={!valid} onClick={() => onSave({ phone: shown })}>{c.save}</SaveButton>
+      </div>
+
+      <div className="lg:order-1">
+        <PreviewPanel hint={sv.previewHint}>
+          <div style={{ transformStyle: "preserve-3d" }}>
+            <div className={`p-5 ${card3d}`} style={{ transform: "translateZ(15px)", transformStyle: "preserve-3d" }}>
+              <p className="font-bold" style={{ color: store.color }}>{store.name || c.defaultName}</p>
+              <p className="mt-1 line-clamp-2 min-h-[2.5rem] text-sm text-muted">{store.description || "\u00A0"}</p>
+
+              {/* Contact card: the support number sits in the middle, other contact lines are placeholders */}
+              <div className="mx-auto mt-5 max-w-[15rem] space-y-3 rounded-xl bg-soft p-4" style={{ transform: "translateZ(40px)" }}>
+                {[0, 1].map((i) => (
+                  <div key={i} className="flex items-center justify-between gap-3 opacity-70">
+                    <span className="h-2 flex-1 rounded-full bg-fg/25" />
+                    <span className="h-4 w-4 rounded-full bg-fg/20" />
+                  </div>
+                ))}
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-card px-2 py-2 shadow-sm">
+                  <span dir="ltr" className="min-w-0 flex-1 truncate text-start text-sm font-bold">{shown ? `+962 ${shown}` : "+962 7X XXX XXXX"}</span>
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-white" style={{ backgroundColor: store.color }}>
+                    <svg {...icon} className="h-3.5 w-3.5"><path d="M5 5h4l1.5 4-2 1.2a11 11 0 0 0 5.3 5.3l1.2-2 4 1.5v4a2 2 0 0 1-2 2A15 15 0 0 1 3 7a2 2 0 0 1 2-2Z" /></svg>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 opacity-70">
+                  <span className="h-2 flex-1 rounded-full bg-fg/25" />
+                  <span className="h-4 w-4 rounded-full bg-fg/20" />
+                </div>
+              </div>
+
+              <div className="mt-5 flex justify-center gap-2" aria-hidden>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <span key={i} className="h-5 w-9 rounded-md bg-fg/10" />
+                ))}
+              </div>
+            </div>
+          </div>
+        </PreviewPanel>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   Step 3: Store domain
+   ==================================================================== */
+
+function DomainStep({ store, onSave }: StepProps) {
+  const { lang } = usePrefs();
+  const c = content[lang].onboarding;
+  const [slug, setSlug] = useState(store.slug);
+  const [touched, setTouched] = useState(false);
+  const valid = SLUG_RULE.test(slug);
+  const suggestion = slugify(store.name);
+  const canSuggest = SLUG_RULE.test(suggestion) && suggestion !== slug;
+
+  const clean = (v: string) => v.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
+
+  return (
+    <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
+      <div className="space-y-6 lg:order-2">
+        <div>
+          <Label title={c.domain.label} hint={c.domain.hint} />
+          <div dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border bg-card text-sm transition focus-within:ring-2 ${touched && slug && !valid ? "border-rose-500 focus-within:ring-rose-500/25" : "border-fg/15 focus-within:border-primary focus-within:ring-primary/25"}`}>
+            <span className="flex h-full items-center border-e border-fg/15 bg-soft/60 px-3 font-semibold">{c.domain.prefix}</span>
+            <input
+              value={slug}
+              onChange={(e) => setSlug(clean(e.target.value))}
+              onBlur={() => setTouched(true)}
+              placeholder={c.domain.ph}
+              spellCheck={false}
+              autoCapitalize="none"
+              aria-label={c.domain.label}
+              aria-invalid={touched && !!slug && !valid}
+              className="h-full flex-1 bg-transparent px-3 outline-none placeholder:text-muted/70"
+            />
+          </div>
+          {touched && slug && !valid ? (
+            <p className="mt-2 text-xs text-rose-600">{c.domain.invalid}</p>
+          ) : (
+            <p dir="ltr" className="mt-2 text-xs text-muted">{c.domain.examples}</p>
+          )}
+          {canSuggest && (
+            <button type="button" onClick={() => setSlug(suggestion)} className="mt-3 rounded-full border border-primary/40 px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white">
+              {c.domain.suggest} <span dir="ltr">{c.domain.prefix}{suggestion}</span>
+            </button>
+          )}
+        </div>
+        <SaveButton disabled={!valid} onClick={() => onSave({ slug })}>{c.save}</SaveButton>
+      </div>
+
+      <div className="lg:order-1">
+        <PreviewPanel hint={c.domain.previewHint}>
+          <div style={{ transformStyle: "preserve-3d" }}>
+            <div className={card3d} style={{ transform: "translateZ(10px)", transformStyle: "preserve-3d" }}>
+              <div className="px-4 pt-4" style={{ transform: "translateZ(30px)" }}>
+                <div dir="ltr" className="flex items-center gap-2 rounded-full bg-soft px-4 py-2.5 text-sm font-semibold shadow-sm">
+                  <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18" />
+                  </svg>
+                  <span className="truncate">https://{c.domain.prefix}{slug || c.domain.fallback}</span>
+                </div>
+              </div>
+              <div className="mt-4 rounded-b-2xl bg-white/60 p-4 dark:bg-white/5">
+                <div className="h-9 rounded-lg bg-fg/10" />
+                <div className="mt-4 flex items-center gap-3">
+                  <span className="h-12 w-12 rounded-full" style={{ backgroundColor: store.color }} />
+                  <span className="h-3 w-24 rounded-full bg-fg/15" />
+                </div>
+                <div className="mt-4 grid grid-cols-4 gap-2">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="aspect-square rounded-lg bg-fg/10" />
+                  ))}
+                </div>
+                <div className="mt-4 space-y-2">
+                  <div className="h-2.5 w-2/3 rounded-full bg-fg/10" />
+                  <div className="h-2.5 w-1/2 rounded-full bg-fg/10" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </PreviewPanel>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   Step 4: First product
+   ==================================================================== */
+
+function ProductStep({ store, onSave }: StepProps) {
+  const { lang } = usePrefs();
+  const c = content[lang].onboarding;
+  const p = c.product;
+
+  const saved = store.product;
+  const [type, setType] = useState(saved?.type ?? 0);
+  const [name, setName] = useState(saved?.name ?? "");
+  const [price, setPrice] = useState(saved?.price ?? "");
+  const [image, setImage] = useState<string | null>(saved?.image ?? null);
+  const [imageError, setImageError] = useState("");
+  const [needsShipping, setNeedsShipping] = useState(true);
+  const [weight, setWeight] = useState("");
+  const [unlimited, setUnlimited] = useState(true);
+  const [quantity, setQuantity] = useState("");
+  const [device, setDevice] = useState<"mobile" | "desktop">("desktop");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const created = useRef<string[]>([]);
+  const savedUrl = useRef<string | null>(saved?.image ?? null);
+
+  useEffect(() => {
+    const urls = created.current;
+    return () => urls.forEach((u) => u !== savedUrl.current && URL.revokeObjectURL(u));
+  }, []);
+
+  /* Digital products and cards never ship, food and ready products usually do. */
+  const physical = type === 0 || type === 3;
+  const chooseType = (i: number) => {
+    setType(i);
+    setNeedsShipping(i === 0 || i === 3);
+  };
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    if (file.size > 2 * 1024 * 1024) {
+      setImageError(p.imageTooBig);
+      return;
+    }
+    setImageError("");
+    const url = URL.createObjectURL(file);
+    created.current.push(url);
+    setImage(url);
+  };
+
+  const priceNumber = parseFloat(price);
+  const shippingOk = !physical || !needsShipping || parseFloat(weight) > 0;
+  const valid = name.trim().length >= 2 && priceNumber > 0 && shippingOk;
+  const shownName = name.trim() || p.productDefault;
+  const hasData = name.trim() !== "" || price !== "" || image !== null;
+
+  return (
+    <div className="mt-6">
+      <p className="font-bold">{p.typeQuestion}</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {p.types.map((t, i) => (
+          <button
+            key={t.title}
+            type="button"
+            onClick={() => chooseType(i)}
+            aria-pressed={type === i}
+            className={`flex items-center gap-4 rounded-2xl border p-4 text-start transition ${type === i ? "border-primary bg-primary/10 shadow-md" : "border-fg/15 hover:-translate-y-0.5 hover:border-primary/60"}`}
+          >
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${type === i ? "bg-primary text-white" : "bg-soft text-primary"}`}>{productIcons[i]}</span>
+            <span className="min-w-0">
+              <span className="block font-bold">{t.title}</span>
+              <span className="mt-0.5 block text-sm text-muted">{t.desc}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <h3 className="mb-4 mt-10 font-bold">{p.dataTitle}</h3>
+      <div className="grid gap-8 rounded-2xl border border-fg/10 p-4 sm:p-5 lg:grid-cols-[1fr_1.1fr]">
+        <div className="space-y-6 lg:order-2">
+          <div>
+            <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
+            {image ? (
+              <div className="flex items-center gap-4 rounded-2xl border border-fg/15 p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image} alt="" className="h-20 w-20 rounded-xl object-cover" />
+                <button type="button" onClick={() => setImage(null)} className="ms-auto rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
+                  {p.imageRemove}
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-2xl border-2 border-dashed border-fg/20 px-4 py-6 text-center">
+                <p className="text-sm font-semibold text-muted">{p.imageAdd}</p>
+                <button type="button" onClick={() => fileInput.current?.click()} className="mt-3 rounded-xl border border-fg/25 px-4 py-2 text-sm font-semibold transition hover:bg-soft">
+                  {p.imageBrowse}
+                </button>
+                <p className="mx-auto mt-3 max-w-xs text-[11px] leading-relaxed text-muted">{p.imageHint}</p>
+              </div>
+            )}
+            {imageError && <p className="mt-2 text-xs text-rose-600">{imageError}</p>}
+          </div>
+
+          <div>
+            <Label title={p.nameLabel} />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={p.namePh} maxLength={80} className={`${inputClass} h-12`} />
+          </div>
+
+          <div>
+            <Label title={p.priceLabel} />
+            <div className="relative">
+              <span className="pointer-events-none absolute start-4 top-1/2 -translate-y-1/2 text-xs font-bold text-muted">{p.currency}</span>
+              <input value={price} onChange={(e) => setPrice(latin(e.target.value).replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder={p.pricePh} className={`${inputClass} h-12 ps-14`} />
+            </div>
+          </div>
+
+          <div>
+            <Label title={p.shippingLabel} />
+            {physical ? (
+              <div className="flex flex-wrap gap-5 text-sm">
+                {[true, false].map((v) => (
+                  <label key={String(v)} className="flex cursor-pointer items-center gap-2.5">
+                    <input type="radio" name="shipping" checked={needsShipping === v} onChange={() => setNeedsShipping(v)} className="h-5 w-5 accent-[rgb(var(--primary))]" />
+                    {v ? p.needsShipping : p.noShipping}
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted">{p.noShipping}</p>
+            )}
+          </div>
+
+          {physical && needsShipping && (
+            <div>
+              <Label title={p.weightLabel} />
+              <div className="relative">
+                <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 rounded-md border border-fg/20 px-2 py-0.5 text-[11px] font-semibold">{p.kg}</span>
+                <input value={weight} onChange={(e) => setWeight(latin(e.target.value).replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder={p.weightPh} className={`${inputClass} h-12 ps-20`} />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <Label title={p.quantityLabel} />
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setUnlimited((u) => !u)} aria-pressed={unlimited} className={`flex h-12 shrink-0 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${unlimited ? "border-primary bg-primary/10" : "border-fg/15"}`}>
+                <span aria-hidden>∞</span>
+                {unlimited ? p.unlimited : p.limited}
+              </button>
+              <input value={quantity} onChange={(e) => setQuantity(latin(e.target.value).replace(/\D/g, ""))} disabled={unlimited} inputMode="numeric" placeholder={p.quantityPh} className={`${inputClass} h-12 disabled:opacity-50`} />
+            </div>
+          </div>
+
+          <SaveButton disabled={!valid} onClick={() => { savedUrl.current = image; onSave({ product: { type, name: name.trim(), price, image } }); }}>
+            {p.add}
+          </SaveButton>
+        </div>
+
+        {/* Live product preview */}
+        <div className="lg:order-1">
+          <div className="rounded-3xl bg-soft p-4 pb-6">
+            <div className="flex justify-center gap-2" role="group">
+              {(["mobile", "desktop"] as const).map((d) => (
+                <button key={d} type="button" onClick={() => setDevice(d)} aria-pressed={device === d} title={d === "mobile" ? p.previewMobile : p.previewDesktop} className={`grid h-9 w-9 place-items-center rounded-lg transition ${device === d ? "bg-ink text-onink" : "text-muted hover:text-fg"}`}>
+                  {d === "mobile" ? (
+                    <svg {...icon} className="h-4 w-4"><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M11 18h2" /></svg>
+                  ) : (
+                    <svg {...icon} className="h-4 w-4"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4">
+              <Tilt max={20} className="store-preview">
+                <div style={{ transformStyle: "preserve-3d" }}>
+                  <div className={`mx-auto p-4 transition-all duration-500 ${card3d} ${device === "mobile" ? "max-w-[15rem]" : ""}`} style={{ transform: "translateZ(15px)", transformStyle: "preserve-3d" }}>
+                    <div className={`flex gap-4 ${device === "mobile" ? "flex-col-reverse" : "items-center"}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-lg font-bold">{shownName}</p>
+                        <p className="mt-1 text-xs tracking-widest text-amber-400" aria-hidden>★★★★★</p>
+                        <p className="mt-2 text-sm font-semibold">
+                          {priceNumber > 0 ? <span dir="ltr">{priceNumber.toFixed(2)} {p.currency}</span> : <span className="text-muted">-</span>}
+                        </p>
+                        <div className="mt-4 flex gap-2">
+                          <span className="flex-1 rounded-md border border-fg/30 px-2 py-2 text-center text-[11px] font-semibold">{p.addToCart}</span>
+                          <span className="flex-1 rounded-md bg-ink px-2 py-2 text-center text-[11px] font-semibold text-onink">{p.buyNow}</span>
+                        </div>
+                      </div>
+                      <div className={`grid shrink-0 place-items-center overflow-hidden rounded-xl bg-fg/10 ${device === "mobile" ? "aspect-square w-full" : "h-32 w-32"}`} style={{ transform: "translateZ(40px)" }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {image ? <img src={image} alt="" className="h-full w-full object-cover" /> : <span className="text-muted/60">{productIcons[type]}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Tilt>
+            </div>
+            {!hasData && <p className="mt-6 text-center text-sm font-semibold text-primary">{p.previewEmpty}</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   Step 5: Shipping method (company or person, their number, proof)
+   ==================================================================== */
+
+function ShippingStep({ store, onSave }: StepProps) {
+  const { lang } = usePrefs();
+  const c = content[lang].onboarding;
+  const s = c.shipping;
+
+  const saved = store.shipping;
+  const [mode, setMode] = useState<"own" | "seen" | null>(saved?.mode ?? null);
+  const [pickup, setPickup] = useState(store.pickup);
+
+  /* Dukkan Ship: only needs a pickup place */
+  const [city, setCity] = useState(saved?.city ?? "");
+  const [address, setAddress] = useState(saved?.address ?? "");
+
+  /* His own shipping way: who delivers, their number, and proof */
+  const own = saved?.mode === "own" ? saved : null;
+  const [kind, setKind] = useState(own?.kind ?? 0);
+  const [name, setName] = useState(own?.name ?? "");
+  const [phone, setPhone] = useState(own?.phone ?? "");
+  const [proofs, setProofs] = useState<ProofFile[]>(own?.proofs ?? []);
+  const [error, setError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const created = useRef<string[]>([]);
+  const savedUrls = useRef<Set<string>>(new Set((own?.proofs ?? []).flatMap((f) => (f.url ? [f.url] : []))));
+
+  useEffect(() => {
+    const urls = created.current;
+    return () => urls.forEach((u) => !savedUrls.current.has(u) && URL.revokeObjectURL(u));
+  }, []);
+
+  /* Images and PDFs only, up to 5 files of 5 MB. Files stay in the browser. */
+  const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    let message = "";
+    const next = [...proofs];
+    for (const file of picked) {
+      if (next.length >= MAX_PROOFS) {
+        message = s.proofMax;
+        break;
+      }
+      const isImage = file.type.startsWith("image/");
+      if (!isImage && file.type !== "application/pdf") {
+        message = s.proofType;
+        continue;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        message = s.proofTooBig;
+        continue;
+      }
+      let url: string | null = null;
+      if (isImage) {
+        url = URL.createObjectURL(file);
+        created.current.push(url);
+      }
+      next.push({ id: `${file.name}-${file.size}-${next.length}`, name: file.name, size: formatSize(file.size), url });
+    }
+    setProofs(next);
+    setError(message);
+  };
+
+  const pickupBox = (
+    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-fg/15 p-4 transition hover:border-primary/60">
+      <input type="checkbox" checked={pickup} onChange={(e) => setPickup(e.target.checked)} className="peer sr-only" />
+      <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md border border-fg/25 bg-card text-transparent transition peer-checked:border-primary peer-checked:bg-primary peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40">
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="m5 12 5 5 9-10" />
+        </svg>
+      </span>
+      <span>
+        <span className="block text-sm font-bold">{s.pickupLabel}</span>
+        <span className="mt-0.5 block text-xs text-muted">{s.pickupHint}</span>
+      </span>
+    </label>
+  );
+
+  /* ---------- Step 1: choose how orders are delivered ---------- */
+  if (mode === null) {
+    return (
+      <div className="mt-6">
+        <p className="font-bold">{s.modeTitle}</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <button type="button" onClick={() => setMode("own")} className="flex flex-col items-start gap-4 rounded-2xl border border-fg/15 p-6 text-start transition hover:-translate-y-1 hover:border-primary hover:shadow-lg">
+            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-soft text-primary">{taskIcons[4]}</span>
+            <span>
+              <span className="block text-lg font-bold">{s.modes[0].title}</span>
+              <span className="mt-1 block text-sm text-muted">{s.modes[0].desc}</span>
+            </span>
+          </button>
+
+          <button type="button" onClick={() => setMode("seen")} className="flex flex-col items-start gap-4 rounded-2xl border border-primary/40 bg-primary/5 p-6 text-start transition hover:-translate-y-1 hover:border-primary hover:shadow-lg">
+            <SeenShipMark className="h-14 w-14" />
+            <span>
+              <span className="block text-lg font-bold">{s.modes[1].title}</span>
+              <span className="mt-1 block text-sm text-muted">{s.modes[1].desc}</span>
+            </span>
+            <span className="rounded-full bg-primary/15 px-3 py-1 text-sm font-bold text-deep dark:text-primary">
+              <span dir="auto">{s.price} {s.perOrder}</span>
+            </span>
+          </button>
+        </div>
+        <div className="mt-4">{pickupBox}</div>
+      </div>
+    );
+  }
+
+  const changeLink = (
+    <button type="button" onClick={() => setMode(null)} className="text-sm font-semibold text-primary hover:underline">
+      {s.change}
+    </button>
+  );
+
+  /* ---------- Dukkan Ship ---------- */
+  if (mode === "seen") {
+    const ready = city !== "";
+    return (
+      <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
+        <div className="space-y-8 lg:order-2">
+          {changeLink}
+          {pickupBox}
+
+          <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
+            <SeenShipLogo />
+            <p className="mt-4 text-3xl font-bold text-primary">
+              <span dir="auto">{s.price}</span> <span className="text-base font-medium text-muted">{s.perOrder}</span>
+            </p>
+            <p className="mt-1 text-sm text-muted">{s.priceNote}</p>
+          </div>
+
+          <div>
+            <Label title={s.cityLabel} />
+            <select value={city} onChange={(e) => setCity(e.target.value)} aria-label={s.cityLabel} className={`${inputClass} h-12`}>
+              <option value="">{s.cityPh}</option>
+              {s.cities.map((name, i) => (
+                <option key={i} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <Label title={s.addressLabel} optional={c.optional} />
+            <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder={s.addressPh} maxLength={120} className={`${inputClass} h-12`} />
+          </div>
+
+          <SaveButton
+            disabled={!ready}
+            onClick={() => onSave({ pickup, shipping: { mode: "seen", kind: 0, name: s.seenName, phone: "", proofs: [], city, address: address.trim() } })}
+          >
+            {c.save}
+          </SaveButton>
+        </div>
+
+        <div className="lg:order-1">
+          <PreviewPanel hint={s.previewSeen}>
+            <div style={{ transformStyle: "preserve-3d" }}>
+              <div className={`p-5 ${card3d}`} style={{ transform: "translateZ(15px)", transformStyle: "preserve-3d" }}>
+                <div style={{ transform: "translateZ(40px)" }}>
+                  <SeenShipLogo />
+                </div>
+                <p className="mt-5 text-4xl font-bold text-primary" style={{ transform: "translateZ(25px)" }}>
+                  <span dir="auto">{s.price}</span> <span className="text-base font-medium text-muted">{s.perOrder}</span>
+                </p>
+                <ul className="mt-5 space-y-3">
+                  {s.features.map((f) => (
+                    <li key={f} className="flex items-center gap-3 text-sm font-medium">
+                      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary text-[10px] text-white">✓</span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-5 rounded-xl bg-soft px-4 py-3 text-sm" style={{ transform: "translateZ(30px)" }}>
+                  <p className="text-xs text-muted">{s.cityLabel}</p>
+                  <p className="mt-0.5 font-semibold">{city ? `${city}${address.trim() ? ` · ${address.trim()}` : ""}` : s.cityPh}</p>
+                </div>
+              </div>
+            </div>
+          </PreviewPanel>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- His own shipping way ---------- */
+  const phoneOk = phoneDigits(phone) >= 8;
+  const valid = name.trim().length >= 2 && phoneOk;
+  const shownName = name.trim() || s.previewName;
+
+  return (
+    <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
+      <div className="space-y-8 lg:order-2">
+        {changeLink}
+        {pickupBox}
+
+        <div>
+          <Label title={s.label} hint={s.hint} />
+          <p className="mb-3 text-sm font-semibold">{s.whoLabel}</p>
+          <div role="radiogroup" className="grid grid-cols-2 gap-3">
+            {s.kinds.map((k, i) => (
+              <button key={k} type="button" role="radio" aria-checked={kind === i} onClick={() => setKind(i)} className={`h-12 rounded-xl border text-sm font-semibold transition ${kind === i ? "border-primary bg-primary/10" : "border-fg/15 hover:border-primary/50"}`}>
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <Label title={s.nameLabels[kind]} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={s.namePhs[kind]} maxLength={60} className={`${inputClass} h-12`} />
+        </div>
+
+        <div>
+          <Label title={s.phoneLabel} hint={s.phoneHint} />
+          <PhoneField value={phone} onChange={setPhone} placeholder={c.service.phonePh} label={s.phoneLabel} />
+          {phone.trim() !== "" && !phoneOk && <p className="mt-2 text-xs text-rose-600">{s.phoneInvalid}</p>}
+        </div>
+
+        <div>
+          <Label title={s.proofLabel} hint={s.proofHint} optional={c.optional} />
+          <input ref={fileInput} type="file" multiple accept="image/*,application/pdf" onChange={onFiles} className="hidden" />
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={proofs.length >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+            <span>
+              {s.proofAdd} <span dir="ltr" className="text-muted">({proofs.length}/{MAX_PROOFS})</span>
+            </span>
+          </button>
+          <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
+          {error && <p className="mt-1 text-xs text-rose-600">{error}</p>}
+
+          {proofs.length > 0 && (
+            <ul className="mt-4 space-y-2">
+              {proofs.map((f) => (
+                <li key={f.id} className="flex items-center gap-3 rounded-xl border border-fg/15 p-2.5">
+                  {f.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={f.url} alt="" className="h-11 w-11 rounded-lg object-cover" />
+                  ) : (
+                    <span className="grid h-11 w-11 place-items-center rounded-lg bg-rose-500/10 text-[11px] font-bold text-rose-600">PDF</span>
+                  )}
+                  <div className="min-w-0 flex-1 text-sm">
+                    <p className="truncate font-semibold">{f.name}</p>
+                    <p dir="ltr" className="text-start text-xs text-muted">{f.size}</p>
+                  </div>
+                  <button type="button" onClick={() => setProofs((list) => list.filter((x) => x.id !== f.id))} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
+                    {s.remove}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 text-xs text-muted">{s.localNote}</p>
+        </div>
+
+        <SaveButton
+          disabled={!valid}
+          onClick={() => {
+            savedUrls.current = new Set(proofs.flatMap((f) => (f.url ? [f.url] : [])));
+            onSave({ pickup, shipping: { mode: "own", kind, name: name.trim(), phone: phone.trim(), proofs, city: "", address: "" } });
+          }}
+        >
+          {c.save}
+        </SaveButton>
+      </div>
+
+      {/* Partner card */}
+      <div className="lg:order-1">
+        <PreviewPanel hint={s.previewHint}>
+          <div style={{ transformStyle: "preserve-3d" }}>
+            <div className={`p-5 ${card3d}`} style={{ transform: "translateZ(15px)", transformStyle: "preserve-3d" }}>
+              <div className="flex items-center gap-4" style={{ transformStyle: "preserve-3d" }}>
+                <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-ink text-2xl font-bold text-onink shadow-xl" style={{ transform: "translateZ(45px)" }}>
+                  {name.trim() ? name.trim().charAt(0).toUpperCase() : taskIcons[4]}
+                </span>
+                <div className="min-w-0">
+                  <span className="inline-block rounded-full bg-soft px-3 py-0.5 text-[11px] font-bold text-deep dark:text-primary">{s.kinds[kind]}</span>
+                  <p className="mt-1 truncate text-lg font-bold">{shownName}</p>
+                  <p dir="ltr" className="truncate text-start text-sm text-muted">{phone.trim() ? `+962 ${phone.trim()}` : "+962 7X XXX XXXX"}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-xl bg-soft p-3" style={{ transform: "translateZ(30px)" }}>
+                <p className={`flex items-center gap-2 text-sm font-semibold ${proofs.length ? "" : "text-muted"}`}>
+                  <span className={`grid h-5 w-5 place-items-center rounded-full text-[10px] ${proofs.length ? "bg-primary text-white" : "border border-fg/25"}`}>{proofs.length ? "✓" : ""}</span>
+                  {proofs.length ? s.proofAttached : s.noProof}
+                  {proofs.length > 0 && <span dir="ltr" className="ms-auto text-xs text-muted">{proofs.length}</span>}
+                </p>
+                {proofs.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {proofs.map((f) =>
+                      f.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img key={f.id} src={f.url} alt="" className="h-12 w-12 rounded-lg object-cover shadow-md" />
+                      ) : (
+                        <span key={f.id} className="grid h-12 w-12 place-items-center rounded-lg bg-card text-[10px] font-bold text-rose-600 shadow-md">PDF</span>
+                      ),
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </PreviewPanel>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   Page: task list that opens each step
+   ==================================================================== */
+
+export function Onboarding() {
+  const router = useRouter();
+  const { lang } = usePrefs();
+  const c = content[lang].onboarding;
+
+  const [store, setStore] = useState<Store>(EMPTY_STORE);
+  const [done, setDone] = useState<boolean[]>(() => Array(TOTAL_TASKS).fill(false));
+  /* He lands on the first task, Store identity, already open. */
+  const [view, setView] = useState<number | null>(0);
+
+  useEffect(() => {
+    document.title = `${brandName(lang)} | ${view === null ? c.title : c.tasks[view].title}`;
+  }, [c, view]);
+
+  /* Pick up where he left off: restore saved answers and progress for this session. */
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    const s = loadSetup();
+    if (s && Array.isArray(s.done) && s.done.length === TOTAL_TASKS) {
+      setStore((prev) => ({
+        ...prev,
+        name: s.name,
+        description: s.description,
+        color: s.color,
+        phone: s.phone,
+        slug: s.slug,
+        product: s.product ? { ...s.product, image: null } : null,
+        pickup: s.pickup === true,
+        logoData: s.logo ?? "",
+        logo: s.logo ? { url: s.logo, name: "logo", size: "" } : null,
+        shipping: s.shipping ? { ...s.shipping, mode: s.shipping.mode ?? "own", city: s.shipping.city ?? "", address: s.shipping.address ?? "", proofs: [] } : null,
+      }));
+      setDone(s.done);
+      /* Someone who has already started sees their task list, not the first step. */
+      if (s.done.some(Boolean)) setView(null);
+    }
+    setRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!restored) return;
+    saveSetup({
+      name: store.name,
+      description: store.description,
+      color: store.color,
+      phone: store.phone,
+      slug: store.slug,
+      done,
+      pickup: store.pickup,
+      logo: store.logoData,
+      product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price } : null,
+      shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address } : null,
+    });
+  }, [restored, store, done]);
+
+  const open = (i: number) => {
+    /* The store design task is its own full-screen page, the designer. */
+    if (i === 5) {
+      router.push("/design");
+      return;
+    }
+    setView(i);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const finish = (index: number, patch: Partial<Store>) => {
+    pushNotification("taskDone", { task: String(index) });
+    setStore((s) => ({ ...s, ...patch }));
+    setDone((d) => d.map((v, i) => (i === index ? true : v)));
+    setView(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const back = () => setView(null);
+  const doneCount = done.filter(Boolean).length;
+  const taskTitles = c.tasks.map((t) => t.title);
+
+  const stepBody =
+    view === 0 ? <IdentityStep store={store} onSave={(p) => finish(0, p)} />
+    : view === 1 ? <ServiceStep store={store} onSave={(p) => finish(1, p)} />
+    : view === 2 ? <DomainStep store={store} onSave={(p) => finish(2, p)} />
+    : view === 3 ? <ProductStep store={store} onSave={(p) => finish(3, p)} />
+    : view === 4 ? <ShippingStep store={store} onSave={(p) => finish(4, p)} />
+    : (
+      <div className="mt-6 rounded-2xl bg-soft p-8 text-center">
+        <p className="font-semibold">{c.comingSoon}</p>
+        <button type="button" onClick={back} className="mt-5 rounded-xl border border-fg/20 px-5 py-2.5 text-sm font-semibold transition hover:bg-card">
+          {c.back}
+        </button>
+      </div>
+    );
+
+  return (
+    <div className="dash min-h-screen bg-page">
+      <DashboardBar active="home" subtabs={[c.summary]} activeSub={0} />
+
+      <main data-lang-fade className="mx-auto max-w-[1720px] px-5 py-10 md:px-10">
+        <div className="flex items-end justify-between gap-4">
+          <h1 className="text-xl font-extrabold sm:text-2xl">{c.title}</h1>
+          <span dir="ltr" className="text-lg font-bold text-muted">{doneCount}/{TOTAL_TASKS}</span>
+        </div>
+        <LaunchPath done={done} labels={taskTitles} />
+
+        {view === null ? (
+          <ul className="mt-8 space-y-3">
+            {c.tasks.map((task, i) => (
+              <li key={task.title}>
+                <button
+                  type="button"
+                  onClick={() => open(i)}
+                  className="flex w-full items-center justify-between gap-4 rounded-2xl border border-fg/15 bg-card px-5 py-4 text-start transition hover:-translate-y-0.5 hover:border-primary hover:shadow-md"
+                >
+                  <span className="flex items-center gap-3 font-bold">
+                    <span className={`grid h-9 w-9 place-items-center rounded-full transition-colors ${done[i] ? "bg-primary text-white" : "border border-primary/50 text-primary"}`}>
+                      {done[i] ? "✓" : taskIcons[i]}
+                    </span>
+                    {task.title}
+                  </span>
+                  <span className="rounded-lg border border-primary/60 px-4 py-1.5 text-sm font-semibold text-primary">{done[i] ? c.edit : task.action}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <StepShell title={c.tasks[view].title} iconIndex={view} onBack={back} backLabel={c.back}>
+            {stepBody}
+          </StepShell>
+        )}
+      </main>
+    </div>
+  );
+}

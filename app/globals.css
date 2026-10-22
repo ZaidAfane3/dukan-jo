@@ -4,27 +4,91 @@
 
 /* Colors are stored as RGB channels so Tailwind opacity modifiers work. */
 :root {
-  --fg: 20 18 58;
-  --ink: 20 18 58; /* dark brand surfaces (buttons, panels) */
-  --muted: 93 91 122;
-  --primary: 79 70 229;
-  --deep: 55 48 163;
-  --soft: 238 240 255;
+  --fg: 0 73 86; /* deep teal */
+  --ink: 0 73 86; /* dark brand surfaces (buttons, panels) */
+  --muted: 102 102 102;
+  --primary: 52 141 156; /* mid teal accent */
+  --deep: 0 54 64; /* hover state for dark surfaces */
+  --soft: 207 247 238; /* mint */
   --card: 255 255 255;
   --page: 255 255 255;
+  --bar: 0 73 86; /* dashboard top bar */
+  --on-ink: 255 255 255; /* text on top of --ink surfaces */
 }
 
 [data-theme="dark"] {
-  --fg: 236 235 255;
-  --ink: 55 48 163;
-  --muted: 163 161 196;
-  --primary: 129 140 248;
-  --deep: 99 102 241;
-  --soft: 28 26 70;
-  --card: 24 22 58;
-  --page: 13 12 36;
+  --fg: 207 247 238;
+  --ink: 0 73 86;
+  --muted: 160 190 190;
+  --primary: 115 231 203; /* bright mint */
+  --deep: 52 141 156;
+  --soft: 10 54 63;
+  --card: 8 44 52;
+  --page: 4 28 34;
   color-scheme: dark;
 }
+
+/* Dashboard pages in dark mode use a neutral dark gray with mint accents
+   (colors sampled from the reference dashboard). */
+/* Light dashboard: panels, headers and active rows are neutral gray, not the
+   mint tint used on the marketing site. Dark mode sets its own grays below. */
+.dash {
+  --soft: 244 244 245;
+}
+
+[data-theme="dark"] .dash {
+  --page: 34 34 34; /* #222222 */
+  --card: 42 43 45; /* #2a2b2d */
+  --soft: 56 56 59; /* #38383b */
+  --bar: 29 30 32; /* #1d1e20 */
+  --fg: 244 244 245;
+  --muted: 168 168 173;
+  --primary: 150 237 217; /* #96edd9 */
+  --deep: 186 243 229; /* #baf3e5 */
+  --ink: 186 243 229; /* buttons turn mint in dark mode */
+  --on-ink: 29 30 32;
+}
+
+/* A store preview shows the merchant's own light storefront, so it keeps
+   light colors even when the dashboard around it is dark. */
+[data-theme="dark"] .store-preview {
+  --card: 255 255 255;
+  --fg: 17 41 46;
+  --muted: 102 102 102;
+  --soft: 232 244 241;
+  --primary: 52 141 156;
+  --deep: 0 54 64;
+  --ink: 0 73 86;
+  --on-ink: 255 255 255;
+}
+
+/* Dark mode: the accent is a light mint, so text on top of it must be dark. */
+[data-theme="dark"] .bg-primary.text-white {
+  color: #0b1b1f;
+}
+
+/* Dashboard pages: slightly denser, with lighter weights (a heavy bold
+   everywhere makes data screens look big and clumsy). */
+/* Width of the dashboard sidebar (the page makes room for it on large screens). */
+html { --side-w: 17rem; }
+html[data-side="collapsed"] { --side-w: 4.75rem; }
+@media (min-width: 1024px) {
+  /* Only the page itself makes room for the sidebar, not popups that reuse the .dash colors. */
+  .dash.min-h-screen {
+    padding-inline-start: var(--side-w);
+    transition: padding-inline-start 0.3s ease;
+  }
+}
+
+html:has(.dash) {
+  font-size: 15px;
+}
+.dash .font-extrabold { font-weight: 600; }
+.dash .font-bold { font-weight: 550; }
+.dash .font-semibold { font-weight: 500; }
+.dash .font-medium { font-weight: 450; }
+/* The big numbers read best light */
+.dash .font-bold:is(.text-3xl, .text-4xl, .text-5xl, .text-6xl) { font-weight: 450; }
 
 html {
   scroll-behavior: smooth;
@@ -34,10 +98,7 @@ body {
   color: rgb(var(--fg));
   background: rgb(var(--page));
   transition: background-color 0.3s ease, color 0.3s ease;
-  /* Thmanyah covers both English and Arabic. It is a licensed font installed
-     locally, so it is not served or committed. Plus Jakarta Sans is the
-     fallback for visitors who don't have it. */
-  font-family: "thmanyah sans", var(--font-latin), Tahoma, system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -71,3 +132,111 @@ body {
   html { scroll-behavior: auto; }
   .animate-marquee, .animate-marquee-slow, .animate-floaty { animation: none; }
 }
+
+/* Skeleton loading shimmer */
+.skeleton {
+  background: linear-gradient(
+    100deg,
+    rgb(var(--fg) / 0.07) 30%,
+    rgb(var(--fg) / 0.14) 50%,
+    rgb(var(--fg) / 0.07) 70%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
+/* Arabic needs looser lines and no negative tracking (it breaks letter joins). */
+[dir="rtl"] h1 { line-height: 1.55; letter-spacing: 0; }
+[dir="rtl"] h2,
+[dir="rtl"] h3 { line-height: 1.5; letter-spacing: 0; }
+[dir="rtl"] p,
+[dir="rtl"] li,
+[dir="rtl"] blockquote { line-height: 1.9; }
+
+/* Saved Arabic: keep the page hidden until the language state is applied, so English never flashes. */
+html[data-boot] body { visibility: hidden; }
+
+/* Arabic letters like ي and ج have dots below the baseline. Text that is cut with an ellipsis
+   (truncate, line-clamp) would clip them, so its clip box gets a little extra room underneath. */
+html[lang="ar"] .truncate,
+html[lang="ar"] .line-clamp-1,
+html[lang="ar"] .line-clamp-2 {
+  padding-block: 0.2em;
+  margin-block: -0.2em;
+}
+
+/* A field the merchant is being guided to: it shakes once, then pulses a red ring for a few seconds. */
+@keyframes attention-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(244 63 94 / 0); }
+  50% { box-shadow: 0 0 0 6px rgb(244 63 94 / 0.28); }
+}
+@keyframes attention-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.attention {
+  border-radius: 0.75rem;
+  outline: 2px solid rgb(244 63 94);
+  outline-offset: 4px;
+  animation: attention-shake 0.45s ease-out 1, attention-ring 1.1s ease-in-out 4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .attention { animation: none; }
+}
+
+/* Arabic letters like ج and ي hang below the line. An input clips its text to the line box,
+   so with the tight default line height the bottom of those letters was cut off. */
+html[lang="ar"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+html[lang="ar"] textarea,
+html[lang="ar"] select {
+  line-height: 2;
+}
+html[lang="ar"] input::placeholder,
+html[lang="ar"] textarea::placeholder {
+  line-height: 2;
+}
+
+
+/* The announcement bar: messages that change by themselves, or slide across like a ticker */
+@keyframes dk-ann-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.dk-ann-in { animation: dk-ann-in 0.45s ease both; }
+@keyframes dk-marquee {
+  to { transform: translateX(-50%); }
+}
+.dk-marquee { animation: dk-marquee var(--dk-d, 30s) linear infinite; }
+.dk-marquee-rev { animation-direction: reverse; }
+.dk-ticker:hover .dk-marquee { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .dk-ann-in, .dk-marquee { animation: none; }
+}
+
+/* The tour's floating bar is not needed when the dashboard shows it under its top bar */
+html[data-demo-strip] .demo-pill { display: none; }
+
+/* The tour's forms: shown, but locked, with a note on top */
+form[data-demo-lock]::before {
+  content: attr(data-demo-note);
+  display: block;
+  margin-bottom: 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.75rem;
+  background: rgba(245, 158, 11, 0.15);
+  color: #92400e;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+:root[data-theme="dark"] form[data-demo-lock]::before { color: #fcd34d; }
+form[data-demo-lock] :disabled { cursor: not-allowed; opacity: 0.6; }

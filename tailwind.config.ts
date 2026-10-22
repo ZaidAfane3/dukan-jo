@@ -20,8 +20,11 @@ const config: Config = {
         soft: channel("soft"),
         card: channel("card"),
         page: channel("page"),
+        bar: channel("bar"),
+        onink: channel("on-ink"),
       },
       keyframes: {
+        pop: { from: { opacity: "0", transform: "scale(0.6)" }, to: { opacity: "1", transform: "scale(1)" } },
         fadeIn: { from: { opacity: "0", transform: "translateY(8px)" }, to: { opacity: "1", transform: "none" } },
       },
     },

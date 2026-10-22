@@ -1,18 +1,16 @@
 import { Hero } from "@/components/Hero";
 import { Nav } from "@/components/Nav";
-import { Brands, Features, FinalCta, Footer, Industries, Pricing, Stats, Testimonials } from "@/components/Sections";
+import { Experience, Features, FinalCta, Footer, Industries, Testimonials } from "@/components/Sections";
 
 export default function Home() {
   return (
     <>
       <Nav />
-      <main>
+      <main data-lang-fade>
         <Hero />
-        <Stats />
-        <Brands />
         <Industries />
+        <Experience />
         <Features />
-        <Pricing />
         <Testimonials />
         <FinalCta />
       </main>

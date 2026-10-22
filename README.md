@@ -1,20 +1,17 @@
-# Seen
+# Dukkan
 
 An e-commerce platform prototype for merchants in Jordan: a marketing site for people who want to launch and run an online store. Built with Next.js, Tailwind CSS and Framer Motion.
 
 ## Features
 
-- Landing page: hero with animated dashboard, live stats, merchant marquee, industries, feature sections, pricing, testimonials and footer
-- Smooth motion: scroll-reveal animations, count-up stats, looping marquees and spring-based hero entrance (respects `prefers-reduced-motion`)
-- Industries carousel that scrolls with an arrow button, in both directions
+- Landing page: hero with animated dashboard, an industries carousel that scrolls with an arrow button, feature sections, testimonials and footer
+- Smooth motion: scroll-reveal animations and a spring-based hero entrance (respects `prefers-reduced-motion`)
 - Light and dark mode, following the system setting by default and remembered per visitor
 - English and Arabic (RTL) with a language switch. Nav and hero are translated so far, the remaining sections follow
 
 ## Typography
 
-Both English and Arabic use the **Thmanyah** typeface (`thmanyah sans`), with Plus Jakarta Sans and Tahoma as fallbacks.
-
-The font files are licensed by thmanyah Publishing and Distribution and may not be redistributed, so they are **not included in this repository**. To work on the project locally, download the family from the official site, [thmanyah.com](https://thmanyah.com), and install it on your machine, or place the files in a local `fonts/` folder (ignored by git).
+Both English and Arabic use **Readex Pro** (open license, SIL OFL), loaded through `next/font/google`.
 
 ## Getting started
 
@@ -40,4 +37,4 @@ components/   Nav, Hero, page sections, shared UI and preferences (theme, langua
 
 ## Status
 
-Early prototype. Merchant names, stats, prices (JOD) and testimonials are placeholder sample content.
+Early prototype. Testimonials and dashboard figures are placeholder sample content.

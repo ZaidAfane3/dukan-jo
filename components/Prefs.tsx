@@ -1,25 +1,26 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
-export type Lang = "en" | "ar";
+import type { Lang } from "./content";
+export type { Lang };
 type Theme = "light" | "dark";
 
 /* Copy that has an Arabic translation so far (nav + hero). The rest follows. */
 const en = {
     solutions: "Solutions",
     industries: "Industries",
+    resources: "Resources",
     themes: "Themes",
-    pricing: "Pricing",
     login: "Log in",
     start: "Start free",
-    badge: "68,000+ active stores",
     h1a: "Commerce, made ",
     h1b: "simple",
     h1c: " and smart.",
     sub: "Build your store in minutes and connect payments, shipping, inventory and marketing in one place. Your success shouldn't need complexity.",
     cta1: "Create your store free",
-    cta2: "Take the tour",
+    cta2: "Try the demo",
     note: "Built for merchants in Jordan.",
     industriesTitle: "Launch in any industry",
 };
@@ -27,18 +28,17 @@ const en = {
 const ar: typeof en = {
     solutions: "الحلول",
     industries: "القطاعات",
+    resources: "الموارد",
     themes: "الثيمات",
-    pricing: "الأسعار",
     login: "تسجيل دخول",
     start: "ابدأ مجانًا",
-    badge: "+68,000 متجر إلكتروني نشط",
-    h1a: "التجارة، بشكل ",
-    h1b: "بسيط",
-    h1c: " وذكي.",
-    sub: "أنشئ متجرك في دقائق، واربط المدفوعات والشحن والمخزون والتسويق في مكان واحد. نجاحك لا يحتاج إلى تعقيد.",
+    h1a: "التِّجارة، بشكلٍ ",
+    h1b: "بسيطٍ",
+    h1c: " وذكيٍّ.",
+    sub: "أنشئ متجرك الإلكتروني في دقائق، واربط المدفوعات والشحن والمخزون والتسويق في مكانٍ واحد. نجاحك لا يحتاج إلى تعقيد.",
     cta1: "أنشئ متجرك مجانًا",
-    cta2: "جولة سريعة",
-    note: "مصمم للتجار في الأردن.",
+    cta2: "تجربة المنصة",
+    note: "مُصمّم للتجّار في الأردن.",
     industriesTitle: "انطلق بتجارتك مهما كان قطاعك",
 };
 
@@ -101,11 +101,14 @@ function safeSet(key: string, value: string) {
   }
 }
 
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
 export function PrefsProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>("en");
   const [theme, setTheme] = useState<Theme>("light");
 
-  useEffect(() => {
+  /* Runs before paint so a saved Arabic page never flashes English first. */
+  useIsoLayoutEffect(() => {
     const savedLang = safeGet("seen-lang");
     if (savedLang === "ar" || savedLang === "en") setLangState(savedLang);
     const savedTheme = safeGet("seen-theme");
@@ -116,20 +119,146 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
           ? "dark"
           : "light",
     );
+    delete document.documentElement.dataset.boot;
   }, []);
 
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+    if (window.location.pathname === "/") document.title = lang === "ar" ? "دكان | أطلق متجرك الإلكتروني في دقائق" : "Dukkan | Launch your online store in minutes";
   }, [lang]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  const switching = useRef(false);
+
+  /* Switch language like Salla. The top bar items glide to the middle and
+     bunch up while the page text fades out. The language changes behind the
+     scenes, the bar spreads out toward the new reading side, and the text
+     then settles in block by block, top to bottom, so it never pops in all
+     at once. */
   const setLang = useCallback((l: Lang) => {
-    setLangState(l);
+    if (switching.current) return;
     safeSet("seen-lang", l);
+
+    const apply = () => {
+      document.documentElement.lang = l;
+      document.documentElement.dir = l === "ar" ? "rtl" : "ltr";
+      flushSync(() => setLangState(l));
+    };
+
+    /* Only items inside a header take part (not the footer logo). */
+    let items = Array.from(document.querySelectorAll<HTMLElement>("header [data-nav-item]"));
+    let content = Array.from(document.querySelectorAll<HTMLElement>("[data-lang-fade]"));
+    /* Sidebar entries fade and slide in one after another instead of gathering. */
+    let side = Array.from(document.querySelectorAll<HTMLElement>("aside [data-side-item]"));
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || items.length === 0 || typeof items[0].animate !== "function") {
+      apply();
+      return;
+    }
+
+    switching.current = true;
+    const centerX = window.innerWidth / 2;
+    const offsetToCenter = (el: HTMLElement) => {
+      const r = el.getBoundingClientRect();
+      return centerX - (r.left + r.width / 2);
+    };
+
+    const outs = items.map((el) =>
+      el.animate(
+        [
+          { transform: "translateX(0) scale(1)", opacity: 1 },
+          /* Gone before the items pile up on top of each other */
+          { opacity: 0, offset: 0.6 },
+          { transform: `translateX(${offsetToCenter(el)}px) scale(0.85)`, opacity: 0 },
+        ],
+        { duration: 360, easing: "cubic-bezier(0.55, 0, 0.9, 0.4)", fill: "forwards" },
+      ),
+    );
+
+    const textOut = [...content, ...side].map((el) =>
+      el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: "ease-in", fill: "forwards" }),
+    );
+
+    Promise.all([...outs, ...textOut].map((a) => a.finished.catch(() => undefined))).then(() => {
+      /* Hide everything while the page re-renders in the new language. */
+      items.forEach((el) => (el.style.opacity = "0"));
+      content.forEach((el) => (el.style.opacity = "0"));
+      side.forEach((el) => (el.style.opacity = "0"));
+      outs.forEach((a) => a.cancel());
+      textOut.forEach((a) => a.cancel());
+      apply();
+
+      /* If the page was rebuilt for the new language (as in the tour), these are new elements: take them and hide them too */
+      if (items.some((el) => !el.isConnected)) {
+        items = Array.from(document.querySelectorAll<HTMLElement>("header [data-nav-item]"));
+        content = Array.from(document.querySelectorAll<HTMLElement>("[data-lang-fade]"));
+        side = Array.from(document.querySelectorAll<HTMLElement>("aside [data-side-item]"));
+        [...items, ...content, ...side].forEach((el) => (el.style.opacity = "0"));
+      }
+
+      /* Give the browser two frames to lay out and paint the new page, so
+         the heavy work finishes before any animation starts. */
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const ins = items.map((el) => {
+            const from = offsetToCenter(el);
+            el.style.opacity = "";
+            return el.animate(
+              [
+                { transform: `translateX(${from}px) scale(0.85)`, opacity: 0 },
+                /* Only becomes visible once the items have started to spread apart */
+                { opacity: 0, offset: 0.35 },
+                { opacity: 1, offset: 0.8 },
+                { transform: "translateX(0) scale(1)", opacity: 1 },
+              ],
+              { duration: 520, easing: "cubic-bezier(0.2, 0.65, 0.3, 1)", fill: "backwards" },
+            );
+          });
+
+          /* Page text: reveal the blocks in order. Pages made of a few big
+             columns reveal what is inside them instead. */
+          content.forEach((el) => (el.style.opacity = ""));
+          const toward = l === "ar" ? 10 : -10; /* the sidebar sits on the reading-start side */
+          side.forEach((el, i) => {
+            el.style.opacity = "";
+            ins.push(
+              el.animate(
+                [
+                  { opacity: 0, transform: `translateX(${toward}px)` },
+                  { opacity: 1, transform: "translateX(0)" },
+                ],
+                { duration: 420, delay: 80 + i * 45, easing: "cubic-bezier(0.2, 0.65, 0.3, 1)", fill: "backwards" },
+              ),
+            );
+          });
+          let blocks = content.flatMap((el) => Array.from(el.children) as HTMLElement[]);
+          if (blocks.length <= 3) {
+            blocks = blocks.flatMap((b) => (b.children.length > 1 ? (Array.from(b.children) as HTMLElement[]) : [b]));
+          }
+          /* Blocks far below the screen don't need to animate. */
+          const onScreen = blocks.filter((el) => el.getBoundingClientRect().top < window.innerHeight);
+          onScreen.forEach((el, i) => {
+            ins.push(
+              el.animate(
+                [
+                  { opacity: 0, transform: "translateY(14px)" },
+                  { opacity: 1, transform: "translateY(0)" },
+                ],
+                { duration: 520, delay: 120 + Math.min(i * 50, 400), easing: "cubic-bezier(0.2, 0.65, 0.3, 1)", fill: "backwards" },
+              ),
+            );
+          });
+
+          Promise.all(ins.map((a) => a.finished.catch(() => undefined))).then(() => {
+            switching.current = false;
+          });
+        }),
+      );
+    });
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -147,66 +276,38 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* ---------- Small inline flags (emoji flags don't render on Windows) ---------- */
-function FlagUS() {
-  return (
-    <svg viewBox="0 0 24 16" className="h-3 w-[18px] rounded-[2px] shadow-[0_0_0_1px_rgba(0,0,0,0.12)]" aria-hidden>
-      <rect width="24" height="16" fill="#fff" />
-      {[0, 2, 4, 6, 8, 10, 12].map((i) => (
-        <rect key={i} y={(i * 16) / 13} width="24" height={16 / 13} fill="#b22234" />
-      ))}
-      <rect width="10" height={(16 / 13) * 7} fill="#3c3b6e" />
-    </svg>
-  );
-}
-
-function FlagJO() {
-  return (
-    <svg viewBox="0 0 24 16" className="h-3 w-[18px] rounded-[2px] shadow-[0_0_0_1px_rgba(0,0,0,0.12)]" aria-hidden>
-      <rect width="24" height="5.34" fill="#000" />
-      <rect y="5.33" width="24" height="5.34" fill="#fff" />
-      <rect y="10.66" width="24" height="5.34" fill="#007a3d" />
-      <path d="M0 0 L11 8 L0 16 Z" fill="#ce1126" />
-      <circle cx="3.4" cy="8" r="1" fill="#fff" />
-    </svg>
-  );
-}
-
-export function LangSwitch() {
+/* One button: shows the language you will switch to, flips on every press. */
+export function LangSwitch({ onDark = false, iconOnly = false }: { onDark?: boolean; iconOnly?: boolean }) {
   const { lang, setLang } = usePrefs();
-  const options: { code: Lang; label: string; flag: React.ReactNode }[] = [
-    { code: "en", label: "EN", flag: <FlagUS /> },
-    { code: "ar", label: "العربية", flag: <FlagJO /> },
-  ];
+  const target: Lang = lang === "ar" ? "en" : "ar";
 
   return (
-    <div role="group" aria-label="Language" className="flex rounded-lg border border-fg/15 p-0.5 text-xs font-semibold">
-      {options.map((o) => (
-        <button
-          key={o.code}
-          onClick={() => setLang(o.code)}
-          aria-pressed={lang === o.code}
-          className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors ${
-            lang === o.code ? "bg-ink text-white" : "text-muted hover:text-fg"
-          }`}
-        >
-          {o.flag}
-          {o.label}
-        </button>
-      ))}
-    </div>
+    <button
+      data-nav-item
+      onClick={() => setLang(target)}
+      aria-label={target === "en" ? "Switch language to English" : "التبديل إلى اللغة العربية"}
+      title={target === "en" ? "English" : "العربية"}
+      className={`flex h-9 items-center gap-1.5 rounded-lg border text-xs font-semibold transition ${iconOnly ? "w-9 justify-center" : "px-2.5"} ${onDark ? "border-white/30 text-white hover:bg-white/10" : "border-fg/15 text-fg hover:bg-card"}`}
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18" />
+      </svg>
+      {!iconOnly && (target === "en" ? "EN" : "AR")}
+    </button>
   );
 }
 
-export function ThemeToggle() {
+export function ThemeToggle({ onDark = false }: { onDark?: boolean }) {
   const { theme, toggleTheme } = usePrefs();
   const dark = theme === "dark";
 
   return (
     <button
+      data-nav-item
       onClick={toggleTheme}
       aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-      className="grid h-9 w-9 place-items-center rounded-lg border border-fg/15 text-fg transition hover:bg-card"
+      className={`grid h-9 w-9 place-items-center rounded-lg border transition ${onDark ? "border-white/30 text-white hover:bg-white/10" : "border-fg/15 text-fg hover:bg-card"}`}
     >
       {dark ? (
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
