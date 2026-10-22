@@ -362,9 +362,9 @@ form[data-demo-lock] :disabled { cursor: not-allowed; opacity: 0.6; }
   0% { background-position: 0% 50%; }
   100% { background-position: 300% 50%; }
 }
-/* The colors of the line flow slowly from deep teal through fresh mint to sky blue and round again */
+/* The colors of the line flow slowly from deep teal through fresh mint to sky blue and back */
 .dk-text-brand {
-  background-image: linear-gradient(90deg, #00596a, #14b8a6, #3b9fd4, #7a5cf0, #3b9fd4, #14b8a6, #00596a);
+  background-image: linear-gradient(90deg, #00596a, #14b8a6, #3b9fd4, #14b8a6, #00596a);
   background-size: 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -372,7 +372,7 @@ form[data-demo-lock] :disabled { cursor: not-allowed; opacity: 0.6; }
   animation: dk-pop 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both, dk-text-flow 7s linear 0.9s infinite;
 }
 :root[data-theme="dark"] .dk-text-brand {
-  background-image: linear-gradient(90deg, #ffffff, #8ff5dc, #7dd3fc, #c4b5fd, #7dd3fc, #8ff5dc, #ffffff);
+  background-image: linear-gradient(90deg, #ffffff, #8ff5dc, #7dd3fc, #8ff5dc, #ffffff);
 }
 @media (prefers-reduced-motion: reduce) {
   .dk-pop, .dk-text-brand { animation: none; }
