@@ -36,7 +36,36 @@ Then open http://localhost:3000.
 ```
 app/          Next.js app router (layout, page, global styles)
 components/   Nav, Hero, page sections, shared UI and preferences (theme, language)
+              storefront/ (the store and its design JSON), designer/ (the store designer),
+              dashboard pages, demo sandbox, theme store
 ```
+
+## Store design: the starter template, themes and the demo
+
+**The starter template is the default design of every new store.** A store that has not saved a design of its own
+starts from it, and creating an account resets the store's design, so a new account always begins from the template. `loadConfig()` in `components/storefront/storage.ts` picks a store's design in this order:
+
+1. the store's own saved design (`seen-storefront`);
+2. the **starter template** (`dukkan-template`), if the platform admin has saved one;
+3. the **original design**, written in code (`defaultConfig` in `components/storefront/config.ts`). It never changes.
+
+| Address | What it is |
+| --- | --- |
+| `/design?template=1` | The admin's editor for the starter template (there is no separate `/template` page). Save writes `dukkan-template`; "Restore main design" clears it, so new stores go back to the original. |
+| `/design` | The store designer for the current store. |
+| `/design?theme=atelier` | The designer with a theme from the theme store loaded, free to edit. Nothing is kept until Save. |
+| `/store?starter=1` / `/store?original=1` | The template / the original design, with sample products. |
+
+In this prototype everything is kept in the browser (`localStorage`), so the template belongs to one browser. In production it has to live on the server, for all stores.
+
+**Themes** are separate from the template. A theme is a function that builds a store design (the same JSON the designer edits).
+Using one replaces a store's own design and does not change the template.
+
+- Theme store `/themes` and My themes `/themes/mine`, in the Store group of the dashboard sidebar.
+- Catalog and ownership: `components/themes.ts` (what a merchant owns is `seen-themes`). The checkout is a mock: no payment is taken.
+- The Atelier theme: `components/storefront/atelierTheme.ts`. Its picture for the store is `public/themes/atelier.jpg`.
+
+**The demo (`/demo`)** is a tour with a made-up store, kept in the tab only (`components/demoSandbox.ts`, data in `components/demoData.ts`). The store designer opens in it but is view-only.
 
 ## Status
 

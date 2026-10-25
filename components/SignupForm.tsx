@@ -8,6 +8,7 @@ import { Logo } from "./Nav";
 import { LangSwitch, ThemeToggle, usePrefs } from "./Prefs";
 import { latin } from "./digits";
 import { loadSetup, saveSetup } from "./setup";
+import { resetToStarterDesign } from "./storefront/storage";
 
 type Tab = "create" | "login";
 
@@ -122,6 +123,8 @@ export function SignupForm() {
       /* Kept only for this browser session, so setup can offer it as the support number. */
       try {
         if (tab === "create") {
+          /* A new account starts from the starter template (the default design). Not in the tour: it must never touch real data. */
+          if (!tour) resetToStarterDesign();
           sessionStorage.setItem("seen-account-phone", form.phone.trim());
           /* Never the password, only what the settings page can show. */
           sessionStorage.setItem("seen-account-profile", JSON.stringify({ name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim() }));

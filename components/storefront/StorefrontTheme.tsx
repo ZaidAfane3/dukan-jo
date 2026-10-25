@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { usePrefs } from "../Prefs";
 import { defaultConfig, radiusValue, type LogoConfig, type StorefrontConfig } from "./config";
 import { copy, currency, icons, LogoMark, money, onColor, priceOf, resolveLogo } from "./parts";
+import { patterns } from "./patterns";
 import { renderSection, type Ctx, type Design } from "./sections";
 import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
+import { fontFamily } from "./config";
 import { useStoreData, type StoreProduct } from "./useStoreData";
 
 type Props = {
@@ -23,14 +25,17 @@ type Props = {
   sample?: boolean;
   /* The merchant is looking at his own store: an empty store offers a way to add the first product */
   owner?: boolean;
+  /* Show these products instead of the saved ones (theme previews) */
+  products?: StoreProduct[];
 };
 
-export function StorefrontTheme({ config = defaultConfig, device = "auto", interactive = true, store, design, sample = false, owner = false }: Props) {
-  const { lang } = usePrefs();
+export function StorefrontTheme({ config = defaultConfig, device = "auto", interactive = true, store, design, sample = false, owner = false, products }: Props) {
+  const { lang, setLang } = usePrefs();
   const c = copy[lang];
   const saved = useStoreData(lang, sample);
   const data = {
     ...saved,
+    ...(products ? { products, categories: Array.from(new Set(products.map((p) => p.category).filter(Boolean))), isDemo: false } : {}),
     name: store?.name?.trim() || saved.name,
     description: store?.description ?? saved.description,
     color: store?.color || saved.color,
@@ -82,17 +87,25 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     "--sf-text": config.theme.text,
     "--sf-title": config.theme.titleColor || config.theme.text,
     "--sf-r": radiusValue[config.theme.radius],
+    "--sf-accent": config.theme.accent || primary,
+    "--sf-heading": fontFamily[config.theme.headingFont || config.theme.font],
+    "--sf-sy": config.theme.spacing === "airy" ? "6rem" : "2.5rem",
+    "--sf-syc": config.theme.spacing === "airy" ? "3.5rem" : "1.75rem",
+    "--sf-sb": config.theme.spacing === "airy" ? "1rem" : "2.5rem",
+    "--sf-sbc": config.theme.spacing === "airy" ? "0.5rem" : "1.75rem",
     background: config.theme.background,
     color: config.theme.text,
+    fontFamily: fontFamily[config.theme.font] || undefined,
   } as React.CSSProperties;
 
   const h = config.header;
-  const brand = (
+  const brandNode = (nameToo: boolean) => (
     <a href="#" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
-      <span className={`truncate font-extrabold tracking-tight ${compact ? "text-lg" : "text-xl"}`}>{data.name}</span>
+      {(nameToo || !config.identity.showLogo) && <span className={`truncate font-extrabold tracking-tight ${compact ? "text-lg" : "text-xl"}`}>{data.name}</span>}
     </a>
   );
+  const brand = brandNode(true);
 
   const iconBtn = "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white ring-1 ring-black/[0.08] transition hover:ring-black/25";
 
@@ -115,8 +128,23 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     </button>
   );
 
+  /* The language button: it names the other language ("English" in an Arabic store, "العربية" in an English one),
+     and it only exists when the merchant turned it on. */
+  const langButton = (plainStyle: boolean) =>
+    h.showLanguage && (
+      <button
+        type="button"
+        onClick={() => interactive && !design && setLang(lang === "ar" ? "en" : "ar")}
+        aria-label={lang === "ar" ? "English" : "العربية"}
+        className={plainStyle ? "relative flex h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[var(--sf-text)] transition hover:bg-black/[0.05]" : "flex h-10 shrink-0 items-center rounded-full bg-white px-3.5 text-sm font-bold ring-1 ring-black/[0.08] transition hover:ring-black/25"}
+      >
+        {lang === "ar" ? "English" : "العربية"}
+      </button>
+    );
+
   const actions = (
     <div className="flex items-center gap-2">
+              {langButton(false)}
               {h.showUser && (
                 <button type="button" aria-label={c.account} className={iconBtn}>
                   {icons.user}
@@ -142,6 +170,38 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               </div>
   );
 
+  /* The header with a row of links: logo | links | plain icons (account, saved, search, basket) */
+  const navLinks = config.nav.style === "links" ? config.nav.links.map((l) => ({ name: l[lang] || l[lang === "ar" ? "en" : "ar"], to: l.to })).filter((l) => l.name) : [];
+  /* A link takes the visitor to its part of the page, smoothly */
+  const goTo = (e: React.MouseEvent, to?: string) => {
+    e.preventDefault();
+    if (!to) return;
+    root.current?.querySelector(`[data-sf="${to}"]`)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  };
+  const linksHeader = navLinks.length > 0;
+  const [searchOpen, setSearchOpen] = useState(false);
+  const plain = "relative grid h-11 w-11 shrink-0 place-items-center rounded-full text-[var(--sf-text)] transition hover:bg-black/[0.05]";
+  const plainActions = (
+    <div className="flex items-center justify-end">
+      {langButton(true)}
+      {h.showSearch && (
+        <button type="button" onClick={() => setSearchOpen((v) => !v)} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={plain}>
+          {icons.search}
+        </button>
+      )}
+      <button type="button" aria-label={c.like} className={plain}>{icons.heart}</button>
+      {h.showUser && <button type="button" aria-label={c.account} className={plain}>{icons.user}</button>}
+      {h.showCart && (
+        <button type="button" aria-label={`${c.cart}: ${cart.count}`} className={plain}>
+          {icons.bag}
+          {cart.count > 0 && (
+            <span className="absolute end-1 top-1 grid h-[17px] min-w-[17px] place-items-center rounded-full bg-[#1c1a17] px-1 text-[10px] font-bold text-white">{cart.count}</span>
+          )}
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div ref={root} dir={lang === "ar" ? "rtl" : "ltr"} className="store-preview relative isolate overflow-hidden text-[var(--sf-text)]" style={vars}>
       {/* The page background: behind the banners, products and everything else */}
@@ -156,12 +216,35 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <div className="absolute inset-0" style={{ background: config.theme.background, opacity: bg.veil / 100 }} />
         </div>
       )}
+      {config.texture.pattern !== "none" && patterns[config.texture.pattern] && (
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 top-[40rem] -z-10 opacity-[0.09]" style={{ WebkitMaskImage: "linear-gradient(to bottom, #000, transparent)", maskImage: "linear-gradient(to bottom, #000, transparent)" }}>
+          <div className="h-full w-full" style={{ background: "var(--sf-accent)", WebkitMaskImage: `url("${patterns[config.texture.pattern].url}")`, maskImage: `url("${patterns[config.texture.pattern].url}")`, WebkitMaskSize: `${patterns[config.texture.pattern].w}px ${patterns[config.texture.pattern].h}px`, maskSize: `${patterns[config.texture.pattern].w}px ${patterns[config.texture.pattern].h}px` }} />
+        </div>
+      )}
       {data.isDemo && design && <p className="px-4 py-2 text-center text-xs font-medium" style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)" }}>{c.sample}</p>}
 
       <AnnouncementBar config={config} lang={lang} design={design} reduceMotion={reduceMotion} offer={freeDeliveryText(fd, lang, cart.total)} offerColor={primary} />
 
       <header onClick={() => design?.select("header")} className={`group/sel z-20 border-b border-black/[0.06] backdrop-blur-xl ${h.sticky ? "sticky top-0" : "relative"} ${design ? "cursor-pointer" : ""}`} style={{ background: "color-mix(in srgb, var(--sf-bg) 86%, transparent)" }}>
-        {centered ? (
+        {linksHeader ? (
+          compact ? (
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-3">
+              <div className="flex items-center justify-start">{menuBtn}</div>
+              <div className="min-w-0">{brandNode(false)}</div>
+              <div className="flex items-center justify-end">{plainActions}</div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-6 px-8 py-3">
+              <div className="flex items-center justify-start">{brandNode(false)}</div>
+              <nav aria-label={c.pages} className="flex items-center gap-9 text-[14px]">
+                {navLinks.map((l, i) => (
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="text-[var(--sf-text)] transition hover:text-[var(--sf-primary)]">{l.name}</a>
+                ))}
+              </nav>
+              {plainActions}
+            </div>
+          )
+        ) : centered ? (
           /* Name in the middle: menu | name | account and cart, with the search bar on its own row */
           <div className={`grid grid-cols-[1fr_auto_1fr] items-center gap-3 ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
             <div className="flex items-center justify-start">{menuBtn}</div>
@@ -179,7 +262,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             {actions}
           </div>
         )}
-        {(compact || centered) && h.showSearch && <div className={compact ? "px-4 pb-3" : "mx-auto max-w-xl px-8 pb-4"}>{search}</div>}
+        {linksHeader && searchOpen && h.showSearch && <div className={compact ? "px-4 pb-3" : "mx-auto max-w-xl px-8 pb-4"}>{search}</div>}
+        {!linksHeader && (compact || centered) && h.showSearch && <div className={compact ? "px-4 pb-3" : "mx-auto max-w-xl px-8 pb-4"}>{search}</div>}
         {design && <span aria-hidden className={`pointer-events-none absolute inset-1 rounded-xl ring-2 ring-[#14b8a6] transition ${design.selected === "header" ? "opacity-100" : "opacity-0 group-hover/sel:opacity-100"}`} />}
       </header>
 
@@ -314,12 +398,21 @@ function Footer({ config, data, compact, lang, design, logo }: { config: Storefr
   const c = copy[lang];
   const f = config.footer;
   const head = "mb-3 text-sm font-extrabold text-[var(--sf-title)]";
+  /* A footer with its own background (usually dark): its text takes the footer text color, links glow in the accent color */
+  const own = !!f.background || !!f.text;
+  const dark = !!f.background && onColor(f.background) === "#ffffff";
+  /* The footer's own text color, or a light one on a dark footer. It is also the footer's `color`, so every line (including the ones
+     that are only dimmed) is readable, not left in the page's dark text color. */
+  const ink = f.text || (dark ? "#f4efe6" : "");
+  const ownVars = own
+    ? ({ ...(ink ? { "--sf-text": ink, "--sf-title": ink, color: ink } : {}), ...(f.background ? { "--sf-primary": dark ? "color-mix(in srgb, var(--sf-accent) 55%, white)" : "var(--sf-accent)" } : {}) } as React.CSSProperties)
+    : {};
   const socials = (["instagram", "facebook", "x", "youtube", "snapchat", "tiktok"] as const)
     .map((key, i) => ({ key, url: f.social[key].trim(), icon: icons.social[i] }))
     .filter((x) => x.url)
     .map((x) => ({ ...x, url: /^https?:\/\//i.test(x.url) ? x.url : `https://${x.url}` }));
   return (
-    <footer onClick={() => design?.select("footer")} className={`group/sel relative mt-6 ${design ? "cursor-pointer" : ""}`} style={{ background: "color-mix(in srgb, var(--sf-primary) 7%, var(--sf-bg))" }}>
+    <footer data-sf="footer" onClick={() => design?.select("footer")} className={`group/sel relative mt-6 ${design ? "cursor-pointer" : ""}`} style={{ background: f.background || "color-mix(in srgb, var(--sf-primary) 7%, var(--sf-bg))", ...ownVars }}>
       <div className={`grid gap-8 ${compact ? "px-4 py-9" : "grid-cols-[1.3fr_1fr_1fr_1fr] px-8 py-12"}`}>
         <div>
           {f.showLogo && (
@@ -395,7 +488,7 @@ function Footer({ config, data, compact, lang, design, logo }: { config: Storefr
             <ul className="flex gap-2">
               {socials.map((x) => (
                 <li key={x.key}>
-                  <a href={x.url} target="_blank" rel="noreferrer" aria-label={x.key} onClick={(e) => design && e.preventDefault()} className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--sf-primary)] ring-1 ring-black/[0.08] transition hover:-translate-y-0.5">
+                  <a href={x.url} target="_blank" rel="noreferrer" aria-label={x.key} onClick={(e) => design && e.preventDefault()} className={`grid h-10 w-10 place-items-center rounded-full text-[var(--sf-primary)] ring-1 transition hover:-translate-y-0.5 ${dark ? "bg-white/10 ring-white/15" : "bg-white ring-black/[0.08]"}`}>
                     {x.icon}
                   </a>
                 </li>
@@ -405,19 +498,20 @@ function Footer({ config, data, compact, lang, design, logo }: { config: Storefr
         )}
 
         {/* The store's licenses: at the far end of the footer. The logo is optional. */}
-        {(f.certificate.number.trim() || f.certificate.logo) && (
+        {(f.certificate.number.trim() || f.certificate.logo || (f.certificate.kind === "other" && f.certificate.label.trim())) && (
           <div>
             <h4 className={head}>{c.licenses}</h4>
-            <div className="inline-flex items-center gap-3 rounded-2xl bg-white px-3.5 py-2.5 text-xs font-semibold ring-1 ring-black/[0.08]">
+            <div className={`inline-flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-xs font-semibold ring-1 ${dark ? "bg-white/10 ring-white/15" : "bg-white ring-black/[0.08]"}`}>
               {f.certificate.logo ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={f.certificate.logo} alt="" className="h-9 w-auto max-w-[5.5rem] object-contain" />
               ) : (
                 <span className="text-[var(--sf-primary)]">{icons.shield}</span>
               )}
-              {f.certificate.number.trim() && (
+              {(f.certificate.number.trim() || (f.certificate.kind === "other" && f.certificate.label.trim())) && (
                 <span>
-                  {c.certificate[f.certificate.kind]} <span dir="ltr">{f.certificate.number}</span>
+                  {f.certificate.kind === "other" && f.certificate.label.trim() ? f.certificate.label.trim() : c.certificate[f.certificate.kind]}
+                  {f.certificate.number.trim() && <> <span dir="ltr">{f.certificate.number}</span></>}
                 </span>
               )}
             </div>
@@ -428,7 +522,7 @@ function Footer({ config, data, compact, lang, design, logo }: { config: Storefr
 
       {design && <span aria-hidden className={`pointer-events-none absolute inset-1 rounded-xl ring-2 ring-[#14b8a6] transition ${design.selected === "footer" ? "opacity-100" : "opacity-0 group-hover/sel:opacity-100"}`} />}
       {/* The copyright line and "Made with Dukkan" are fixed. The merchant can neither change nor remove them. */}
-      <div className={`flex flex-wrap items-center justify-between gap-2 border-t border-black/[0.06] text-xs text-[var(--sf-text)]/55 ${compact ? "px-4 py-4" : "px-8 py-5"}`}>
+      <div className={`flex flex-wrap items-center justify-between gap-2 border-t text-xs ${dark ? "border-white/10" : "border-black/[0.06]"} text-[var(--sf-text)]/55 ${compact ? "px-4 py-4" : "px-8 py-5"}`}>
         <span>{`© 2026 ${data.name}. ${c.rights}`}</span>
         <span>{c.made}</span>
       </div>

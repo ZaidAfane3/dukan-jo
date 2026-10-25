@@ -1,9 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { brandName } from "../content";
+import { demoActive } from "../demoSandbox";
+import { findTheme, previewProducts, saveDesignAsTheme, type ThemeInfo } from "../themes";
+import { freshMine, loadMine, resetMine, saveMine } from "./mineTemplate";
 import { LangSwitch, usePrefs } from "../Prefs";
 import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
 import { StorefrontTheme } from "../storefront/StorefrontTheme";
@@ -11,9 +13,10 @@ import { DesignerSkeleton } from "../StoreSkeletons";
 import { clearTemplate, loadConfig, loadTemplate, saveConfig, saveTemplate } from "../storefront/storage";
 import { defaultConfig } from "../storefront/config";
 import { Canvas } from "./Canvas";
-import { HEX } from "./controls";
+import { HEX, input } from "./controls";
 import { dc } from "./copy";
-import { IdentityPanel, OptionsPanel, PagesPanel, TextsPanel, type Draft, type Focus } from "./panels";
+import { IdentityPanel, OptionsPanel, PagesPanel, ProductPicturePanel, TextsPanel, type Draft, type Focus } from "./panels";
+import { saveProductFocus, type StoreProduct } from "../storefront/useStoreData";
 
 const ico = { viewBox: "0 0 24 24", className: "h-5 w-5", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 
@@ -40,7 +43,8 @@ function initial(): Draft {
   };
 }
 
-export function Designer() {
+/* `mine` is Saad's private copy of the demo template at /saad (temporary, see mineTemplate.ts): fully editable, saved under its own key. */
+export function Designer({ mine = false }: { mine?: boolean } = {}) {
   const { lang } = usePrefs();
   const t = dc[lang];
   const router = useRouter();
@@ -54,14 +58,38 @@ export function Designer() {
   const [focus, setFocus] = useState<Focus>(null);
   const [pagesMenu, setPagesMenu] = useState(false);
   const [moreMenu, setMoreMenu] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
+  /* The name being typed to save this design as a theme (null: the form is closed) */
+  const [themeName, setThemeName] = useState<string | null>(null);
   const [sample, setSample] = useState(false);
-  /* /design?template=1: the admin edits the starter template that new stores begin with */
+  /* /design?template=1: the admin edits the starter template, the default design that every new store begins with */
   const [templateMode, setTemplateMode] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [attn, setAttn] = useState<{ id: "name" | "color" | "background" | "text"; tab: Tab; n: number } | null>(null);
-  const [flash, setFlash] = useState<"saved" | "errors" | "full" | null>(null);
+  const [flash, setFlash] = useState<"saved" | "errors" | "full" | "demo" | "theme" | "themeFail" | null>(null);
+  /* In the platform tour the designer can be opened and looked at, but nothing in it can be changed or uploaded */
+  const [readOnly, setReadOnly] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  /* The side panel is one scrolling area for every tab. When a click in the preview opens a panel, it must start where that click
+     belongs (the top, or the product card settings), not wherever the last panel was scrolled to. */
+  const panelBox = useRef<HTMLDivElement>(null);
+  const scrollPanel = (to: "top" | "cards") =>
+    setTimeout(() => {
+      const box = panelBox.current;
+      if (!box) return;
+      const el = to === "cards" ? box.querySelector<HTMLElement>('[data-section="cards"]') : null;
+      const top = el ? el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 8 : 0;
+      box.scrollTo({ top, behavior: "auto" });
+    }, 60);
+  /* /design?theme=... opens the designer with a theme from the theme store loaded and ready to edit (kept only if he saves) */
+  const [trying, setTrying] = useState<ThemeInfo | null>(null);
+  /* The picture editor: the product whose picture was clicked in the preview (null: closed), and the points chosen for the sample products */
+  const [pic, setPic] = useState<{ id: number; name: string; image: string; focus: { x: number; y: number } } | null>(null);
+  const [focusOverrides, setFocusOverrides] = useState<Record<number, { x: number; y: number }>>({});
+  const tryProducts = useMemo(
+    () => (trying || mine ? previewProducts(lang).map((p) => (focusOverrides[p.id] ? { ...p, focus: focusOverrides[p.id] } : p)) : undefined),
+    [trying, mine, lang, focusOverrides],
+  );
   const bar = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,14 +98,25 @@ export function Designer() {
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    const template = q.get("template") === "1";
+    const ro = mine ? false : demoActive();
+    setReadOnly(ro);
+    const template = !ro && !mine && q.get("template") === "1";
     const d = initial();
+    if (mine) {
+      const m = loadMine(lang);
+      d.config = m.config;
+      d.identity = m.identity;
+    }
+    const baseline = JSON.stringify(d);
     if (template) d.config = loadTemplate() ?? defaultConfig;
+    const tryTheme = !ro && !template && !mine ? findTheme(q.get("theme")) : null;
+    if (tryTheme) d.config = tryTheme.build(lang, { samples: true, storeName: d.identity.name });
+    setTrying(tryTheme);
     setTemplateMode(template);
     /* Without his own products the template would look empty, so it is shown with sample products */
     setSample(template || q.get("sample") === "1");
     setDraft(d);
-    setSaved(JSON.stringify(d));
+    setSaved(tryTheme ? baseline : JSON.stringify(d));
   }, []);
 
   const dirty = draft !== null && JSON.stringify(draft) !== saved;
@@ -124,22 +163,81 @@ export function Designer() {
 
   /* Clicking a part of the store in the preview opens its settings in the panel. */
   const select = (id: string, field?: string) => {
+    setPic(null);
     setPanelOpen(true);
     setSelected(id);
     if (id === "identity") {
       setTab("identity");
+      scrollPanel("top");
       return;
     }
     if (id === "cards") {
       setTab("options");
+      scrollPanel("cards");
       return;
     }
     setTab("pages");
+    scrollPanel("top");
     setFocus({ id, field, n: Date.now() });
     setEditingRaw(id === "header" || id === "footer" || id === "announcement" ? null : id);
   };
 
+  /* In the tour nothing can be changed: every field is switched off (an upload button says it is not available in the demo),
+     and buttons that would change the design show a note instead. */
+  const ready = draft !== null;
+  useEffect(() => {
+    if (!readOnly || !ready) return;
+    const el = root.current;
+    if (!el) return;
+    const lockAll = () => {
+      el.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select").forEach((f) => {
+        if (!f.disabled) f.disabled = true;
+        if (f.type === "file") {
+          const label = f.closest("label");
+          if (label && !label.dataset.demoOff) label.dataset.demoOff = t.demoNoUpload;
+          f.title = t.demoNoUpload;
+        } else {
+          f.title = t.demoBlocked;
+        }
+      });
+    };
+    lockAll();
+    const watcher = new MutationObserver(lockAll);
+    watcher.observe(el, { childList: true, subtree: true });
+    return () => watcher.disconnect();
+  }, [readOnly, ready, t.demoBlocked, t.demoNoUpload]);
+
   if (!draft) return <DesignerSkeleton />;
+
+  /* The one way the panels change the design. In the tour it changes nothing and says why. */
+  const update = (fn: (d: Draft) => Draft) => {
+    if (readOnly) {
+      setFlash("demo");
+      setTimeout(() => setFlash((f) => (f === "demo" ? null : f)), 3000);
+      return;
+    }
+    setDraft((d) => d && fn(d));
+  };
+
+  /* Clicking a product's picture opens its picture editor */
+  const selectProduct = (p: StoreProduct) => {
+    if (!p.image) return;
+    setPanelOpen(true);
+    setSelected("cards");
+    setPic({ id: p.id, name: p.name, image: p.image, focus: focusOverrides[p.id] ?? p.focus ?? { x: 50, y: 50 } });
+    scrollPanel("top");
+  };
+  /* The chosen point is kept with the product (sample products of a theme try-out live only on screen) */
+  const setPicFocus = (f: { x: number; y: number }) => {
+    if (!pic) return;
+    setPic({ ...pic, focus: f });
+    if (pic.id < 0 || mine || trying) setFocusOverrides((m) => ({ ...m, [pic.id]: f }));
+    else saveProductFocus(pic.id, f);
+  };
+  const blockedNote = () => {
+    setFlash("demo");
+    setTimeout(() => setFlash((x) => (x === "demo" ? null : x)), 3000);
+  };
 
   const valid = (d: Draft) => d.identity.name.trim().length >= 2 && HEX.test(d.identity.color) && HEX.test(d.config.theme.background) && HEX.test(d.config.theme.text);
 
@@ -175,12 +273,12 @@ export function Designer() {
       setTimeout(() => setFlash(null), 6000);
       return false;
     }
-    if (!(templateMode ? saveTemplate(draft.config) : saveConfig(draft.config))) {
+    if (!(mine ? saveMine(draft.config) : templateMode ? saveTemplate(draft.config) : saveConfig(draft.config))) {
       setFlash("full");
       setTimeout(() => setFlash(null), 4000);
       return false;
     }
-    if (templateMode) {
+    if (templateMode || mine) {
       /* The template belongs to the platform, not to any store, so the store's own data stays as it is */
       setSaved(JSON.stringify(draft));
       setFlash("saved");
@@ -219,6 +317,8 @@ export function Designer() {
         setPanelOpen(true);
         setEditing(null);
         setSelected(null);
+        setPic(null);
+        scrollPanel("top");
       }}
       aria-label={label}
       title={label}
@@ -233,13 +333,25 @@ export function Designer() {
   const pill = "rounded-xl border border-fg/15 px-3 py-2 text-sm font-semibold transition hover:bg-soft";
 
   return (
-    <div className="dash flex h-screen flex-col bg-page">
+    <div ref={root} className="dash relative flex h-screen flex-col overflow-hidden bg-page">
       {/* Top bar */}
       <div ref={bar} className="relative z-30 flex h-12 shrink-0 items-center gap-3 border-b border-fg/10 bg-card px-4">
         <span className="hidden text-sm font-extrabold sm:block">{t.themeName}</span>
         {templateMode ? (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
             {t.templateBadge}
+          </span>
+        ) : mine ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
+            {t.mineBadge}
+          </span>
+        ) : readOnly ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
+            {t.demoView}
+          </span>
+        ) : trying ? (
+          <span className="hidden items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300 sm:inline-flex">
+            {t.trying}: {trying.name[lang]}
           </span>
         ) : (
         <span className="hidden items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-400 sm:inline-flex">
@@ -274,7 +386,7 @@ export function Designer() {
         <div className="flex-1" />
 
         <span aria-live="polite" className="hidden text-xs font-semibold md:block">
-          {flash === "saved" ? <span className="text-primary">{t.saving}</span> : flash === "errors" && attn ? (
+          {flash === "theme" ? <span className="text-primary">{t.themeSaved}</span> : flash === "themeFail" ? <span className="text-rose-600">{t.themeFail}</span> : flash === "demo" ? <span className="text-amber-700 dark:text-amber-300">{t.demoBlocked}</span> : flash === "saved" ? <span className="text-primary">{t.saving}</span> : flash === "errors" && attn ? (
             <button type="button" onClick={() => showProblem(attn)} className="inline-flex items-center gap-2 rounded-lg bg-rose-500/10 px-3 py-1.5 text-rose-700 transition hover:bg-rose-500/20 dark:text-rose-400">
               <span className="h-2 w-2 animate-ping rounded-full bg-rose-500" />
               {t.problems[attn.id]}
@@ -303,46 +415,65 @@ export function Designer() {
         <LangSwitch iconOnly />
 
         <div className="relative">
-          <button type="button" onClick={() => { setMoreMenu((o) => !o); setPagesMenu(false); setConfirmReset(false); }} aria-label={t.more} aria-expanded={moreMenu} className="grid h-9 w-9 place-items-center rounded-lg border border-fg/15 transition hover:bg-soft">
+          <button type="button" onClick={() => { setMoreMenu((o) => !o); setPagesMenu(false); setThemeName(null); }} aria-label={t.more} aria-expanded={moreMenu} className="grid h-9 w-9 place-items-center rounded-lg border border-fg/15 transition hover:bg-soft">
             {railIcons.more}
           </button>
           {moreMenu && (
             <div className="absolute end-0 top-full z-40 mt-2 w-64 overflow-hidden rounded-2xl bg-card p-1.5 shadow-2xl ring-1 ring-fg/10">
-              <a href="/store" target="_blank" rel="noreferrer" className="block rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{t.preview}</a>
               <a href="/store?original=1" target="_blank" rel="noreferrer" className="block rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{t.starter}</a>
               {templateMode && (
                 <a href="/store?starter=1" target="_blank" rel="noreferrer" className="block rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{t.templatePreview}</a>
               )}
-              <a href="/store?demo=1" target="_blank" rel="noreferrer" className="block rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{t.demo}</a>
-              <button type="button" role="menuitemcheckbox" aria-checked={sample} onClick={() => setSample((v) => !v)} className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft">
-                <span>
-                  {t.sample}
-                  <span className="mt-0.5 block text-xs font-normal text-muted">{t.sampleHint}</span>
-                </span>
-                <span aria-hidden dir="ltr" className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${sample ? "bg-primary" : "bg-fg/20"}`}>
-                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${sample ? "left-[22px]" : "left-0.5"}`} />
-                </span>
-              </button>
-              {confirmReset ? (
-                <div className="rounded-xl bg-rose-500/10 p-3">
-                  <p className="text-xs text-rose-700 dark:text-rose-400">{t.resetAsk}</p>
+              {mine && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!window.confirm(t.mineResetAsk)) return;
+                    resetMine();
+                    const f = freshMine(lang);
+                    setDraft({ config: f.config, identity: f.identity });
+                    setSaved(JSON.stringify({ config: f.config, identity: f.identity }));
+                    setEditing(null);
+                    setMoreMenu(false);
+                  }}
+                  className="block w-full rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft"
+                >
+                  {t.mineReset}
+                </button>
+              )}
+              {themeName === null ? (
+                <button type="button" disabled={readOnly} title={readOnly ? t.demoBlocked : undefined} onClick={() => setThemeName(t.themeDefaultName)} className="block w-full rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent">{t.saveAsTheme}</button>
+              ) : (
+                <div className="rounded-xl bg-soft p-3">
+                  <input autoFocus value={themeName} onChange={(e) => setThemeName(e.target.value)} placeholder={t.themeNamePh} aria-label={t.themeNamePh} maxLength={40} className={`${input} h-10`} />
                   <div className="mt-2 flex gap-2">
-                    <button type="button" onClick={() => { setDraft((d) => d && { ...d, config: templateMode ? defaultConfig : loadTemplate() ?? defaultConfig }); if (templateMode) clearTemplate(); setEditing(null); setConfirmReset(false); setMoreMenu(false); }} className="rounded-md bg-rose-600 px-3 py-1 text-xs font-semibold text-white">{t.resetYes}</button>
-                    <button type="button" onClick={() => setConfirmReset(false)} className="rounded-md border border-fg/20 px-3 py-1 text-xs font-semibold">{t.cancel}</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const r = saveDesignAsTheme(themeName.trim() || t.themeDefaultName, draft.config);
+                        setThemeName(null);
+                        setMoreMenu(false);
+                        setFlash(r === "ok" ? "theme" : "themeFail");
+                        setTimeout(() => setFlash(null), 3500);
+                      }}
+                      className="rounded-md bg-ink px-3 py-1.5 text-xs font-semibold text-onink"
+                    >
+                      {t.save}
+                    </button>
+                    <button type="button" onClick={() => setThemeName(null)} className="rounded-md border border-fg/20 px-3 py-1.5 text-xs font-semibold">{t.cancel}</button>
                   </div>
                 </div>
-              ) : (
-                <button type="button" onClick={() => setConfirmReset(true)} className="block w-full rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft">{t.reset}</button>
               )}
-              <Link href="/dashboard" onClick={(e) => { if (dirty) { e.preventDefault(); setExiting(true); setMoreMenu(false); } }} className="block rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{t.dashboard}</Link>
             </div>
           )}
         </div>
 
+        {!mine && (
         <a href="/preview" target="_blank" rel="noreferrer" className="flex h-9 items-center gap-2 rounded-lg border border-fg/15 px-3 text-sm font-semibold transition hover:bg-soft">
           {railIcons.eye}
           {t.previewBtn}
         </a>
+        )}
 
         <button type="button" onClick={tryExit} aria-label={t.exit} title={t.exit} className="grid h-9 w-9 place-items-center rounded-lg text-rose-500 transition hover:bg-rose-500/10">
           {railIcons.exit}
@@ -364,11 +495,12 @@ export function Designer() {
         {/* Panel */}
         {panelOpen && (
           <aside className="flex max-h-[45vh] shrink-0 flex-col border-b border-fg/10 bg-card lg:max-h-none lg:w-[20rem] lg:border-b-0 lg:border-e">
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {tab === "pages" && <PagesPanel lang={lang} draft={draft} update={(fn) => setDraft((d) => d && fn(d))} editing={editing} setEditing={setEditing} focus={focus} />}
-              {tab === "identity" && <IdentityPanel lang={lang} draft={draft} update={(fn) => setDraft((d) => d && fn(d))} showErrors={showErrors} attn={attn?.id} />}
-              {tab === "texts" && <TextsPanel lang={lang} draft={draft} update={(fn) => setDraft((d) => d && fn(d))} />}
-              {tab === "options" && <OptionsPanel lang={lang} draft={draft} update={(fn) => setDraft((d) => d && fn(d))} attn={attn?.id} />}
+            <div ref={panelBox} className="min-h-0 flex-1 overflow-y-auto">
+              {pic && <ProductPicturePanel lang={lang} name={pic.name} image={pic.image} value={pic.focus} onChange={setPicFocus} onBack={() => setPic(null)} blocked={readOnly} onBlocked={blockedNote} />}
+              {!pic && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditing} focus={focus} />}
+              {!pic && tab === "identity" && <IdentityPanel lang={lang} draft={draft} update={update} showErrors={showErrors} attn={attn?.id} />}
+              {!pic && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
+              {!pic && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attn?.id} />}
             </div>
             <div className="shrink-0 border-t border-fg/10 p-3">
               <p className="mb-2 text-xs text-muted">{templateMode ? t.templateNote : t.note}</p>
@@ -386,8 +518,9 @@ export function Designer() {
             device="auto"
             interactive={false}
             sample={sample}
+            products={tryProducts}
             owner
-            design={{ selected, select }}
+            design={{ selected, select, selectProduct }}
             store={{ name: draft.identity.name, description: draft.identity.description, color: colorOk, phone: draft.identity.phone }}
           />
         </Canvas>

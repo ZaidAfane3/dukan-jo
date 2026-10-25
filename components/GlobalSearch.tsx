@@ -19,6 +19,8 @@ const pages = [
   { href: "/marketing/repurchase", en: "Repurchase reminders", ar: "تذكيرات إعادة الشراء", kw: "repurchase buy again reminder marketing تسويق" },
   { href: "/reports", en: "Store performance", ar: "أداء المتجر", kw: "reports analytics visits payments sales customers تقارير مدفوعات زيارات" },
   { href: "/domain", en: "Store domain", ar: "دومين المتجر", kw: "domain address link url dukkan.store نطاق رابط عنوان المتجر" },
+  { href: "/themes", en: "Theme store", ar: "متجر الثيمات", kw: "themes templates buy store design ثيمات قوالب شراء تصميم" },
+  { href: "/themes/mine", en: "My themes", ar: "ثيماتي", kw: "my themes bought owned ثيماتي ثيمات مشتريات" },
   { href: "/design", en: "Store design", ar: "تصميم المتجر", kw: "design theme storefront colors header footer sections editor تصميم ثيم ألوان واجهة المتجر" },
   { href: "/pages", en: "Info pages", ar: "الصفحات التعريفية", kw: "pages policy privacy terms return about صفحات سياسة الخصوصية الأحكام والشروط الاسترجاع من نحن" },
   { href: "/support", en: "Support tickets", ar: "تذاكر الدعم", kw: "support help ticket contact دعم مساعدة تذكرة" },

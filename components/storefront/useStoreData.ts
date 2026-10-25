@@ -21,6 +21,11 @@ export type StoreProduct = {
   hue?: number;
   /* A picture of the product (the platform tour uses real files in /public/demo) */
   image?: string;
+  /* The notes line under the name ("rose · musk · incense") and a short label on the picture ("New") */
+  notes?: string;
+  badge?: string;
+  /* The part of the picture that must stay visible when it is cropped (percent from the left and from the top) */
+  focus?: { x: number; y: number };
 };
 
 export type StoreData = {
@@ -58,22 +63,30 @@ function read<T>(key: string): T | null {
   }
 }
 
+/** A product as the dashboard saves it, turned into what the store shows. */
+export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
+  return {
+    id: Number(p.id),
+    name: String(p.name ?? ""),
+    category: String(p.category ?? ""),
+    price: typeof p.price === "number" ? p.price : null,
+    sale: typeof p.sale === "number" ? p.sale : null,
+    featured: p.featured === true,
+    quantity: Number(p.quantity ?? 0),
+    hue: (Number(p.id) * 47) % 360,
+    image: Array.isArray(p.images) && typeof p.images[0] === "string" ? p.images[0] : undefined,
+    notes: typeof p.notes === "string" && p.notes ? p.notes : undefined,
+    badge: typeof p.badge === "string" && p.badge ? p.badge : undefined,
+    focus: (() => {
+      const f = p.focus as { x?: unknown; y?: unknown } | undefined;
+      return f && typeof f.x === "number" && typeof f.y === "number" ? { x: f.x, y: f.y } : undefined;
+    })(),
+  };
+}
+
 function build(lang: Lang, sample: boolean): StoreData {
   const setup = read<{ name?: string; description?: string; color?: string; phone?: string; slug?: string; logo?: string }>("seen-setup");
-  const saved = (read<Record<string, unknown>[]>("seen-products") ?? [])
-    .filter((p) => !p.deletedAt && !p.hidden)
-    .map(
-      (p): StoreProduct => ({
-        id: Number(p.id),
-        name: String(p.name ?? ""),
-        category: String(p.category ?? ""),
-        price: typeof p.price === "number" ? p.price : null,
-        sale: typeof p.sale === "number" ? p.sale : null,
-        featured: p.featured === true,
-        quantity: Number(p.quantity ?? 0),
-        hue: (Number(p.id) * 47) % 360,
-      }),
-    );
+  const saved = (read<Record<string, unknown>[]>("seen-products") ?? []).filter((p) => !p.deletedAt && !p.hidden).map(toStoreProduct);
 
   const isDemo = sample;
   const products: StoreProduct[] = isDemo
@@ -117,4 +130,16 @@ export function readProducts(): { id: number; name: string; category: string }[]
   return (read<Record<string, unknown>[]>("seen-products") ?? [])
     .filter((p) => !p.deletedAt)
     .map((p) => ({ id: Number(p.id), name: String(p.name ?? ""), category: String(p.category ?? "") }));
+}
+
+/** Keeps which part of a product's main picture stays visible (the store designer sets it by clicking the picture). */
+export function saveProductFocus(id: number, focus: { x: number; y: number }) {
+  try {
+    const list = JSON.parse(localStorage.getItem("seen-products") ?? "[]") as Record<string, unknown>[];
+    localStorage.setItem("seen-products", JSON.stringify(list.map((p) => (Number(p.id) === id ? { ...p, focus } : p))));
+    /* The store preview reloads its products when this event arrives (the same event other tabs send) */
+    window.dispatchEvent(new Event("storage"));
+  } catch {
+    /* storage unavailable */
+  }
 }

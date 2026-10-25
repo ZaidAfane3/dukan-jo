@@ -30,6 +30,7 @@ type OrdersCopy = {
   noMatch: string;
   pickOne: string;
   details: string;
+  items: string;
   orderNo: string;
   date: string;
   channel: string;
@@ -78,6 +79,7 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     noMatch: "No orders match your search",
     pickOne: "Select an order to see its details",
     details: "Order details",
+    items: "What was ordered",
     orderNo: "Order number",
     date: "Order date",
     channel: "Order source",
@@ -124,6 +126,7 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     noMatch: "لا توجد طلبات مطابقة لبحثك",
     pickOne: "اختر طلبًا لعرض تفاصيله",
     details: "تفاصيل الطلب",
+    items: "المنتجات المطلوبة",
     orderNo: "رقم الطلب",
     date: "تاريخ الطلب",
     channel: "مصدر الطلب",

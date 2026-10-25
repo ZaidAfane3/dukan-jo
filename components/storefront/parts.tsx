@@ -124,7 +124,7 @@ export function ProductImage({ p, className = "" }: { p: StoreProduct; className
       </svg>
       {p.image && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" />
+        <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={p.focus ? { objectPosition: `${p.focus.x}% ${p.focus.y}%` } : undefined} />
       )}
     </div>
   );

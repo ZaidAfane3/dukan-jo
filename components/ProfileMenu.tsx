@@ -176,7 +176,7 @@ export function ProfileMenu() {
                   {i.link}
                 </span>
                 {link && (
-                  <button type="button" onClick={copy} disabled={tour} title={tour ? demoOffText(lang) : undefined} className={`inline-flex items-center gap-1.5 hover:underline ${demoOff}`}>
+                  <button type="button" onClick={copy} className="inline-flex items-center gap-1.5 hover:underline">
                     {copied ? t.copied : t.copy}
                     {i.copy}
                   </button>

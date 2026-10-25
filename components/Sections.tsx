@@ -4,7 +4,7 @@ import { commercialRegistration, registrationWords, trustWords } from "./legal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Logo } from "./Nav";
 import { FlagJO } from "./Flag";
-import { industries as industryCopy, usePrefs } from "./Prefs";
+import { industries as industryCopy, usePrefs, type IndustryDetail } from "./Prefs";
 import { brandName, content } from "./content";
 import { SeenShipMark } from "./SeenShip";
 import { Reveal, Tilt, Typed } from "./ui";
@@ -21,13 +21,64 @@ const svg = (d: React.ReactNode) => (
 /* Own simple line icons, same order as the copy in Prefs.tsx */
 const industryIcons = [
   svg(<><path d="M9 3h6l1 5-4 2-4-2 1-5Z" /><path d="M8 8c-1 4-2 8-3 13h14c-1-5-2-9-3-13" /></>),
+  svg(<><path d="M10 3h4v3h-4zM9 6h6v2H9z" /><path d="M7 11a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-8Z" /><path d="M10 14h4" /></>),
   svg(<><rect x="3" y="6" width="18" height="12" rx="4" /><path d="M8 10v4M6 12h4M16 11h.01M18 13h.01" /></>),
-  svg(<path d="M12 20s-8-5-8-11a4.5 4.5 0 0 1 8-2.5A4.5 4.5 0 0 1 20 9c0 6-8 11-8 11Z" />),
   svg(<><rect x="3" y="5" width="18" height="11" rx="2" /><path d="M8 20h8M12 16v4" /></>),
   svg(<><path d="M6 4h12l3 5-9 11L3 9l3-5Z" /><path d="M3 9h18M9 4l3 16M15 4l-3 16" /></>),
   svg(<><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="M19 17l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" /></>),
   svg(<><path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3" /><path d="M2 12a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v6H2v-6Z" /><path d="M5 18v2M19 18v2" /></>),
 ];
+
+/* Small icons for the three points of a detail card */
+const detailIcons = [
+  <path key="a" d="M20 12 12 20 4 12V4h8l8 8ZM8.5 8.5h.01" />,
+  <path key="b" d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2s0-2 1.5-2h2a3 3 0 0 0 3-3A9 9 0 0 0 12 3ZM7.5 11h.01M10 7.5h.01M14.5 7.5h.01" />,
+  <path key="c" d="M4 4h16v16H4zM4 15l5-4 4 3 3-2 4 3M8.5 8.5h.01" />,
+];
+
+/* What an industry shows when it is pressed: a big window with a store like it (the whole page, scrolling slowly by itself),
+   and a few lines about what Dukkan does for it. The card is wider than the page column. */
+function IndustryCard({ d }: { d: IndustryDetail }) {
+  const { t } = usePrefs();
+  const shot = d.shots[0];
+  return (
+    <div className="mt-12" style={{ marginInline: "calc(50% - min(47vw, 42rem))" }}>
+      <div className="animate-[fadeIn_0.5s_ease] overflow-hidden rounded-[2.25rem] bg-soft">
+        <div className="grid items-center gap-10 p-6 sm:p-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-14 lg:p-14">
+          <div>
+            <h3 className="text-3xl font-extrabold tracking-tight sm:text-4xl">{d.title}</h3>
+            <p className="mt-4 text-lg leading-relaxed text-muted">{d.body}</p>
+            <ul className="mt-8 space-y-5">
+              {d.bullets.map((b, i) => (
+                <li key={b} className="flex items-center gap-4 text-lg font-semibold">
+                  <svg viewBox="0 0 24 24" className="h-8 w-8 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{detailIcons[i % detailIcons.length]}</svg>
+                  {b}
+                </li>
+              ))}
+            </ul>
+            <a href="/signup" className={`${cta} mt-10 inline-block`}>{t.start}</a>
+          </div>
+
+          {/* The window: the store's whole page scrolls inside it, down and back up, slowly and smoothly */}
+          {shot && (
+            <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(0,73,86,0.55)] ring-1 ring-black/10">
+              <div dir="ltr" className="flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
+                <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+                  dukkan.store/your-store
+                </span>
+              </div>
+              <div className="h-[var(--box)] overflow-hidden [--box:22rem] sm:[--box:30rem] lg:[--box:36rem]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={shot.src} alt="" draggable={false} className="dk-shot block w-full select-none" />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function Industries() {
   const { lang, t } = usePrefs();
@@ -63,6 +114,8 @@ export function Industries() {
 
   return (
     <section id="industries" className="mx-auto max-w-6xl px-5 py-20">
+      {/* The pictures of the industry cards load now, so a card has its picture the moment it opens */}
+      {items.map((x) => x.detail?.shots[0] && <img key={x.name} src={x.detail.shots[0].src} alt="" aria-hidden className="hidden" />)}
       <Reveal>
         <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{t.industriesTitle}</h2>
       </Reveal>
@@ -119,9 +172,12 @@ export function Industries() {
       </div>
 
       {/* In the finale this line pops up bigger, with a ray of light crossing it, and then settles */}
-      <p key={`${finale ? "all" : active}-${lang}`} className={`mt-6 text-center ${finale ? "dk-pop dk-text-brand text-2xl font-extrabold sm:text-3xl" : "animate-[fadeIn_0.5s_ease] text-lg text-muted"}`}>
+      {(finale || !items[active].detail) && <p key={`${finale ? "all" : active}-${lang}`} className={`mt-6 text-center ${finale ? "dk-pop dk-text-brand text-2xl font-extrabold sm:text-3xl" : "animate-[fadeIn_0.5s_ease] text-lg text-muted"}`}>
         {finale ? (rtl ? "كل قطاع، ومنصة واحدة تجمعها." : "Every industry, one platform.") : items[active].blurb}
-      </p>
+      </p>}
+
+      {/* An industry with a detail card opens it under the line: pictures of a store like it, and what Dukkan does for it */}
+      {!finale && items[active].detail && <IndustryCard key={`${active}-${lang}`} d={items[active].detail!} />}
     </section>
   );
 }
@@ -456,20 +512,30 @@ function PaymentsMock() {
   );
 }
 
-/* Shipping feature picture: the map of Jordan with Dukkan Ship showing up in its main
-   cities. A random city lights up every moment, like orders being picked up. The
-   map outline is a transparent PNG used as a mask, so it takes the brand colors. */
-const MAP = { w: 374, h: 422, ox: 125, oy: 23 }; /* size and offset of the cropped map image */
+/* Shipping feature picture: the whole map of Jordan (so it is recognised at once) with a magnifier on the north, where the
+   cities are. Inside the magnifier Dukkan Ship's routes run between the cities, and a delivery moves along them. A city lights up
+   every moment, like orders being picked up. The map outline is a transparent PNG used as a mask, so it takes the brand colors. */
+const MAP = { w: 374, h: 422 }; /* size of the map image */
+/* The cities, as points of the map image */
 const fleetCities = [
-  { x: 205, y: 106, en: "Irbid", ar: "إربد" },
-  { x: 207, y: 164, en: "Amman", ar: "عمّان" },
-  { x: 187, y: 146, en: "Salt", ar: "السلط" },
+  { x: 80, y: 83, en: "Irbid", ar: "إربد" },
+  { x: 62, y: 123, en: "Salt", ar: "السلط" },
+  { x: 82, y: 141, en: "Amman", ar: "عمّان" },
 ];
+/* The part of the map the magnifier shows (a square of the image), and the same part drawn as a ring on the small map */
+const LENS = { x: 5, y: 50, size: 150 };
+const lensPct = (n: number, from: number) => ((n - from) / LENS.size) * 100;
+const lensMask = {
+  WebkitMaskSize: `${(MAP.w / LENS.size) * 100}% auto`,
+  maskSize: `${(MAP.w / LENS.size) * 100}% auto`,
+  WebkitMaskPosition: `${(LENS.x / MAP.w / (1 - LENS.size / MAP.w)) * 100}% ${(LENS.y / MAP.h / (1 - LENS.size / MAP.h)) * 100}%`,
+  maskPosition: `${(LENS.x / MAP.w / (1 - LENS.size / MAP.w)) * 100}% ${(LENS.y / MAP.h / (1 - LENS.size / MAP.h)) * 100}%`,
+};
+const maskImg = { WebkitMaskImage: "url(/maps/jordan.png)", maskImage: "url(/maps/jordan.png)", WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat" };
 
 function FleetMap() {
   const { lang } = usePrefs();
-  const [active, setActive] = useState(1);
-  const [delays] = useState(() => fleetCities.map(() => (Math.random() * 2.4).toFixed(2)));
+  const [active, setActive] = useState(2);
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -479,64 +545,70 @@ function FleetMap() {
         while (n === a) n = Math.floor(Math.random() * fleetCities.length);
         return n;
       });
-    }, 1700);
+    }, 1900);
     return () => clearInterval(id);
   }, []);
 
+  /* Routes between the cities, in the magnifier's own coordinates (0 to 100) */
+  const pt = fleetCities.map((c) => ({ x: lensPct(c.x, LENS.x), y: lensPct(c.y, LENS.y) }));
+  const routeA = `M ${pt[0].x} ${pt[0].y} C ${pt[0].x + 14} ${pt[0].y + 12}, ${pt[2].x + 14} ${pt[2].y - 14}, ${pt[2].x} ${pt[2].y}`; /* Irbid to Amman */
+  const routeB = `M ${pt[1].x} ${pt[1].y} C ${pt[1].x - 10} ${pt[1].y + 6}, ${pt[2].x - 12} ${pt[2].y - 6}, ${pt[2].x} ${pt[2].y}`; /* Salt to Amman */
+
   return (
     <Tilt max={20} className="mx-auto w-full max-w-md">
-      <div className="relative aspect-[4/4.3] w-full" style={{ transformStyle: "preserve-3d" }}>
+      {/* dir="ltr" keeps the geometry of the picture the same in both languages */}
+      <div dir="ltr" className="relative aspect-[4/4.3] w-full" style={{ transformStyle: "preserve-3d" }}>
         <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-[#73e7cb] to-[#348d9c] opacity-30" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }} />
-
         <div className="absolute inset-0 rounded-3xl bg-card shadow-[0_35px_70px_-25px_rgba(0,73,86,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
-          {/* The map */}
-          <div className="absolute inset-y-[7%] start-1/2 aspect-[374/422] -translate-x-1/2 rtl:translate-x-1/2" style={{ transformStyle: "preserve-3d" }}>
-            <div
+          {/* The whole of Jordan, small, with a ring on the part the magnifier shows */}
+          <div className="absolute bottom-[5%] left-[5%] aspect-[374/422] w-[56%]">
+            <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, WebkitMaskSize: "contain", maskSize: "contain", WebkitMaskPosition: "center", maskPosition: "center" }} />
+            <span
               aria-hidden
-              className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]"
-              style={{
-                WebkitMaskImage: "url(/maps/jordan.png)",
-                maskImage: "url(/maps/jordan.png)",
-                WebkitMaskSize: "contain",
-                maskSize: "contain",
-                WebkitMaskRepeat: "no-repeat",
-                maskRepeat: "no-repeat",
-                WebkitMaskPosition: "center",
-                maskPosition: "center",
-                transform: "translateZ(14px)",
-              }}
+              className="absolute rounded-full border-2 border-dashed border-primary bg-primary/10"
+              style={{ left: `${(LENS.x / MAP.w) * 100}%`, top: `${(LENS.y / MAP.h) * 100}%`, width: `${(LENS.size / MAP.w) * 100}%`, aspectRatio: "1" }}
             />
+          </div>
 
-            {/* Dukkan Ship in each city */}
+          {/* The line from the ring to the magnifier */}
+          <svg aria-hidden viewBox="0 0 100 107.5" className="pointer-events-none absolute inset-0 h-full w-full">
+            <line x1="22" y1="55" x2="66" y2="35" stroke="rgb(var(--primary))" strokeWidth="0.5" strokeDasharray="1.6 1.6" opacity="0.7" />
+          </svg>
+
+          {/* The magnifier: the north of Jordan, large, with Dukkan Ship in its cities */}
+          <div className="absolute right-[3%] top-[3%] aspect-square w-[64%] overflow-hidden rounded-full bg-card shadow-[0_25px_50px_-15px_rgba(0,73,86,0.55)] ring-[5px] ring-white" style={{ transform: "translateZ(30px)" }}>
+            <div className="absolute inset-0 bg-gradient-to-br from-[#e8f7f3] to-[#cfeae3]" />
+            <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, ...lensMask }} />
+            <svg aria-hidden viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">
+              {[routeA, routeB].map((d, i) => (
+                <g key={i}>
+                  <path d={d} fill="none" stroke="rgb(var(--primary))" strokeWidth="0.9" strokeLinecap="round" strokeDasharray="2.4 2.4" opacity="0.55" />
+                  {/* a delivery moving along the route */}
+                  <circle r="2.1" fill="rgb(var(--primary))">
+                    <animateMotion dur={`${4.2 + i * 1.3}s`} repeatCount="indefinite" path={d} begin={`${i * 0.8}s`} />
+                  </circle>
+                </g>
+              ))}
+            </svg>
             {fleetCities.map((c, i) => {
-              const left = ((c.x - MAP.ox) / MAP.w) * 100;
-              const top = ((c.y - MAP.oy) / MAP.h) * 100;
               const on = i === active;
               return (
-                <span
-                  key={c.en}
-                  className="absolute"
-                  style={{ left: `${left}%`, top: `${top}%`, transform: `translate(-50%, -50%) translateZ(${on ? 70 : 46}px)`, transition: "transform 0.5s" }}
-                >
-                  <span aria-hidden className="absolute inset-0 -m-1 animate-ping rounded-full bg-primary/50" style={{ animationDelay: `${delays[i]}s`, animationDuration: "2.4s" }} />
-                  <span className={`relative grid place-items-center rounded-full bg-card shadow-lg ring-2 transition-all duration-500 ${on ? "h-8 w-8 ring-primary" : "h-5 w-5 ring-white/70"}`}>
-                    <SeenShipMark className={on ? "h-6 w-6" : "h-[14px] w-[14px]"} />
+                <span key={c.en} className="absolute" style={{ left: `${pt[i].x}%`, top: `${pt[i].y}%`, transform: "translate(-50%, -50%)" }}>
+                  {on && <span aria-hidden className="absolute inset-0 -m-1.5 animate-ping rounded-full bg-primary/40" style={{ animationDuration: "2s" }} />}
+                  <span className={`relative grid place-items-center rounded-full bg-card shadow-lg ring-2 transition-all duration-500 ${on ? "h-10 w-10 ring-primary" : "h-7 w-7 ring-white/80"}`}>
+                    <SeenShipMark className={on ? "h-7 w-7" : "h-[18px] w-[18px]"} />
                   </span>
-                  <span
-                    className={`pointer-events-none absolute right-full top-1/2 me-2 -translate-y-1/2 whitespace-nowrap rounded-full bg-ink px-3 py-1 text-xs font-bold text-onink shadow-xl transition-all duration-500 ${on ? "scale-100 opacity-100" : "scale-75 opacity-0"}`}
-                    style={{ marginRight: 8 }}
-                  >
+                  <span className={`pointer-events-none absolute left-full top-1/2 ms-2 -translate-y-1/2 whitespace-nowrap rounded-full bg-ink px-2.5 py-1 text-[11px] font-bold text-onink shadow-xl transition-all duration-500 ${on ? "scale-100 opacity-100" : "scale-75 opacity-0"}`}>
                     {lang === "ar" ? c.ar : c.en}
                   </span>
                 </span>
               );
             })}
           </div>
-
         </div>
 
         {/* Brand tag floating in front */}
-        <div className="absolute start-[4%] top-[3%] flex items-center gap-2 rounded-2xl bg-card px-3 py-2 shadow-xl" style={{ transform: "translateZ(96px)" }}>
+        <div className="absolute left-[4%] top-[3%] flex items-center gap-2 rounded-2xl bg-card px-3 py-2 shadow-xl" style={{ transform: "translateZ(96px)" }}>
           <SeenShipMark className="h-7 w-7" />
           <span className="text-xs font-extrabold">{lang === "ar" ? "شحن دكان" : "Dukkan Ship"}</span>
         </div>

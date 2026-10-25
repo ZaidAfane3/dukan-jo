@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
-import type { SectionConfig, StorefrontConfig } from "./config";
+import { displayFamily, heroTitleFamily, type SectionConfig, type StorefrontConfig } from "./config";
 import { copy, currency, icons, money, onColor, priceOf, ProductImage } from "./parts";
 import type { StoreData, StoreProduct } from "./useStoreData";
 
 /* Set only inside the store designer: clicking a part of the store selects it for editing. */
-export type Design = { selected: string | null; select: (id: string, field?: string) => void };
+export type Design = { selected: string | null; select: (id: string, field?: string) => void; /* clicking a product's picture opens its picture editor */ selectProduct?: (p: StoreProduct) => void };
 
 export type Ctx = {
   lang: Lang;
@@ -23,8 +23,15 @@ export type Ctx = {
   setQty: (p: StoreProduct, n: number) => void;
 };
 
+/* A size set on a wide screen, made smaller for a phone (big titles shrink more than small texts) */
+const scaled = (px: number, compact: boolean) => (compact ? (px > 40 ? Math.round(px * 0.55) : Math.round(px * 0.85)) : px);
+
+/* A link a visitor may follow: "shop.com" becomes "https://shop.com" */
+const linkHref = (l: string) => (/^https?:\/\//i.test(l.trim()) ? l.trim() : `https://${l.trim()}`);
+
 const card = "rounded-[var(--sf-r)] bg-white ring-1 ring-black/[0.06]";
-const section = (compact: boolean) => (compact ? "px-4 py-7" : "px-8 py-10");
+/* The space above and below a section follows the store's spacing choice (--sf-sy above, --sf-sb below) */
+const section = (compact: boolean) => (compact ? "px-4 pt-[var(--sf-syc,1.75rem)] pb-[var(--sf-sbc,1.75rem)]" : "px-8 pt-[var(--sf-sy,2.5rem)] pb-[var(--sf-sb,2.5rem)]");
 
 /** In the designer, a part of the store that can be clicked to edit it. Elsewhere it is just its children. */
 export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id: string; field?: string; children: React.ReactNode; block?: boolean }) {
@@ -56,15 +63,24 @@ export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id
 function Heading({ title, ctx, more }: { title: string; ctx: Ctx; more?: boolean }) {
   const c = copy[ctx.lang];
   const viewAll = ctx.config.texts.viewAll[ctx.lang] || c.viewAll;
+  const light = ctx.config.theme.titleStyle === "light";
   return (
     <div className="mb-5 flex items-end justify-between gap-4">
-      <h2 className={`font-extrabold tracking-tight text-[var(--sf-title)] ${ctx.compact ? "text-xl" : "text-2xl"}`}>{title}</h2>
-      {more && (
-        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--sf-primary)]">
-          {viewAll}
-          {icons.arrow}
-        </span>
-      )}
+      <h2
+        className={`tracking-tight text-[var(--sf-title)] ${light ? "font-light leading-tight" : "font-extrabold"}`}
+        style={{ fontFamily: "var(--sf-heading)", fontSize: scaled(ctx.config.theme.sectionTitleSize ?? (light ? 34 : 24), ctx.compact) }}
+      >
+        {title}
+      </h2>
+      {more &&
+        (light ? (
+          <span className="border-b border-current pb-0.5 text-sm text-[var(--sf-text)]">{viewAll}</span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--sf-title)]">
+            {viewAll}
+            {icons.arrow}
+          </span>
+        ))}
     </div>
   );
 }
@@ -85,16 +101,32 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
     flat: "rounded-[var(--sf-r)] bg-transparent p-0",
   }[k.style ?? "shadow"];
   const low = k.showStock && p.quantity > 0 && p.quantity <= 5;
+  const row = (k.info ?? "stack") === "row";
 
   return (
     <article onClick={(e) => { if (ctx.design) { e.stopPropagation(); ctx.design.select("cards"); } }} className={`group relative overflow-hidden transition duration-300 hover:-translate-y-1 ${look} ${ctx.design ? "cursor-pointer" : ""}`}>
-      <div className="relative overflow-hidden" style={{ borderRadius: "calc(var(--sf-r) - 8px)" }}>
+      <div
+        className="relative overflow-hidden"
+        style={{ borderRadius: "calc(var(--sf-r) - 8px)" }}
+        onClick={(e) => {
+          /* In the designer, the picture itself opens the editor for which part of it stays visible */
+          if (ctx.design?.selectProduct && p.image) {
+            e.stopPropagation();
+            ctx.design.selectProduct(p);
+          }
+        }}
+      >
         <ProductImage p={p} className={`${ratio} w-full transition duration-500 group-hover:scale-[1.04]`} />
-        {off > 0 && k.showBadge && (
-          <span className="absolute start-2.5 top-2.5 rounded-full bg-[var(--sf-primary)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--sf-on)] shadow">
-            -{off}%
-          </span>
-        )}
+        {k.showBadge &&
+          (p.badge ? (
+            <span className="absolute start-2.5 top-2.5 rounded-full bg-white px-3 py-1 text-[12px] font-semibold text-[#1c1a17] shadow-sm">{p.badge}</span>
+          ) : (
+            off > 0 && (
+              <span className="absolute start-2.5 top-2.5 rounded-full bg-[var(--sf-primary)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--sf-on)] shadow">
+                -{off}%
+              </span>
+            )
+          ))}
         {k.showHeart && <button
           type="button"
           onClick={() => ctx.interactive && setLiked((v) => !v)}
@@ -108,11 +140,15 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
       </div>
 
       <div className="px-1.5 pb-1.5 pt-3">
+       <div className={row ? "flex items-start justify-between gap-3" : ""}>
+        <div className="min-w-0">
         {p.category && k.showCategory && <p className="text-xs text-[var(--sf-text)]/55">{p.category}</p>}
         {k.showName && <h3 className="mt-0.5 line-clamp-1 text-sm font-bold">{p.name}</h3>}
+        {k.showNotes && p.notes && <p className="mt-0.5 line-clamp-1 text-[13px] text-[var(--sf-text)]/60">{p.notes}</p>}
         {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
+        </div>
         {k.showPrice && (
-          <p dir="ltr" className="mt-3 flex items-baseline gap-1.5 text-start">
+          <p dir="ltr" className={`${row ? "mt-0.5 shrink-0" : "mt-3"} flex items-baseline gap-1.5 text-start`}>
             {p.price === null ? (
               <span className="text-sm text-[var(--sf-text)]/55">{ctx.lang === "ar" ? "بدون سعر" : "No price"}</span>
             ) : (
@@ -124,6 +160,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
             )}
           </p>
         )}
+       </div>
 
         {/* Add to cart. Once the product is in the basket the button turns into  -  1  +  */}
         {k.showAdd && (inBasket > 0 && !out ? (
@@ -191,6 +228,8 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   const idx = shown % bgs.length;
   const seconds = Math.max(2, s.seconds || 5);
   const run = (s.autoplay ?? true) && bgs.length > 1;
+  /* The size of a text of the hero: the one he set with + and -, or the theme's own */
+  const sz = (key: "title" | "subtitle" | "eyebrow" | "price" | "detail" | "button", def: number) => scaled(s.sizes?.[key] ?? def, ctx.compact);
 
   /* The backgrounds change by themselves, one after the other, in the order the merchant set. */
   useEffect(() => {
@@ -203,6 +242,75 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   }, [run, paused, seconds, bgs.length, shown]);
 
   const go = (dir: 1 | -1) => setShown((v) => (v % bgs.length + dir + bgs.length) % bgs.length);
+
+  /* The split layout: a big photo on one side and the text on the other. The text panel has its own color (or the first
+     background color), and can hold an eyebrow, a price with its size, and a second button. */
+  if (s.layout === "split") {
+    const l = ctx.lang;
+    const other = l === "ar" ? "en" : "ar";
+    const pick = (b?: { en: string; ar: string }) => b?.[l] || b?.[other] || "";
+    const panel = s.panelColor || (bgs[0].kind === "color" ? bgs[0].color || primary : primary);
+    const light = onColor(panel) !== "#ffffff";
+    const photoFirst = (s.photoSide ?? "start") === "start";
+    const full = !!s.fullWidth;
+    const eyebrow = pick(s.eyebrow);
+    const size = pick(s.size);
+    const button2 = pick(s.button2);
+    const head = { fontFamily: "var(--sf-heading)" };
+    const solid = light ? "bg-[var(--sf-primary)] text-[var(--sf-on)]" : "bg-white text-[#12262b]";
+    return (
+      <section className={full ? "" : ctx.compact ? "px-4 pt-4" : "px-8 pt-6"}>
+        <div
+          className={`grid overflow-hidden ${full ? "" : "rounded-[var(--sf-r)]"} ${ctx.compact ? "" : photoFirst ? "md:grid-cols-[1.15fr_1fr]" : "md:grid-cols-[1fr_1.15fr]"}`}
+          style={{ background: panel, color: light ? "var(--sf-text)" : "#ffffff" }}
+        >
+          <div className={`relative ${ctx.compact ? "aspect-[4/3]" : full ? "min-h-[720px]" : "min-h-[26rem]"} ${photoFirst ? "" : "md:order-2"}`}>
+            {s.photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={s.photo} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            ) : (
+              <span className="absolute inset-0 grid place-items-center bg-black/10 px-6 text-center text-sm font-semibold opacity-80">
+                {ctx.design ? (l === "ar" ? "أضف صورة الغلاف من القائمة الجانبية" : "Add the cover photo from the side panel") : ""}
+              </span>
+            )}
+          </div>
+          <div className={`flex flex-col justify-center ${ctx.compact ? "items-center gap-4 px-6 py-10 text-center" : full ? "gap-7 px-16 py-20" : "gap-5 px-12 py-12"}`}>
+            {eyebrow && (
+              <Pick ctx={ctx} id={id} field="eyebrow" block>
+                <p className="font-bold leading-[1.2]" style={{ ...head, fontSize: sz("eyebrow", 34), color: s.colors?.eyebrow || (light ? "var(--sf-accent)" : "currentColor") }}>{eyebrow}</p>
+              </Pick>
+            )}
+            <Pick ctx={ctx} id={id} field="title" block>
+              <h1 className="font-bold leading-none tracking-[-0.01em]" style={{ ...head, fontFamily: heroTitleFamily(s.titleFont), fontSize: sz("title", full ? 100 : 48), color: s.colors?.title }}>{s.title[l]}</h1>
+            </Pick>
+            <Pick ctx={ctx} id={id} field="subtitle" block>
+              <p className="max-w-[460px] font-medium leading-[1.7] opacity-85" style={{ fontSize: sz("subtitle", full ? 24 : 15), color: s.colors?.subtitle }}>{s.subtitle[l]}</p>
+            </Pick>
+            {(s.price || size) && (
+              <p className="flex items-baseline gap-2.5">
+                {s.price && <span className="font-bold" style={{ ...head, fontSize: sz("price", 26), color: s.colors?.price }}>{s.price}</span>}
+                {size && <span className="opacity-60" style={{ fontSize: sz("detail", 13), color: s.colors?.detail }}>{size}</span>}
+              </p>
+            )}
+            <div className={`flex flex-wrap items-center gap-3 ${ctx.compact ? "justify-center" : ""}`}>
+              <Pick ctx={ctx} id={id} field="button">
+                <button type="button" style={{ fontSize: sz("button", 15), color: s.colors?.button }} className={`inline-flex items-center gap-2 rounded-full px-9 py-4 font-semibold shadow-md transition hover:-translate-y-0.5 ${solid}`}>
+                  {s.button[l]}
+                </button>
+              </Pick>
+              {button2 && (
+                <Pick ctx={ctx} id={id} field="button2">
+                  <button type="button" style={{ fontSize: sz("button", 15), color: s.colors?.button }} className="inline-flex items-center gap-2 rounded-full border border-current px-[30px] py-[15px] font-medium transition hover:-translate-y-0.5">
+                    {button2}
+                  </button>
+                </Pick>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   const current = bgs[idx];
   const heroOn = current.kind === "image" && current.image ? "#ffffff" : onColor(current.color || primary);
@@ -235,9 +343,9 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
 
         <div className={`flex items-center justify-between gap-8 ${ctx.compact ? "flex-col text-center" : ""}`}>
           <div className={ctx.compact ? "" : "max-w-md"}>
-            <Pick ctx={ctx} id={id} field="title" block><h1 className={`font-extrabold leading-[1.1] tracking-tight ${ctx.compact ? "text-3xl" : "text-4xl"}`}>{s.title[ctx.lang]}</h1></Pick>
-            <Pick ctx={ctx} id={id} field="subtitle" block><p className="mt-4 text-[15px] leading-relaxed opacity-85">{s.subtitle[ctx.lang]}</p></Pick>
-            <div className="mt-7"><Pick ctx={ctx} id={id} field="button"><button type="button" className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-extrabold text-[#12262b] shadow-lg transition hover:-translate-y-0.5">
+            <Pick ctx={ctx} id={id} field="title" block><h1 className="font-extrabold leading-[1.1] tracking-tight" style={{ ...(s.titleFont ? { fontFamily: heroTitleFamily(s.titleFont) } : {}), fontSize: sz("title", 36), color: s.colors?.title }}>{s.title[ctx.lang]}</h1></Pick>
+            <Pick ctx={ctx} id={id} field="subtitle" block><p className="mt-4 leading-relaxed opacity-85" style={{ fontSize: sz("subtitle", 15), color: s.colors?.subtitle }}>{s.subtitle[ctx.lang]}</p></Pick>
+            <div className="mt-7"><Pick ctx={ctx} id={id} field="button"><button type="button" style={{ fontSize: sz("button", 14), color: s.colors?.button }} className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-extrabold text-[#12262b] shadow-lg transition hover:-translate-y-0.5">
               {s.button[ctx.lang]}
               {icons.arrow}
             </button></Pick></div>
@@ -342,6 +450,175 @@ function Collection({ s, ctx }: { s: Extract<SectionConfig, { type: "collection"
 }
 
 /** Animated pictures: his own pictures or GIFs, one at a time, with arrows, dots and optional links. */
+/* ---------------- Picture tiles ---------------- */
+
+function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["settings"]; ctx: Ctx }) {
+  const list = (s.items ?? []).filter((x) => x.image);
+  const other = ctx.lang === "ar" ? "en" : "ar";
+  const title = s.title?.[ctx.lang] || s.title?.[other] || "";
+  const editorial = s.style === "editorial";
+  const watermark = ctx.config.texture.watermark[ctx.lang] || ctx.config.texture.watermark[other];
+  if (!list.length) {
+    /* Only the merchant, in the designer, sees where the pictures will go */
+    if (!ctx.design) return null;
+    return (
+      <section className={section(ctx.compact)}>
+        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-[var(--sf-primary)]/40 text-sm font-semibold text-[var(--sf-primary)]">
+          {ctx.lang === "ar" ? "معرض صور: أضف صورك من القائمة الجانبية" : "Picture tiles: add your pictures from the side panel"}
+        </div>
+      </section>
+    );
+  }
+  const cols = ctx.compact ? Math.min(2, list.length) : Math.min(s.columns || 4, list.length);
+  return (
+    <section className={`relative isolate ${section(ctx.compact)}`}>
+      {/* A big word behind the tiles, in the accent color */}
+      {watermark && !ctx.compact && (
+        <span aria-hidden className="pointer-events-none absolute -top-8 end-6 -z-10 select-none leading-none" style={{ fontFamily: displayFamily.ruqaa, fontSize: "clamp(120px, 18vw, 260px)", color: "var(--sf-accent)", opacity: 0.07 }}>
+          {watermark}
+        </span>
+      )}
+      {title && <Heading title={title} ctx={ctx} more={editorial} />}
+      <div className={`grid ${editorial ? "gap-5" : "gap-4"}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+        {list.map((x, n) => {
+          const label = x.label?.[ctx.lang] || x.label?.[other] || "";
+          const dark = x.chip === "dark";
+          const body = (
+            <div className={`group relative overflow-hidden bg-black/5 ${editorial ? `rounded-[4px] ${ctx.compact ? "h-[200px]" : "h-[260px]"}` : "aspect-[4/5] rounded-[var(--sf-r)]"}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+              {label &&
+                (editorial ? (
+                  <span
+                    className={`absolute start-3 top-3 rounded-[10px] px-3.5 py-1.5 backdrop-blur-[6px] ${dark ? "bg-[rgba(18,14,11,.55)] text-white" : "bg-[rgba(255,250,246,.7)] text-[#1c1a17]"}`}
+                    style={{ fontFamily: "var(--sf-heading)" }}
+                  >
+                    <span className={`font-light ${ctx.compact ? "text-lg" : "text-[22px]"}`}>{label}</span>
+                  </span>
+                ) : (
+                  <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-3 pt-10 text-sm font-bold text-white">{label}</span>
+                ))}
+            </div>
+          );
+          return x.link && !ctx.design ? (
+            <a key={n} href={linkHref(x.link)} target="_blank" rel="noreferrer" className="block">
+              {body}
+            </a>
+          ) : (
+            <div key={n}>{body}</div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- Promo banners: text and a button laid over a picture ---------------- */
+
+function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["settings"]; ctx: Ctx }) {
+  const list = s.items ?? [];
+  const other = ctx.lang === "ar" ? "en" : "ar";
+  if (!list.length) {
+    if (!ctx.design) return null;
+    return (
+      <section className={section(ctx.compact)}>
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-[var(--sf-primary)]/40 text-sm font-semibold text-[var(--sf-primary)]">
+          {ctx.lang === "ar" ? "بنرات ترويجية: أضف بنرًا من القائمة الجانبية" : "Promo banners: add a banner from the side panel"}
+        </div>
+      </section>
+    );
+  }
+  const cols = ctx.compact ? 1 : Math.min(list.length, 3);
+  const ratio = list.length === 1 ? "aspect-[21/9]" : list.length === 2 ? "aspect-[4/3]" : "aspect-[4/5]";
+  const tall = s.height === "tall";
+  const primary = ctx.config.theme.primary || ctx.data.color;
+  const corner = { "top-start": "top-6 start-6", "top-end": "top-6 end-6", "bottom-start": "bottom-6 start-6", "bottom-end": "bottom-6 end-6" };
+  return (
+    <section className={section(ctx.compact)}>
+      <div className="grid gap-5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+        {list.map((b, n) => {
+          const pickText = (v?: { en: string; ar: string }) => v?.[ctx.lang] || v?.[other] || "";
+          const title = pickText(b.title);
+          const text = pickText(b.text);
+          const button = pickText(b.button);
+          const eyebrow = pickText(b.eyebrow);
+          const go = b.link && !ctx.design;
+          const rich = b.panel === "light" || b.panel === "dark";
+          const accent = b.accent || "var(--sf-accent)";
+          const sizeClass = tall ? (ctx.compact ? "h-[420px]" : "h-[600px]") : ctx.compact ? "aspect-[4/3]" : ratio;
+          const photo = b.image && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={b.image} alt="" className="absolute inset-0 -z-10 h-full w-full object-cover" />
+          );
+          const shell = `relative isolate overflow-hidden rounded-[var(--sf-r)] ${sizeClass}`;
+          const bg = { background: b.image ? "#000" : `linear-gradient(135deg, ${primary}, color-mix(in srgb, ${primary} 60%, #6fe3cf))` };
+
+          if (rich) {
+            /* The text sits on a frosted panel in a corner, so the product in the picture is never covered */
+            const dark = b.panel === "dark";
+            const family = displayFamily[b.font ?? "default"];
+            const small = displayFamily[b.textFont ?? "default"];
+            const customPanel = !!b.panelColor && /^#[0-9a-f]{6}$/i.test(b.panelColor);
+            const panelStyle = customPanel ? { background: `color-mix(in srgb, ${b.panelColor} 72%, transparent)`, color: onColor(b.panelColor!) === "#ffffff" ? "#f4efe6" : "#2a1f16" } : undefined;
+            const btn = `mt-5 inline-flex w-fit items-center rounded-full px-6 py-2.5 text-sm font-semibold transition hover:-translate-y-0.5 ${b.buttonStyle === "outline" ? "border" : "text-white"}`;
+            const btnStyle = b.buttonStyle === "outline" ? { color: accent, borderColor: accent } : { background: accent };
+            return (
+              <div key={n} className={shell} style={bg}>
+                {photo}
+                <div
+                  className={`absolute max-w-[min(80%,24rem)] rounded-[22px] px-8 py-7 backdrop-blur-[8px] ${corner[b.position ?? "top-start"]} ${customPanel ? "" : dark ? "bg-[rgba(18,14,11,.55)] text-[#e9dfcf]" : "bg-[rgba(255,245,248,.72)] text-[#5a3a34]"}`}
+                  style={panelStyle}
+                >
+                  {eyebrow && <p className="text-xs tracking-wide" style={{ fontFamily: small, color: b.eyebrowColor || accent, fontSize: b.textSize ? Math.round(b.textSize * 0.8) : b.textFont && b.textFont !== "default" ? 20 : undefined }}>{eyebrow}</p>}
+                  {title && (
+                    <h3 className="mt-1 leading-tight" style={{ fontFamily: family, fontWeight: 700, color: b.titleColor || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) }}>
+                      {title}
+                    </h3>
+                  )}
+                  {text && <p className="mt-2 leading-relaxed" style={{ fontFamily: small, color: b.textColor, fontSize: b.textSize ?? (b.textFont && b.textFont !== "default" ? 20 : 15) }}>{text}</p>}
+                  {button &&
+                    (go ? (
+                      <a href={linkHref(b.link)} target="_blank" rel="noreferrer" className={btn} style={btnStyle}>
+                        {button}
+                      </a>
+                    ) : (
+                      <span className={btn} style={btnStyle}>
+                        {button}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={n} className={shell} style={bg}>
+              {photo}
+              <span aria-hidden className="absolute inset-0 -z-10 bg-gradient-to-t from-black/65 via-black/15 to-transparent" />
+              <div className="flex h-full flex-col justify-end p-6 text-white">
+                {title && <h3 className="text-2xl font-extrabold leading-tight drop-shadow" style={{ fontFamily: displayFamily[b.font ?? "default"] }}>{title}</h3>}
+                {text && <p className="mt-1.5 max-w-[85%] text-sm leading-relaxed opacity-90">{text}</p>}
+                {button &&
+                  (go ? (
+                    <a href={linkHref(b.link)} target="_blank" rel="noreferrer" className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-extrabold text-[#12262b] shadow-lg transition hover:-translate-y-0.5">
+                      {button}
+                      {icons.arrow}
+                    </a>
+                  ) : (
+                    <span className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-extrabold text-[#12262b] shadow-lg">
+                      {button}
+                      {icons.arrow}
+                    </span>
+                  ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["settings"]; ctx: Ctx }) {
   const list = (s.slides ?? []).filter((x) => x.image);
   const [i, setI] = useState(0);
@@ -554,7 +831,8 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
   const c = copy[ctx.lang];
   const [cat, setCat] = useState("");
   const q = ctx.query.trim().toLowerCase();
-  const items = ctx.data.products.filter((p) => (!cat || p.category === cat) && (!q || p.name.toLowerCase().includes(q)));
+  const all = ctx.data.products.filter((p) => (!cat || p.category === cat) && (!q || p.name.toLowerCase().includes(q)));
+  const items = s.limit ? all.slice(0, s.limit) : all;
 
   return (
     <section className={section(ctx.compact)}>
@@ -609,6 +887,35 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
   );
 }
 
+/* ---------------- Notes ribbon: a dark strip of short words ---------------- */
+
+function Ribbon({ s, ctx }: { s: Extract<SectionConfig, { type: "ribbon" }>["settings"]; ctx: Ctx }) {
+  const other = ctx.lang === "ar" ? "en" : "ar";
+  const words = (s.items ?? []).map((x) => x[ctx.lang] || x[other]).filter(Boolean);
+  if (!words.length) {
+    if (!ctx.design) return null;
+    return (
+      <section className={section(ctx.compact)}>
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-[var(--sf-primary)]/40 text-sm font-semibold text-[var(--sf-primary)]">
+          {ctx.lang === "ar" ? "شريط النوتات: أضف كلمات من القائمة الجانبية" : "Notes ribbon: add words from the side panel"}
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section style={{ background: s.background, color: s.color }}>
+      <div className={`flex flex-wrap items-center justify-center gap-x-6 gap-y-2 tracking-[0.06em] ${ctx.compact ? "px-4 py-3 text-[15px]" : "px-8 py-5 text-[18px]"}`} style={{ fontFamily: "var(--sf-heading)" }}>
+        {words.map((w, i) => (
+          <Fragment key={i}>
+            {i > 0 && <span aria-hidden className="opacity-50">✦</span>}
+            <span>{w}</span>
+          </Fragment>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /** A whole section: a teal outline and its name appear on hover, and a click selects it. */
 function Selectable({ id, name, ctx, children }: { id: string; name: string; ctx: Ctx; children: React.ReactNode }) {
   if (!ctx.design) return <>{children}</>;
@@ -624,8 +931,8 @@ function Selectable({ id, name, ctx, children }: { id: string; name: string; ctx
 }
 
 const sectionNames = {
-  en: { hero: "Hero banner", perks: "Store perks", featured: "Featured products", discounts: "Deals", products: "Product grid", text: "Free text", reviews: "Customer reviews", collection: "Pinned products", slides: "Animated pictures" },
-  ar: { hero: "الغلاف الرئيسي", perks: "مزايا المتجر", featured: "منتجات مميزة", discounts: "التخفيضات", products: "شبكة المنتجات", text: "نص حر", reviews: "آراء العملاء", collection: "منتجات ثابتة", slides: "صور متحركة" },
+  en: { hero: "Hero banner", perks: "Store perks", featured: "Featured products", discounts: "Deals", products: "Product grid", text: "Free text", reviews: "Customer reviews", collection: "Pinned products", slides: "Animated pictures", tiles: "Picture tiles", banners: "Promo banners", ribbon: "Notes ribbon" },
+  ar: { hero: "الغلاف الرئيسي", perks: "مزايا المتجر", featured: "منتجات مميزة", discounts: "التخفيضات", products: "شبكة المنتجات", text: "نص حر", reviews: "آراء العملاء", collection: "منتجات ثابتة", slides: "صور متحركة", tiles: "معرض صور", banners: "بنرات ترويجية", ribbon: "شريط النوتات" },
 };
 
 export function renderSection(s: SectionConfig, ctx: Ctx) {
@@ -644,6 +951,12 @@ export function renderSection(s: SectionConfig, ctx: Ctx) {
         return <Products s={s.settings} ctx={ctx} />;
       case "slides":
         return <Slides s={s.settings} ctx={ctx} />;
+      case "tiles":
+        return <Tiles s={s.settings} ctx={ctx} />;
+      case "banners":
+        return <Banners s={s.settings} ctx={ctx} />;
+      case "ribbon":
+        return <Ribbon s={s.settings} ctx={ctx} />;
       case "collection":
         return <Collection s={s.settings} ctx={ctx} />;
       case "reviews":
@@ -653,8 +966,10 @@ export function renderSection(s: SectionConfig, ctx: Ctx) {
     }
   })();
   return (
-    <Selectable key={s.id} id={s.id} name={sectionNames[ctx.lang][s.type]} ctx={ctx}>
-      {inner}
-    </Selectable>
+    <div key={s.id} data-sf={s.id} className="scroll-mt-20">
+      <Selectable id={s.id} name={sectionNames[ctx.lang][s.type]} ctx={ctx}>
+        {inner}
+      </Selectable>
+    </div>
   );
 }

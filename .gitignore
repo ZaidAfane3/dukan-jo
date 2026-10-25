@@ -23,3 +23,6 @@ fonts/
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Original photos for the demo store (large, and some show real brand names). Only the cropped copies in public/demo are used.
+Perfume Demos/

@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { demoActive, endDemo, installDemoIfActive, reseedDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
@@ -77,9 +78,11 @@ export function DemoBoot() {
   if (typeof window !== "undefined") installDemoIfActive();
   const { on, lang, w } = useTour();
   useFormLock(on, lang);
+  /* In the store designer the bar sits higher, so it does not cover the zoom controls at the bottom of the canvas */
+  const inDesigner = (usePathname() ?? "").startsWith("/design");
   if (!on) return null;
   return (
-    <div role="status" className="demo-pill dash fixed bottom-4 start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-[#00323b] px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2">
+    <div role="status" className={`demo-pill dash fixed ${inDesigner ? "bottom-20" : "bottom-4"} start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-[#00323b] px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2`}>
       <span className="text-xs font-semibold sm:text-sm">{w.label}</span>
       <div className="flex gap-2">
         <button type="button" onClick={() => endDemo("/signup")} className={create}>{w.create}</button>

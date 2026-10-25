@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Lang } from "./content";
-import { demoSeed } from "./demoData";
+import { demoSeed, DEMO_SEED_VERSION } from "./demoData";
 
 /* The platform tour. While it runs, the dashboard reads and writes a separate copy of the browser's
    storage that starts filled with made-up data. A visitor's (or merchant's) real saved data is never
@@ -12,7 +12,7 @@ const DATA = "dukkan-demo-data";
 /* Preferences are the visitor's own, so the language and theme switches keep working normally */
 const PASS = new Set([FLAG, DATA, "seen-lang", "seen-theme", "seen-sidebar", "seen-signed-in"]);
 
-type Maps = { local: Record<string, string>; session: Record<string, string> };
+type Maps = { local: Record<string, string>; session: Record<string, string>; v?: number };
 
 const proto = typeof Storage !== "undefined" ? Storage.prototype : null;
 const orig = proto && { get: proto.getItem, set: proto.setItem, remove: proto.removeItem, clear: proto.clear, key: proto.key };
@@ -30,7 +30,7 @@ export function demoActive(): boolean {
 /** Starts the tour with fresh made-up data, in the given language. */
 export function startDemo(lang: Lang) {
   realSet(FLAG, "1");
-  realSet(DATA, JSON.stringify(demoSeed(lang)));
+  realSet(DATA, JSON.stringify({ ...demoSeed(lang), v: DEMO_SEED_VERSION }));
   maps = null;
 }
 
@@ -40,9 +40,10 @@ export function reseedDemo(lang: Lang) {
   if (maps) {
     maps.local = seed.local;
     maps.session = seed.session;
+    maps.v = DEMO_SEED_VERSION;
     realSet(DATA, JSON.stringify(maps));
   } else {
-    realSet(DATA, JSON.stringify(seed));
+    realSet(DATA, JSON.stringify({ ...seed, v: DEMO_SEED_VERSION }));
   }
 }
 
@@ -59,6 +60,14 @@ export function installDemoIfActive() {
   try {
     const saved = realGet(DATA);
     maps = saved ? (JSON.parse(saved) as Maps) : { local: {}, session: {} };
+    /* A tab opened before the demo's data changed still holds the old copy: write the current one (in the language in use) */
+    if (maps.v !== DEMO_SEED_VERSION) {
+      let lang: Lang = "ar";
+      try { lang = orig.get.call(window.localStorage, "seen-lang") === "en" ? "en" : "ar"; } catch { /* storage blocked */ }
+      const seed = demoSeed(lang);
+      maps = { local: seed.local, session: seed.session, v: DEMO_SEED_VERSION };
+      realSet(DATA, JSON.stringify(maps));
+    }
   } catch {
     maps = { local: {}, session: {} };
   }

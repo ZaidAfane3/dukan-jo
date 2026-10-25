@@ -6,7 +6,8 @@ import { defaultConfig, type SectionConfig, type StorefrontConfig } from "./conf
    There are two starter versions:
    - the ORIGINAL design, which is the one written in the code (`defaultConfig`) and never changes;
    - the TEMPLATE, an editable copy the platform admin can change and save (in /design?template=1).
-     A store that has not saved a design of its own starts from the template, if there is one. */
+     A store that has not saved a design of its own starts from the template, if there is one:
+     the template is the default design of every new store. The admin edits it at /design?template=1. */
 const KEY = "seen-storefront";
 const TEMPLATE_KEY = "dukkan-template";
 
@@ -39,10 +40,18 @@ function mergeAnnouncement(saved: unknown): StorefrontConfig["announcement"] {
   };
 }
 
+/* A design saved before there was a choice of patterns has true (the stars) or false (none) */
+function patternOf(v: unknown): StorefrontConfig["texture"]["pattern"] {
+  if (v === true) return "stars";
+  return typeof v === "string" && ["stars", "dots", "lines", "diamonds", "waves"].includes(v) ? (v as StorefrontConfig["texture"]["pattern"]) : "none";
+}
+
 function merge(s: Partial<StorefrontConfig>): StorefrontConfig {
   return {
     theme: { ...defaultConfig.theme, ...s.theme },
     header: { ...defaultConfig.header, ...s.header },
+    nav: { ...defaultConfig.nav, ...s.nav },
+    texture: { ...defaultConfig.texture, ...s.texture, pattern: patternOf(s.texture?.pattern), watermark: { ...defaultConfig.texture.watermark, ...s.texture?.watermark } },
     identity: { ...defaultConfig.identity, ...s.identity, logo: { ...defaultConfig.identity.logo, ...s.identity?.logo } },
     footer: { ...defaultConfig.footer, ...s.footer, social: { ...defaultConfig.footer.social, ...s.footer?.social }, certificate: { ...defaultConfig.footer.certificate, ...s.footer?.certificate } },
     announcement: mergeAnnouncement(s.announcement),
@@ -81,6 +90,15 @@ function write(key: string, config: StorefrontConfig): boolean {
 }
 
 export const saveConfig = (config: StorefrontConfig) => write(KEY, config);
+
+/** Forgets the store's own design, so the store starts again from the starter template. Used when a new account is created. */
+export function resetToStarterDesign() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
 export const saveTemplate = (config: StorefrontConfig) => write(TEMPLATE_KEY, config);
 
 export function clearTemplate() {
@@ -90,3 +108,7 @@ export function clearTemplate() {
     /* storage unavailable */
   }
 }
+
+/* Reading and writing a design under any key (used by the private /saad template) */
+export const readConfigKey = read;
+export const writeConfigKey = write;

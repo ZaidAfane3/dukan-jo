@@ -6,9 +6,16 @@ import { DashboardBar } from "./DashboardBar";
 import { FILTER_KEYS, productsCopy, type FilterKey } from "./productsContent";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
+import { readPhoto } from "./designer/image";
+import { demoActive } from "./demoSandbox";
+import { FocusPicker } from "./FocusPicker";
 
 type Product = {
   id: number;
+  /* Photos of the product (small pictures kept with it), the first one is the main one */
+  images?: string[];
+  /* The part of the main picture that stays visible when the store crops it (percent from the left and the top) */
+  focus?: { x: number; y: number };
   name: string;
   price: number | null;
   sale: number | null;
@@ -16,6 +23,9 @@ type Product = {
   category: string;
   brand: string;
   description: string;
+  /* Shown on the store's product card: a short notes line, and a small label on the picture */
+  notes?: string;
+  badge?: string;
   quantity: number;
   hidden: boolean;
   featured: boolean;
@@ -35,6 +45,8 @@ type Draft = {
   category: string;
   brand: string;
   description: string;
+  notes: string;
+  badge: string;
   quantity: string;
   hidden: boolean;
   featured: boolean;
@@ -57,6 +69,8 @@ const blank: Draft = {
   category: "",
   brand: "",
   description: "",
+  notes: "",
+  badge: "",
   quantity: "0",
   hidden: false,
   featured: false,
@@ -132,8 +146,10 @@ export function Products() {
   const [picked, setPicked] = useState<number[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [flash, setFlash] = useState(false);
-  /* Photos live only in this page. They are never stored or sent anywhere. */
+  /* The product's photos: shrunk and saved with the product, so the store shows them */
   const [photos, setPhotos] = useState<string[]>([]);
+  const [photoBad, setPhotoBad] = useState(false);
+  const [focus, setFocus] = useState({ x: 50, y: 50 });
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -191,6 +207,8 @@ export function Products() {
       category: x.category,
       brand: x.brand,
       description: x.description,
+      notes: x.notes ?? "",
+      badge: x.badge ?? "",
       quantity: String(x.quantity),
       hidden: x.hidden,
       featured: x.featured,
@@ -201,7 +219,9 @@ export function Products() {
     });
     setErrors({});
     setConfirmDelete(false);
-    clearPhotos();
+    setPhotos(x.images ?? []);
+    setFocus(x.focus ?? { x: 50, y: 50 });
+    setPhotoBad(false);
   };
 
   const openNew = () => {
@@ -209,20 +229,20 @@ export function Products() {
     setDraft(blank);
     setErrors({});
     setConfirmDelete(false);
-    clearPhotos();
-  };
-
-  const clearPhotos = () => {
-    photos.forEach((u) => URL.revokeObjectURL(u));
     setPhotos([]);
+    setFocus({ x: 50, y: 50 });
+    setPhotoBad(false);
   };
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
-  const addPhotos = (files: FileList | null) => {
+  /* Each photo is shrunk to a small picture, so a few of them fit in the browser's storage */
+  const addPhotos = async (files: FileList | null) => {
     if (!files) return;
-    const ok = Array.from(files).filter((f) => /^image\/(png|jpe?g)$/.test(f.type) && f.size <= 3_000_000);
-    setPhotos((cur) => [...cur, ...ok.map((f) => URL.createObjectURL(f))].slice(0, 6));
+    const made = await Promise.all(Array.from(files).filter((f) => f.size <= 8_000_000).map((f) => readPhoto(f, 900)));
+    const ok = made.filter((u): u is string => !!u);
+    setPhotoBad(ok.length < files.length);
+    setPhotos((cur) => [...cur, ...ok].slice(0, 6));
   };
 
   const save = (e: React.FormEvent) => {
@@ -244,6 +264,8 @@ export function Products() {
       category: draft.category.trim(),
       brand: draft.brand.trim(),
       description: draft.description.trim(),
+      notes: draft.notes.trim(),
+      badge: draft.badge.trim(),
       quantity: Math.max(0, Math.floor(Number(draft.quantity) || 0)),
       hidden: draft.hidden,
       featured: draft.featured,
@@ -251,6 +273,8 @@ export function Products() {
       lowAt: Math.max(0, Math.floor(Number(draft.lowAt) || 0)),
       restockMin: Math.max(0, Math.floor(Number(draft.restockMin) || 0)),
       restockPct: Math.min(100, Math.max(0, Math.floor(Number(draft.restockPct) || 0))),
+      images: photos,
+      focus,
     };
 
     if (editing === "new") {
@@ -374,10 +398,15 @@ export function Products() {
                   <li key={x.id} className={`flex items-center gap-3 px-4 py-3 transition-colors ${editing === x.id ? "bg-black/[0.07] dark:bg-white/[0.1]" : "hover:bg-fg/[0.05]"}`}>
                     <input type="checkbox" checked={picked.includes(x.id)} onChange={() => togglePick(x.id)} aria-label={x.name} className="h-4 w-4 shrink-0 accent-[rgb(var(--primary))]" />
                     <button type="button" onClick={() => openEdit(x)} className="flex min-w-0 flex-1 items-center gap-3 text-start">
-                      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-soft text-muted">
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M9 3 3.5 6 5.5 10.5 8 9.5V20.5H16V9.5l2.5 1L20.5 6 15 3a3 3 0 0 1-6 0Z" />
-                        </svg>
+                      <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-soft text-muted">
+                        {x.images?.[0] ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={x.images[0]} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M9 3 3.5 6 5.5 10.5 8 9.5V20.5H16V9.5l2.5 1L20.5 6 15 3a3 3 0 0 1-6 0Z" />
+                          </svg>
+                        )}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
@@ -443,7 +472,7 @@ export function Products() {
                           {i === 0 && <span className="absolute start-1.5 top-1.5 rounded-md bg-primary px-2 py-0.5 text-[10px] font-bold text-white">{p.primary}</span>}
                           <button
                             type="button"
-                            onClick={() => { URL.revokeObjectURL(u); setPhotos((cur) => cur.filter((x) => x !== u)); }}
+                            onClick={() => setPhotos((cur) => cur.filter((x) => x !== u))}
                             aria-label={p.removeImage}
                             className="absolute end-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white opacity-0 transition focus:opacity-100 group-hover:opacity-100"
                           >
@@ -466,8 +495,19 @@ export function Products() {
                         </button>
                       )}
                     </div>
-                    <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg" className="sr-only" onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
-                    <p className="mt-2 text-xs text-muted">{p.imagesHint}</p>
+                    <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
+                    <p className={`mt-2 text-xs ${photoBad ? "text-rose-600" : "text-muted"}`}>{photoBad ? p.imagesBad : p.imagesHint}</p>
+
+                    {/* What stays visible: the store crops the picture to its shape, so he chooses the part that must always show */}
+                    {photos.length > 0 && (
+                      <div className="mt-4 rounded-xl bg-soft/70 p-4">
+                        <p className="text-sm font-bold">{p.focusTitle}</p>
+                        <p className="mt-1 text-xs leading-relaxed text-muted">{p.focusNote}</p>
+                        <div className="mt-3">
+                          <FocusPicker image={photos[0]} value={focus} onChange={setFocus} disabled={demoActive()} labels={{ tall: p.shapeTall, square: p.shapeSquare, wide: p.shapeWide, center: p.focusCenter }} />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid gap-5 sm:grid-cols-2">
@@ -492,6 +532,17 @@ export function Products() {
                     <div>
                       <Label id="p-brand">{p.brand}</Label>
                       <input id="p-brand" value={draft.brand} onChange={(e) => set("brand", e.target.value)} placeholder={p.brandPh} maxLength={40} className={`${field} h-12`} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <Label id="p-notes" hint={p.notesHint}>{p.notes}</Label>
+                      <input id="p-notes" value={draft.notes} onChange={(e) => set("notes", e.target.value)} placeholder={p.notesPh} maxLength={60} className={`${field} h-12`} />
+                    </div>
+                    <div>
+                      <Label id="p-badge" hint={p.badgeHint}>{p.badge}</Label>
+                      <input id="p-badge" value={draft.badge} onChange={(e) => set("badge", e.target.value)} placeholder={p.badgePh} maxLength={20} className={`${field} h-12`} />
                     </div>
                   </div>
 

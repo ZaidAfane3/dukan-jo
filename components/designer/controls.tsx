@@ -18,7 +18,7 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
 
 export function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 py-1">
+    <label className="relative flex cursor-pointer items-center justify-between gap-4 py-1">
       <span className="text-sm font-medium">{label}</span>
       <input type="checkbox" role="switch" checked={on} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
       <span
@@ -39,7 +39,7 @@ export const HEX = /^#[0-9a-f]{6}$/i;
 export function ColorPicker({ value, onChange, label, bad, list = swatches }: { value: string; onChange: (v: string) => void; label: string; bad: string; list?: string[] }) {
   const ok = HEX.test(value);
   return (
-    <div>
+    <div data-color-picker>
       <div className="flex flex-wrap gap-2.5">
         {list.map((c) => (
           <button

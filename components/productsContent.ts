@@ -50,6 +50,13 @@ type Copy = {
   namePh: string;
   images: string;
   imagesHint: string;
+  imagesBad: string;
+  focusTitle: string;
+  focusNote: string;
+  focusCenter: string;
+  shapeTall: string;
+  shapeSquare: string;
+  shapeWide: string;
   addImage: string;
   primary: string;
   removeImage: string;
@@ -64,6 +71,12 @@ type Copy = {
   brandPh: string;
   description: string;
   descriptionPh: string;
+  notes: string;
+  notesPh: string;
+  notesHint: string;
+  badge: string;
+  badgePh: string;
+  badgeHint: string;
   visibility: string;
   hidden: string;
   hiddenHint: string;
@@ -139,7 +152,14 @@ export const productsCopy: Record<Lang, Copy> = {
     name: "Product name",
     namePh: "For example: Cotton shirt",
     images: "Product images",
-    imagesHint: "PNG or JPG, up to 3 MB each. Images are shown in this preview only and are not uploaded.",
+    imagesHint: "PNG, JPG or WebP, up to 8 MB each. They are shrunk and saved with the product, and your store shows the first one.",
+    imagesBad: "Some files could not be added. Use PNG, JPG or WebP pictures up to 8 MB.",
+    focusTitle: "What stays visible",
+    focusNote: "Your store crops the picture to fit its shape (tall, square or wide). Tap the part of the main picture that must always show, like the cap or the label. The three small pictures show how it will look.",
+    focusCenter: "Back to the center",
+    shapeTall: "Tall",
+    shapeSquare: "Square",
+    shapeWide: "Wide",
     addImage: "Upload a product photo",
     primary: "Main",
     removeImage: "Remove image",
@@ -154,6 +174,12 @@ export const productsCopy: Record<Lang, Copy> = {
     brandPh: "Brand name",
     description: "Product description",
     descriptionPh: "Write the details your customers need",
+    notes: "Notes line",
+    notesPh: "rose · musk · incense",
+    notesHint: "A short line under the name on the product card.",
+    badge: "Label on the picture",
+    badgePh: "New",
+    badgeHint: "A small label on the card, like New or Best seller.",
     visibility: "Visibility and options",
     hidden: "Hide product from the store",
     hiddenHint: "Customers cannot see or buy a hidden product.",
@@ -227,7 +253,14 @@ export const productsCopy: Record<Lang, Copy> = {
     name: "اسم المنتج",
     namePh: "مثال: قميص قطني",
     images: "صور المنتج",
-    imagesHint: "PNG أو JPG، حتى 3 ميجابايت للصورة. تظهر الصور في هذه المعاينة فقط ولا يتم رفعها.",
+    imagesHint: "PNG أو JPG أو WebP، حتى 8 ميجابايت للصورة. تُصغَّر وتُحفظ مع المنتج، ويعرض متجرك الصورة الأولى.",
+    imagesBad: "تعذّرت إضافة بعض الملفات. استخدم صور PNG أو JPG أو WebP حتى 8 ميجابايت.",
+    focusTitle: "الجزء الظاهر من الصورة",
+    focusNote: "يقصّ متجرك الصورة لتناسب شكلها (طولية أو مربعة أو عريضة). اضغط على الجزء الذي يجب أن يظهر دائمًا من الصورة الرئيسية، مثل الغطاء أو الملصق. تظهر الصور الصغيرة الثلاث شكلها النهائي.",
+    focusCenter: "العودة إلى المنتصف",
+    shapeTall: "طولية",
+    shapeSquare: "مربعة",
+    shapeWide: "عريضة",
     addImage: "ارفع صورة المنتج",
     primary: "الأساسية",
     removeImage: "إزالة الصورة",
@@ -242,6 +275,12 @@ export const productsCopy: Record<Lang, Copy> = {
     brandPh: "اسم العلامة التجارية",
     description: "وصف المنتج",
     descriptionPh: "اكتب التفاصيل التي يحتاجها عملاؤك",
+    notes: "سطر النوتات",
+    notesPh: "ورد · مسك · بخور",
+    notesHint: "سطر قصير تحت الاسم في بطاقة المنتج.",
+    badge: "شارة على الصورة",
+    badgePh: "جديد",
+    badgeHint: "شارة صغيرة على البطاقة، مثل جديد أو الأكثر مبيعًا.",
     visibility: "الظهور والخيارات",
     hidden: "إخفاء المنتج من المتجر",
     hiddenHint: "لا يستطيع العملاء رؤية المنتج المخفي أو شراءه.",

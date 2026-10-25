@@ -16,6 +16,8 @@ type Order = {
   channel: 0 | 1;
   /* For orders added by hand: where the customer ordered (WhatsApp, Instagram, ...) */
   source?: number;
+  /* What was ordered: the product name, how many, and the price of one */
+  items?: { name: string; qty: number; price: number; image?: string }[];
   created: number;
 };
 
@@ -260,6 +262,30 @@ export function Orders() {
                     </div>
                   ))}
                 </dl>
+
+                {current.items && current.items.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-sm font-bold">{o.items}</h3>
+                    <ul className="mt-3 divide-y divide-fg/10 rounded-xl ring-1 ring-fg/10">
+                      {current.items.map((it, n) => (
+                        <li key={n} className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
+                          <span className="flex min-w-0 items-center gap-3 font-semibold">
+                            {it.image && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={it.image} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-black/10" />
+                            )}
+                            <span className="min-w-0">
+                              {it.name} <span dir="ltr" className="whitespace-nowrap font-bold text-muted">×{it.qty}</span>
+                            </span>
+                          </span>
+                          <span dir="ltr" className="shrink-0 font-bold">
+                            {fmt(it.price * it.qty)} <small className="text-xs opacity-70">{o.currency}</small>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="mt-6 flex items-center justify-between gap-4 rounded-xl bg-soft/70 px-4 py-4">
                   <div>

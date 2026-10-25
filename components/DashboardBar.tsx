@@ -147,9 +147,9 @@ function NotificationBell() {
             </button>
           </div>
 
-          <div role="tablist" className="mx-4 mt-4 flex gap-1 overflow-x-auto rounded-xl bg-soft p-1 text-sm font-medium [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div role="tablist" className="mx-4 mt-4 flex flex-wrap gap-1 rounded-xl bg-soft p-1 text-sm font-medium">
             {n.tabs.map((label, i) => (
-              <button key={label} role="tab" aria-selected={tab === i} type="button" onClick={() => setTab(i)} className={`shrink-0 rounded-lg px-4 py-2 transition ${tab === i ? "bg-card font-semibold shadow-sm" : "text-muted hover:text-fg"}`}>
+              <button key={label} role="tab" aria-selected={tab === i} type="button" onClick={() => setTab(i)} className={`rounded-lg px-3.5 py-2 transition ${tab === i ? "bg-card font-semibold shadow-sm" : "text-muted hover:text-fg"}`}>
                 {label}
               </button>
             ))}
@@ -256,6 +256,8 @@ export function DashboardBar({
       sub: [
         { label: lang === "ar" ? "تصميم المتجر" : "Store design", href: "/design" },
         { label: lang === "ar" ? "دومين المتجر" : "Store domain", href: "/domain" },
+        { label: lang === "ar" ? "ثيماتي" : "My themes", href: "/themes/mine" },
+        { label: lang === "ar" ? "متجر الثيمات" : "Theme store", href: "/themes" },
         ...(tour ? [] : [{ label: lang === "ar" ? "خيارات التوصيل" : "Delivery options", href: "/delivery" }]),
       ],
     },

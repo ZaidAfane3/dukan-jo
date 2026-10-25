@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useMotionValue, useReducedMotion, useSpring } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 const ease = [0.2, 0.65, 0.3, 0.9] as const;
@@ -49,14 +49,14 @@ export function Marquee({
 }
 
 /**
- * Gives its children real 3D depth: a resting angle, plus a spring-smoothed
- * tilt that follows the mouse. Children can sit at different depths with
- * `transform: translateZ(...)`.
+ * A card that answers the mouse: while the pointer is over it, it rises a little and grows a little,
+ * then settles back. There is no swinging or rotating. Children can still sit at different depths
+ * with `transform: translateZ(...)`, which gives the stack its layers.
+ * `max` is kept so existing uses still compile; it no longer tilts anything.
  */
 export function Tilt({
   children,
   className,
-  max = 10,
   perspective = 1100,
 }: {
   children: React.ReactNode;
@@ -66,39 +66,14 @@ export function Tilt({
   perspective?: number;
 }) {
   const reduce = useReducedMotion();
-  const ref = useRef<HTMLDivElement>(null);
-
-  /* Static until the pointer moves over it; it then tilts in 3D and settles back flat. */
-  const restX = 0;
-  const restY = 0;
-
-  const rx = useMotionValue(restX);
-  const ry = useMotionValue(restY);
-  const rotateX = useSpring(rx, { stiffness: 140, damping: 16, mass: 0.6 });
-  const rotateY = useSpring(ry, { stiffness: 140, damping: 16, mass: 0.6 });
-
-  useEffect(() => {
-    rx.set(restX);
-    ry.set(restY);
-  }, [restX, restY, rx, ry]);
-
-  const onMove = (e: React.PointerEvent) => {
-    if (reduce || e.pointerType !== "mouse" || !ref.current) return;
-    const r = ref.current.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5;
-    const py = (e.clientY - r.top) / r.height - 0.5;
-    ry.set(restY + px * max * 2);
-    rx.set(restX - py * max * 2);
-  };
-
-  const onLeave = () => {
-    rx.set(restX);
-    ry.set(restY);
-  };
-
   return (
-    <div ref={ref} onPointerMove={onMove} onPointerLeave={onLeave} className={className} style={{ perspective }}>
-      <motion.div className="relative h-full" style={{ rotateX, rotateY, transformStyle: "preserve-3d" }}>
+    <div className={className} style={{ perspective }}>
+      <motion.div
+        className="relative h-full"
+        style={{ transformStyle: "preserve-3d" }}
+        whileHover={reduce ? undefined : { y: -10, scale: 1.03 }}
+        transition={{ type: "spring", stiffness: 260, damping: 24 }}
+      >
         {children}
       </motion.div>
     </div>

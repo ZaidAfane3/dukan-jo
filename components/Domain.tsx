@@ -270,8 +270,8 @@ export function Domain() {
             <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-soft px-5 py-5">
               <p dir="ltr" className="break-all text-lg font-bold">{url}</p>
               <div className="flex items-center gap-4 text-sm font-semibold text-primary">
-                <button type="button" onClick={copyUrl} disabled={tour} title={tour ? demoOffText(lang) : undefined} className={`hover:underline ${demoOff}`}>{flash === c.copied ? c.copied : c.copy}</button>
-                <button type="button" onClick={share} disabled={tour} title={tour ? demoOffText(lang) : undefined} className={`hover:underline ${demoOff}`}>{c.share}</button>
+                <button type="button" onClick={copyUrl} className="hover:underline">{flash === c.copied ? c.copied : c.copy}</button>
+                <button type="button" onClick={share} className="hover:underline">{c.share}</button>
               </div>
             </div>
           )}

@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { latin } from "../digits";
 import type { Lang } from "../content";
-import { defaultConfig, newCollection, newSlides, newTextSection, type HeroBg, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type StorefrontConfig } from "../storefront/config";
+import { defaultConfig, fontFamily, heroTitleFamily, newBanners, newCollection, newRibbon, newSlides, newTextSection, newTiles, type Banner, type DisplayFont, type HeroBg, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type StorefrontConfig } from "../storefront/config";
 import { icons as storeIcons, LogoMark, markKeys, onColor, resolveLogo, sampleMarks } from "../storefront/parts";
+import { demoActive } from "../demoSandbox";
 import { loadSetup } from "../setup";
+import { patterns } from "../storefront/patterns";
+import { FocusPicker, type Focus as PicFocus } from "../FocusPicker";
 import { readLogo, readPhoto } from "./image";
 import { readProducts } from "../storefront/useStoreData";
 import { deleteMedia, putMedia, useMediaUrl } from "../storefront/mediaStore";
@@ -46,10 +49,83 @@ const ic = {
     text: <svg {...icon}><path d="M5 6h14M5 11h14M5 16h9" /></svg>,
     reviews: <svg {...icon}><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-5 4v-4a2 2 0 0 1-1-2V6Z" /><path d="m9 10 1.500 1.500L14 8" /></svg>,
     slides: <svg {...icon}><rect x="3" y="6" width="18" height="12" rx="2.500" /><path d="m3 15 5-4 4 3 3-2 6 4M8.500 9.500h.01" /></svg>,
+    tiles: <svg {...icon}><rect x="3" y="4" width="5" height="16" rx="1.500" /><rect x="9.500" y="4" width="5" height="16" rx="1.500" /><rect x="16" y="4" width="5" height="16" rx="1.500" /></svg>,
+    banners: <svg {...icon}><rect x="3" y="4" width="18" height="16" rx="2.500" /><path d="M7 14h6M7 10h9" /></svg>,
+    ribbon: <svg {...icon}><rect x="2.500" y="8" width="19" height="8" rx="1.500" /><path d="M7 12h.01M12 12h.01M17 12h.01" /></svg>,
     collection: <svg {...icon}><path d="M12 17v5M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Z" /></svg>,
     products: <svg {...icon}><rect x="4" y="4" width="7" height="7" rx="1.500" /><rect x="13" y="4" width="7" height="7" rx="1.500" /><rect x="4" y="13" width="7" height="7" rx="1.500" /><rect x="13" y="13" width="7" height="7" rx="1.500" /></svg>,
   } satisfies Record<SectionType, React.ReactNode>,
 };
+
+const noText = { en: "", ar: "" };
+
+/** How many texts of the store are written in `from` but have nothing in the other language yet. */
+function missingTexts(cfg: StorefrontConfig, from: Lang): number {
+  const other = from === "ar" ? "en" : "ar";
+  let n = 0;
+  const walk = (v: unknown) => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (v && typeof v === "object") {
+      const o = v as Record<string, unknown>;
+      const keys = Object.keys(o);
+      if (keys.length === 2 && typeof o.en === "string" && typeof o.ar === "string") {
+        if (String(o[from]).trim() && !String(o[other]).trim()) n++;
+        return;
+      }
+      keys.forEach((k) => walk(o[k]));
+    }
+  };
+  walk({ sections: cfg.sections, announcement: cfg.announcement, nav: cfg.nav, texture: cfg.texture, footer: cfg.footer });
+  return n;
+}
+
+/** A row of choices: one is on. */
+function Seg<T extends string>({ value, options, onChange, cols = 2 }: { value: T; options: { key: T; label: string }[]; onChange: (v: T) => void; cols?: number }) {
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      {options.map((o) => (
+        <button key={o.key} type="button" onClick={() => onChange(o.key)} aria-pressed={value === o.key} className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${value === o.key ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The color of one text: a swatch that opens the color picker, and a way back to the automatic color. */
+function ColorChip({ lang, label, value, onChange, onReset }: { lang: Lang; label: string; value: string | undefined; onChange: (v: string) => void; onReset: () => void }) {
+  const lx = dc[lang].luxe;
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs font-semibold text-fg/80">{label}</span>
+      <div className="flex items-center gap-2" dir="ltr">
+        {value && <button type="button" onClick={onReset} className="text-xs font-semibold text-primary hover:underline">{lx.sizeReset}</button>}
+        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-fg/15 px-2 py-1 transition hover:bg-soft">
+          <input type="color" value={value || "#1c1a17"} onChange={(e) => onChange(e.target.value)} aria-label={label} className="h-6 w-6 cursor-pointer rounded-full border-0 bg-transparent p-0" />
+          <span className="min-w-[4.5rem] text-xs font-bold uppercase tabular-nums">{value || lx.colorAuto}</span>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** A text size with a - and a + (2 px at a time), and a way back to the theme's own size. */
+function Stepper({ lang, label, value, auto, onChange, onReset, min = 10, max = 160 }: { lang: Lang; label: string; value: number; auto: boolean; onChange: (v: number) => void; onReset: () => void; min?: number; max?: number }) {
+  const lx = dc[lang].luxe;
+  const go = (d: number) => onChange(Math.min(max, Math.max(min, value + d)));
+  const btn = "grid h-8 w-8 place-items-center rounded-lg border border-fg/15 text-base font-bold transition hover:bg-soft disabled:opacity-30 disabled:hover:bg-transparent";
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs font-semibold text-fg/80">{label}</span>
+      <div className="flex items-center gap-1.5" dir="ltr">
+        {!auto && <button type="button" onClick={onReset} className="me-1 text-xs font-semibold text-primary hover:underline">{lx.sizeReset}</button>}
+        <button type="button" className={btn} disabled={value <= min} onClick={() => go(-2)} aria-label={lx.sizeSmaller} title={lx.sizeSmaller}>−</button>
+        <span className="w-12 text-center text-sm font-bold tabular-nums">{value}px</span>
+        <button type="button" className={btn} disabled={value >= max} onClick={() => go(2)} aria-label={lx.sizeBigger} title={lx.sizeBigger}>+</button>
+      </div>
+    </div>
+  );
+}
 
 const roundBtnSm = "grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted transition hover:bg-fg/10 hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent";
 const menuBtn = "flex items-center gap-1.5 rounded-md border border-fg/15 px-2.5 py-1 text-xs font-semibold text-muted transition hover:bg-soft hover:text-fg";
@@ -80,6 +156,9 @@ function defaultSection(type: SectionType, lang: Lang): SectionConfig {
   if (type === "text") return newTextSection(newId("text"));
   if (type === "collection") return newCollection(newId("collection"));
   if (type === "slides") return newSlides(newId("slides"));
+  if (type === "tiles") return newTiles(newId("tiles"));
+  if (type === "banners") return newBanners(newId("banners"));
+  if (type === "ribbon") return newRibbon(newId("ribbon"));
   const base = defaultConfig.sections.find((s) => s.type === type);
   const copy = base ? (JSON.parse(JSON.stringify(base)) as SectionConfig) : (null as never);
   copy.id = newId(type);
@@ -149,7 +228,7 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus }: 
 
   if (editing) {
     const s = cfg.sections.find((x) => x.id === editing);
-    if (s) return <ElementForm lang={lang} section={s} focusField={focus?.id === s.id ? focus.field : undefined} nonce={focus?.n ?? 0} onBack={() => setEditing(null)} onChange={(next) => setSections((all) => all.map((x) => (x.id === s.id ? next : x)))} />;
+    if (s) return <ElementForm lang={lang} section={s} focusField={focus?.id === s.id ? focus.field : undefined} nonce={focus?.n ?? 0} onBack={() => setEditing(null)} onChange={(next) => setSections((all) => all.map((x) => (x.id === s.id ? next : x)))} onDelete={() => { setSections((all) => all.filter((x) => x.id !== s.id)); setEditing(null); }} />;
   }
 
   if (sub) {
@@ -305,8 +384,15 @@ function Picker({ lang, onClose, onPick }: { lang: Lang; onClose: () => void; on
 
 /* ------------------------------------------------------------------ */
 
-function ElementForm({ lang, section, focusField, nonce, onBack, onChange }: { lang: Lang; section: SectionConfig; focusField?: string; nonce: number; onBack: () => void; onChange: (s: SectionConfig) => void }) {
+function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDelete }: { lang: Lang; section: SectionConfig; focusField?: string; nonce: number; onBack: () => void; onChange: (s: SectionConfig) => void; onDelete: () => void }) {
   const t = dc[lang];
+  /* The delete button at the bottom of the form asks once before it deletes */
+  const [asking, setAsking] = useState(false);
+  const askBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    /* The question opens at the very bottom: bring it into view so he does not have to look for it */
+    if (asking) askBox.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [asking]);
   const s = section;
 
   /* Opened by clicking a part of the store: put the cursor in that part's field. */
@@ -327,13 +413,82 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange }: { l
 
   let body: React.ReactNode;
   if (s.type === "hero") {
+    const split = s.settings.layout === "split";
+    const full = !!s.settings.fullWidth;
+    const defaults = { title: split ? (full ? 100 : 48) : 36, subtitle: split ? (full ? 24 : 15) : 15, eyebrow: 34, price: 26, detail: 13, button: split ? 15 : 14 };
+    type HeroKey = keyof typeof defaults;
+    const setSize = (key: HeroKey, v: number | undefined) => onChange({ ...s, settings: { ...s.settings, sizes: { ...(s.settings.sizes ?? {}), [key]: v } } });
+    const stepper = (key: HeroKey) => (
+      <Stepper lang={lang} label={t.luxe.textSize} value={s.settings.sizes?.[key] ?? defaults[key]} auto={s.settings.sizes?.[key] === undefined} onChange={(v) => setSize(key, v)} onReset={() => setSize(key, undefined)} />
+    );
+    const setColor = (key: HeroKey, v: string | undefined) => onChange({ ...s, settings: { ...s.settings, colors: { ...(s.settings.colors ?? {}), [key]: v } } });
+    const colorChip = (key: HeroKey) => (
+      <ColorChip lang={lang} label={t.luxe.textColor} value={s.settings.colors?.[key]} onChange={(v) => setColor(key, v)} onReset={() => setColor(key, undefined)} />
+    );
+    const withSize = (node: React.ReactNode, key: HeroKey) => (
+      <div className="space-y-2">
+        {node}
+        {stepper(key)}
+        {colorChip(key)}
+      </div>
+    );
     body = (
       <>
-        {text(s.settings.title, (title) => onChange({ ...s, settings: { ...s.settings, title } }), t.form.title, false, "title")}
-        {text(s.settings.subtitle, (subtitle) => onChange({ ...s, settings: { ...s.settings, subtitle } }), t.form.subtitle, true, "subtitle")}
-        {text(s.settings.button, (button) => onChange({ ...s, settings: { ...s.settings, button } }), t.form.button, false, "button")}
-        <HeroBackgrounds lang={lang} settings={s.settings} onChange={(settings) => onChange({ ...s, settings })} />
-        <Toggle on={s.settings.showCards ?? true} onChange={(showCards) => onChange({ ...s, settings: { ...s.settings, showCards } })} label={t.form.showCards} />
+        {withSize(text(s.settings.title, (title) => onChange({ ...s, settings: { ...s.settings, title } }), t.form.title, false, "title"), "title")}
+        <Field label={t.luxe.titleFont}>
+          <div className="grid grid-cols-2 gap-2">
+            {(["", "readex", "plex", "elegant", "cairo", "tajawal", "ruqaa", "lemonada", "amiri"] as HeroFont[]).map((k) => {
+              const on = (s.settings.titleFont ?? "") === k;
+              const name = k === "" ? t.luxe.fontDefault : k === "ruqaa" ? t.luxe.fontRuqaa : k === "lemonada" ? t.luxe.fontLemonada : k === "amiri" ? t.luxe.fontAmiri : t.options.fonts[k];
+              return (
+                <button key={k || "same"} type="button" onClick={() => onChange({ ...s, settings: { ...s.settings, titleFont: k } })} aria-pressed={on} className={`rounded-xl border px-3 py-2.5 text-start transition ${on ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+                  <span className="block truncate text-base font-bold leading-snug" style={{ fontFamily: heroTitleFamily(k) }}>{t.options.fontSample}</span>
+                  <span className="mt-1 block text-[11px] font-semibold text-muted">{name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+        {withSize(text(s.settings.subtitle, (subtitle) => onChange({ ...s, settings: { ...s.settings, subtitle } }), t.form.subtitle, true, "subtitle"), "subtitle")}
+        {withSize(text(s.settings.button, (button) => onChange({ ...s, settings: { ...s.settings, button } }), t.form.button, false, "button"), "button")}
+        <Field label={t.form.heroLayout}>
+          <div className="grid grid-cols-2 gap-2">
+            {(["banner", "split"] as const).map((k) => (
+              <button key={k} type="button" onClick={() => onChange({ ...s, settings: { ...s.settings, layout: k } })} aria-pressed={(s.settings.layout ?? "banner") === k} className={`rounded-xl border px-3 py-2.5 text-xs font-semibold transition ${(s.settings.layout ?? "banner") === k ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+                {k === "banner" ? t.form.layoutBanner : t.form.layoutSplit}
+              </button>
+            ))}
+          </div>
+        </Field>
+        {s.settings.layout === "split" && (
+          <div className="space-y-3 rounded-xl bg-soft/70 p-3">
+            <p className="text-xs leading-relaxed text-muted">{t.form.heroPhotoHint}</p>
+            <PhotoPicker lang={lang} value={s.settings.photo ?? ""} onChange={(photo) => onChange({ ...s, settings: { ...s.settings, photo } })} max={1200} />
+            <Field label={t.form.heroPhotoSide}>
+              <div className="grid grid-cols-2 gap-2">
+                {(["start", "end"] as const).map((k) => (
+                  <button key={k} type="button" onClick={() => onChange({ ...s, settings: { ...s.settings, photoSide: k } })} aria-pressed={(s.settings.photoSide ?? "start") === k} className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${(s.settings.photoSide ?? "start") === k ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+                    {k === "start" ? t.form.sideStart : t.form.sideEnd}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          </div>
+        )}
+        {s.settings.layout === "split" && (
+          <div className="space-y-4 rounded-xl bg-soft/70 p-3">
+            {withSize(text(s.settings.eyebrow ?? noText, (eyebrow) => onChange({ ...s, settings: { ...s.settings, eyebrow } }), t.luxe.heroEyebrow, false, "eyebrow"), "eyebrow")}
+            <Field label={t.luxe.heroPrice}>
+              <input data-field="price" value={s.settings.price ?? ""} onChange={(e) => onChange({ ...s, settings: { ...s.settings, price: e.target.value } })} maxLength={30} className={`${input} h-11`} />
+              <div className="mt-2 space-y-2">{stepper("price")}{colorChip("price")}</div>
+            </Field>
+            {withSize(text(s.settings.size ?? noText, (size) => onChange({ ...s, settings: { ...s.settings, size } }), t.luxe.heroSize), "detail")}
+            {text(s.settings.button2 ?? noText, (button2) => onChange({ ...s, settings: { ...s.settings, button2 } }), t.luxe.heroButton2, false, "button2")}
+          </div>
+        )}
+        {/* The backgrounds and the product cards belong to the plain banner. In the photo-beside-text layout the panel color above is the color. */}
+        {s.settings.layout !== "split" && <HeroBackgrounds lang={lang} settings={s.settings} onChange={(settings) => onChange({ ...s, settings })} />}
+        {s.settings.layout !== "split" && <Toggle on={s.settings.showCards ?? true} onChange={(showCards) => onChange({ ...s, settings: { ...s.settings, showCards } })} label={t.form.showCards} />}
       </>
     );
   } else if (s.type === "featured" || s.type === "discounts") {
@@ -364,11 +519,20 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange }: { l
             ))}
           </div>
         </Field>
+        <Field label={t.luxe.limit}>
+          <Seg value={String(s.settings.limit ?? 0)} cols={4} onChange={(v) => onChange({ ...s, settings: { ...s.settings, limit: Number(v) } })} options={[0, 4, 8, 12].map((n) => ({ key: String(n), label: n === 0 ? t.luxe.limitAll : String(n) }))} />
+        </Field>
         <Toggle on={s.settings.showFilters} onChange={(showFilters) => onChange({ ...s, settings: { ...s.settings, showFilters } })} label={t.form.filters} />
       </>
     );
   } else if (s.type === "slides") {
     body = <SlidesForm lang={lang} s={s} onChange={onChange} />;
+  } else if (s.type === "tiles") {
+    body = <TilesForm lang={lang} s={s} onChange={onChange} text={text} />;
+  } else if (s.type === "banners") {
+    body = <BannersForm lang={lang} s={s} onChange={onChange} />;
+  } else if (s.type === "ribbon") {
+    body = <RibbonForm lang={lang} s={s} onChange={onChange} />;
   } else if (s.type === "collection") {
     body = <CollectionForm lang={lang} s={s} onChange={onChange} text={text} />;
   } else if (s.type === "reviews") {
@@ -472,6 +636,24 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange }: { l
         </div>
       </div>
       <div className="space-y-4 p-4">{body}</div>
+
+      {/* Deleting the element: the last thing in its form */}
+      <div className="border-t border-fg/10 p-4">
+        {asking ? (
+          <div ref={askBox} className="rounded-xl bg-rose-500/10 p-3">
+            <p className="text-sm text-rose-700 dark:text-rose-400">{t.deleteAsk}</p>
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={onDelete} className="h-10 rounded-xl bg-rose-600 px-5 text-sm font-semibold text-white transition hover:bg-rose-700">{t.deleteYes}</button>
+              <button type="button" onClick={() => setAsking(false)} className="h-10 rounded-xl border border-fg/20 px-5 text-sm font-semibold transition hover:bg-soft">{t.cancel}</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setAsking(true)} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-500/50 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
+            {ic.trash}
+            {t.actions.delete}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -524,7 +706,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
   const set = (patch: Partial<typeof bg>) => update((d) => ({ ...d, config: { ...d.config, pageBackground: { ...d.config.pageBackground, ...patch } } }));
 
   const take = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || demoActive()) return;
     const isVideo = /^video\/(mp4|webm)$/.test(file.type);
     const isImage = /^image\/(png|jpe?g|webp|gif)$/.test(file.type);
     if ((!isVideo && !isImage) || file.size > (isVideo ? 25_000_000 : 12_000_000)) return setProblem(t.bad);
@@ -539,6 +721,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
   };
 
   const remove = () => {
+    if (demoActive()) return;
     if (bg.media) void deleteMedia(bg.media);
     set({ kind: "none", media: "", name: "", size: 0 });
   };
@@ -600,6 +783,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
 export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft: Draft; update: Update; attn?: string | null }) {
   const t = dc[lang].options;
   const th = draft.config.theme;
+  const lx = dc[lang].luxe;
   const set = (patch: Partial<StorefrontConfig["theme"]>) => update((d) => ({ ...d, config: { ...d.config, theme: { ...d.config.theme, ...patch } } }));
   return (
     <div className="space-y-5 p-4">
@@ -623,12 +807,54 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
           </button>
         )}
       </Field>
-      <div>
+      <Field label={t.font}>
+        <div className="grid grid-cols-2 gap-2">
+          {(["readex", "plex", "elegant", "cairo", "tajawal"] as const).map((k) => (
+            <button key={k} type="button" onClick={() => set({ font: k })} aria-pressed={(th.font ?? "readex") === k} className={`rounded-xl border px-3 py-3 text-start transition ${(th.font ?? "readex") === k ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+              <span className="block text-base font-bold leading-snug" style={{ fontFamily: fontFamily[k] || undefined }}>{t.fontSample}</span>
+              <span className="mt-1 block text-[11px] font-semibold text-muted">{t.fonts[k]}</span>
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field label={lx.headingFont}>
+        <div className="grid grid-cols-2 gap-2">
+          {(["", "readex", "plex", "elegant", "cairo", "tajawal"] as const).map((k) => {
+            const on = (th.headingFont ?? "") === k;
+            return (
+              <button key={k || "same"} type="button" onClick={() => set({ headingFont: k })} aria-pressed={on} className={`rounded-xl border px-3 py-3 text-start transition ${on ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+                {k ? (
+                  <>
+                    <span className="block text-base font-bold leading-snug" style={{ fontFamily: fontFamily[k as ThemeFont] }}>{t.fontSample}</span>
+                    <span className="mt-1 block text-[11px] font-semibold text-muted">{t.fonts[k as ThemeFont]}</span>
+                  </>
+                ) : (
+                  <span className="block text-sm font-semibold">{lx.sameAsFont}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+      <Field label={lx.titleStyle}>
+        <Seg value={th.titleStyle ?? "bold"} onChange={(titleStyle) => set({ titleStyle })} options={[{ key: "bold", label: lx.titleBold }, { key: "light", label: lx.titleLight }]} />
+      </Field>
+      <Field label={lx.sectionTitleSize}>
+        <Stepper lang={lang} label={lx.textSize} value={th.sectionTitleSize ?? (th.titleStyle === "light" ? 34 : 24)} auto={th.sectionTitleSize === undefined} min={14} max={80} onChange={(sectionTitleSize) => set({ sectionTitleSize })} onReset={() => set({ sectionTitleSize: undefined })} />
+      </Field>
+      <Field label={lx.spacing}>
+        <Seg value={th.spacing ?? "normal"} onChange={(spacing) => set({ spacing })} options={[{ key: "normal", label: lx.spaceNormal }, { key: "airy", label: lx.spaceAiry }]} />
+      </Field>
+      <div data-section="cards">
         <p className="mb-2 text-sm font-semibold">{t.cards}</p>
         {(["showName", "showCategory", "showPrice", "showOldPrice", "showBadge", "showStock", "showHeart", "showAdd"] as const).map((k) => (
           <Toggle key={k} on={draft.config.cards[k]} onChange={(v) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, [k]: v } } }))} label={t[k]} />
         ))}
+        <Toggle on={draft.config.cards.showNotes} onChange={(v) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, showNotes: v } } }))} label={lx.showNotes} />
       </div>
+      <Field label={lx.cardInfo}>
+        <Seg value={draft.config.cards.info ?? "stack"} onChange={(info) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, info } } }))} options={[{ key: "stack", label: lx.infoStack }, { key: "row", label: lx.infoRow }]} />
+      </Field>
       <Field label={t.cardImage}>
         <div className="grid grid-cols-3 gap-2">
           {(["portrait", "square", "wide"] as const).map((r) => (
@@ -638,6 +864,7 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
             </button>
           ))}
         </div>
+        <p className="mt-2 text-xs leading-relaxed text-muted">{lx.cropNote}</p>
       </Field>
       <Field label={t.cardStyle}>
         <div className="grid grid-cols-3 gap-2">
@@ -658,6 +885,28 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
           ))}
         </div>
       </Field>
+      <div className="space-y-3">
+        <p className="text-sm font-semibold">{lx.texture}</p>
+        <Field label={lx.patternTitle}>
+          <div className="grid grid-cols-3 gap-2">
+            {(["none", "stars", "dots", "lines", "diamonds", "waves"] as PatternKey[]).map((k) => {
+              const on = draft.config.texture.pattern === k;
+              const name = { none: lx.patNone, stars: lx.patStars, dots: lx.patDots, lines: lx.patLines, diamonds: lx.patDiamonds, waves: lx.patWaves }[k];
+              return (
+                <button key={k} type="button" onClick={() => update((d) => ({ ...d, config: { ...d.config, texture: { ...d.config.texture, pattern: k } } }))} aria-pressed={on} className={`rounded-xl border p-2 text-center transition ${on ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+                  <span aria-hidden className="relative mb-1.5 block h-10 overflow-hidden rounded-lg bg-card ring-1 ring-fg/10">
+                    {k !== "none" && <span className="absolute inset-0 opacity-70" style={{ background: "rgb(var(--fg))", WebkitMaskImage: `url("${patterns[k].url}")`, maskImage: `url("${patterns[k].url}")`, WebkitMaskSize: `${patterns[k].w}px ${patterns[k].h}px`, maskSize: `${patterns[k].w}px ${patterns[k].h}px` }} />}
+                  </span>
+                  <span className="text-xs font-semibold">{name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+        <Field label={lx.watermark}>
+          <input value={draft.config.texture.watermark[lang]} onChange={(e) => update((d) => ({ ...d, config: { ...d.config, texture: { ...d.config.texture, watermark: { ...d.config.texture.watermark, [lang]: e.target.value } } } }))} placeholder={lx.watermarkPh} maxLength={12} className={`${input} h-11`} />
+        </Field>
+      </div>
     </div>
   );
 }
@@ -1050,8 +1299,28 @@ function SubShell({ lang, title, onBack, children }: { lang: Lang; title: string
   );
 }
 
+/** Clicking a product's picture in the preview opens this: choose the part of the picture that stays visible. */
+export function ProductPicturePanel({ lang, name, image, value, onChange, onBack, blocked, onBlocked }: { lang: Lang; name: string; image: string; value: PicFocus; onChange: (f: PicFocus) => void; onBack: () => void; blocked: boolean; onBlocked: () => void }) {
+  const t = dc[lang];
+  return (
+    <SubShell lang={lang} title={name} onBack={onBack}>
+      <p className="text-xs leading-relaxed text-muted">{t.luxe.picNote}</p>
+      <FocusPicker image={image} value={value} onChange={onChange} disabled={blocked} onBlocked={onBlocked} labels={{ tall: t.options.imageKinds.portrait, square: t.options.imageKinds.square, wide: t.options.imageKinds.wide, center: t.luxe.picCenter }} />
+    </SubShell>
+  );
+}
+
 function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg }) {
   const t = dc[lang];
+  const lx = t.luxe;
+  /* Turning the language button on opens a pop-up that explains what he must do */
+  const [langNote, setLangNote] = useState(false);
+  useEffect(() => {
+    if (!langNote) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setLangNote(false);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [langNote]);
   const tog = (key: keyof StorefrontConfig["header"], label: string) => (
     <Toggle key={key} on={cfg.header[key]} onChange={(v) => setCfg((c) => ({ ...c, header: { ...c.header, [key]: v } }))} label={label} />
   );
@@ -1064,6 +1333,8 @@ function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
         {tog("showUser", t.header.showUser)}
         {tog("showCart", t.header.showCart)}
         {!cfg.header.showCart && <Tip text={t.header.tipCart} />}
+        <Toggle on={cfg.header.showLanguage} onChange={(v) => { setCfg((c) => ({ ...c, header: { ...c.header, showLanguage: v } })); if (v) setLangNote(true); }} label={lx.langButton} />
+        {cfg.header.showLanguage && missingTexts(cfg, lang) > 0 && <Tip text={lx.langMissing.replace("{n}", String(missingTexts(cfg, lang)))} />}
         {tog("sticky", t.header.sticky)}
         <Toggle on={cfg.identity.showLogo} onChange={(v) => setCfg((c) => ({ ...c, identity: { ...c.identity, showLogo: v } }))} label={t.header.showLogo} />
       </div>
@@ -1076,6 +1347,47 @@ function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
           ))}
         </div>
       </Field>
+      <Field label={lx.navStyle}>
+        <Seg value={cfg.nav.style} onChange={(style) => setCfg((c) => ({ ...c, nav: { ...c.nav, style } }))} options={[{ key: "button", label: lx.navButton }, { key: "links", label: lx.navLinks }]} />
+      </Field>
+      {cfg.nav.style === "links" && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted">{lx.navHint}</p>
+          {cfg.nav.links.map((l, i) => (
+            <div key={i} className="space-y-2 rounded-xl border border-fg/10 p-2.5">
+              <div className="flex items-center gap-2">
+                <input value={l[lang] ?? ""} onChange={(e) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, [lang]: e.target.value } : x)) } }))} placeholder={lx.navLink} aria-label={lx.navLink} maxLength={20} className={`${input} h-10 flex-1`} />
+                <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.filter((_, j) => j !== i) } }))} aria-label={lx.navRemove} title={lx.navRemove}>{ic.trash}</button>
+              </div>
+              <label className="flex items-center justify-between gap-2 text-xs font-semibold text-fg/80">
+                {lx.navTarget}
+                <select value={l.to ?? ""} onChange={(e) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, to: e.target.value || undefined } : x)) } }))} className={`${input} h-9 w-auto max-w-[60%]`}>
+                  <option value="">{lx.navNone}</option>
+                  {cfg.sections.map((sec) => (
+                    <option key={sec.id} value={sec.id}>{t.elements[sec.type]}</option>
+                  ))}
+                  <option value="footer">{lx.navFooter}</option>
+                </select>
+              </label>
+            </div>
+          ))}
+          {cfg.nav.links.length < 8 && (
+            <button type="button" onClick={() => setCfg((c) => ({ ...c, nav: { ...c.nav, links: [...c.nav.links, { en: "", ar: "" }] } }))} className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 text-sm font-bold text-primary transition hover:bg-primary/10">
+              {ic.plus}
+              {lx.navAdd}
+            </button>
+          )}
+        </div>
+      )}
+      {langNote && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4" onMouseDown={(e) => e.target === e.currentTarget && setLangNote(false)}>
+          <div role="dialog" aria-modal="true" aria-label={lx.langButton} className="dash w-full max-w-md rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
+            <h2 className="text-lg font-bold">{lx.langButton}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">{lx.langHint}</p>
+            <button type="button" autoFocus onClick={() => setLangNote(false)} className="mt-5 h-11 w-full rounded-xl bg-ink text-sm font-semibold text-onink transition hover:bg-deep">{lx.langOk}</button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1158,6 +1470,21 @@ function FooterSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
         {tog("showContact", t.footer.showContact)}
         {tog("showSocial", t.footer.showSocial)}
       </div>
+      <div className="space-y-3">
+        <p className="text-sm font-semibold">{t.luxe.footerColors}</p>
+        {(["background", "text"] as const).map((key) => (
+          <Field key={key} label={key === "background" ? t.luxe.footerBg : t.luxe.footerText}>
+            {f[key] ? (
+              <>
+                <ColorPicker value={f[key]} onChange={(v) => set({ [key]: v })} label={key} bad={t.identity.hexBad} list={key === "background" ? ["#16120f", "#1c1a17", "#2b2118", "#004956", "#f4f1ea", "#ffffff"] : ["#e9e1d3", "#ffffff", "#c9a46a", "#1c1a17", "#12262b"]} />
+                <button type="button" onClick={() => set({ [key]: "" })} className="mt-2 text-sm font-semibold text-primary hover:underline">{t.luxe.footerAutoBack}</button>
+              </>
+            ) : (
+              <button type="button" onClick={() => set({ [key]: key === "background" ? "#16120f" : "#e9e1d3" })} className="w-full rounded-xl border border-dashed border-fg/25 px-3 py-2.5 text-start text-sm font-medium text-muted transition hover:bg-soft">{t.luxe.footerAuto}</button>
+            )}
+          </Field>
+        ))}
+      </div>
       <Field label={t.footerFields.about} hint={t.footerFields.aboutHint}>
         <textarea data-field="about" value={f.about[lang]} onChange={(e) => set({ about: { ...f.about, [lang]: e.target.value } })} rows={3} maxLength={200} className={`${input} resize-none py-3`} />
       </Field>
@@ -1222,6 +1549,12 @@ function CertificateForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCon
           ))}
         </div>
       </Field>
+      {/* "Other" opens a field where he writes what it is */}
+      {c.kind === "other" && (
+        <Field label={t.otherName}>
+          <input autoFocus value={c.label ?? ""} onChange={(e) => set({ label: e.target.value })} placeholder={t.otherNamePh} maxLength={40} className={`${input} h-11`} />
+        </Field>
+      )}
       <Field label={t.number}>
         <input dir="ltr" value={c.number} onChange={(e) => set({ number: latin(e.target.value).slice(0, 30) })} maxLength={30} className={`${input} h-11 text-start`} />
       </Field>
@@ -1340,6 +1673,249 @@ function SlidesForm({ lang, s, onChange }: { lang: Lang; s: SlidesEl; onChange: 
           )}
         </div>
       )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  One picture the merchant uploads (shrunk, kept with the store)     */
+/* ------------------------------------------------------------------ */
+
+function PhotoPicker({ lang, value, onChange, max = 1200 }: { lang: Lang; value: string; onChange: (v: string) => void; max?: number }) {
+  const t = dc[lang].form;
+  const [bad, setBad] = useState(false);
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    const url = await readPhoto(file, max);
+    setBad(!url);
+    if (url) onChange(url);
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        {value && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="" className="h-16 w-14 shrink-0 rounded-lg object-cover ring-1 ring-black/10" />
+        )}
+        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 px-3 py-2.5 transition hover:bg-primary/10 focus-within:ring-2 focus-within:ring-primary/40">
+          <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; void pick(f); }} />
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-white shadow-sm">{upIcon}</span>
+          <span className="truncate text-sm font-bold text-primary">{value ? t.picChange : t.pic}</span>
+        </label>
+        {value && (
+          <button type="button" onClick={() => onChange("")} className={`${roundBtn} hover:!text-rose-600`} aria-label={t.picRemove} title={t.picRemove}>{ic.trash}</button>
+        )}
+      </div>
+      {bad && <p className="text-xs text-rose-600">{t.picBad}</p>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Picture tiles: a row of pictures with names and links              */
+/* ------------------------------------------------------------------ */
+
+type TilesEl = Extract<SectionConfig, { type: "tiles" }>;
+type BannersEl = Extract<SectionConfig, { type: "banners" }>;
+
+function TilesForm({ lang, s, onChange, text }: { lang: Lang; s: TilesEl; onChange: (s: SectionConfig) => void; text: (v: { en: string; ar: string }, set: (b: { en: string; ar: string }) => void, label: string, area?: boolean, field?: string) => React.ReactNode }) {
+  const t = dc[lang].form;
+  const lx = dc[lang].luxe;
+  const items = s.settings.items ?? [];
+  const [bad, setBad] = useState(false);
+  const set = (patch: Partial<TilesEl["settings"]>) => onChange({ ...s, settings: { ...s.settings, ...patch } });
+  const edit = (i: number, patch: Partial<Tile>) => set({ items: items.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= items.length) return;
+    const n = [...items];
+    [n[i], n[j]] = [n[j], n[i]];
+    set({ items: n });
+  };
+  const add = async (files: FileList | null) => {
+    if (!files) return;
+    const made = await Promise.all(Array.from(files).map((f) => readPhoto(f, 900)));
+    const ok = made.filter((u): u is string => !!u);
+    setBad(ok.length < files.length);
+    set({ items: [...items, ...ok.map((image) => ({ image, label: { en: "", ar: "" }, link: "" }))].slice(0, 10) });
+  };
+
+  return (
+    <>
+      {text(s.settings.title, (title) => set({ title }), t.title, false, "title")}
+      <p className="text-xs leading-relaxed text-muted">{t.tilesHint}</p>
+
+      {items.length > 0 && (
+        <ol className="space-y-3">
+          {items.map((x, i) => (
+            <li key={i} className="space-y-2.5 rounded-xl border border-fg/10 p-3">
+              <div className="flex items-center gap-2">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-soft text-xs font-bold">{i + 1}</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={x.image} alt="" className="h-12 w-10 shrink-0 rounded-lg object-cover ring-1 ring-black/10" />
+                <span className="flex-1" />
+                <button type="button" className={roundBtnSm} disabled={i === 0} onClick={() => move(i, -1)} aria-label={dc[lang].actions.up} title={dc[lang].actions.up}>{ic.up}</button>
+                <button type="button" className={roundBtnSm} disabled={i === items.length - 1} onClick={() => move(i, 1)} aria-label={dc[lang].actions.down} title={dc[lang].actions.down}>{ic.down}</button>
+                <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set({ items: items.filter((_, j) => j !== i) })} aria-label={t.removeTile} title={t.removeTile}>{ic.trash}</button>
+              </div>
+              <input value={x.label?.[lang] ?? ""} onChange={(e) => edit(i, { label: { ...(x.label ?? { en: "", ar: "" }), [lang]: e.target.value } })} placeholder={t.tileLabel} aria-label={t.tileLabel} maxLength={40} className={`${input} h-10`} />
+              <input dir="ltr" value={x.link} onChange={(e) => edit(i, { link: e.target.value })} placeholder={t.tileLink} aria-label={t.tileLink} maxLength={160} className={`${input} h-10 text-start`} />
+              {s.settings.style === "editorial" && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-fg/80">{lx.tileChip}</p>
+                  <Seg value={x.chip ?? "light"} onChange={(chip) => edit(i, { chip })} options={[{ key: "light", label: lx.chipLight }, { key: "dark", label: lx.chipDark }]} />
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {items.length < 10 && (
+        <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 px-4 py-3 transition hover:bg-primary/10 focus-within:ring-2 focus-within:ring-primary/40">
+          <input type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { const el = e.currentTarget; void add(el.files).then(() => { el.value = ""; }); }} />
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary text-white shadow-sm">{upIcon}</span>
+          <span className="text-sm font-bold text-primary">{t.addTile}</span>
+        </label>
+      )}
+      {bad && <p className="text-xs text-rose-600">{t.picBad}</p>}
+      <p className="flex items-start gap-1.5 text-xs text-muted">
+        <svg viewBox="0 0 24 24" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 9h16M9 4v16" /></svg>
+        <span><b className="font-semibold text-fg">{t.sizeLabel}:</b> {t.tilesSpec}</span>
+      </p>
+
+      <Field label={lx.tilesStyle}>
+        <Seg value={s.settings.style ?? "classic"} onChange={(style) => set({ style })} options={[{ key: "classic", label: lx.tilesClassic }, { key: "editorial", label: lx.tilesEditorial }]} />
+      </Field>
+
+      <Field label={t.tilesPerRow}>
+        <div className="flex gap-2">
+          {([3, 4, 5] as const).map((n) => (
+            <button key={n} type="button" onClick={() => set({ columns: n })} aria-pressed={s.settings.columns === n} className={`h-10 flex-1 rounded-xl border text-sm font-semibold transition ${s.settings.columns === n ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </Field>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Promo banners: a picture with a title, text and button on top      */
+/* ------------------------------------------------------------------ */
+
+function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange: (s: SectionConfig) => void }) {
+  const t = dc[lang].form;
+  const lx = dc[lang].luxe;
+  const items = s.settings.items ?? [];
+  const set = (next: Banner[]) => onChange({ ...s, settings: { ...s.settings, items: next } });
+  const fonts: { key: DisplayFont; label: string }[] = [{ key: "default", label: lx.fontDefault }, { key: "ruqaa", label: lx.fontRuqaa }, { key: "lemonada", label: lx.fontLemonada }, { key: "amiri", label: lx.fontAmiri }];
+  const edit = (i: number, patch: Partial<Banner>) => set(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const bi = (i: number, k: "title" | "text" | "button" | "eyebrow", v: string) => edit(i, { [k]: { ...(items[i][k] ?? { en: "", ar: "" }), [lang]: v } } as Partial<Banner>);
+
+  return (
+    <>
+      <p className="text-xs leading-relaxed text-muted">{t.bannersHint}</p>
+      <Field label={lx.bannerHeight}>
+        <Seg value={s.settings.height ?? "normal"} onChange={(height) => onChange({ ...s, settings: { ...s.settings, height } })} options={[{ key: "normal", label: lx.heightNormal }, { key: "tall", label: lx.heightTall }]} />
+      </Field>
+      {items.map((x, i) => (
+        <div key={i} className="space-y-3 rounded-xl border border-fg/10 p-3">
+          <div className="flex items-center gap-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-soft text-xs font-bold">{i + 1}</span>
+            <span className="flex-1" />
+            <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set(items.filter((_, j) => j !== i))} aria-label={t.removeBanner} title={t.removeBanner}>{ic.trash}</button>
+          </div>
+          <PhotoPicker lang={lang} value={x.image} onChange={(image) => edit(i, { image })} max={1600} />
+          <input value={x.title?.[lang] ?? ""} onChange={(e) => bi(i, "title", e.target.value)} placeholder={t.bannerTitle} aria-label={t.bannerTitle} maxLength={60} className={`${input} h-10`} />
+          <textarea value={x.text?.[lang] ?? ""} onChange={(e) => bi(i, "text", e.target.value)} placeholder={t.bannerText} aria-label={t.bannerText} rows={2} maxLength={140} className={`${input} resize-none py-2.5`} />
+          <input value={x.button?.[lang] ?? ""} onChange={(e) => bi(i, "button", e.target.value)} placeholder={t.bannerButton} aria-label={t.bannerButton} maxLength={30} className={`${input} h-10`} />
+          <input dir="ltr" value={x.link} onChange={(e) => edit(i, { link: e.target.value })} placeholder={t.bannerLink} aria-label={t.bannerLink} maxLength={160} className={`${input} h-10 text-start`} />
+          <input value={x.eyebrow?.[lang] ?? ""} onChange={(e) => bi(i, "eyebrow", e.target.value)} placeholder={lx.bannerEyebrow} aria-label={lx.bannerEyebrow} maxLength={40} className={`${input} h-10`} />
+          <Field label={lx.bannerFont}>
+            <Seg value={x.font ?? "default"} onChange={(font) => edit(i, { font })} options={fonts} />
+          </Field>
+          <Field label={lx.bannerTextFont}>
+            <Seg value={x.textFont ?? "default"} onChange={(textFont) => edit(i, { textFont })} options={fonts} />
+          </Field>
+          <Stepper lang={lang} label={lx.titleSize} value={x.titleSize ?? 84} auto={x.titleSize === undefined} min={20} max={200} onChange={(titleSize) => edit(i, { titleSize })} onReset={() => edit(i, { titleSize: undefined })} />
+          <Stepper lang={lang} label={lx.textSize} value={x.textSize ?? (x.textFont && x.textFont !== "default" ? 20 : 15)} auto={x.textSize === undefined} min={10} max={60} onChange={(textSize) => edit(i, { textSize })} onReset={() => edit(i, { textSize: undefined })} />
+          <Field label={lx.bannerTitleColor}>
+            <ColorPicker value={x.titleColor || "#ffffff"} onChange={(titleColor) => edit(i, { titleColor })} label={lx.bannerTitleColor} bad={dc[lang].identity.hexBad} list={["#ffffff", "#d9b776", "#b03a5b", "#1c1a17", "#004956"]} />
+          </Field>
+          <Field label={lx.bannerPanel}>
+            <Seg value={x.panel ?? "none"} cols={3} onChange={(panel) => edit(i, { panel })} options={[{ key: "none", label: lx.panelNone }, { key: "light", label: lx.panelLight }, { key: "dark", label: lx.panelDark }]} />
+          </Field>
+          {(x.panel === "light" || x.panel === "dark") && (
+            <Field label={lx.bannerPanelColor}>
+              <ColorPicker value={x.panelColor || (x.panel === "dark" ? "#12100d" : "#fff5f8")} onChange={(panelColor) => edit(i, { panelColor })} label={lx.bannerPanelColor} bad={dc[lang].identity.hexBad} list={["#fff5f8", "#ffffff", "#f4efe6", "#12100d", "#16120f", "#004956", "#b03a5b"]} />
+              {x.panelColor && (
+                <button type="button" onClick={() => edit(i, { panelColor: "" })} className="mt-2 text-sm font-semibold text-primary hover:underline">{lx.bannerPanelAuto}</button>
+              )}
+            </Field>
+          )}
+          {(x.panel === "light" || x.panel === "dark") && (
+            <Field label={lx.bannerPosition}>
+              <Seg value={x.position ?? "top-start"} onChange={(position) => edit(i, { position })} options={[{ key: "top-start", label: lx.posTopStart }, { key: "top-end", label: lx.posTopEnd }, { key: "bottom-start", label: lx.posBottomStart }, { key: "bottom-end", label: lx.posBottomEnd }]} />
+            </Field>
+          )}
+          <Field label={lx.bannerButtonStyle}>
+            <Seg value={x.buttonStyle ?? "filled"} onChange={(buttonStyle) => edit(i, { buttonStyle })} options={[{ key: "filled", label: lx.btnFilled }, { key: "outline", label: lx.btnOutline }]} />
+          </Field>
+          <ColorChip lang={lang} label={lx.bannerEyebrowColor} value={x.eyebrowColor} onChange={(eyebrowColor) => edit(i, { eyebrowColor })} onReset={() => edit(i, { eyebrowColor: undefined })} />
+          <ColorChip lang={lang} label={lx.bannerTextColor} value={x.textColor} onChange={(textColor) => edit(i, { textColor })} onReset={() => edit(i, { textColor: undefined })} />
+          <ColorChip lang={lang} label={lx.bannerButtonColor} value={x.accent} onChange={(accent) => edit(i, { accent })} onReset={() => edit(i, { accent: undefined })} />
+        </div>
+      ))}
+
+      {items.length < 3 && (
+        <button type="button" onClick={() => set([...items, { image: "", title: { en: "", ar: "" }, text: { en: "", ar: "" }, button: { en: "", ar: "" }, link: "" }])} className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 px-4 py-3 text-sm font-bold text-primary transition hover:bg-primary/10">
+          {ic.plus}
+          {t.addBanner}
+        </button>
+      )}
+      <p className="flex items-start gap-1.5 text-xs text-muted">
+        <svg viewBox="0 0 24 24" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 9h16M9 4v16" /></svg>
+        <span><b className="font-semibold text-fg">{t.sizeLabel}:</b> {t.bannersSpec}</span>
+      </p>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Notes ribbon: a dark strip of short words                          */
+/* ------------------------------------------------------------------ */
+
+type RibbonEl = Extract<SectionConfig, { type: "ribbon" }>;
+
+function RibbonForm({ lang, s, onChange }: { lang: Lang; s: RibbonEl; onChange: (s: SectionConfig) => void }) {
+  const lx = dc[lang].luxe;
+  const items = s.settings.items ?? [];
+  const set = (patch: Partial<RibbonEl["settings"]>) => onChange({ ...s, settings: { ...s.settings, ...patch } });
+  return (
+    <>
+      <p className="text-xs leading-relaxed text-muted">{lx.ribbonHint}</p>
+      <ol className="space-y-2">
+        {items.map((w, i) => (
+          <li key={i} className="flex items-center gap-2">
+            <input value={w[lang] ?? ""} onChange={(e) => set({ items: items.map((x, j) => (j === i ? { ...x, [lang]: e.target.value } : x)) })} placeholder={lx.ribbonWord} aria-label={lx.ribbonWord} maxLength={24} className={`${input} h-10 flex-1`} />
+            <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set({ items: items.filter((_, j) => j !== i) })} aria-label={lx.ribbonRemove} title={lx.ribbonRemove}>{ic.trash}</button>
+          </li>
+        ))}
+      </ol>
+      {items.length < 12 && (
+        <button type="button" onClick={() => set({ items: [...items, { en: "", ar: "" }] })} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 text-sm font-bold text-primary transition hover:bg-primary/10">
+          {ic.plus}
+          {lx.ribbonAdd}
+        </button>
+      )}
+      <Field label={lx.ribbonBg}>
+        <ColorPicker value={s.settings.background} onChange={(background) => set({ background })} label={lx.ribbonBg} bad={dc[lang].identity.hexBad} list={["#16120f", "#1c1a17", "#2b2118", "#004956", "#ffffff"]} />
+      </Field>
+      <Field label={lx.ribbonText}>
+        <ColorPicker value={s.settings.color} onChange={(color) => set({ color })} label={lx.ribbonText} bad={dc[lang].identity.hexBad} list={["#c9a46a", "#d9b776", "#e9e1d3", "#ffffff", "#1c1a17"]} />
+      </Field>
     </>
   );
 }

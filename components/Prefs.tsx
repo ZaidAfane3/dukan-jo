@@ -44,12 +44,30 @@ const ar: typeof en = {
 
 export type Copy = typeof en;
 
+/* An industry can have a detail card: a title, a short text, three points, and pictures of a store of that kind
+   (each picture is a part of a long picture of the page: `y` is how far down it, in percent). */
+export type IndustryDetail = {
+  title: string;
+  body: string;
+  bullets: string[];
+  shots: { src: string; y: number }[];
+};
+
 /* Industries: name + one-line blurb per language (same order as the icons). */
-export const industries: Record<Lang, { name: string; blurb: string }[]> = {
+export const industries: Record<Lang, { name: string; blurb: string; detail?: IndustryDetail }[]> = {
   en: [
     { name: "Fashion", blurb: "Sizes, variants and seasonal drops, handled." },
+    {
+      name: "Perfumes",
+      blurb: "Collections, gift sets and samples, handled.",
+      detail: {
+        title: "Smart tools for selling your perfumes",
+        body: "Whether you sell fine fragrances, oud or gift sets, your store shows every scent with elegance and takes orders without any technical fuss.",
+        bullets: ["Show each perfume's notes and size on its card", "A ready luxury design for your collections and banners", "Choose which part of each bottle's picture shows"],
+        shots: [{ src: "/themes/atelier.jpg", y: 0 }, { src: "/themes/atelier.jpg", y: 34 }],
+      },
+    },
     { name: "Digital products", blurb: "Instant delivery for downloads, courses and licenses." },
-    { name: "Health & fitness", blurb: "Subscriptions and bundles for wellness brands." },
     { name: "Electronics", blurb: "Warranty, serial tracking and fast fulfilment." },
     { name: "Jewelry", blurb: "Premium presentation with secure checkout." },
     { name: "Beauty", blurb: "Routines, bundles and loyalty rewards." },
@@ -57,8 +75,17 @@ export const industries: Record<Lang, { name: string; blurb: string }[]> = {
   ],
   ar: [
     { name: "عبايات وأزياء", blurb: "المقاسات والألوان والتشكيلات الموسمية، كلها بسهولة." },
+    {
+      name: "العطور",
+      blurb: "مجموعات وأطقم هدايا وعيّنات، كلها بسهولة.",
+      detail: {
+        title: "حلول ذكية لبيع عطورك",
+        body: "سواء كنت تبيع عطورًا فاخرة أو دهن عود أو أطقم هدايا، يعرض متجرك كل عطر بأناقة ويستقبل الطلبات بدون أي تعقيدات تقنية.",
+        bullets: ["اعرض نوتات كل عطر وحجمه على بطاقته", "تصميم فاخر جاهز لمجموعاتك وبنراتك", "اختر الجزء الظاهر من صورة كل زجاجة"],
+        shots: [{ src: "/themes/atelier.jpg", y: 0 }, { src: "/themes/atelier.jpg", y: 34 }],
+      },
+    },
     { name: "المنتجات الرقمية", blurb: "تسليم فوري للملفات والدورات والتراخيص." },
-    { name: "الصحة واللياقة", blurb: "اشتراكات وباقات لعلامات العافية والرياضة." },
     { name: "الإلكترونيات", blurb: "ضمان وتتبع للأرقام التسلسلية وتجهيز سريع للطلبات." },
     { name: "المجوهرات", blurb: "عرض فاخر مع دفع آمن." },
     { name: "العناية والتجميل", blurb: "روتين وباقات ومكافآت ولاء لعملائك." },

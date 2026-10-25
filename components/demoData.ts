@@ -4,6 +4,9 @@ import { demoConfig, perfumeStore } from "./storefront/demoStores";
 /* Everything the platform tour shows: a made-up perfume store with made-up products, orders,
    customers and coupons. Nothing here belongs to a real store, person or phone number. */
 
+/* Raise this whenever the demo's data changes: a tab that holds an older copy then loads the new one by itself */
+export const DEMO_SEED_VERSION = 14;
+
 const DAY = 86_400_000;
 const bi = (lang: Lang, en: string, ar: string) => (lang === "ar" ? ar : en);
 
@@ -15,9 +18,9 @@ export function demoSeed(lang: Lang): { local: Record<string, string>; session: 
   const setup = {
     name: L("Perfume Store", "متجر عطور"),
     description: L("Fine fragrances and body mists, made in small batches.", "عطور راقية ومعطّرات جسم، تُصنع بكميات صغيرة."),
-    color: "#2b241d",
+    color: "#1c1a17",
     phone: "70 000 0000",
-    slug: "perfume-store",
+    slug: "your-store",
     logo: perfumeStore.logo,
     done: [true, true, true, true, true, true],
     pickup: true,
@@ -40,7 +43,7 @@ export function demoSeed(lang: Lang): { local: Record<string, string>; session: 
     price: number,
     cost: number,
     quantity: number,
-    extra: { sale?: number; featured?: boolean; hidden?: boolean; lowAt?: number; description?: [string, string] } = {},
+    extra: { sale?: number; featured?: boolean; hidden?: boolean; lowAt?: number; description?: [string, string]; photo?: string; notes?: [string, string]; badge?: [string, string]; focus?: [number, number] } = {},
   ) => ({
     id,
     name: L(...name),
@@ -50,6 +53,9 @@ export function demoSeed(lang: Lang): { local: Record<string, string>; session: 
     category: L(...category),
     brand,
     description: extra.description ? L(...extra.description) : "",
+    notes: extra.notes ? L(...extra.notes) : "",
+    badge: extra.badge ? L(...extra.badge) : "",
+    focus: extra.focus ? { x: extra.focus[0], y: extra.focus[1] } : undefined,
     quantity,
     hidden: extra.hidden ?? false,
     featured: extra.featured ?? false,
@@ -58,27 +64,26 @@ export function demoSeed(lang: Lang): { local: Record<string, string>; session: 
     restockMin: 15,
     restockPct: 100,
     created: now - (30 - id) * DAY,
+    /* Photos of the demo store (files in /public/demo/perfume); products without one show the colored tile */
+    images: extra.photo ? [extra.photo] : [],
   });
 
   const perfumes: [string, string] = ["Perfumes", "عطور"];
-  const cologne: [string, string] = ["Cologne", "كولونيا"];
   const oils: [string, string] = ["Oils", "دهون"];
   const mists: [string, string] = ["Body mists", "معطّرات جسم"];
   const gifts: [string, string] = ["Gifts", "هدايا"];
 
+  /* Every product has a photo. Where the bottle shows a name, the product carries it; the rest are named freely. */
   const products = [
-    p(1, ["Rose Garden 50ml", "حديقة الورد 50 مل"], perfumes, 48, 22, 24, { featured: true, description: ["A soft rose with a fresh green heart.", "ورد ناعم بقلب أخضر منعش."] }),
-    p(2, ["Vanilla Cloud 30ml", "سحابة الفانيلا 30 مل"], perfumes, 29, 12, 40, { sale: 23 }),
-    p(3, ["Midnight Jasmine 100ml", "ياسمين الليل 100 مل"], perfumes, 62, 28, 3, { featured: true, lowAt: 5 }),
-    p(4, ["Sea Breeze 50ml", "نسيم البحر 50 مل"], perfumes, 44, 19, 18),
-    p(5, ["Fresh Citrus Cologne", "كولونيا الحمضيات المنعشة"], cologne, 21, 8, 55, { featured: true }),
-    p(6, ["Cedar Cologne", "كولونيا الأرز"], cologne, 24, 9, 31),
-    p(7, ["Sandalwood Oil", "دهن الصندل"], oils, 26, 11, 14, { sale: 20 }),
-    p(8, ["Rose Oil 12ml", "دهن الورد 12 مل"], oils, 18, 7, 0),
-    p(9, ["Lavender Body Mist", "معطّر جسم باللافندر"], mists, 14, 5, 62, { featured: true }),
-    p(10, ["Peach Body Mist", "معطّر جسم بالخوخ"], mists, 14, 5, 47),
-    p(11, ["Gift set of three", "طقم هدية ثلاثي"], gifts, 58, 26, 12, { sale: 49, featured: true }),
-    p(12, ["Travel atomizer", "بخاخ سفر"], gifts, 9, 3, 80, { hidden: true }),
+    p(10, ["Peach Body Mist", "معطّر جسم بالخوخ"], mists, 14, 5, 47, { photo: "/demo/perfume/p10.jpg", focus: [50, 45], notes: ["peach · rose · musk", "خوخ · ورد · مسك"], badge: ["New", "جديد"] }),
+    p(8, ["Rose Oil 12ml", "دهن الورد 12 مل"], oils, 18, 7, 0, { photo: "/demo/perfume/p8.jpg", focus: [45, 50], notes: ["rose · green leaves", "ورد · أوراق خضراء"], badge: ["New", "جديد"] }),
+    p(2, ["Noir or Blanc 30ml", "نوار أو بلان 30 مل"], perfumes, 29, 12, 40, { sale: 23, photo: "/demo/perfume/p2.jpg", focus: [50, 32], notes: ["vanilla · tonka · musk", "فانيلا · تونكا · مسك"], badge: ["New", "جديد"] }),
+    p(11, ["Xanat Trio Gift Set", "طقم زانات الثلاثي"], gifts, 58, 26, 12, { sale: 49, photo: "/demo/perfume/p11.jpg", focus: [50, 38], notes: ["oud · amber · fresh", "عود · عنبر · منعش"], badge: ["Gift", "هدية"] }),
+    p(7, ["Myst Oud 50ml", "مست عود 50 مل"], perfumes, 56, 25, 14, { sale: 49, photo: "/demo/perfume/p7.jpg", focus: [50, 58], notes: ["oud · citrus · smoke", "عود · حمضيات · دخان"] }),
+    p(1, ["Rose Garden 50ml", "حديقة الورد 50 مل"], perfumes, 48, 22, 24, { photo: "/demo/perfume/p1.jpg", focus: [50, 45], featured: true, notes: ["rose · musk · incense", "ورد · مسك · بخور"], badge: ["Best seller", "الأكثر مبيعًا"], description: ["A soft rose with a fresh green heart.", "ورد ناعم بقلب أخضر منعش."] }),
+    p(3, ["Cuir Curcuma 50ml", "كوير كركوما 50 مل"], perfumes, 62, 28, 3, { photo: "/demo/perfume/p3.jpg", focus: [55, 55], featured: true, lowAt: 5, notes: ["leather · saffron · amber", "جلد · زعفران · عنبر"], badge: ["Best seller", "الأكثر مبيعًا"], description: ["Warm leather with a golden spice trail.", "جلد دافئ بأثر توابل ذهبي."] }),
+    p(4, ["Golden Leather 100ml", "جولدن ليذر 100 مل"], perfumes, 74, 34, 18, { photo: "/demo/perfume/p4.jpg", focus: [40, 50], featured: true, notes: ["leather · amber · gift box", "جلد · عنبر · علبة هدية"] }),
+    p(6, ["Black Piano 50ml", "بلاك بيانو 50 مل"], perfumes, 44, 19, 31, { photo: "/demo/perfume/p6.jpg", focus: [50, 42], featured: true, notes: ["woods · spice · musk", "خشب · توابل · مسك"] }),
   ];
 
   const names: [string, string][] = [
@@ -86,13 +91,22 @@ export function demoSeed(lang: Lang): { local: Record<string, string>; session: 
     ["Sara L.", "سارة ل."], ["Majd O.", "مجد ع."], ["Hala B.", "هالة ب."], ["Tariq W.", "طارق و."], ["Noor S.", "نور س."], ["Fadi N.", "فادي ن."],
   ];
   const statuses = ["pending", "review", "processing", "shipping", "delivered", "delivered", "delivered", "cancelled", "delivered", "processing", "shipping", "refunded"] as const;
-  const totals = [48, 29, 62, 35, 120, 21, 49, 58, 26, 73, 44, 14];
+  /* What each order contains (product id, how many). The total of an order is the sum of its items. */
+  const picks: [number, number][][] = [[[1, 1]], [[2, 1], [10, 1]], [[3, 1]], [[10, 2], [8, 1]], [[4, 1], [1, 1]], [[8, 1]], [[7, 1]], [[11, 1]], [[6, 1]], [[2, 2], [11, 1]], [[1, 1], [10, 1]], [[10, 1]]];
+  const orderItems = picks.map((list) =>
+    list.map(([id, qty]) => {
+      const pr = products.find((x) => x.id === id)!;
+      return { name: pr.name, qty, price: pr.sale ?? pr.price ?? 0, image: pr.images?.[0] };
+    }),
+  );
+  const totals = orderItems.map((list) => list.reduce((sum, x) => sum + x.price * x.qty, 0));
   const orders = names.map((n, i) => ({
     id: 1012 - i,
     customer: L(...n),
     /* Not real numbers: the prefix 070 is not used in Jordan */
     phone: `070 000 ${String(1000 + i).slice(1)}0`.slice(0, 12),
     total: totals[i],
+    items: orderItems[i],
     status: statuses[i],
     channel: (i % 4 === 3 ? 1 : 0) as 0 | 1,
     created: now - i * 0.9 * DAY - i * 3_600_000,

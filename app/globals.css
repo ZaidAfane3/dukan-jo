@@ -377,3 +377,48 @@ form[data-demo-lock] :disabled { cursor: not-allowed; opacity: 0.6; }
 @media (prefers-reduced-motion: reduce) {
   .dk-pop, .dk-text-brand { animation: none; }
 }
+
+/* In the platform tour an upload box is switched off and says so: its content is dimmed and a small tag sits on its top edge,
+   so the tag never squeezes the text beside it */
+label[data-demo-off] { position: relative; cursor: not-allowed; }
+label[data-demo-off] > * { opacity: 0.5; }
+label[data-demo-off]::after {
+  content: attr(data-demo-off);
+  position: absolute;
+  top: -0.7rem;
+  inset-inline-end: 0.9rem;
+  border-radius: 999px;
+  background: #fde8c4;
+  padding: 3px 11px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #7c4a03;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
+}
+:root[data-theme="dark"] label[data-demo-off]::after { background: #4a3410; color: #fcd34d; }
+
+/* A theme's picture in the theme store scrolls down its whole page once, at a gentle steady speed
+   (--dur is worked out from the page's length: about 28 px a second), and stays at the end. */
+@keyframes dk-scroll {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(var(--dist) * -1)); }
+}
+.dk-scroll { animation: dk-scroll var(--dur, 30s) linear 1.2s 1 forwards; will-change: transform; }
+@media (prefers-reduced-motion: reduce) { .dk-scroll { animation: none; } }
+
+/* A switch or an upload box hides its real input (sr-only, absolutely positioned). The input must live inside its label, or a scrolling panel
+   leaves it far below the page: pressing the switch then scrolls the whole page down, and the page grows an empty screen. */
+label:has(> .sr-only) { position: relative; }
+
+/* A store's whole page inside a window on the home page: it glides down to the end and back up, slowly and without ever stopping
+   (each turn is one smooth curve, there is no rest at the ends).
+   --box is the height of the window; -90% of the picture's own height is where it stops: just above the footer, which is never shown. */
+@keyframes dk-shot {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(calc(-90% + var(--box))); }
+}
+.dk-shot { animation: dk-shot 50s cubic-bezier(0.45, 0, 0.55, 1) infinite; will-change: transform; }
+.group:hover .dk-shot { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .dk-shot { animation: none; } }
