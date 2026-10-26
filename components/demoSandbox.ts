@@ -32,6 +32,7 @@ let ownCopy = false;
 export const setOwnCopy = (v: boolean) => {
   ownCopy = v;
 };
+export const isOwnCopy = () => ownCopy;
 /** Whether the designer must refuse changes: only in the tour, and never in Saad's own copies */
 export const editLocked = () => demoActive() && !ownCopy;
 

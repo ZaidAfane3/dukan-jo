@@ -8,7 +8,10 @@ export const input =
 export function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="mb-2 text-sm font-semibold text-fg/80">{label}</p>
+      <p className="mb-2 text-sm font-semibold text-fg/80">
+        {/* a name that ends with * must be filled: the star is red */}
+        {label.endsWith(" *") ? <>{label.slice(0, -2)}<span className="ms-1 text-rose-600">*</span></> : label}
+      </p>
       {children}
       {hint && !error && <p className="mt-1.5 text-xs text-muted">{hint}</p>}
       {error && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}

@@ -99,21 +99,40 @@ export function Industries() {
   const { lang, t } = usePrefs();
   const items = industryCopy[lang];
   const rtl = lang === "ar";
-  /* Only the first industry is shown at the start. Each press of the arrow reveals the next one as the big card in the middle,
-     and the ones before it slide toward the start side and shrink into small chips. Every card is placed from the middle,
-     so they all glide to their new place together, the same way the feedback cards slide. */
-  const [shown, setShown] = useState(1);
+  /* Every industry is always there: the open one is the big card in the middle and the others are small icons on its two sides.
+     The ones near it show and the farther ones fade away toward the edges. Each press of the arrow opens the next one and they
+     all glide to their new place together. */
   const [active, setActive] = useState(0);
-  /* When the last industry has been seen, all the icons spread out in one row and a wave runs through them, then it starts again from the first */
+  /* The opening (when the row first comes into view) and the end (after the last industry): all the icons stand in one even
+     row and a wave runs through them. After the end it starts again from the first. */
   const [finale, setFinale] = useState(false);
+  const [seen, setSeen] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const stage = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    /* The opening plays once, the first time the row comes into view */
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting) return;
+        io.disconnect();
+        setSeen(true);
+        setFinale(true);
+        timer.current = window.setTimeout(() => setFinale(false), 3600);
+      },
+      { threshold: 0.4 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const next = () => {
     if (finale) return;
     if (active >= items.length - 1) {
       setFinale(true);
-      /* Then it starts again from the first industry. Everything the visitor has already seen stays on the side as small icons. */
       timer.current = window.setTimeout(() => {
         setFinale(false);
         setActive(0);
@@ -121,11 +140,15 @@ export function Industries() {
       return;
     }
     setActive(active + 1);
-    setShown((n) => Math.max(n, active + 2));
   };
+
+  /* How far an item's middle is from the middle of the stage, toward the end side */
+  const place = (i: number) => (finale ? (i - (items.length - 1) / 2) * 5 : i === active ? 0 : (10.5 + (Math.abs(i - active) - 1) * 4.25) * Math.sign(i - active));
 
   const arrow = "pointer-events-auto grid h-10 w-10 place-items-center rounded-full bg-card/70 text-fg/70 shadow-lg ring-1 ring-fg/10 backdrop-blur transition duration-300 hover:scale-110 hover:bg-card hover:text-fg md:h-12 md:w-12";
   const chevron = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 6-6 6 6 6" /></svg>;
+  /* The farther icons fade toward the two edges (in the opening and the end the whole row shows) */
+  const mask = finale ? "linear-gradient(to right, transparent, black 2.5rem, black calc(100% - 2.5rem), transparent)" : "linear-gradient(to right, transparent 4%, black 30%, black 70%, transparent 96%)";
 
   return (
     <section id="industries" className="mx-auto max-w-6xl px-5 py-20">
@@ -143,13 +166,13 @@ export function Industries() {
           </button>
         </div>
         <div className={`pointer-events-none absolute inset-y-0 end-0 z-10 flex w-11 items-center justify-end bg-gradient-to-l from-page via-page/70 to-transparent transition-opacity duration-500 md:w-14 rtl:bg-gradient-to-r ${finale ? "opacity-0" : "opacity-100"}`}>
-          <button type="button" onClick={next} aria-label={rtl ? "التالي" : "Next"} disabled={finale} className={`${arrow} ${shown < items.length ? "dk-nudge" : ""} ${finale ? "!pointer-events-none" : ""}`}>
+          <button type="button" onClick={next} aria-label={rtl ? "التالي" : "Next"} disabled={finale} className={`${arrow} ${active === 0 && seen && !finale ? "dk-nudge" : ""} ${finale ? "!pointer-events-none" : ""}`}>
             <span className="rotate-180 rtl:rotate-0">{chevron}</span>
           </button>
         </div>
 
         {/* The stage: cards are placed from its middle, and the edges fade so cards dissolve as they slide away */}
-        <div className={`relative h-48 transition-transform duration-700 [overflow-x:clip] [mask-image:linear-gradient(to_right,transparent,black_2.5rem,black_calc(100%-2.5rem),transparent)] ${finale ? "max-sm:scale-[0.7]" : ""}`}>
+        <div ref={stage} className={`relative h-48 transition-transform duration-700 [overflow-x:clip] ${finale ? "max-sm:scale-[0.7]" : ""}`} style={{ maskImage: mask, WebkitMaskImage: mask }}>
           {finale && (
             <>
               <span aria-hidden className="dk-halo absolute left-1/2 top-1/2 h-40 w-[30rem] max-w-full rounded-full bg-primary/10 ring-2 ring-primary/40" />
@@ -158,34 +181,27 @@ export function Industries() {
           )}
           {items.map((ind, i) => {
             const on = active === i && !finale;
-            const revealed = finale || i < shown;
-            /* How far from the middle: next to the big card, then one small chip after another. In the finale they all stand in one even row. */
-            const gap = finale ? (i - (items.length - 1) / 2) * 5 : on ? 0 : (10.5 + (Math.abs(i - active) - 1) * 4.25) * Math.sign(i - active);
-            const x = gap * (rtl ? -1 : 1);
+            const x = place(i) * (rtl ? -1 : 1);
             return (
               <button
                 key={i}
                 onClick={() => {
-                  if (!revealed) return;
-                  /* In the finale a logo is a link: it ends the finale and opens that industry */
+                  /* In the opening or the end a logo is a link: it ends the wave and opens that industry */
                   if (finale) {
                     window.clearTimeout(timer.current);
                     setFinale(false);
-                    setShown(items.length);
                   }
                   setActive(i);
                 }}
                 aria-pressed={on}
-                aria-hidden={!revealed}
                 aria-label={ind.name}
                 title={ind.name}
-                tabIndex={revealed ? 0 : -1}
-                className={`absolute left-1/2 top-1/2 flex cursor-pointer flex-col items-center justify-center overflow-hidden border font-semibold transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] ${revealed ? "" : "pointer-events-none"} ${
+                className={`absolute left-1/2 top-1/2 flex cursor-pointer flex-col items-center justify-center overflow-hidden border font-semibold transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] ${
                   on
                     ? "z-10 h-40 w-56 gap-4 rounded-3xl border-ink bg-ink text-white shadow-lg sm:w-64"
                     : `h-14 w-14 gap-0 rounded-2xl text-primary hover:border-primary ${finale ? "border-primary bg-primary/10 hover:bg-primary hover:text-white hover:shadow-lg" : "border-primary/25 bg-card"}`
                 }`}
-                style={{ transform: `translate(calc(-50% + ${x}rem), -50%) scale(${revealed ? 1 : 0.6})`, opacity: revealed ? 1 : 0, transitionDelay: finale ? `${i * 70}ms` : undefined }}
+                style={{ transform: `translate(calc(-50% + ${x}rem), -50%) scale(${seen ? 1 : 0.6})`, opacity: seen ? 1 : 0, transitionDelay: finale ? `${i * 70}ms` : undefined }}
               >
                 <span className={`${finale ? "dk-wave" : "transition-transform duration-700"} ${on ? "scale-125 text-white" : "scale-100"}`} style={finale ? { animationDelay: `${i * 140}ms` } : undefined}>{industryIcons[i]}</span>
                 <span className={`whitespace-nowrap text-base leading-snug transition-all duration-700 ${on ? "max-h-8 opacity-100" : "max-h-0 opacity-0"}`}>{ind.name}</span>

@@ -30,6 +30,19 @@ export function ThemeStore() {
     document.title = `${brandName(lang)} | ${w.store.title}`;
   }, [lang, w]);
   useEffect(() => setState(loadThemeState()), []);
+  /* Opened from the designer on one theme (?theme=lujain): that theme is brought into view and marked for a moment */
+  const [focus, setFocus] = useState("");
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("theme");
+    if (!id) return;
+    setFocus(id);
+    const t1 = window.setTimeout(() => document.getElementById(`theme-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
+    const t2 = window.setTimeout(() => setFocus(""), 4000);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, []);
 
   return (
     <div className="dash min-h-screen bg-page">
@@ -44,7 +57,7 @@ export function ThemeStore() {
         {themes.map((t) => {
           const owned = state.owned.some((o) => o.id === t.id);
           return (
-            <section key={t.id} className={`${card} grid items-start gap-7 lg:grid-cols-[1.1fr_1fr]`}>
+            <section key={t.id} id={`theme-${t.id}`} className={`${card} grid scroll-mt-24 items-start gap-7 transition-shadow duration-700 lg:grid-cols-[1.1fr_1fr] ${focus === t.id ? "!ring-2 !ring-primary shadow-xl" : ""}`}>
               {/* Pressing the picture opens the preview, like the Preview button */}
               <div
                 role="button"

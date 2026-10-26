@@ -57,7 +57,7 @@ export type IndustryDetail = {
 export const industries: Record<Lang, { name: string; blurb: string; detail?: IndustryDetail }[]> = {
   en: [
     {
-      name: "Clothes & looks",
+      name: "Fashion",
       blurb: "Colors, sizes and new drops every week, handled.",
       detail: {
         title: "A clothing store that looks like you",
@@ -84,7 +84,7 @@ export const industries: Record<Lang, { name: string; blurb: string; detail?: In
   ],
   ar: [
     {
-      name: "ملابس وإطلالات",
+      name: "أزياء",
       blurb: "ألوان ومقاسات وموديلات جديدة كل أسبوع، كلها بسهولة.",
       detail: {
         title: "متجر ملابس يشبه ذوقك",

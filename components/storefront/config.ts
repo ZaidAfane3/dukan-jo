@@ -18,10 +18,10 @@ export type MarkKey = "shop" | "bag" | "star" | "heart" | "leaf" | "bolt";
 export type LogoConfig = { kind: "auto" | "letter" | "sample" | "image"; sample: MarkKey; image: string };
 
 /* One background of the hero banner: a color ("" means the store color) or a picture kept in this browser */
-export type HeroBg = { kind: "color" | "image"; color: string; image: string };
+export type HeroBg = { kind: "color" | "image"; color: string; image: string; /* where the picture sits in the banner */ pos?: PicPos };
 
 /* One picture (or GIF) of the animated-pictures element, with an optional link */
-export type Slide = { image: string; link: string };
+export type Slide = { image: string; link: string; /* where the picture sits in its frame */ pos?: PicPos };
 
 /* One picture tile of the picture-tiles element: a picture, an optional name on it, and an optional link.
    `chip` is the color of the frosted label (editorial style). */
@@ -70,6 +70,8 @@ export type Banner = {
   eyebrowSize?: number;
   /* more pictures of a color card, shown with the first one as a small overlapping collage (up to 3 more) */
   images?: string[];
+  /* where each of those pictures sits in its frame */
+  imagesPos?: (PicPos | undefined)[];
 };
 
 /* Where a picture sits inside its frame: moved by x and y (percent of the frame) and zoomed. Set by dragging the picture in the designer. */
@@ -84,11 +86,11 @@ export type SectionConfig =
   | { id: string; type: "banners"; visible: boolean; settings: { items: Banner[]; height?: "normal" | "tall" } }
   | { id: string; type: "ribbon"; visible: boolean; settings: { items: Bi[]; background: string; color: string } }
   | { id: string; type: "chips"; visible: boolean; settings: { items: { label: Bi; color: string; link: string }[]; /* how the row sits: where the buttons gather, whether they are tilted, how big */ align?: "start" | "center" | "end"; tilt?: boolean; size?: "sm" | "md" | "lg" } }
-  | { id: string; type: "newsletter"; visible: boolean; settings: { title: Bi; accentWord: Bi; text: Bi; button: Bi; placeholder: Bi; thanks: Bi; background: string; accent: string; buttonColor: string; /* after subscribing: the thank-you message (default) or go to a destination */ after?: "message" | "link" | "popup"; link?: string; /* the pop-up shown after subscribing */ popup?: { title: Bi; text: Bi; button: Bi; background: string; accent: string; image?: string } } }
+  | { id: string; type: "newsletter"; visible: boolean; settings: { title: Bi; accentWord: Bi; text: Bi; button: Bi; placeholder: Bi; thanks: Bi; background: string; accent: string; buttonColor: string; /* after subscribing: the thank-you message (default) or go to a destination */ after?: "message" | "link" | "popup"; link?: string; /* the pop-up shown after subscribing */ popup?: { title: Bi; text: Bi; button: Bi; background: string; accent: string; image?: string; imagePos?: PicPos } } }
   | { id: string; type: "slides"; visible: boolean; settings: { slides: Slide[]; autoplay: boolean; seconds: number; ratio: "wide" | "standard" } }
   | { id: string; type: "collection"; visible: boolean; settings: { title: Bi; productIds: number[]; count: number; columns: 2 | 3 | 4; /* where "view all" leads ("" shows it without a link) */ link?: string; /* a band of its own color across the whole width ("" : none) */ background?: string; color?: string } }
   | { id: string; type: "reviews"; visible: boolean; settings: { title: Bi; items: Review[] } }
-  | { id: string; type: "text"; visible: boolean; settings: { title: Bi; body: Bi; align: "start" | "center"; tint: boolean; /* "statement": a centered block with a small line above, a big title, a button and a row of short promises */ style?: "plain" | "statement"; eyebrow?: Bi; button?: Bi; link?: string; trust?: Bi[] } }
+  | { id: string; type: "text"; visible: boolean; settings: { title: Bi; body: Bi; align: "start" | "center"; tint: boolean; /* "statement": a centered block with a small line above, a big title, a button and a row of short promises */ style?: "plain" | "statement"; eyebrow?: Bi; button?: Bi; link?: string; trust?: Bi[]; /* text sizes in pixels and colors of their own (empty: the theme's) */ sizes?: { title?: number; body?: number; eyebrow?: number; button?: number }; colors?: { title?: string; body?: string; eyebrow?: string; button?: string } } }
   | { id: string; type: "products"; visible: boolean; settings: { title: Bi; columns: 2 | 3 | 4; showFilters: boolean; limit?: number } };
 
 export type SectionType = SectionConfig["type"];

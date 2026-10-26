@@ -17,7 +17,7 @@ export const dc = {
     luxe: {
       ribbonHint: "A dark strip of short words, like the notes of your perfumes. They show one after another with a small star between them.",
       ribbonWord: "Word", ribbonAdd: "Add a word", ribbonRemove: "Remove this word", ribbonBg: "Strip color", ribbonText: "Text color",
-      heroEyebrow: "Small line above the title", heroPrice: "Price (written as you want it shown)", heroSize: "Size or detail", heroButton2: "Second button (optional)",
+      heroEyebrow: "Small line above the title", heroPrice: "Description", heroSize: "Small detail beside it", heroButton2: "Second button (optional)",
       heroPanel: "Text panel color", heroPanelAuto: "Use the first banner color", heroFull: "Full width, edge to edge",
       tilesStyle: "Tile style", tilesClassic: "Tall", tilesEditorial: "Wide, frosted label", tileChip: "Label color", chipLight: "Light", chipDark: "Dark",
       bannerEyebrow: "Small line above the title", bannerFont: "Title font", bannerTextFont: "Small text font", fontDefault: "Store titles", fontRuqaa: "Ruqaa (royal)", fontLemonada: "Lemonada (round)", fontAmiri: "Amiri (classic)",
@@ -158,7 +158,7 @@ export const dc = {
     luxe: {
       ribbonHint: "شريط داكن من كلمات قصيرة، مثل نوتات عطورك. تظهر واحدة بعد الأخرى وبينها نجمة صغيرة.",
       ribbonWord: "كلمة", ribbonAdd: "إضافة كلمة", ribbonRemove: "إزالة هذه الكلمة", ribbonBg: "لون الشريط", ribbonText: "لون النص",
-      heroEyebrow: "سطر صغير فوق العنوان", heroPrice: "السعر (اكتبه كما تريد أن يظهر)", heroSize: "الحجم أو تفصيل", heroButton2: "زر ثانٍ (اختياري)",
+      heroEyebrow: "سطر صغير فوق العنوان", heroPrice: "الوصف", heroSize: "تفصيل صغير بجانبه", heroButton2: "زر ثانٍ (اختياري)",
       heroPanel: "لون لوحة النص", heroPanelAuto: "استخدم لون أول غلاف", heroFull: "بعرض الصفحة كاملًا",
       tilesStyle: "شكل المعرض", tilesClassic: "طولية", tilesEditorial: "عريضة، بتسمية زجاجية", tileChip: "لون التسمية", chipLight: "فاتح", chipDark: "داكن",
       bannerEyebrow: "سطر صغير فوق العنوان", bannerFont: "خط العنوان", bannerTextFont: "خط النص الصغير", fontDefault: "خط عناوين المتجر", fontRuqaa: "رقعة (ملكي)", fontLemonada: "ليمونادا (مستدير)", fontAmiri: "أميري (كلاسيكي)",

@@ -27,3 +27,11 @@ fonts/
 # Original photos for the demo store (large, and some show real brand names). Only the cropped copies in public/demo are used.
 # the original pictures (sources of what is in public/); kept on this computer only
 demos/
+
+# the one-file prototype (big, built from the app) and its build folder (kept, except what it makes)
+!prototype/build/
+prototype/Dukkan-prototype.html
+prototype/build/node_modules/
+prototype/build/dist/
+prototype/build/src/assets.json
+prototype/build/src/fonts.css

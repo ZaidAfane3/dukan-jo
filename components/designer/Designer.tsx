@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { brandName } from "../content";
 import { demoActive, setOwnCopy } from "../demoSandbox";
-import { findTheme, previewProducts, saveDesignAsTheme, type ThemeInfo } from "../themes";
+import { findTheme, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
 import { PageEditor } from "./PageEditor";
 import { load as loadPages, savePages, setPagesScope } from "../InfoPages";
@@ -280,6 +280,16 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     return () => watcher.disconnect();
   }, [readOnly, ready, t.demoBlocked, t.demoNoUpload]);
 
+  /* "Save and see it in the theme store" under a look of a theme he has not bought: his design is saved, then that theme opens */
+  const saveRef = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    const go = (e: Event) => {
+      if (saveRef.current()) router.push((e as CustomEvent<string>).detail);
+    };
+    window.addEventListener("dk-save-go", go);
+    return () => window.removeEventListener("dk-save-go", go);
+  }, [router]);
+
   if (!draft) return <DesignerSkeleton />;
 
   /* The one way the panels change the design. In the tour it changes nothing and says why. */
@@ -383,7 +393,9 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       setTimeout(() => setFlash(null), 6000);
       return false;
     }
-    if (!(mine ? saveMine(draft.config, themeId) : templateMode ? saveTemplate(draft.config) : saveConfig(draft.config))) {
+    /* A look of a theme he has not bought can be tried in the preview, but the store keeps only what he owns */
+    const kept = mine || templateMode ? draft : { ...draft, config: withoutUnboughtLooks(draft.config) };
+    if (!(mine ? saveMine(draft.config, themeId) : templateMode ? saveTemplate(draft.config) : saveConfig(kept.config))) {
       setFlash("full");
       setTimeout(() => setFlash(null), 4000);
       return false;
@@ -409,11 +421,14 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       shipping: prev?.shipping ?? null,
     };
     saveSetup(next);
-    setSaved(JSON.stringify(draft));
+    if (kept !== draft) setDraft(kept);
+    setSaved(JSON.stringify(kept));
     setFlash("saved");
     setTimeout(() => setFlash(null), 2000);
     return true;
   };
+
+  saveRef.current = save;
 
   const leave = () => router.push("/dashboard");
   const tryExit = () => (dirty ? setExiting(true) : leave());

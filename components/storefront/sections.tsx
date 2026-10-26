@@ -760,10 +760,10 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           className={`grid overflow-hidden ${full ? "" : "rounded-[var(--sf-r)]"} ${ctx.compact ? "" : photoFirst ? "md:grid-cols-[1.15fr_1fr]" : "md:grid-cols-[1fr_1.15fr]"}`}
           style={{ background: panel, color: light ? "var(--sf-text)" : "#ffffff" }}
         >
-          <div className={`relative ${ctx.compact ? "aspect-[4/3]" : full ? "min-h-[720px]" : "min-h-[26rem]"} ${photoFirst ? "" : "md:order-2"}`}>
+          <div className={`relative overflow-hidden ${ctx.compact ? "aspect-[4/3]" : full ? "min-h-[720px]" : "min-h-[26rem]"} ${photoFirst ? "" : "md:order-2"}`}>
             {s.photo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={s.photo} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <img src={s.photo} alt="" className="absolute inset-0 h-full w-full object-cover" style={picFill(s.photoPos)} />
             ) : (
               <span className="absolute inset-0 grid place-items-center bg-black/10 px-6 text-center text-sm font-semibold opacity-80">
                 {ctx.design ? (l === "ar" ? "أضف صورة الغلاف من القائمة الجانبية" : "Add the cover photo from the side panel") : ""}
@@ -824,15 +824,20 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           <span
             key={i}
             aria-hidden
-            className="absolute inset-0 -z-20 transition-opacity duration-700"
+            className="absolute inset-0 -z-20 overflow-hidden transition-opacity duration-700"
             style={{
               opacity: i === idx ? 1 : 0,
-              background:
-                b.kind === "image" && b.image
-                  ? `linear-gradient(to top, rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.2)), url(${b.image}) center / cover no-repeat`
-                  : `linear-gradient(120deg, ${slideColor(b.color)}, color-mix(in srgb, ${slideColor(b.color)} 62%, #6fe3cf))`,
+              background: b.kind === "image" && b.image ? undefined : `linear-gradient(120deg, ${slideColor(b.color)}, color-mix(in srgb, ${slideColor(b.color)} 62%, #6fe3cf))`,
             }}
-          />
+          >
+            {b.kind === "image" && b.image && (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={b.image} alt="" className="h-full w-full object-cover" style={picFill(b.pos)} />
+                <span className="absolute inset-0" style={{ background: "linear-gradient(to top, rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.2))" }} />
+              </>
+            )}
+          </span>
         ))}
         <span aria-hidden className="absolute -end-16 -top-20 -z-10 h-72 w-72 rounded-full bg-white/10" />
         <span aria-hidden className="absolute -bottom-24 start-1/3 -z-10 h-64 w-64 rounded-full bg-white/10" />
@@ -1133,7 +1138,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
                           >
                             {src && (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={src} alt="" className="h-full w-full object-cover" style={k === 0 ? picStyle(b.pos) : undefined} />
+                              <img src={src} alt="" className="h-full w-full object-cover" style={k === 0 ? picStyle(b.pos) : picFill(b.imagesPos?.[k - 1])} />
                             )}
                           </div>
                         );
@@ -1263,7 +1268,7 @@ function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["set
         {list.map((x, n) => {
           const img = (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={x.image} alt="" className="h-full w-full object-cover" />
+            <img src={x.image} alt="" className="h-full w-full object-cover" style={picFill(x.pos)} />
           );
           return (
             <div key={n} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: n === idx ? 1 : 0 }} aria-hidden={n !== idx}>
@@ -1383,6 +1388,9 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
   const body = s.body[ctx.lang] || s.body[other];
   if (!title && !body) return null;
   const center = s.align === "center";
+  /* a size or color the merchant chose for one part (otherwise the look's own) */
+  const sz = (k: "title" | "body" | "eyebrow" | "button", def: number) => (s.sizes?.[k] ? scaled(s.sizes[k]!, ctx.compact) : def);
+  const col = (k: "title" | "body" | "eyebrow" | "button") => s.colors?.[k] || undefined;
   /* The statement: a small Latin line, a big title, a line of text, a button and a row of short promises, all in the middle */
   if (s.style === "statement") {
     const pick = (b?: { en: string; ar: string }) => b?.[ctx.lang] || b?.[other] || "";
@@ -1390,13 +1398,13 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
     const button = pick(s.button);
     const trust = (s.trust ?? []).map(pick).filter(Boolean);
     const btn = "inline-flex min-h-[44px] items-center px-9 py-4 text-[15px] font-bold transition hover:opacity-90";
-    const btnStyle = { background: "var(--sf-primary)", color: "var(--sf-on)" };
+    const btnStyle = { background: "var(--sf-primary)", color: col("button") || "var(--sf-on)", fontSize: s.sizes?.button || undefined };
     return (
       <section className={ctx.compact ? "px-4 pt-16" : "px-8 pt-28"}>
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-[22px] text-center">
-          {eyebrow && <Pick ctx={ctx} id={id} field="eyebrow"><p dir="auto" style={{ ...latinItalic, fontSize: 22, color: "var(--sf-accent)" }}>{eyebrow}</p></Pick>}
-          {title && <Pick ctx={ctx} id={id} field="title" block><h2 className="font-semibold leading-tight text-[var(--sf-title)]" style={{ fontFamily: "var(--sf-heading)", fontSize: ctx.compact ? 34 : 56 }}>{title}</h2></Pick>}
-          {body && <Pick ctx={ctx} id={id} field="body" block><p className="mx-auto max-w-[560px] text-lg font-light leading-[2] text-[var(--sf-text)]/80">{body}</p></Pick>}
+          {eyebrow && <Pick ctx={ctx} id={id} field="eyebrow"><p dir="auto" style={{ ...latinItalic, fontSize: sz("eyebrow", 22), color: col("eyebrow") || "var(--sf-accent)" }}>{eyebrow}</p></Pick>}
+          {title && <Pick ctx={ctx} id={id} field="title" block><h2 className="font-semibold leading-tight text-[var(--sf-title)]" style={{ fontFamily: "var(--sf-heading)", fontSize: sz("title", ctx.compact ? 34 : 56), color: col("title") }}>{title}</h2></Pick>}
+          {body && <Pick ctx={ctx} id={id} field="body" block><p className="mx-auto max-w-[560px] text-lg font-light leading-[2] text-[var(--sf-text)]/80" style={{ fontSize: s.sizes?.body || undefined, color: col("body") }}>{body}</p></Pick>}
           {button && (
             <Pick ctx={ctx} id={id} field="button">
               {s.link?.trim() && !ctx.design ? <a {...linkProps(s.link, ctx)} className={btn} style={btnStyle}>{button}</a> : <span className={btn} style={btnStyle} onClick={designOpen(s.link, ctx)}>{button}</span>}
@@ -1427,12 +1435,12 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
         <div className={center ? "mx-auto max-w-2xl" : "max-w-2xl"}>
           {title && (
             <Pick ctx={ctx} id={id} field="title" block>
-              <h2 className={`font-extrabold tracking-tight text-[var(--sf-title)] ${ctx.compact ? "text-xl" : "text-2xl"}`}>{title}</h2>
+              <h2 className={`font-extrabold tracking-tight text-[var(--sf-title)] ${ctx.compact ? "text-xl" : "text-2xl"}`} style={{ fontSize: s.sizes?.title ? sz("title", 24) : undefined, color: col("title") }}>{title}</h2>
             </Pick>
           )}
           {body && (
             <Pick ctx={ctx} id={id} field="body" block>
-              <div className={`${title ? "mt-3" : ""} space-y-3 text-[15px] leading-relaxed text-[var(--sf-text)]/75`}>
+              <div className={`${title ? "mt-3" : ""} space-y-3 text-[15px] leading-relaxed text-[var(--sf-text)]/75`} style={{ fontSize: s.sizes?.body || undefined, color: col("body") }}>
                 {body.split("\n").filter((l) => l.trim()).map((l, i) => (
                   <p key={i}>{l}</p>
                 ))}
@@ -1783,7 +1791,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
             </button>
             {pp?.image && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={pp.image} alt="" className="h-44 w-full object-cover" />
+              <div className="h-44 w-full overflow-hidden"><img src={pp.image} alt="" className="h-full w-full object-cover" style={picFill(pp.imagePos)} /></div>
             )}
             <div className="px-8 pb-8 pt-9">
               <h3 className="text-3xl font-extrabold leading-tight" style={{ fontFamily: "var(--sf-heading)" }}>{popTitle}</h3>

@@ -1,6 +1,6 @@
 import type { Lang } from "./content";
 import { demoSeed } from "./demoData";
-import { demoActive } from "./demoSandbox";
+import { demoActive, isOwnCopy } from "./demoSandbox";
 import { loadSetup } from "./setup";
 import { atelierConfig } from "./storefront/atelierTheme";
 import type { InfoPage } from "./InfoPages";
@@ -177,6 +177,26 @@ function saveThemeState(s: ThemeState): boolean {
   } catch {
     return false;
   }
+}
+
+/* Looks that come with a theme: in the designer anyone can try them in the preview, but they are kept in the store only for a
+   merchant who bought that theme. Saad's own copies (/saad) have everything. */
+export const ownsLook = (themeId: string) => isOwnCopy() || loadThemeState().owned.some((o) => o.id === themeId);
+
+/** The store design with every look of a theme he has not bought put back to the plain one. */
+export function withoutUnboughtLooks(c: StorefrontConfig): StorefrontConfig {
+  const lamma = ownsLook("lamma");
+  const lujain = ownsLook("lujain");
+  const sections = c.sections.map((s): StorefrontConfig["sections"][number] => {
+    if (s.type === "hero" && ((s.settings.layout === "pop" && !lamma) || (s.settings.layout === "orbit" && !lujain))) return { ...s, settings: { ...s.settings, layout: "banner" } };
+    if (s.type === "tiles" && s.settings.style === "circles" && !lujain) return { ...s, settings: { ...s.settings, style: "classic" } };
+    if (s.type === "text" && s.settings.style === "statement" && !lujain) return { ...s, settings: { ...s.settings, style: "plain" } };
+    if (s.type === "banners" && !lamma && s.settings.items.some((b) => b.variant === "card")) return { ...s, settings: { ...s.settings, items: s.settings.items.map((b) => (b.variant === "card" ? { ...b, variant: "photo" as const } : b)) } };
+    return s;
+  });
+  const ts = c.theme.titleStyle;
+  const titleStyle = (ts === "pop" && !lamma) || (ts === "ornament" && !lujain) ? "bold" : ts;
+  return { ...c, sections, theme: { ...c.theme, titleStyle } };
 }
 
 /** Adds the theme to the merchant's themes (prototype: no payment is taken). */
