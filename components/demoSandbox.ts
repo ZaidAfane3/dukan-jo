@@ -27,6 +27,14 @@ export function demoActive(): boolean {
   return typeof window !== "undefined" && realGet(FLAG) === "1";
 }
 
+/* Set while Saad's own copy of a theme is open in the designer (/saad): it is his page, so nothing in it is locked by the tour */
+let ownCopy = false;
+export const setOwnCopy = (v: boolean) => {
+  ownCopy = v;
+};
+/** Whether the designer must refuse changes: only in the tour, and never in Saad's own copies */
+export const editLocked = () => demoActive() && !ownCopy;
+
 /** Starts the tour with fresh made-up data, in the given language. */
 export function startDemo(lang: Lang) {
   realSet(FLAG, "1");

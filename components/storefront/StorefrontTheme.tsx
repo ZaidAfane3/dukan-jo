@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePrefs } from "../Prefs";
-import { defaultConfig, footerColumns, radiusValue, type LogoConfig, type StorefrontConfig } from "./config";
+import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, type LogoConfig, type StorefrontConfig } from "./config";
 import { copy, currency, icons, LogoMark, money, moneyIn, onColor, priceLang, priceOf, resolveLogo } from "./parts";
 import { patterns } from "./patterns";
 import { linkProps, ProductPage, renderSection, type Ctx, type Design } from "./sections";
@@ -136,7 +136,19 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const brandNode = (nameToo: boolean) => (
     <a href="#" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
-      {(nameToo || !config.identity.showLogo) && <span className={`truncate font-extrabold tracking-tight ${compact ? "text-lg" : "text-xl"}`}>{data.name}</span>}
+      {(nameToo || !config.identity.showLogo) && (
+        <span className={`flex min-w-0 flex-col ${centered ? "items-center" : ""}`}>
+          {config.identity.nameFont ? (
+            <span className="truncate font-bold leading-tight" style={{ fontFamily: heroTitleFamily(config.identity.nameFont), color: config.identity.nameColor || undefined, fontSize: compact ? 30 : 40 }}>{data.name}</span>
+          ) : (
+            <span className={`truncate font-extrabold tracking-tight ${compact ? "text-lg" : "text-xl"}`} style={config.identity.nameColor ? { color: config.identity.nameColor } : undefined}>{data.name}</span>
+          )}
+          {/* the small line under the name ("FINE JEWELRY"), in an elegant italic */}
+          {(config.identity.tagline?.[lang] || config.identity.tagline?.[lang === "ar" ? "en" : "ar"]) && (
+            <span dir="auto" className="mt-1 truncate text-sm tracking-[0.2em]" style={{ fontFamily: "var(--font-elegant-latin), Georgia, serif", fontStyle: "italic", color: "var(--sf-accent)" }}>{config.identity.tagline?.[lang] || config.identity.tagline?.[lang === "ar" ? "en" : "ar"]}</span>
+          )}
+        </span>
+      )}
     </a>
   );
   const brand = brandNode(true);
@@ -274,7 +286,22 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     </button>
   );
   const plain = "relative grid h-11 w-11 shrink-0 place-items-center rounded-full text-[var(--sf-text)] transition hover:bg-black/[0.05]";
-  const plainActions = (
+  const textCart = config.nav.cartLook === "text";
+  const digits = (n: number) => (lang === "ar" ? String(n).replace(/[0-9]/g, (d) => "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"[Number(d)]) : String(n));
+  const wordBtn = "inline-flex min-h-[44px] items-center whitespace-nowrap text-sm font-light tracking-[0.04em] transition hover:opacity-70";
+  const plainActions = textCart ? (
+    <div className="flex items-center justify-end gap-3">
+      {h.showSearch && (
+        <>
+          <button type="button" onClick={() => setSearchOpen((v) => !v)} aria-expanded={searchOpen} className={wordBtn}>{config.texts.search[lang] || c.search}</button>
+          <span aria-hidden className="opacity-50">·</span>
+        </>
+      )}
+      <button type="button" className={wordBtn}>{lang === "ar" ? "المفضلة" : "Saved"}</button>
+      <span aria-hidden className="opacity-50">·</span>
+      {h.showCart && <button type="button" aria-label={`${c.cart}: ${cart.count}`} className={wordBtn}>{`${c.cart} (${digits(cart.count)})`}</button>}
+    </div>
+  ) : (
     <div className="flex items-center justify-end">
       {h.showSearch && (
         <button type="button" onClick={() => setSearchOpen((v) => !v)} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={plain}>
@@ -316,7 +343,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
 
       <AnnouncementBar config={config} lang={lang} design={design} reduceMotion={reduceMotion} offer={freeDeliveryText(fd, lang, cart.total)} offerColor={primary} linkFor={(l) => linkProps(l, ctx)} />
 
-      <header onClick={() => design?.select("header")} className={`group/sel z-20 ${pillHeader ? "" : "border-b border-black/[0.06] backdrop-blur-xl"} ${h.sticky ? "sticky top-0" : "relative"} ${design ? "cursor-pointer" : ""}`} style={{ background: pillHeader ? "color-mix(in srgb, var(--sf-bg) 94%, transparent)" : "color-mix(in srgb, var(--sf-bg) 86%, transparent)" }}>
+      <header onClick={() => design?.select("header")} className={`group/sel z-20 ${pillHeader ? "" : config.theme.hairlines ? "border-b border-[color-mix(in_srgb,var(--sf-primary)_25%,transparent)] backdrop-blur-xl" : "border-b border-black/[0.06] backdrop-blur-xl"} ${h.sticky ? "sticky top-0" : "relative"} ${design ? "cursor-pointer" : ""}`} style={{ background: pillHeader ? "color-mix(in srgb, var(--sf-bg) 94%, transparent)" : "color-mix(in srgb, var(--sf-bg) 86%, transparent)" }}>
         {pillHeader ? (
           centered ? (
             /* The name in the middle: menu | name | buttons, and the links under it */
@@ -344,7 +371,18 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             </div>
           )
         ) : linksHeader ? (
-          centered && !compact ? (
+          centered && !compact && config.nav.place === "start" ? (
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-6 px-8 py-7">
+              <nav aria-label={c.pages} className="flex items-center justify-start gap-7 text-[14px] font-light tracking-[0.04em]">
+                {menuBtn}
+                {navLinks.map((l, i) => (
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center text-[var(--sf-text)] transition duration-200 hover:text-[var(--sf-primary)]">{l.name}</a>
+                ))}
+              </nav>
+              <div className="min-w-0">{brandNode(false)}</div>
+              {plainActions}
+            </div>
+          ) : centered && !compact ? (
             <div className="px-8 py-3">
               <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
                 <div className="flex items-center justify-start">{menuBtn}</div>
@@ -356,6 +394,18 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
                   <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]">{l.name}</a>
                 ))}
               </nav>
+            </div>
+          ) : compact && config.nav.place === "start" ? (
+            /* on a phone: the name on top, the links and the basket under it */
+            <div className="px-4 py-4">
+              <div className="flex justify-center">{brandNode(false)}</div>
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[13px] font-light">
+                {menuBtn}
+                {navLinks.map((l, i) => (
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center">{l.name}</a>
+                ))}
+                {plainActions}
+              </div>
             </div>
           ) : compact ? (
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-3">
@@ -638,15 +688,15 @@ function Footer({ config, data, compact, lang, design, logo, onPage, linkFor }: 
     const edit = (field?: string) => (design ? (e: React.MouseEvent) => { e.stopPropagation(); design.select(field === "name" ? "identity" : "footer", field === "name" ? undefined : field); } : undefined);
     const hot = design ? "cursor-pointer rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : "";
     return (
-      <footer data-sf="footer" onClick={() => design?.select("footer")} className={`group/sel relative mt-6 ${design ? "cursor-pointer" : ""}`} style={{ background: f.background || "transparent", ...ownVars }}>
+      <footer data-sf="footer" onClick={() => design?.select("footer")} className={`group/sel relative ${config.theme.hairlines ? "mt-24 border-t border-[color-mix(in_srgb,var(--sf-primary)_25%,transparent)]" : "mt-6"} ${design ? "cursor-pointer" : ""}`} style={{ background: f.background || "transparent", ...ownVars }}>
         <div className={`flex flex-wrap items-start justify-between gap-x-10 gap-y-5 ${compact ? "px-4 py-6" : "px-8 py-8"}`} style={{ fontSize: sizeText }}>
           {shown.map((col) => {
             if (col.kind === "about")
               return (
                 <div key={col.id} className="min-w-0 max-w-xs">
                   {f.showLogo && (
-                    <div onClick={edit("name")} className={`inline-flex items-center gap-2.5 font-extrabold ${hot}`} style={{ fontFamily: "var(--sf-heading)", fontSize: sizeName }}>
-                      <LogoMark logo={logo} name={data.name} />
+                    <div onClick={edit("name")} className={`inline-flex items-center gap-2.5 font-extrabold ${hot}`} style={{ fontFamily: config.identity.nameFont ? heroTitleFamily(config.identity.nameFont) : "var(--sf-heading)", fontSize: config.identity.nameFont && !f.sizes?.name ? 28 : sizeName, color: config.identity.nameColor || undefined }}>
+                      {(config.identity.showLogo || !config.identity.nameFont) && <LogoMark logo={logo} name={data.name} />}
                       <span>{data.name}</span>
                     </div>
                   )}

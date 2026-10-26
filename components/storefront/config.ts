@@ -25,10 +25,10 @@ export type Slide = { image: string; link: string };
 
 /* One picture tile of the picture-tiles element: a picture, an optional name on it, and an optional link.
    `chip` is the color of the frosted label (editorial style). */
-export type Tile = { image: string; label: Bi; link: string; chip?: "light" | "dark" };
+export type Tile = { image: string; label: Bi; link: string; chip?: "light" | "dark"; /* where the picture sits in its frame */ pos?: PicPos };
 
 /* The fonts a merchant can pick, and the extra display fonts a banner title can use */
-export type ThemeFont = "readex" | "plex" | "elegant" | "cairo" | "tajawal" | "baloo";
+export type ThemeFont = "readex" | "plex" | "elegant" | "cairo" | "tajawal" | "baloo" | "messiri" | "almarai";
 /* The font of the hero title: "" follows the titles font of the store */
 export type HeroFont = "" | ThemeFont | "ruqaa" | "lemonada" | "amiri";
 /* The faint pattern behind the page */
@@ -76,19 +76,19 @@ export type Banner = {
 export type PicPos = { x: number; y: number; zoom: number };
 
 export type SectionConfig =
-  | { id: string; type: "hero"; visible: boolean; settings: { title: Bi; subtitle: Bi; button: Bi; backgrounds: HeroBg[]; autoplay: boolean; seconds: number; showCards: boolean; layout?: "banner" | "split" | "pop"; photo?: string; photoSide?: "start" | "end"; photo2?: string; /* where the two buttons lead (see linkProps in sections.tsx) */ link?: string; link2?: string; photoPos?: PicPos; photo2Pos?: PicPos; sticker?: Bi; accentWord?: Bi; popColors?: { accent?: string; blob?: string; sticker?: string }; eyebrow?: Bi; price?: string; size?: Bi; button2?: Bi; panelColor?: string; fullWidth?: boolean; titleFont?: HeroFont; colors?: { title?: string; subtitle?: string; eyebrow?: string; price?: string; detail?: string; button?: string }; sizes?: { title?: number; subtitle?: number; eyebrow?: number; price?: number; detail?: number; button?: number } } }
+  | { id: string; type: "hero"; visible: boolean; settings: { title: Bi; subtitle: Bi; button: Bi; backgrounds: HeroBg[]; autoplay: boolean; seconds: number; showCards: boolean; layout?: "banner" | "split" | "pop" | "orbit"; photo?: string; photoSide?: "start" | "end"; photo2?: string; /* where the two buttons lead (see linkProps in sections.tsx) */ link?: string; link2?: string; photoPos?: PicPos; photo2Pos?: PicPos; sticker?: Bi; accentWord?: Bi; popColors?: { accent?: string; blob?: string; sticker?: string }; eyebrow?: Bi; price?: string; size?: Bi; button2?: Bi; panelColor?: string; fullWidth?: boolean; titleFont?: HeroFont; colors?: { title?: string; subtitle?: string; eyebrow?: string; price?: string; detail?: string; button?: string }; sizes?: { title?: number; subtitle?: number; eyebrow?: number; price?: number; detail?: number; button?: number } } }
   | { id: string; type: "perks"; visible: boolean; settings: { items: Perk[] } }
   | { id: string; type: "featured"; visible: boolean; settings: { title: Bi; count: number } }
   | { id: string; type: "discounts"; visible: boolean; settings: { title: Bi; count: number } }
-  | { id: string; type: "tiles"; visible: boolean; settings: { title: Bi; items: Tile[]; columns: 3 | 4 | 5; style?: "classic" | "editorial" } }
+  | { id: string; type: "tiles"; visible: boolean; settings: { title: Bi; items: Tile[]; columns: 3 | 4 | 5; /* "circles": round pictures in thin rings, the name under each */ style?: "classic" | "editorial" | "circles" } }
   | { id: string; type: "banners"; visible: boolean; settings: { items: Banner[]; height?: "normal" | "tall" } }
   | { id: string; type: "ribbon"; visible: boolean; settings: { items: Bi[]; background: string; color: string } }
   | { id: string; type: "chips"; visible: boolean; settings: { items: { label: Bi; color: string; link: string }[]; /* how the row sits: where the buttons gather, whether they are tilted, how big */ align?: "start" | "center" | "end"; tilt?: boolean; size?: "sm" | "md" | "lg" } }
   | { id: string; type: "newsletter"; visible: boolean; settings: { title: Bi; accentWord: Bi; text: Bi; button: Bi; placeholder: Bi; thanks: Bi; background: string; accent: string; buttonColor: string; /* after subscribing: the thank-you message (default) or go to a destination */ after?: "message" | "link" | "popup"; link?: string; /* the pop-up shown after subscribing */ popup?: { title: Bi; text: Bi; button: Bi; background: string; accent: string; image?: string } } }
   | { id: string; type: "slides"; visible: boolean; settings: { slides: Slide[]; autoplay: boolean; seconds: number; ratio: "wide" | "standard" } }
-  | { id: string; type: "collection"; visible: boolean; settings: { title: Bi; productIds: number[]; count: number; columns: 2 | 3 | 4 } }
+  | { id: string; type: "collection"; visible: boolean; settings: { title: Bi; productIds: number[]; count: number; columns: 2 | 3 | 4; /* where "view all" leads ("" shows it without a link) */ link?: string; /* a band of its own color across the whole width ("" : none) */ background?: string; color?: string } }
   | { id: string; type: "reviews"; visible: boolean; settings: { title: Bi; items: Review[] } }
-  | { id: string; type: "text"; visible: boolean; settings: { title: Bi; body: Bi; align: "start" | "center"; tint: boolean } }
+  | { id: string; type: "text"; visible: boolean; settings: { title: Bi; body: Bi; align: "start" | "center"; tint: boolean; /* "statement": a centered block with a small line above, a big title, a button and a row of short promises */ style?: "plain" | "statement"; eyebrow?: Bi; button?: Bi; link?: string; trust?: Bi[] } }
   | { id: string; type: "products"; visible: boolean; settings: { title: Bi; columns: 2 | 3 | 4; showFilters: boolean; limit?: number } };
 
 export type SectionType = SectionConfig["type"];
@@ -155,8 +155,10 @@ export type StorefrontConfig = {
     headingFont: ThemeFont | "";
     /* A second color for small accents: eyebrows, "view all" links, the pattern ("" means the store color) */
     accent: string;
-    /* "pop": big heavy titles, and a colored line under "view all" */
-    titleStyle: "bold" | "light" | "pop";
+    /* "pop": big heavy titles, and a colored line under "view all". "ornament": centered titles with three small diamonds above */
+    titleStyle: "bold" | "light" | "pop" | "ornament";
+    /* hairlines: a thin line in the store color under the header and over the footer */
+    hairlines?: boolean;
     /* The prices: like the page's language (default), always Arabic (٢٤ د.أ) or always English (24 JOD) */
     prices?: "auto" | "ar" | "en";
     /* The size of the titles of the sections ("Collections", "Best sellers" ...) */
@@ -166,14 +168,17 @@ export type StorefrontConfig = {
   /* The header's menu: a button that opens the side menu, or a row of links in the middle of the header */
   /* A link can go to a part of the page: `to` is the id of a section, or "footer" (the contact details) */
   /* style "pill": the logo in a dark pill, the links in a white pill (the first one is the active one), and a round basket button */
-  nav: { style: "button" | "links" | "pill"; links: (Bi & { to?: string })[]; activeColor?: string; cartColor?: string };
+  /* place "start": with the name in the middle, the links sit at the start of the header row instead of under it.
+     cartLook "text": the saved items and the basket are written as words, "Saved · Cart (2)" */
+  nav: { style: "button" | "links" | "pill"; links: (Bi & { to?: string })[]; activeColor?: string; cartColor?: string; place?: "below" | "start"; cartLook?: "icon" | "text" };
   /* A faint pattern behind the page and a big word behind the picture tiles, both in the accent color */
   texture: { pattern: PatternKey; watermark: Bi };
   /* showLanguage: a button in the header that lets visitors switch the store between Arabic and English. Off by default:
      when he turns it on he must write his titles and texts in the other language too. */
   header: { showMenu: boolean; showSearch: boolean; showUser: boolean; showCart: boolean; showLanguage: boolean; sticky: boolean };
   /* favicon: the small icon in the browser tab, a small data URL kept in this browser */
-  identity: { showLogo: boolean; align: "start" | "center"; logo: LogoConfig; favicon: string };
+  /* nameFont, nameColor: the store name in a font and a color of its own (header and footer). tagline: a small line under the name */
+  identity: { showLogo: boolean; align: "start" | "center"; logo: LogoConfig; favicon: string; nameFont?: HeroFont; nameColor?: string; tagline?: Bi };
   sections: SectionConfig[];
   /* A picture, GIF or looping video behind the whole page. The file itself is kept in the browser's
      media storage under `media`. `veil` is how much of the page color covers it, so text stays readable. */
@@ -197,7 +202,7 @@ export type StorefrontConfig = {
     image: "portrait" | "square" | "wide";
     style: "shadow" | "outline" | "flat" | "pop";
     /* "row" puts the name on one side and the price on the other */
-    info: "stack" | "row";
+    info: "stack" | "row" | "center";
     /* "plus": a round + button instead of the wide "add to cart" button */
     add: "wide" | "plus";
     /* The color of the price ("" means the text color) */
@@ -346,6 +351,8 @@ export const fontFamily: Record<ThemeFont, string> = {
   cairo: "var(--font-cairo), sans-serif",
   tajawal: "var(--font-tajawal), sans-serif",
   baloo: "var(--font-baloo), var(--font-sans), sans-serif",
+  messiri: "var(--font-messiri), var(--font-sans), sans-serif",
+  almarai: "var(--font-almarai), var(--font-sans), sans-serif",
 };
 
 /* A new picture-tiles element starts empty: he adds his own pictures. */

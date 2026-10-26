@@ -213,7 +213,6 @@ export type InvoiceSettings = {
   notes: boolean;
   policy: boolean;
   receiver: boolean;
-  qr: boolean;
   address: boolean;
   contact: boolean;
   sendStatuses: StatusKey[];
@@ -245,7 +244,6 @@ export const defaultInvoice: InvoiceSettings = {
   notes: true,
   policy: true,
   receiver: false,
-  qr: true,
   address: false,
   contact: true,
   sendStatuses: ["delivered"],
@@ -321,7 +319,6 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
           { key: "notes", label: "Show order notes" },
           { key: "policy", label: "Show return and exchange policy" },
           { key: "receiver", label: "Show the receiver details when someone else collects the order", hint: "Applies when a receiver is named on the order." },
-          { key: "qr", label: "Show QR codes for the invoice and the return policy" },
         ],
       },
       {
@@ -393,7 +390,6 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
           { key: "notes", label: "إظهار ملاحظة الطلب" },
           { key: "policy", label: "إظهار سياسة الاستبدال والاسترجاع" },
           { key: "receiver", label: "إظهار بيانات المستلم عند استلام الطلب شخص آخر", hint: "ينطبق هذا الإعداد عند وجود مستلم مذكور في الطلب." },
-          { key: "qr", label: "إظهار رموز QR للفاتورة وسياسة الاسترجاع" },
         ],
       },
       {
@@ -447,8 +443,6 @@ export const invoiceWords: Record<Lang, Record<string, string>> = {
     carrier1: "Dukkan Ship",
     wt: "Weight",
     storeAddress: "Store address",
-    qrTitle: "View the invoice",
-    qrReturns: "View the return policy",
     kg: "kg",
     cur: "JOD",
   },
@@ -490,8 +484,6 @@ export const invoiceWords: Record<Lang, Record<string, string>> = {
     carrier1: "شحن دكان",
     wt: "الوزن",
     storeAddress: "عنوان المتجر",
-    qrTitle: "عرض الفاتورة",
-    qrReturns: "عرض سياسة الاسترجاع",
     kg: "كجم",
     cur: "د.أ",
   },

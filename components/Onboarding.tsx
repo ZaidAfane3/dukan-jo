@@ -133,11 +133,11 @@ const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
    Small shared pieces
    ==================================================================== */
 
-function Label({ title, hint, optional }: { title: string; hint?: string; optional?: string }) {
+function Label({ title, hint, optional, required }: { title: string; hint?: string; optional?: string; required?: boolean }) {
   return (
     <div className="mb-3">
       <div className="flex items-center gap-2">
-        <span className="font-bold">{title}</span>
+        <span className="font-bold">{title}{required && <span className="text-rose-600"> *</span>}</span>
         {optional && <span className="rounded-full bg-fg/10 px-2.5 py-0.5 text-[11px] font-medium text-muted">{optional}</span>}
       </div>
       {hint && <p className="mt-1 text-sm text-muted">{hint}</p>}
@@ -345,7 +345,7 @@ function IdentityStep({ store, onSave }: StepProps) {
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-8 lg:order-2">
         <div>
-          <Label title={c.nameLabel} hint={c.nameHint} />
+          <Label title={c.nameLabel} hint={c.nameHint} required />
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={c.namePh} maxLength={40} className={`${inputClass} h-12`} />
         </div>
 
@@ -1265,6 +1265,9 @@ export function Onboarding() {
   const back = () => setView(null);
   const doneCount = done.filter(Boolean).length;
   const taskTitles = c.tasks.map((t) => t.title);
+
+  /* Wait for the saved setup (his name, from signup) to load before mounting the steps: they copy "store" into their own state once, on mount. */
+  if (!restored) return null;
 
   const stepBody =
     view === 0 ? <IdentityStep store={store} onSave={(p) => finish(0, p)} />

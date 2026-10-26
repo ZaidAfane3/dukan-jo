@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
 import { displayFamily, heroTitleFamily, type SectionConfig, type StorefrontConfig } from "./config";
-import { copy, currency, icons, moneyIn, onColor, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { copy, currency, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import type { StoreData, StoreProduct } from "./useStoreData";
 
 /* Set only inside the store designer: clicking a part of the store selects it for editing. */
@@ -29,6 +29,11 @@ export type Ctx = {
   openProduct?: (id: number) => void;
 };
 
+/* A small line in an elegant Latin italic (taglines such as "The Emerald Edit") */
+const latinItalic: React.CSSProperties = { fontFamily: "var(--font-elegant-latin), var(--font-elegant-ar), Georgia, serif", fontStyle: "italic", fontWeight: 400 };
+/* The thin ring of the store color around round pictures */
+const ringColor = "color-mix(in srgb, var(--sf-primary) 40%, transparent)";
+
 /* A size set on a wide screen, made smaller for a phone (big titles shrink more than small texts) */
 const scaled = (px: number, compact: boolean) => (compact ? (px > 40 ? Math.round(px * 0.55) : Math.round(px * 0.85)) : px);
 
@@ -47,6 +52,12 @@ export function linkProps(l: string, ctx: Ctx) {
   if (!/^https?:\/\//i.test(l.trim()) && !l.includes(".")) return { href: `#${l.trim()}`, onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.showSection?.(l.trim()); } };
   return { href: linkHref(l), target: "_blank", rel: "noreferrer" };
 }
+
+/* In the designer a button that leads to a page of the store opens that page with Ctrl+click (a plain click selects it) */
+const designOpen = (link: string | undefined, ctx: Ctx) => {
+  const to = pageOf(link ?? "");
+  return ctx.design && to !== null ? (e: React.MouseEvent) => { if (e.ctrlKey || e.metaKey) ctx.design?.openPage?.(to); } : undefined;
+};
 
 /* A button of the hero: it leads where the merchant chose. In the designer it only selects. */
 function HeroBtn({ link, ctx, children, ...rest }: { link?: string; ctx: Ctx; children: React.ReactNode; style?: React.CSSProperties; className?: string }) {
@@ -90,11 +101,33 @@ export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id
   );
 }
 
-function Heading({ title, ctx, more, right }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode }) {
+function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string }) {
   const c = copy[ctx.lang];
   const viewAll = ctx.config.texts.viewAll[ctx.lang] || c.viewAll;
   const light = ctx.config.theme.titleStyle === "light";
   const pop = ctx.config.theme.titleStyle === "pop";
+  /* The ornament style: three small diamonds above a centered title; with "view all" the title sits at the start and the link at the end */
+  if (ctx.config.theme.titleStyle === "ornament") {
+    const size = scaled(ctx.config.theme.sectionTitleSize ?? 44, ctx.compact);
+    const h2 = <h2 className="font-semibold leading-tight text-[var(--sf-title)]" style={{ fontFamily: "var(--sf-heading)", fontSize: size }}>{title}</h2>;
+    if (more || link) {
+      const cls = "inline-flex min-h-[44px] items-center text-sm underline underline-offset-[6px] transition hover:opacity-70";
+      return (
+        <div className="mb-8 flex items-end justify-between gap-4">
+          {h2}
+          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : <span className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
+          {right}
+        </div>
+      );
+    }
+    return (
+      <div className="mb-10 text-center">
+        <p aria-hidden className="mb-4 text-[15px] tracking-[0.6em] text-[var(--sf-primary)]">◆ ◆ ◆</p>
+        {h2}
+        {right && <div className="mt-4 flex justify-center">{right}</div>}
+      </div>
+    );
+  }
   return (
     <div className="mb-5 flex items-end justify-between gap-4">
       <h2
@@ -138,6 +171,8 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
   const plus = k.add === "plus";
   const low = k.showStock && p.quantity > 0 && p.quantity <= 5;
   const row = (k.info ?? "stack") === "row";
+  /* centered: the name, the material line and the price under the picture, in the middle, the name and price in the titles font */
+  const centered = k.info === "center";
 
   return (
     <article
@@ -172,21 +207,25 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
           ))}
       </div>
 
-      <div className="relative px-1.5 pb-1.5 pt-3">
+      <div className={`relative px-1.5 pb-1.5 ${centered ? "pt-4 text-center" : "pt-3"}`}>
        <div className={`${row ? "flex items-start justify-between gap-3" : ""} ${plus ? (inBasket > 0 && !out ? "pe-[6.75rem]" : "pe-11") : ""}`}>
         <div className="min-w-0">
         {p.category && k.showCategory && <p className="text-xs text-[var(--sf-text)]/55">{p.category}</p>}
-        {k.showName && <h3 className={`mt-0.5 text-sm font-bold ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}>{p.name}</h3>}
+        {k.showName && (centered ? (
+          <h3 className="line-clamp-1 font-semibold" style={{ fontFamily: "var(--sf-heading)", fontSize: ctx.compact ? 18 : 22 }}>{p.name}</h3>
+        ) : (
+          <h3 className={`mt-0.5 text-sm font-bold ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}>{p.name}</h3>
+        ))}
         {k.showNotes && p.notes && <p className="mt-0.5 line-clamp-1 text-[13px] text-[var(--sf-text)]/60">{p.notes}</p>}
         {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
         </div>
         {k.showPrice && (
-          <p dir="ltr" className={`${row ? "mt-0.5 shrink-0" : pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} flex items-baseline gap-1.5 text-start`} style={k.priceColor ? { color: k.priceColor } : undefined}>
+          <p dir="ltr" className={`${row ? "mt-0.5 shrink-0" : centered ? "mt-2 justify-center" : pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} flex items-baseline gap-1.5 text-start`} style={{ ...(k.priceColor ? { color: k.priceColor } : {}), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
             {p.price === null ? (
               <span className="text-sm text-[var(--sf-text)]/55">{ctx.lang === "ar" ? "بدون سعر" : "No price"}</span>
             ) : (
               <>
-                <span className="text-base font-extrabold">{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
                 <span className="text-[11px] font-semibold text-[var(--sf-text)]/60">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
                 {p.sale !== null && k.showOldPrice && <s className="text-xs text-[var(--sf-text)]/45">{moneyIn(p.price, priceLang(ctx.config.theme.prices, ctx.lang))}</s>}
               </>
@@ -471,7 +510,7 @@ function useRail(count: number, cols: number, ctx: Ctx) {
     animating.current = requestAnimationFrame(step);
   };
 
-  const arrow = "grid h-10 w-10 place-items-center rounded-full border-2 border-[var(--sf-text)] bg-white shadow-sm transition hover:scale-105 disabled:cursor-default disabled:opacity-35 disabled:hover:scale-100";
+  const arrow = "grid h-10 w-10 place-items-center rounded-full border-2 border-[var(--sf-text)] bg-[var(--sf-bg)] text-[var(--sf-text)] shadow-sm transition hover:scale-105 disabled:cursor-default disabled:opacity-35 disabled:hover:scale-100";
   const arrows = (
     <div className="flex shrink-0 items-center gap-2">
       <button type="button" disabled={edge.start} onClick={() => slide(-1)} aria-label={rtl ? "السابق" : "Previous"} className={arrow}>
@@ -618,6 +657,82 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
                 {sticker}
               </div>
             )}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  /* The orbit layout: a small Latin line, a title whose marked words are in the accent color, two square buttons, and a round photo
+     in three thin rings with a small price tag over its edge */
+  if (s.layout === "orbit") {
+    const l = ctx.lang;
+    const other = l === "ar" ? "en" : "ar";
+    const pick = (b?: { en: string; ar: string }) => b?.[l] || b?.[other] || "";
+    const pc = s.popColors ?? {};
+    const gold = pc.accent || "var(--sf-primary)";
+    const kicker = pick(s.eyebrow);
+    const button2 = pick(s.button2);
+    const label = pick(s.size);
+    const accentWords = pick(s.accentWord).split(/\s+/).filter(Boolean);
+    const lines = (s.title[l] || s.title[other] || "").split("\n");
+    const open = (field: string) => (ctx.design ? (e: React.MouseEvent) => { e.stopPropagation(); ctx.design!.select(id, field); } : undefined);
+    const btn = "inline-flex min-h-[44px] items-center px-9 py-4 text-[15px] font-bold transition hover:opacity-90";
+    return (
+      <section className={ctx.compact ? "px-4 pt-10" : "px-8 pt-[72px]"}>
+        <div className={`grid items-center ${ctx.compact ? "gap-14" : "gap-[72px] md:grid-cols-2"}`}>
+          <div className={`flex flex-col gap-6 ${ctx.compact ? "items-center text-center" : "items-start"}`}>
+            {kicker && (
+              <Pick ctx={ctx} id={id} field="eyebrow">
+                <p dir="auto" style={{ ...latinItalic, fontSize: sz("eyebrow", 22), color: s.colors?.eyebrow || "var(--sf-accent)" }}>{kicker}</p>
+              </Pick>
+            )}
+            <Pick ctx={ctx} id={id} field="title" block>
+              <h1 className="font-semibold" style={{ fontFamily: s.titleFont ? heroTitleFamily(s.titleFont) : "var(--sf-heading)", fontSize: sz("title", 80), lineHeight: 1.15, color: s.colors?.title || "var(--sf-title)" }}>
+                {lines.map((line, i) => (
+                  <span key={i} className="block">
+                    {line.split(/\s+/).filter(Boolean).map((w, j) => (
+                      <Fragment key={j}>
+                        {j > 0 && " "}
+                        <span style={accentWords.includes(w) ? { color: gold } : undefined}>{w}</span>
+                      </Fragment>
+                    ))}
+                  </span>
+                ))}
+              </h1>
+            </Pick>
+            <Pick ctx={ctx} id={id} field="subtitle" block>
+              <p className="max-w-[420px] font-light" style={{ fontSize: sz("subtitle", 18), lineHeight: 2, color: s.colors?.subtitle || "color-mix(in srgb, var(--sf-text) 80%, var(--sf-bg))" }}>{s.subtitle[l] || s.subtitle[other]}</p>
+            </Pick>
+            <div className={`flex flex-wrap items-center gap-4 ${ctx.compact ? "justify-center" : ""}`}>
+              <Pick ctx={ctx} id={id} field="button">
+                <HeroBtn ctx={ctx} link={s.link} className={btn} style={{ fontSize: sz("button", 15), background: gold, color: s.colors?.button || "var(--sf-bg)" }}>{s.button[l] || s.button[other]}</HeroBtn>
+              </Pick>
+              {button2 && (
+                <Pick ctx={ctx} id={id} field="button2">
+                  <HeroBtn ctx={ctx} link={s.link2} className={btn} style={{ fontSize: sz("button", 15), border: `1px solid ${gold}`, color: gold }}>{button2}</HeroBtn>
+                </Pick>
+              )}
+            </div>
+          </div>
+
+          <div className="relative mx-auto w-full" style={{ maxWidth: ctx.compact ? 300 : 520, padding: ctx.compact ? 26 : 40 }}>
+            <div className="relative aspect-square w-full">
+              <span aria-hidden className="pointer-events-none absolute rounded-full" style={{ inset: ctx.compact ? -26 : -40, border: "1px dashed color-mix(in srgb, var(--sf-primary) 20%, transparent)" }} />
+              <span aria-hidden className="pointer-events-none absolute rounded-full" style={{ inset: -16, border: `1px solid ${ringColor}` }} />
+              <div onClick={open("photo")} className={`absolute inset-0 overflow-hidden rounded-full ${ctx.design ? "cursor-pointer" : ""}`} style={{ outline: `1px solid ${ringColor}`, outlineOffset: 8, background: "color-mix(in srgb, var(--sf-text) 6%, var(--sf-bg))" }}>
+                {s.photo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={s.photo} alt={label || pick(s.title)} className="h-full w-full object-cover" style={picFill(s.photoPos)} />
+                )}
+              </div>
+              {(label || s.price) && (
+                <div onClick={open("price")} className={`absolute bottom-[4%] start-[-6%] px-5 py-3.5 ${ctx.design ? "cursor-pointer" : ""}`} style={{ background: pc.sticker || "#f2eee6", color: "var(--sf-bg)" }}>
+                  {label && <p className="text-xs" style={{ color: "color-mix(in srgb, var(--sf-bg) 60%, #f2eee6)" }}>{label}</p>}
+                  {s.price && <p className="font-bold" style={{ fontFamily: "var(--sf-heading)", fontSize: sz("price", 20) }}>{s.price}</p>}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -822,12 +937,22 @@ function Collection({ s, ctx }: { s: Extract<SectionConfig, { type: "collection"
   /* While styling with sample products, an empty collection shows some samples */
   const items = (picked.length ? picked : ctx.data.isDemo ? ctx.data.products : []).slice(0, s.count);
   if (!items.length) return null;
-  return (
-    <section className={section(ctx.compact)}>
-      <Heading title={s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]} ctx={ctx} more />
+  const inner = (
+    <>
+      <Heading title={s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]} ctx={ctx} more link={s.link || undefined} />
       <Grid items={items} ctx={ctx} columns={s.columns} />
-    </section>
+    </>
   );
+  /* A band of its own color across the whole width: its text, titles and buttons take the band's text color */
+  if (s.background) {
+    const ink = s.color || onColor(s.background);
+    return (
+      <section className={ctx.compact ? "my-10 px-4 py-12" : "my-16 px-8 py-24"} style={{ background: s.background, color: ink, ["--sf-text" as string]: ink, ["--sf-title" as string]: ink, ["--sf-primary" as string]: ink, ["--sf-on" as string]: s.background }}>
+        {inner}
+      </section>
+    );
+  }
+  return <section className={section(ctx.compact)}>{inner}</section>;
 }
 
 /** Animated pictures: his own pictures or GIFs, one at a time, with arrows, dots and optional links. */
@@ -850,6 +975,29 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
     );
   }
   const cols = ctx.compact ? Math.min(2, list.length) : Math.min(s.columns || 4, list.length);
+  /* Circles: round pictures, each in a thin ring of the store color, with the name under it */
+  if (s.style === "circles") {
+    return (
+      <section className={section(ctx.compact)}>
+        {title && <Heading title={title} ctx={ctx} />}
+        <div className={`grid ${ctx.compact ? "gap-x-6 gap-y-8" : "gap-8"}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+          {list.map((x, n) => {
+            const label = x.label?.[ctx.lang] || x.label?.[other] || "";
+            const body = (
+              <div className="group flex flex-col items-center px-3">
+                <div className="aspect-square w-full overflow-hidden rounded-full" style={{ outline: `1px solid ${ringColor}`, outlineOffset: 8 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" style={picFill(x.pos)} />
+                </div>
+                {label && <span className="mt-5 text-center" style={{ fontFamily: "var(--sf-heading)", fontSize: ctx.compact ? 18 : 22 }}>{label}</span>}
+              </div>
+            );
+            return x.link && !ctx.design ? <a key={n} {...linkProps(x.link, ctx)} className="block">{body}</a> : <div key={n} onClick={designOpen(x.link, ctx)}>{body}</div>;
+          })}
+        </div>
+      </section>
+    );
+  }
   return (
     <section className={`relative isolate ${section(ctx.compact)}`}>
       {title && <Heading title={title} ctx={ctx} more={editorial} />}
@@ -860,7 +1008,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
           const body = (
             <div className={`group relative overflow-hidden bg-black/5 ${editorial ? `rounded-[4px] ${ctx.compact ? "h-[200px]" : "h-[260px]"}` : "aspect-[4/5] rounded-[var(--sf-r)]"}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+              <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" style={picFill(x.pos)} />
               {label &&
                 (editorial ? (
                   <span
@@ -1056,7 +1204,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
               {photo}
               <span aria-hidden className="absolute inset-0 -z-10 bg-gradient-to-t from-black/65 via-black/15 to-transparent" />
               <div className="flex h-full flex-col justify-end p-6 text-white">
-                {title && <h3 className="text-2xl font-extrabold leading-tight drop-shadow" style={{ fontFamily: displayFamily[b.font ?? "default"] }}>{title}</h3>}
+                {title && <h3 className="font-extrabold leading-tight drop-shadow" style={{ fontFamily: displayFamily[b.font ?? "default"], color: b.titleColor || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) }}>{title}</h3>}
                 {text && <p className="mt-1.5 max-w-[85%] text-sm leading-relaxed opacity-90">{text}</p>}
                 {button &&
                   (go ? (
@@ -1235,6 +1383,41 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
   const body = s.body[ctx.lang] || s.body[other];
   if (!title && !body) return null;
   const center = s.align === "center";
+  /* The statement: a small Latin line, a big title, a line of text, a button and a row of short promises, all in the middle */
+  if (s.style === "statement") {
+    const pick = (b?: { en: string; ar: string }) => b?.[ctx.lang] || b?.[other] || "";
+    const eyebrow = pick(s.eyebrow);
+    const button = pick(s.button);
+    const trust = (s.trust ?? []).map(pick).filter(Boolean);
+    const btn = "inline-flex min-h-[44px] items-center px-9 py-4 text-[15px] font-bold transition hover:opacity-90";
+    const btnStyle = { background: "var(--sf-primary)", color: "var(--sf-on)" };
+    return (
+      <section className={ctx.compact ? "px-4 pt-16" : "px-8 pt-28"}>
+        <div className="mx-auto flex max-w-3xl flex-col items-center gap-[22px] text-center">
+          {eyebrow && <Pick ctx={ctx} id={id} field="eyebrow"><p dir="auto" style={{ ...latinItalic, fontSize: 22, color: "var(--sf-accent)" }}>{eyebrow}</p></Pick>}
+          {title && <Pick ctx={ctx} id={id} field="title" block><h2 className="font-semibold leading-tight text-[var(--sf-title)]" style={{ fontFamily: "var(--sf-heading)", fontSize: ctx.compact ? 34 : 56 }}>{title}</h2></Pick>}
+          {body && <Pick ctx={ctx} id={id} field="body" block><p className="mx-auto max-w-[560px] text-lg font-light leading-[2] text-[var(--sf-text)]/80">{body}</p></Pick>}
+          {button && (
+            <Pick ctx={ctx} id={id} field="button">
+              {s.link?.trim() && !ctx.design ? <a {...linkProps(s.link, ctx)} className={btn} style={btnStyle}>{button}</a> : <span className={btn} style={btnStyle} onClick={designOpen(s.link, ctx)}>{button}</span>}
+            </Pick>
+          )}
+          {trust.length > 0 && (
+            <Pick ctx={ctx} id={id} field="trust">
+              <ul className={`mt-2 flex flex-wrap items-center justify-center text-sm ${ctx.compact ? "gap-x-4 gap-y-2" : "gap-x-12 gap-y-3"}`} style={{ color: "var(--sf-accent)" }}>
+                {trust.map((x, i) => (
+                  <Fragment key={i}>
+                    {i > 0 && <li aria-hidden className="text-[10px] text-[var(--sf-primary)]">◆</li>}
+                    <li>{x}</li>
+                  </Fragment>
+                ))}
+              </ul>
+            </Pick>
+          )}
+        </div>
+      </section>
+    );
+  }
   return (
     <section className={section(ctx.compact)}>
       <div

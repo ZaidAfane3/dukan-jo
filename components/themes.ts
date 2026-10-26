@@ -6,6 +6,8 @@ import { atelierConfig } from "./storefront/atelierTheme";
 import type { InfoPage } from "./InfoPages";
 import { lammaPages } from "./storefront/lammaPages";
 import { lammaConfig, lammaProducts } from "./storefront/lammaTheme";
+import { lujainPages } from "./storefront/lujainPages";
+import { lujainConfig, lujainProducts } from "./storefront/lujainTheme";
 import type { Bi, StorefrontConfig } from "./storefront/config";
 import { loadConfig, saveConfig } from "./storefront/storage";
 import { toStoreProduct, type StoreProduct } from "./storefront/useStoreData";
@@ -103,6 +105,32 @@ export const themes: ThemeInfo[] = [
     pages: lammaPages,
     demo: { name: bi("Lamma", "لَمّة"), about: bi("Comfy pieces in beautiful colors, for every place.", "قطع مريحة بألوان جميلة، لكل مكان."), color: "#2b1b47", phone: "70 000 0000" },
     build: lammaConfig,
+  },
+  {
+    id: "lujain",
+    name: bi("Lujain", "لُجَين"),
+    tagline: bi("A quiet-luxury home page for fine jewelry", "صفحة رئيسية بفخامة هادئة لمتاجر المجوهرات"),
+    about: bi(
+      "Deep emerald with gold accents, round photos in thin gold rings, ornament titles, a light band of selected pieces and lots of room, set in El Messiri. Made for jewelry, watches and anything precious.",
+      "زمرّدي عميق بلمسات ذهبية، وصور دائرية بحلقات ذهب رفيعة، وعناوين بزخرفة، وشريط فاتح للقطع المختارة، ومساحات واسعة، بخط المسيري. للمجوهرات والساعات وكل شي ثمين.",
+    ),
+    price: 49,
+    tags: [bi("Dukkan design", "تصميم دكان")],
+    features: [
+      bi("Edit everything: change every text, every picture and every color", "عدّل كل شيء: غيّر كل نص وكل صورة وكل لون"),
+      bi("Your current products are imported into it automatically", "تُستورد منتجاتك الحالية فيه تلقائيًا"),
+      bi("A round hero photo in three thin rings, with a price tag", "صورة غلاف دائرية بثلاث حلقات رفيعة وبطاقة سعر"),
+      bi("Round category pictures in gold rings", "صور أقسام دائرية بحلقات ذهبية"),
+      bi("A light band for your selected pieces", "شريط فاتح لقطعك المختارة"),
+      bi("A centered block for custom pieces, with short promises", "كتلة في المنتصف للقطع الخاصة مع وعود قصيرة"),
+      bi("A page for every category, booking, custom piece, care, ring sizes and shipping", "صفحة لكل قسم وللحجز والقطعة الخاصة والعناية والمقاسات والشحن"),
+      bi("Square buttons, hairlines and ornament titles", "أزرار مربعة وخطوط رفيعة وعناوين بزخرفة"),
+    ],
+    sampleProducts: lujainProducts,
+    rev: 6,
+    pages: lujainPages,
+    demo: { name: bi("Lujain", "لُجَين"), about: bi("Fine jewelry, handmade.", "مجوهرات راقية مصنوعة يدوياً."), color: "#e2c27a", phone: "70 000 0000" },
+    build: lujainConfig,
   },
 ];
 

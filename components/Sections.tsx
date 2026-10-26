@@ -20,11 +20,12 @@ const svg = (d: React.ReactNode) => (
 
 /* Own simple line icons, same order as the copy in Prefs.tsx */
 const industryIcons = [
-  svg(<><path d="M9 3h6l1 5-4 2-4-2 1-5Z" /><path d="M8 8c-1 4-2 8-3 13h14c-1-5-2-9-3-13" /></>),
+  /* a hoodie: the hood, the sleeves, the pocket and the two strings */
+  svg(<><path d="M8.5 5.2C9.2 3.8 10.5 3 12 3s2.8.8 3.500 2.200" /><path d="M8.500 5.200 4 7.500 2.500 17l3 .8L6.500 13v8h11v-8l1 4.800 3-.8L20 7.500l-4.500-2.300" /><path d="M8.500 5.200C9 8 10.300 9.500 12 9.500s3-1.500 3.500-4.300" /><path d="M10.500 9.500v3M13.500 9.500v3" /><path d="M8.500 17h7l-.8 3.500H9.300L8.500 17Z" /></>),
   svg(<><path d="M10 3h4v3h-4zM9 6h6v2H9z" /><path d="M7 11a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-8Z" /><path d="M10 14h4" /></>),
+  svg(<><path d="M6 4h12l3 5-9 11L3 9l3-5Z" /><path d="M3 9h18M9 4l3 16M15 4l-3 16" /></>),
   svg(<><rect x="3" y="6" width="18" height="12" rx="4" /><path d="M8 10v4M6 12h4M16 11h.01M18 13h.01" /></>),
   svg(<><rect x="3" y="5" width="18" height="11" rx="2" /><path d="M8 20h8M12 16v4" /></>),
-  svg(<><path d="M6 4h12l3 5-9 11L3 9l3-5Z" /><path d="M3 9h18M9 4l3 16M15 4l-3 16" /></>),
   svg(<><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="M19 17l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" /></>),
   svg(<><path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3" /><path d="M2 12a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v6H2v-6Z" /><path d="M5 18v2M19 18v2" /></>),
 ];
@@ -116,7 +117,7 @@ export function Industries() {
       timer.current = window.setTimeout(() => {
         setFinale(false);
         setActive(0);
-      }, 3400);
+      }, 8000);
       return;
     }
     setActive(active + 1);
@@ -164,16 +165,25 @@ export function Industries() {
             return (
               <button
                 key={i}
-                onClick={() => revealed && setActive(i)}
+                onClick={() => {
+                  if (!revealed) return;
+                  /* In the finale a logo is a link: it ends the finale and opens that industry */
+                  if (finale) {
+                    window.clearTimeout(timer.current);
+                    setFinale(false);
+                    setShown(items.length);
+                  }
+                  setActive(i);
+                }}
                 aria-pressed={on}
                 aria-hidden={!revealed}
                 aria-label={ind.name}
                 title={ind.name}
                 tabIndex={revealed ? 0 : -1}
-                className={`absolute left-1/2 top-1/2 flex flex-col items-center justify-center overflow-hidden border font-semibold transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] ${revealed ? "" : "pointer-events-none"} ${
+                className={`absolute left-1/2 top-1/2 flex cursor-pointer flex-col items-center justify-center overflow-hidden border font-semibold transition-all duration-700 ease-[cubic-bezier(0.4,0,0.2,1)] ${revealed ? "" : "pointer-events-none"} ${
                   on
                     ? "z-10 h-40 w-56 gap-4 rounded-3xl border-ink bg-ink text-white shadow-lg sm:w-64"
-                    : `h-14 w-14 gap-0 rounded-2xl text-primary hover:border-primary ${finale ? "border-primary bg-primary/10" : "border-primary/25 bg-card"}`
+                    : `h-14 w-14 gap-0 rounded-2xl text-primary hover:border-primary ${finale ? "border-primary bg-primary/10 hover:bg-primary hover:text-white hover:shadow-lg" : "border-primary/25 bg-card"}`
                 }`}
                 style={{ transform: `translate(calc(-50% + ${x}rem), -50%) scale(${revealed ? 1 : 0.6})`, opacity: revealed ? 1 : 0, transitionDelay: finale ? `${i * 70}ms` : undefined }}
               >
@@ -815,11 +825,16 @@ export function Testimonials() {
                     </blockquote>
 
                     <figcaption className={`mt-7 flex items-center gap-3 text-sm ${k.muted}`} style={{ transform: "translateZ(60px)" }}>
-                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-white shadow-lg">
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M4 9 5.500 4h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6" />
-                        </svg>
-                      </span>
+                      {q.avatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={q.avatar} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover shadow-lg" />
+                      ) : (
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-white shadow-lg">
+                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M4 9 5.500 4h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6" />
+                          </svg>
+                        </span>
+                      )}
                       <span>
                         <strong className={`block ${k.text}`}>{q.n}</strong>
                         {q.s}

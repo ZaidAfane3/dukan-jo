@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Lang } from "../content";
-import { demoActive } from "../demoSandbox";
+import { editLocked } from "../demoSandbox";
 import { load as loadPages, savePages, type InfoPage } from "../InfoPages";
 import { Field, input, Toggle } from "./controls";
 
@@ -18,7 +18,7 @@ export function PageEditor({ lang, id, onBack, onChanged }: { lang: Lang; id: nu
   const w = words[lang];
   const [page, setPage] = useState<InfoPage | null>(null);
   const [asking, setAsking] = useState(false);
-  const locked = demoActive();
+  const locked = editLocked();
 
   useEffect(() => {
     setPage(loadPages().find((p) => p.id === id) ?? null);

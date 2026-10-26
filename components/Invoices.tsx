@@ -15,6 +15,9 @@ import {
 } from "./ordersContent";
 import { usePrefs } from "./Prefs";
 import { loadSetup } from "./setup";
+import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
+import { loadConfig } from "./storefront/storage";
+import type { LogoConfig } from "./storefront/config";
 
 const KEY = "seen-invoice";
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
@@ -209,15 +212,6 @@ function Barcode() {
   );
 }
 
-function Qr() {
-  const cells = useMemo(() => Array.from({ length: 49 }, (_, i) => ((i * 13 + 5) % 7) < 3), []);
-  return (
-    <span aria-hidden className="grid h-14 w-14 grid-cols-7 gap-px border border-black p-0.5">
-      {cells.map((on, i) => <span key={i} className={on ? "bg-black" : "bg-white"} />)}
-    </span>
-  );
-}
-
 function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark: string; stamp: string; store: string }) {
   const w = invoiceWords[s.invoiceLang];
   const rtl = s.invoiceLang === "ar";
@@ -227,6 +221,12 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
   const sub = { color: s.secondaryColor, fontWeight: s.secondaryBold ? 700 : 400 };
   const jc: Record<Pos, string> = { right: rtl ? "justify-start" : "justify-end", center: "justify-center", left: rtl ? "justify-end" : "justify-start" };
   const logo = 22 + s.logoSize * 0.5;
+  /* The store's own logo: the one set in the store designer, or the picture uploaded in setup, or its first letter in the store color */
+  const [mark, setMark] = useState<{ logo: LogoConfig; color: string } | null>(null);
+  useEffect(() => {
+    const setup = loadSetup();
+    setMark({ logo: resolveLogo(loadConfig().identity.logo, setup?.logo ?? ""), color: setup?.color || "#004956" });
+  }, []);
   const money = (n: number) => `${n.toFixed(2)} ${w.cur}`;
 
   return (
@@ -238,7 +238,13 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
       <div className="relative">
         <div className={`flex ${jc[s.logoPos]}`}>
           <div className="text-center">
-            <span className="mx-auto grid place-items-center rounded-full bg-primary font-extrabold text-white" style={{ width: logo, height: logo, fontSize: logo * 0.45 }}>{shop.charAt(0)}</span>
+            {mark ? (
+              <span className="mx-auto block" style={{ width: logo, height: logo, fontSize: logo * 0.45, ["--sf-primary" as string]: mark.color, ["--sf-on" as string]: onColor(mark.color) }}>
+                <LogoMark logo={mark.logo} name={shop} className="h-full w-full rounded-xl" />
+              </span>
+            ) : (
+              <span className="mx-auto grid place-items-center rounded-full bg-primary font-extrabold text-white" style={{ width: logo, height: logo, fontSize: logo * 0.45 }}>{shop.charAt(0)}</span>
+            )}
             <p className="mt-1 text-sm" style={{ ...main, color: "#9ca3af" }}>{title}</p>
           </div>
         </div>
@@ -344,13 +350,6 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
           <div className="mt-3" style={sub}>
             <p className="font-semibold" style={main}>{w.returns}</p>
             <p>{w.returnsText}</p>
-          </div>
-        )}
-
-        {s.qr && (
-          <div className="mt-4 flex justify-around text-center" style={sub}>
-            <div className="grid justify-items-center gap-1"><Qr /><span>{w.qrTitle}</span></div>
-            <div className="grid justify-items-center gap-1"><Qr /><span>{w.qrReturns}</span></div>
           </div>
         )}
 

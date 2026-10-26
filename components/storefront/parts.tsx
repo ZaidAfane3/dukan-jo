@@ -150,6 +150,15 @@ export function ProductImage({ p, className = "", flat = false }: { p: StoreProd
 }
 
 /** The style that puts a picture where he dragged it inside its frame (nothing when he never moved it) */
+/** A picture that must always fill its frame (round pictures, tiles): moving it pans across the picture and zooming only enlarges,
+    so no empty corner can ever show. x and y go from -50 to 50 (the picture moved that far toward the right or the bottom). */
+export function picFill(p?: { x: number; y: number; zoom: number }): React.CSSProperties | undefined {
+  if (!p || (p.x === 0 && p.y === 0 && p.zoom === 1)) return undefined;
+  const ox = Math.max(0, Math.min(100, 50 - p.x));
+  const oy = Math.max(0, Math.min(100, 50 - p.y));
+  return { objectPosition: `${ox}% ${oy}%`, transform: `scale(${Math.max(1, p.zoom)})`, transformOrigin: `${ox}% ${oy}%` };
+}
+
 export function picStyle(p?: { x: number; y: number; zoom: number }): React.CSSProperties | undefined {
   if (!p || (p.x === 0 && p.y === 0 && p.zoom === 1)) return undefined;
   return { transform: `translate(${p.x}%, ${p.y}%) scale(${p.zoom})`, transformOrigin: "50% 50%" };

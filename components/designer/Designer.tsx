@@ -3,13 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { brandName } from "../content";
-import { demoActive } from "../demoSandbox";
+import { demoActive, setOwnCopy } from "../demoSandbox";
 import { findTheme, previewProducts, saveDesignAsTheme, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
 import { PageEditor } from "./PageEditor";
-import { load as loadPages, savePages } from "../InfoPages";
+import { load as loadPages, savePages, setPagesScope } from "../InfoPages";
 import { freshMine, loadMine, resetMine, saveMine } from "./mineTemplate";
-import { LangSwitch, usePrefs } from "../Prefs";
+import { usePrefs } from "../Prefs";
 import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
 import { StorefrontTheme } from "../storefront/StorefrontTheme";
 import { DesignerSkeleton } from "../StoreSkeletons";
@@ -51,6 +51,13 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   /* /saad shows the demo template; /saad/<theme> shows a ready theme of the theme store (kept under its own key) */
   const themeId = typeof mineProp === "string" && findTheme(mineProp) ? mineProp : undefined;
   const mine = !!mineProp;
+  /* Saad's copies keep their own pages (each theme its own list), and are never locked by the tour. Set before anything reads them. */
+  setPagesScope(mine ? `saad-pages-${themeId ?? "demo"}` : null);
+  setOwnCopy(mine);
+  useEffect(() => () => {
+    setPagesScope(null);
+    setOwnCopy(false);
+  }, []);
   const { lang } = usePrefs();
   const t = dc[lang];
   const router = useRouter();
@@ -540,8 +547,6 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
         <button type="button" onClick={save} disabled={!dirty} className="h-9 rounded-xl bg-ink px-5 text-sm font-semibold text-onink transition hover:bg-deep disabled:cursor-not-allowed disabled:opacity-40">
           {t.save}
         </button>
-
-        <LangSwitch iconOnly />
 
         <div className="relative">
           <button type="button" onClick={() => { setMoreMenu((o) => !o); setPagesMenu(false); setThemeName(null); }} aria-label={t.more} aria-expanded={moreMenu} className="grid h-9 w-9 place-items-center rounded-lg border border-fg/15 transition hover:bg-soft">

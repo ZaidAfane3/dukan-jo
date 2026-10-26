@@ -26,7 +26,7 @@ const preview = {
       { label: "Awaiting payment", dot: "bg-amber-500" },
       { label: "Processing", dot: "bg-sky-500" },
     ],
-    names: ["Layla A.", "Omar K.", "Noor S.", "Sara M.", "Yazan H.", "Huda R.", "Khaled B."],
+    names: ["Layla A.", "Omar K.", "Sara M.", "Yazan H.", "Noor S.", "Khaled M.", "Ahmad S."],
     times: ["Just now", "1 min ago", "23 min ago"],
   },
   ar: {
@@ -45,12 +45,13 @@ const preview = {
       { label: "بانتظار الدفع", dot: "bg-amber-500" },
       { label: "قيد التنفيذ", dot: "bg-sky-500" },
     ],
-    names: ["ليلى أ.", "عمر ك.", "نور س.", "سارة م.", "يزن ح.", "هدى ر.", "خالد ب."],
+    names: ["ليلى أ.", "عمر ك.", "سارة م.", "يزن ح.", "نور س.", "خالد م.", "أحمد س."],
     times: ["الآن", "منذ دقيقة", "منذ 23 دقيقة"],
   },
 };
 
-const avatarHues = ["from-[#73e7cb] to-[#348d9c]", "from-[#f7f1ea] to-[#d9c9b5]", "from-[#348d9c] to-[#004956]"];
+/* The photo of each customer in the list, in the same order as the names: Layla, Omar, Sara, Yazan, Noor, Khaled, Ahmad */
+const avatarPhotos = ["layla", "omar", "sara", "yazan", "noor", "khaled", "ahmad"].map((n) => `/avatars/${n}.jpg`);
 
 /* One digit that rolls like a combination lock: when it changes, the new digit slides up
    from below, always upward (9 to 0 keeps rolling the same way). */
@@ -279,7 +280,8 @@ export function Hero() {
                           transition={{ type: "spring", stiffness: 260, damping: 26 }}
                           className="flex items-center gap-3 rounded-xl border border-fg/10 bg-card px-3 py-2.5 text-xs shadow-sm"
                         >
-                          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br text-sm font-extrabold text-white ${avatarHues[r.name % avatarHues.length]}`}>{name.charAt(0)}</span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={avatarPhotos[r.name % avatarPhotos.length]} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover shadow-sm" />
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center gap-2">
                               <span className="truncate text-sm font-bold">{name}</span>

@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
-import { demoActive } from "../demoSandbox";
+import { editLocked } from "../demoSandbox";
+import { picFill } from "../storefront/parts";
 import { load as loadPages, pageTemplates, savePages } from "../InfoPages";
 import { input } from "./controls";
 
@@ -144,7 +145,7 @@ export function NewPageDialog({ lang, onClose, onCreated }: { lang: Lang; onClos
   }, [onClose]);
 
   const create = () => {
-    if (demoActive()) return setError(w.demo);
+    if (editLocked()) return setError(w.demo);
     if (!title.trim()) return setError(w.errTitle);
     const list = loadPages();
     const id = list.reduce((m, p) => Math.max(m, p.id), 0) + 1;
@@ -213,11 +214,12 @@ const moveWords = {
 };
 
 /** The frame a picture is shown in, drawn at a small size: he pulls the picture with the mouse (or a finger) to where it fits */
-export function PictureMover({ lang, image, value, onChange, ratio, radius }: { lang: Lang; image: string; value?: { x: number; y: number; zoom: number }; onChange: (v: { x: number; y: number; zoom: number }) => void; ratio: string; radius: string }) {
+export function PictureMover({ lang, image, value, onChange, ratio, radius, fill = false }: { lang: Lang; image: string; value?: { x: number; y: number; zoom: number }; /* the picture always fills its frame: it pans and zooms in, never leaving a gap */ fill?: boolean; onChange: (v: { x: number; y: number; zoom: number }) => void; ratio: string; radius: string }) {
   const w = moveWords[lang];
   const v = value ?? { x: 0, y: 0, zoom: 1 };
   const grab = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
-  const clamp = (n: number) => Math.round(Math.max(-90, Math.min(90, n)));
+  const lim = fill ? 50 : 90;
+  const clamp = (n: number) => Math.round(Math.max(-lim, Math.min(lim, n)));
   if (!image) return null;
   return (
     <div className="space-y-2.5">
@@ -239,11 +241,11 @@ export function PictureMover({ lang, image, value, onChange, ratio, radius }: { 
         onPointerCancel={() => (grab.current = null)}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={image} alt="" draggable={false} className="h-full w-full object-cover" style={{ transform: `translate(${v.x}%, ${v.y}%) scale(${v.zoom})` }} />
+        <img src={image} alt="" draggable={false} className="h-full w-full object-cover" style={fill ? picFill(v) : { transform: `translate(${v.x}%, ${v.y}%) scale(${v.zoom})` }} />
       </div>
       <label className="flex items-center gap-3 text-xs font-semibold text-fg/80">
         {w.zoom}
-        <input type="range" min={50} max={300} value={Math.round(v.zoom * 100)} onChange={(e) => onChange({ ...v, zoom: Number(e.target.value) / 100 })} className="h-2 flex-1 accent-primary" />
+        <input type="range" min={fill ? 100 : 50} max={300} value={Math.round(v.zoom * 100)} onChange={(e) => onChange({ ...v, zoom: Number(e.target.value) / 100 })} className="h-2 flex-1 accent-primary" />
         <span className="w-10 text-end tabular-nums" dir="ltr">{Math.round(v.zoom * 100)}%</span>
       </label>
       {(v.x !== 0 || v.y !== 0 || v.zoom !== 1) && (

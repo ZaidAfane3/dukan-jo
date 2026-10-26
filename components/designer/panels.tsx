@@ -5,7 +5,7 @@ import { latin } from "../digits";
 import type { Lang } from "../content";
 import { autoFooterColumns, defaultConfig, footerColumns, fontFamily, heroTitleFamily, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type Banner, type DisplayFont, type HeroBg, type FooterColumn, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type StorefrontConfig } from "../storefront/config";
 import { copy as storeCopy, icons as storeIcons, LogoMark, markKeys, onColor, resolveLogo, sampleMarks } from "../storefront/parts";
-import { demoActive } from "../demoSandbox";
+import { editLocked } from "../demoSandbox";
 import { loadSetup } from "../setup";
 import { patterns } from "../storefront/patterns";
 import { FocusPicker, type Focus as PicFocus } from "../FocusPicker";
@@ -83,6 +83,39 @@ const popT = {
     chipLink: "Link (optional)",
     chipRemove: "Remove this button",
     chipAdd: "Add a button",
+    layoutOrbit: "Round photo",
+    kickerLatin: "Small line above the title",
+    tagLabel: "Price tag: the piece's name",
+    tagPrice: "Price tag: the price",
+    colorGold: "Accent color (marked words, buttons)",
+    colorTag: "Price tag color",
+    tilesCircles: "Circles",
+    viewAllLeads: "Where \"view all\" leads",
+    bandOn: "A band of its own color across the page",
+    bandBg: "Band color",
+    bandText: "Band text color",
+    infoCenter: "Centered",
+    textStyle: "Look",
+    textPlain: "Plain",
+    textStatement: "Centered statement",
+    textEyebrow: "Small line above the title",
+    textButton: "Button text (empty hides it)",
+    textLeads: "Where the button leads",
+    trustTitle: "Short promises under the button",
+    trustAdd: "Add a promise",
+    trustRemove: "Remove this promise",
+    titleOrnament: "Ornament",
+    hairlines: "Thin lines under the header and over the footer",
+    navPlace: "Where the links sit (name in the middle)",
+    navBelow: "Under the name",
+    navStart: "At the start of the row",
+    cartLook: "Saved and cart buttons",
+    cartIcon: "Icons",
+    cartText: "Words: Saved · Cart (0)",
+    nameFont: "Font of the store name",
+    nameColor: "Color of the store name",
+    nameFontSame: "Like the titles",
+    tagline: "Small line under the name",
     pricesTitle: "Language of the prices",
     pricesAuto: "Like the page",
     pricesAr: "Arabic (٢٤ د.أ)",
@@ -214,6 +247,39 @@ const popT = {
     chipLink: "الرابط (اختياري)",
     chipRemove: "إزالة هذا الزر",
     chipAdd: "إضافة زر",
+    layoutOrbit: "صورة دائرية",
+    kickerLatin: "سطر صغير فوق العنوان",
+    tagLabel: "بطاقة السعر: اسم القطعة",
+    tagPrice: "بطاقة السعر: السعر",
+    colorGold: "لون التمييز (الكلمات المميّزة والأزرار)",
+    colorTag: "لون بطاقة السعر",
+    tilesCircles: "دوائر",
+    viewAllLeads: "إلى أين يذهب «عرض الكل»",
+    bandOn: "شريط بلون خاص على عرض الصفحة",
+    bandBg: "لون الشريط",
+    bandText: "لون النص في الشريط",
+    infoCenter: "في المنتصف",
+    textStyle: "الشكل",
+    textPlain: "عادي",
+    textStatement: "كتلة في المنتصف",
+    textEyebrow: "سطر صغير فوق العنوان",
+    textButton: "نص الزر (فارغ: بدون زر)",
+    textLeads: "إلى أين يذهب الزر",
+    trustTitle: "وعود قصيرة تحت الزر",
+    trustAdd: "إضافة وعد",
+    trustRemove: "إزالة هذا الوعد",
+    titleOrnament: "زخرفة",
+    hairlines: "خطوط رفيعة تحت الرأس وفوق التذييل",
+    navPlace: "مكان الروابط (الاسم في المنتصف)",
+    navBelow: "تحت الاسم",
+    navStart: "في بداية السطر",
+    cartLook: "زرا المفضلة والسلة",
+    cartIcon: "أيقونات",
+    cartText: "كلمات: المفضلة · السلة (٠)",
+    nameFont: "خط اسم المتجر",
+    nameColor: "لون اسم المتجر",
+    nameFontSame: "مثل العناوين",
+    tagline: "سطر صغير تحت الاسم",
     pricesTitle: "لغة الأسعار",
     pricesAuto: "مثل لغة الصفحة",
     pricesAr: "عربي (٢٤ د.أ)",
@@ -698,8 +764,9 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
     const split = s.settings.layout === "split";
     const full = !!s.settings.fullWidth;
     const pop = s.settings.layout === "pop";
+    const orbit = s.settings.layout === "orbit";
     const pp = popT[lang];
-    const defaults = { title: pop ? 108 : split ? (full ? 100 : 48) : 36, subtitle: pop ? 20 : split ? (full ? 24 : 15) : 15, eyebrow: 34, price: 26, detail: 13, button: pop ? 16 : split ? 15 : 14 };
+    const defaults = { title: orbit ? 80 : pop ? 108 : split ? (full ? 100 : 48) : 36, subtitle: pop ? 20 : split ? (full ? 24 : 15) : 15, eyebrow: 34, price: 26, detail: 13, button: pop ? 16 : split ? 15 : 14 };
     const setPop = (patch: Partial<NonNullable<typeof s.settings.popColors>>) => onChange({ ...s, settings: { ...s.settings, popColors: { ...(s.settings.popColors ?? {}), ...patch } } });
     type HeroKey = keyof typeof defaults;
     const setSize = (key: HeroKey, v: number | undefined) => onChange({ ...s, settings: { ...s.settings, sizes: { ...(s.settings.sizes ?? {}), [key]: v } } });
@@ -722,7 +789,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
         {withSize(text(s.settings.title, (title) => onChange({ ...s, settings: { ...s.settings, title } }), t.form.title, false, "title"), "title")}
         <Field label={t.luxe.titleFont}>
           <div className="grid grid-cols-2 gap-2">
-            {(["", "readex", "plex", "baloo", "elegant", "cairo", "tajawal", "ruqaa", "lemonada", "amiri"] as HeroFont[]).map((k) => {
+            {(["", "readex", "plex", "baloo", "elegant", "cairo", "tajawal", "messiri", "almarai", "ruqaa", "lemonada", "amiri"] as HeroFont[]).map((k) => {
               const on = (s.settings.titleFont ?? "") === k;
               const name = k === "" ? t.luxe.fontDefault : k === "ruqaa" ? t.luxe.fontRuqaa : k === "lemonada" ? t.luxe.fontLemonada : k === "amiri" ? t.luxe.fontAmiri : t.options.fonts[k];
               return (
@@ -740,10 +807,10 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
           <LinkPicker lang={lang} value={s.settings.link ?? ""} onChange={(link) => onChange({ ...s, settings: { ...s.settings, link } })} label={popT[lang].buttonLeads} />
         </Field>
         <Field label={t.form.heroLayout}>
-          <div className="grid grid-cols-3 gap-2">
-            {(["banner", "split", "pop"] as const).map((k) => (
+          <div className="grid grid-cols-2 gap-2">
+            {(["banner", "split", "pop", "orbit"] as const).map((k) => (
               <button key={k} type="button" onClick={() => onChange({ ...s, settings: { ...s.settings, layout: k } })} aria-pressed={(s.settings.layout ?? "banner") === k} className={`rounded-xl border px-3 py-2.5 text-xs font-semibold transition ${(s.settings.layout ?? "banner") === k ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
-                {k === "banner" ? t.form.layoutBanner : k === "split" ? t.form.layoutSplit : pp.layoutPop}
+                {k === "banner" ? t.form.layoutBanner : k === "split" ? t.form.layoutSplit : k === "pop" ? pp.layoutPop : pp.layoutOrbit}
               </button>
             ))}
           </div>
@@ -801,9 +868,30 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
             <ColorChip lang={lang} label={pp.colorSticker} value={s.settings.popColors?.sticker} onChange={(sticker) => setPop({ sticker })} onReset={() => setPop({ sticker: undefined })} />
           </div>
         )}
+        {orbit && (
+          <div className="space-y-4 rounded-xl bg-soft/70 p-3">
+            {withSize(text(s.settings.eyebrow ?? noText, (eyebrow) => onChange({ ...s, settings: { ...s.settings, eyebrow } }), pp.kickerLatin, false, "eyebrow"), "eyebrow")}
+            <Field label={pp.accentWord} hint={pp.accentWordHint}>
+              <input data-field="accentWord" value={(s.settings.accentWord ?? noText)[lang]} onChange={(e) => onChange({ ...s, settings: { ...s.settings, accentWord: { ...(s.settings.accentWord ?? noText), [lang]: e.target.value } } })} maxLength={40} className={`${input} h-11`} />
+            </Field>
+            {text(s.settings.button2 ?? noText, (button2) => onChange({ ...s, settings: { ...s.settings, button2 } }), t.luxe.heroButton2, false, "button2")}
+            <Field label={popT[lang].button2Leads}>
+              <LinkPicker lang={lang} value={s.settings.link2 ?? ""} onChange={(link2) => onChange({ ...s, settings: { ...s.settings, link2 } })} label={popT[lang].button2Leads} />
+            </Field>
+            <Field label={pp.photo1}>
+              <div data-field="photo" className="space-y-3"><PhotoPicker lang={lang} value={s.settings.photo ?? ""} onChange={(photo) => onChange({ ...s, settings: { ...s.settings, photo, photoPos: undefined } })} max={1400} /><PictureMover lang={lang} image={s.settings.photo ?? ""} value={s.settings.photoPos} onChange={(photoPos) => onChange({ ...s, settings: { ...s.settings, photoPos } })} ratio="1 / 1" radius="999px" fill /></div>
+            </Field>
+            {text(s.settings.size ?? noText, (size) => onChange({ ...s, settings: { ...s.settings, size } }), pp.tagLabel, false, "size")}
+            <Field label={pp.tagPrice}>
+              <input data-field="price" value={s.settings.price ?? ""} onChange={(e) => onChange({ ...s, settings: { ...s.settings, price: e.target.value } })} maxLength={30} className={`${input} h-11`} />
+            </Field>
+            <ColorChip lang={lang} label={pp.colorGold} value={s.settings.popColors?.accent} onChange={(accent) => setPop({ accent })} onReset={() => setPop({ accent: undefined })} />
+            <ColorChip lang={lang} label={pp.colorTag} value={s.settings.popColors?.sticker || "#f2eee6"} onChange={(sticker) => setPop({ sticker })} onReset={() => setPop({ sticker: undefined })} />
+          </div>
+        )}
         {/* The backgrounds and the product cards belong to the plain banner. In the photo-beside-text layout the panel color above is the color. */}
-        {s.settings.layout !== "split" && !pop && <HeroBackgrounds lang={lang} settings={s.settings} onChange={(settings) => onChange({ ...s, settings })} />}
-        {s.settings.layout !== "split" && !pop && <Toggle on={s.settings.showCards ?? true} onChange={(showCards) => onChange({ ...s, settings: { ...s.settings, showCards } })} label={t.form.showCards} />}
+        {s.settings.layout !== "split" && !pop && !orbit && <HeroBackgrounds lang={lang} settings={s.settings} onChange={(settings) => onChange({ ...s, settings })} />}
+        {s.settings.layout !== "split" && !pop && !orbit && <Toggle on={s.settings.showCards ?? true} onChange={(showCards) => onChange({ ...s, settings: { ...s.settings, showCards } })} label={t.form.showCards} />}
       </>
     );
   } else if (s.type === "featured" || s.type === "discounts") {
@@ -893,7 +981,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       <>
         {text(s.settings.title, (title) => set({ title }), t.form.title, false, "title")}
         {text(s.settings.body, (b) => set({ body: b }), t.form.body, true, "body")}
-        <Field label={t.form.align}>
+        {s.settings.style !== "statement" && <Field label={t.form.align}>
           <div className="flex gap-2">
             {(["start", "center"] as const).map((a) => (
               <button key={a} type="button" onClick={() => set({ align: a })} aria-pressed={s.settings.align === a} className={`h-10 flex-1 rounded-xl border text-sm font-semibold transition ${s.settings.align === a ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
@@ -901,8 +989,36 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
               </button>
             ))}
           </div>
+        </Field>}
+        <Field label={popT[lang].textStyle}>
+          <Seg value={s.settings.style ?? "plain"} onChange={(style) => set({ style })} options={[{ key: "plain", label: popT[lang].textPlain }, { key: "statement", label: popT[lang].textStatement }]} />
         </Field>
-        <Toggle on={s.settings.tint} onChange={(tint) => set({ tint })} label={t.form.tint} />
+        {s.settings.style === "statement" && (
+          <div className="space-y-3 rounded-xl bg-soft/70 p-3">
+            {text(s.settings.eyebrow ?? noText, (eyebrow) => set({ eyebrow }), popT[lang].textEyebrow, false, "eyebrow")}
+            {text(s.settings.button ?? noText, (button) => set({ button }), popT[lang].textButton, false, "button")}
+            <Field label={popT[lang].textLeads}>
+              <LinkPicker lang={lang} value={s.settings.link ?? ""} onChange={(link) => set({ link })} label={popT[lang].textLeads} />
+            </Field>
+            <Field label={popT[lang].trustTitle}>
+              <div data-field="trust" className="space-y-2">
+                {(s.settings.trust ?? []).map((x, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input value={x[lang] ?? ""} onChange={(e) => set({ trust: (s.settings.trust ?? []).map((y, j) => (j === i ? { ...y, [lang]: e.target.value } : y)) })} maxLength={40} aria-label={popT[lang].trustTitle} className={`${input} h-10 flex-1`} />
+                    <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set({ trust: (s.settings.trust ?? []).filter((_, j) => j !== i) })} aria-label={popT[lang].trustRemove} title={popT[lang].trustRemove}>{ic.trash}</button>
+                  </div>
+                ))}
+                {(s.settings.trust ?? []).length < 5 && (
+                  <button type="button" onClick={() => set({ trust: [...(s.settings.trust ?? []), { en: "", ar: "" }] })} className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 text-sm font-bold text-primary transition hover:bg-primary/10">
+                    {ic.plus}
+                    {popT[lang].trustAdd}
+                  </button>
+                )}
+              </div>
+            </Field>
+          </div>
+        )}
+        {s.settings.style !== "statement" && <Toggle on={s.settings.tint} onChange={(tint) => set({ tint })} label={t.form.tint} />}
         <Field label={t.form.samples} hint={t.form.samplesHint}>
           <ul className="space-y-2">
             {sampleTexts.map((x) => (
@@ -1025,7 +1141,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
   const set = (patch: Partial<typeof bg>) => update((d) => ({ ...d, config: { ...d.config, pageBackground: { ...d.config.pageBackground, ...patch } } }));
 
   const take = async (file: File | undefined) => {
-    if (!file || demoActive()) return;
+    if (!file || editLocked()) return;
     const isVideo = /^video\/(mp4|webm)$/.test(file.type);
     const isImage = /^image\/(png|jpe?g|webp|gif)$/.test(file.type);
     if ((!isVideo && !isImage) || file.size > (isVideo ? 25_000_000 : 12_000_000)) return setProblem(t.bad);
@@ -1040,7 +1156,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
   };
 
   const remove = () => {
-    if (demoActive()) return;
+    if (editLocked()) return;
     if (bg.media) void deleteMedia(bg.media);
     set({ kind: "none", media: "", name: "", size: 0 });
   };
@@ -1128,7 +1244,7 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
       </Field>
       <Field label={t.font}>
         <div className="grid grid-cols-2 gap-2">
-          {(["readex", "plex", "baloo", "elegant", "cairo", "tajawal"] as const).map((k) => (
+          {(["readex", "plex", "baloo", "elegant", "cairo", "tajawal", "messiri", "almarai"] as const).map((k) => (
             <button key={k} type="button" onClick={() => set({ font: k })} aria-pressed={(th.font ?? "readex") === k} className={`rounded-xl border px-3 py-3 text-start transition ${(th.font ?? "readex") === k ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
               <span className="block text-base font-bold leading-snug" style={{ fontFamily: fontFamily[k] || undefined }}>{t.fontSample}</span>
               <span className="mt-1 block text-[11px] font-semibold text-muted">{t.fonts[k]}</span>
@@ -1138,7 +1254,7 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
       </Field>
       <Field label={lx.headingFont}>
         <div className="grid grid-cols-2 gap-2">
-          {(["", "readex", "plex", "baloo", "elegant", "cairo", "tajawal"] as const).map((k) => {
+          {(["", "readex", "plex", "baloo", "elegant", "cairo", "tajawal", "messiri", "almarai"] as const).map((k) => {
             const on = (th.headingFont ?? "") === k;
             return (
               <button key={k || "same"} type="button" onClick={() => set({ headingFont: k })} aria-pressed={on} className={`rounded-xl border px-3 py-3 text-start transition ${on ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
@@ -1156,8 +1272,9 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
         </div>
       </Field>
       <Field label={lx.titleStyle}>
-        <Seg value={th.titleStyle ?? "bold"} onChange={(titleStyle) => set({ titleStyle })} cols={3} options={[{ key: "bold", label: lx.titleBold }, { key: "light", label: lx.titleLight }, { key: "pop", label: popT[lang].titlePop }]} />
+        <Seg value={th.titleStyle ?? "bold"} onChange={(titleStyle) => set({ titleStyle })} cols={4} options={[{ key: "bold", label: lx.titleBold }, { key: "light", label: lx.titleLight }, { key: "pop", label: popT[lang].titlePop }, { key: "ornament", label: popT[lang].titleOrnament }]} />
       </Field>
+      <Toggle on={!!th.hairlines} onChange={(hairlines) => set({ hairlines })} label={popT[lang].hairlines} />
       <Field label={lx.sectionTitleSize}>
         <Stepper lang={lang} label={lx.textSize} value={th.sectionTitleSize ?? (th.titleStyle === "light" ? 34 : th.titleStyle === "pop" ? 44 : 24)} auto={th.sectionTitleSize === undefined} min={14} max={80} onChange={(sectionTitleSize) => set({ sectionTitleSize })} onReset={() => set({ sectionTitleSize: undefined })} />
       </Field>
@@ -1172,7 +1289,7 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
         <Toggle on={draft.config.cards.showNotes} onChange={(v) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, showNotes: v } } }))} label={lx.showNotes} />
       </div>
       <Field label={lx.cardInfo}>
-        <Seg value={draft.config.cards.info ?? "stack"} onChange={(info) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, info } } }))} options={[{ key: "stack", label: lx.infoStack }, { key: "row", label: lx.infoRow }]} />
+        <Seg value={draft.config.cards.info ?? "stack"} onChange={(info) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, info } } }))} cols={3} options={[{ key: "stack", label: lx.infoStack }, { key: "row", label: lx.infoRow }, { key: "center", label: popT[lang].infoCenter }]} />
       </Field>
       <Field label={popT[lang].cardAdd}>
         <Seg value={draft.config.cards.add ?? "wide"} onChange={(add) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, add } } }))} options={[{ key: "wide", label: popT[lang].addWide }, { key: "plus", label: popT[lang].addPlus }]} />
@@ -1524,6 +1641,16 @@ function CollectionForm({ lang, s, onChange, text }: { lang: Lang; s: Collection
   return (
     <>
       {text(s.settings.title, (title) => set({ title }), dc[lang].form.title, false, "title")}
+      <Field label={popT[lang].viewAllLeads}>
+        <LinkPicker lang={lang} value={s.settings.link ?? ""} onChange={(link) => set({ link })} label={popT[lang].viewAllLeads} />
+      </Field>
+      <Toggle on={!!s.settings.background} onChange={(on) => set(on ? { background: "#f2eee6", color: "#0f2a22" } : { background: "", color: "" })} label={popT[lang].bandOn} />
+      {!!s.settings.background && (
+        <div className="space-y-2">
+          <ColorChip lang={lang} label={popT[lang].bandBg} value={s.settings.background} onChange={(background) => set({ background })} />
+          <ColorChip lang={lang} label={popT[lang].bandText} value={s.settings.color || undefined} onChange={(color) => set({ color })} />
+        </div>
+      )}
       <Field label={t.collectionLimit}>
         <div className="flex gap-2">
           {[2, 3, 4, 6, 8, 12].map((n) => (
@@ -1664,6 +1791,34 @@ function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
       </Field>
       <Field label={lx.navStyle}>
         <Seg value={cfg.nav.style} onChange={(style) => setCfg((c) => ({ ...c, nav: { ...c.nav, style } }))} cols={3} options={[{ key: "button", label: lx.navButton }, { key: "links", label: lx.navLinks }, { key: "pill", label: popT[lang].navPill }]} />
+      </Field>
+      {cfg.nav.style === "links" && cfg.identity.align === "center" && (
+        <Field label={popT[lang].navPlace}>
+          <Seg value={cfg.nav.place ?? "below"} onChange={(place) => setCfg((c) => ({ ...c, nav: { ...c.nav, place } }))} options={[{ key: "below", label: popT[lang].navBelow }, { key: "start", label: popT[lang].navStart }]} />
+        </Field>
+      )}
+      {cfg.nav.style === "links" && (
+        <Field label={popT[lang].cartLook}>
+          <Seg value={cfg.nav.cartLook ?? "icon"} onChange={(cartLook) => setCfg((c) => ({ ...c, nav: { ...c.nav, cartLook } }))} options={[{ key: "icon", label: popT[lang].cartIcon }, { key: "text", label: popT[lang].cartText }]} />
+        </Field>
+      )}
+      <Field label={popT[lang].nameFont}>
+        <div className="grid grid-cols-2 gap-2">
+          {(["", "messiri", "elegant", "ruqaa", "lemonada", "amiri", "baloo", "almarai"] as HeroFont[]).map((k) => {
+            const on = (cfg.identity.nameFont ?? "") === k;
+            const name = k === "" ? popT[lang].nameFontSame : k === "ruqaa" ? lx.fontRuqaa : k === "lemonada" ? lx.fontLemonada : k === "amiri" ? lx.fontAmiri : t.options.fonts[k];
+            return (
+              <button key={k || "same"} type="button" onClick={() => setCfg((c) => ({ ...c, identity: { ...c.identity, nameFont: k || undefined } }))} aria-pressed={on} className={`rounded-xl border px-3 py-2.5 text-start transition ${on ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+                <span className="block truncate text-base font-bold leading-snug" style={{ fontFamily: heroTitleFamily(k) }}>{t.options.fontSample}</span>
+                <span className="mt-1 block text-[11px] font-semibold text-muted">{name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+      <ColorChip lang={lang} label={popT[lang].nameColor} value={cfg.identity.nameColor} onChange={(nameColor) => setCfg((c) => ({ ...c, identity: { ...c.identity, nameColor } }))} />
+      <Field label={popT[lang].tagline}>
+        <input value={cfg.identity.tagline?.[lang] ?? ""} onChange={(e) => setCfg((c) => ({ ...c, identity: { ...c.identity, tagline: { ...(c.identity.tagline ?? { en: "", ar: "" }), [lang]: e.target.value } } }))} maxLength={40} className={`${input} h-11`} />
       </Field>
       {cfg.nav.style === "pill" && (
         <div className="space-y-3">
@@ -2097,6 +2252,8 @@ function TilesForm({ lang, s, onChange, text }: { lang: Lang; s: TilesEl; onChan
               </div>
               <input value={x.label?.[lang] ?? ""} onChange={(e) => edit(i, { label: { ...(x.label ?? { en: "", ar: "" }), [lang]: e.target.value } })} placeholder={t.tileLabel} aria-label={t.tileLabel} maxLength={40} className={`${input} h-10`} />
               <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(i, { link })} label={t.tileLink} />
+              {/* drag the picture to choose which part shows in its frame (the circle, or the tall card) */}
+              <PictureMover lang={lang} image={x.image} value={x.pos} onChange={(pos) => edit(i, { pos })} fill ratio={s.settings.style === "circles" ? "1 / 1" : s.settings.style === "editorial" ? "4 / 3" : "4 / 5"} radius={s.settings.style === "circles" ? "999px" : "12px"} />
               {s.settings.style === "editorial" && (
                 <div className="space-y-1.5">
                   <p className="text-xs font-semibold text-fg/80">{lx.tileChip}</p>
@@ -2122,7 +2279,7 @@ function TilesForm({ lang, s, onChange, text }: { lang: Lang; s: TilesEl; onChan
       </p>
 
       <Field label={lx.tilesStyle}>
-        <Seg value={s.settings.style ?? "classic"} onChange={(style) => set({ style })} options={[{ key: "classic", label: lx.tilesClassic }, { key: "editorial", label: lx.tilesEditorial }]} />
+        <Seg value={s.settings.style ?? "classic"} onChange={(style) => set({ style })} options={[{ key: "classic", label: lx.tilesClassic }, { key: "editorial", label: lx.tilesEditorial }, { key: "circles", label: popT[lang].tilesCircles }]} cols={3} />
       </Field>
 
       <Field label={t.tilesPerRow}>
@@ -2217,7 +2374,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
           <Stepper lang={lang} label={lx.titleSize} value={x.titleSize ?? (x.variant === "card" ? 64 : 84)} auto={x.titleSize === undefined} min={20} max={200} onChange={(titleSize) => edit(i, { titleSize })} onReset={() => edit(i, { titleSize: undefined })} />
           <Stepper lang={lang} label={lx.textSize} value={x.textSize ?? (x.textFont && x.textFont !== "default" ? 20 : 15)} auto={x.textSize === undefined} min={10} max={60} onChange={(textSize) => edit(i, { textSize })} onReset={() => edit(i, { textSize: undefined })} />
           <Field label={lx.bannerTitleColor}>
-            <ColorPicker value={x.titleColor || (x.variant === "card" ? textNow : "#ffffff")} onChange={(titleColor) => edit(i, { titleColor })} label={lx.bannerTitleColor} bad={dc[lang].identity.hexBad} list={["#ffffff", "#d9b776", "#b03a5b", "#1c1a17", "#004956"]} />
+            <ColorPicker value={x.titleColor || (x.variant === "card" ? textNow : x.panel === "light" ? "#5a3a34" : x.panel === "dark" ? "#e9dfcf" : "#ffffff")} onChange={(titleColor) => edit(i, { titleColor })} label={lx.bannerTitleColor} bad={dc[lang].identity.hexBad} list={["#ffffff", "#d9b776", "#b03a5b", "#1c1a17", "#004956"]} />
           </Field>
 {x.variant !== "card" && (
           <Field label={lx.bannerPanel}>
@@ -2249,7 +2406,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
       ))}
 
       {items.length < 3 && (
-        <button type="button" onClick={() => set([...items, { image: "", title: { en: "", ar: "" }, text: { en: "", ar: "" }, button: { en: "", ar: "" }, link: "" }])} className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 px-4 py-3 text-sm font-bold text-primary transition hover:bg-primary/10">
+        <button type="button" onClick={() => set([...items, { image: "", title: { en: "", ar: "" }, text: { en: "", ar: "" }, button: { en: "", ar: "" }, link: "", variant: items[items.length - 1]?.variant }])} className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 px-4 py-3 text-sm font-bold text-primary transition hover:bg-primary/10">
           {ic.plus}
           {t.addBanner}
         </button>

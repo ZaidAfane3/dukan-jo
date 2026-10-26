@@ -20,6 +20,15 @@ export type InfoPage = {
 };
 
 const KEY = "seen-pages";
+/* Which list of pages is in use: the store's own, or the list of one of Saad's copies of a theme (/saad/<theme>). Each copy has its own
+   pages, so the pages of one theme never show in another theme or in the store. */
+let scope = KEY;
+export const setPagesScope = (key: string | null) => {
+  scope = key || KEY;
+};
+export const pagesScope = () => scope;
+/* The pages a ready theme brings (9101 and up) were once saved in the store's own list; they belong to their theme only */
+const themePage = (id: number) => id >= 9100 && id < 9300;
 const card = "rounded-2xl bg-card shadow-sm ring-1 ring-fg/10";
 const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
@@ -133,8 +142,14 @@ const copy = {
 
 export function load(): InfoPage[] {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as InfoPage[];
+    const raw = localStorage.getItem(scope);
+    if (raw) {
+      const list = JSON.parse(raw) as InfoPage[];
+      if (scope !== KEY || !list.some((x) => themePage(x.id))) return list;
+      const own = list.filter((x) => !themePage(x.id));
+      localStorage.setItem(KEY, JSON.stringify(own));
+      return own;
+    }
   } catch {
     /* fall through to the defaults */
   }
@@ -145,7 +160,7 @@ export function load(): InfoPage[] {
 /** Saves the list of pages (the same list the Info pages dashboard shows) */
 export function savePages(list: InfoPage[]): boolean {
   try {
-    localStorage.setItem(KEY, JSON.stringify(list));
+    localStorage.setItem(scope, JSON.stringify(scope === KEY ? list.filter((x) => !themePage(x.id)) : list));
     return true;
   } catch {
     return false;

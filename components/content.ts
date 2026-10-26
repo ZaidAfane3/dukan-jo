@@ -399,7 +399,7 @@ export type Content = {
   featuresTitle: string;
   features: Feature[];
   testimonialsTitle: string;
-  quotes: { q: string; n: string; s: string }[];
+  quotes: { q: string; n: string; s: string; avatar?: string }[];
   finalCta: { title: string; body: string };
   footer: {
     tagline: string;
@@ -865,7 +865,7 @@ export const content: Record<Lang, Content> = {
       title: "Support tickets",
       newTicket: "New ticket",
       cols: ["Ticket", "Category", "Status", "Created", "Actions"],
-      categories: ["Orders", "Payments", "Technical issue", "Other"],
+      categories: ["Orders", "Payments", "Technical issue", "Website design", "Suggestions", "Other"],
       statuses: ["Open", "Closed"],
       subject: "Subject",
       subjectPh: "What do you need help with?",
@@ -961,12 +961,12 @@ export const content: Record<Lang, Content> = {
     ],
     testimonialsTitle: "Be the next success story",
     quotes: [
-      { q: "Setup took an afternoon. Our first order came in that same night.", n: "Sample Merchant", s: "Fashion store" },
-      { q: "Shipping and payments finally live in one dashboard. That alone saves me hours.", n: "Sample Merchant", s: "Home goods" },
-      { q: "We went from a side project to a real brand without changing platform.", n: "Sample Merchant", s: "Beauty brand" },
-      { q: "Customers pay by CliQ or cash on delivery, and every order shows up in one place.", n: "Sample Merchant", s: "Gifts" },
-      { q: "The store designer let me change the look myself, without calling anyone.", n: "Sample Merchant", s: "Jewelry" },
-      { q: "The reports show me which products get left in carts, so I know who to remind.", n: "Sample Merchant", s: "Electronics" },
+      { q: "Setup took an afternoon. Our first order came in that same night.", n: "Omar K.", s: "Fashion store", avatar: "/avatars/omar.jpg" },
+      { q: "Shipping and payments finally live in one dashboard. That alone saves me hours.", n: "Layla A.", s: "Home goods", avatar: "/avatars/layla.jpg" },
+      { q: "We went from a side project to a real brand without changing platform.", n: "Sara M.", s: "Beauty brand", avatar: "/avatars/sara.jpg" },
+      { q: "Customers pay by CliQ or cash on delivery, and every order shows up in one place.", n: "Yazan H.", s: "Gifts", avatar: "/avatars/yazan.jpg" },
+      { q: "The store designer let me change the look myself, without calling anyone.", n: "Ahmad S.", s: "Jewelry", avatar: "/avatars/ahmad.jpg" },
+      { q: "The reports show me which products get left in carts, so I know who to remind.", n: "Noor S.", s: "Electronics", avatar: "/avatars/noor.jpg" },
     ],
     finalCta: {
       title: "Own a professional store on Dukkan",
@@ -1438,7 +1438,7 @@ export const content: Record<Lang, Content> = {
       title: "تذاكر الدعم",
       newTicket: "تذكرة جديدة",
       cols: ["التذكرة", "التصنيف", "الحالة", "تاريخ الإنشاء", "إجراءات"],
-      categories: ["الطلبات", "المدفوعات", "مشكلة تقنية", "أخرى"],
+      categories: ["الطلبات", "المدفوعات", "مشكلة تقنية", "تصميم موقع", "اقتراحات", "أخرى"],
       statuses: ["مفتوحة", "مغلقة"],
       subject: "الموضوع",
       subjectPh: "بماذا تحتاج المساعدة؟",
@@ -1534,12 +1534,12 @@ export const content: Record<Lang, Content> = {
     ],
     testimonialsTitle: "كن صاحب قصة النجاح القادمة",
     quotes: [
-      { q: "استغرق الإعداد عصر يوم واحد، وجاءنا أول طلب في الليلة نفسها.", n: "تاجر تجريبي", s: "متجر أزياء" },
-      { q: "أخيرًا صار الشحن والمدفوعات في لوحة واحدة، وهذا وحده يوفّر عليّ ساعات.", n: "تاجر تجريبي", s: "مستلزمات منزلية" },
-      { q: "انتقلنا من مشروع جانبي إلى علامة تجارية حقيقية دون أن نغيّر المنصة.", n: "تاجر تجريبي", s: "علامة تجميل" },
-      { q: "عملاؤنا يدفعون بكليك أو عند الاستلام، وكل الطلبات تصلني في مكان واحد.", n: "تاجر تجريبي", s: "متجر هدايا" },
-      { q: "مصمم المتجر سمح لي بتغيير الشكل بنفسي دون أن أتصل بأحد.", n: "تاجر تجريبي", s: "متجر مجوهرات" },
-      { q: "التقارير تُريني المنتجات التي تُترك في السلات، فأعرف لمن أرسل التذكير.", n: "تاجر تجريبي", s: "متجر إلكترونيات" },
+      { q: "استغرق الإعداد عصر يوم واحد، وجاءنا أول طلب في الليلة نفسها.", n: "عمر ك.", s: "متجر أزياء", avatar: "/avatars/omar.jpg" },
+      { q: "أخيرًا صار الشحن والمدفوعات في لوحة واحدة، وهذا وحده يوفّر عليّ ساعات.", n: "ليلى أ.", s: "مستلزمات منزلية", avatar: "/avatars/layla.jpg" },
+      { q: "انتقلنا من مشروع جانبي إلى علامة تجارية حقيقية دون أن نغيّر المنصة.", n: "سارة م.", s: "علامة تجميل", avatar: "/avatars/sara.jpg" },
+      { q: "عملاؤنا يدفعون بكليك أو عند الاستلام، وكل الطلبات تصلني في مكان واحد.", n: "يزن ح.", s: "متجر هدايا", avatar: "/avatars/yazan.jpg" },
+      { q: "مصمم المتجر سمح لي بتغيير الشكل بنفسي دون أن أتصل بأحد.", n: "أحمد س.", s: "متجر مجوهرات", avatar: "/avatars/ahmad.jpg" },
+      { q: "التقارير تُريني المنتجات التي تُترك في السلات، فأعرف لمن أرسل التذكير.", n: "نور س.", s: "متجر إلكترونيات", avatar: "/avatars/noor.jpg" },
     ],
     finalCta: {
       title: "امتلك متجرًا احترافيًا مع دكان",

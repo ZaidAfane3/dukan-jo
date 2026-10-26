@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Lang } from "../content";
 import { accountName, accountPhone } from "../setup";
+import { pagesScope } from "../InfoPages";
 import type { SectionConfig } from "./config";
 
 /* What the storefront shows comes from what the merchant has saved in this browser,
@@ -97,7 +98,7 @@ function build(lang: Lang, sample: boolean): StoreData {
     : saved;
 
   const other = lang === "ar" ? "en" : "ar";
-  const allPages = (read<{ id: number; published: boolean; footer: boolean; title: Bi; content?: Bi; sections?: SectionConfig[] }[]>("seen-pages") ?? []).filter((p) => p.published);
+  const allPages = (read<{ id: number; published: boolean; footer: boolean; title: Bi; content?: Bi; sections?: SectionConfig[] }[]>(pagesScope()) ?? []).filter((p) => p.published && (pagesScope() !== "seen-pages" || p.id < 9100 || p.id >= 9300));
   const pages = allPages.filter((p) => p.footer).map((p) => ({ id: p.id, title: p.title[lang] || p.title[other] }));
   const pageList = allPages.map((p) => ({ id: p.id, title: p.title[lang] || p.title[other], content: p.content?.[lang] || p.content?.[other] || "", sections: Array.isArray(p.sections) ? p.sections : [] }));
 
