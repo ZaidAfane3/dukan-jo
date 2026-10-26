@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Amiri, Aref_Ruqaa, Cairo, Cormorant_Garamond, IBM_Plex_Sans_Arabic, Lemonada, Readex_Pro, Tajawal } from "next/font/google";
+import { Amiri, Aref_Ruqaa, Baloo_Bhaijaan_2, Cairo, Cormorant_Garamond, IBM_Plex_Sans_Arabic, Lemonada, Readex_Pro, Tajawal } from "next/font/google";
 import { DemoBoot, DemoRemount } from "@/components/DemoBoot";
 import { PrefsProvider } from "@/components/Prefs";
 import { SkeletonOverlay } from "@/components/Skeleton";
@@ -16,6 +16,8 @@ const elegantLatin = Cormorant_Garamond({ subsets: ["latin"], weight: ["400", "5
 const elegantArabic = Amiri({ subsets: ["arabic", "latin"], weight: ["400", "700"], variable: "--font-elegant-ar", preload: false });
 const cairo = Cairo({ subsets: ["arabic", "latin"], variable: "--font-cairo", preload: false });
 const tajawal = Tajawal({ subsets: ["arabic", "latin"], weight: ["400", "500", "700", "800"], variable: "--font-tajawal", preload: false });
+/* A rounded, friendly Arabic font for playful stores */
+const baloo = Baloo_Bhaijaan_2({ subsets: ["arabic", "latin"], weight: ["500", "700", "800"], variable: "--font-baloo", preload: false });
 const plex = IBM_Plex_Sans_Arabic({ subsets: ["arabic", "latin"], weight: ["300", "400", "500", "700"], variable: "--font-plex", preload: false });
 /* Expressive display fonts for banner titles: a royal calligraphic one and a rounded, friendly one */
 const ruqaa = Aref_Ruqaa({ subsets: ["arabic", "latin"], weight: ["700"], variable: "--font-ruqaa", preload: false });
@@ -38,7 +40,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: initScript }} />
       </head>
-      <body className={`${sans.variable} ${elegantLatin.variable} ${elegantArabic.variable} ${cairo.variable} ${tajawal.variable} ${plex.variable} ${ruqaa.variable} ${lemonada.variable}`}>
+      <body className={`${sans.variable} ${elegantLatin.variable} ${elegantArabic.variable} ${cairo.variable} ${tajawal.variable} ${plex.variable} ${ruqaa.variable} ${lemonada.variable} ${baloo.variable}`}>
         <PrefsProvider>
           <DemoBoot />
           <SkeletonOverlay />

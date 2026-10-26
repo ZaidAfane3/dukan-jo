@@ -61,6 +61,7 @@ function IndustryCard({ d }: { d: IndustryDetail }) {
 
           {/* The window: the store's whole page scrolls inside it, down and back up, slowly and smoothly */}
           {shot && (
+            <div className="relative pb-8 sm:pb-10">
             <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(0,73,86,0.55)] ring-1 ring-black/10">
               <div dir="ltr" className="flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
                 <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
@@ -72,6 +73,19 @@ function IndustryCard({ d }: { d: IndustryDetail }) {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={shot.src} alt="" draggable={false} className="dk-shot block w-full select-none" />
               </div>
+            </div>
+            {/* A second page of the same store, in a smaller window that overlaps the first, scrolling on its own */}
+            {d.shots[1] && (
+              <div className="absolute bottom-0 end-3 w-[44%] overflow-hidden rounded-xl bg-white shadow-[0_30px_60px_-20px_rgba(0,73,86,0.65)] ring-1 ring-black/10 sm:end-6">
+                <div dir="ltr" className="flex items-center gap-1 border-b border-black/10 bg-[#f4f1ea] px-2.5 py-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#ff5f57]" /><span className="h-1.5 w-1.5 rounded-full bg-[#febc2e]" /><span className="h-1.5 w-1.5 rounded-full bg-[#28c840]" />
+                </div>
+                <div className="h-[var(--box)] overflow-hidden [--box:9rem] sm:[--box:12rem] lg:[--box:14rem]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={d.shots[1].src} alt="" draggable={false} className="dk-shot block w-full select-none" style={{ animationDelay: "-18s", animationDuration: "40s" }} />
+                </div>
+              </div>
+            )}
             </div>
           )}
         </div>
@@ -551,8 +565,19 @@ function FleetMap() {
 
   /* Routes between the cities, in the magnifier's own coordinates (0 to 100) */
   const pt = fleetCities.map((c) => ({ x: lensPct(c.x, LENS.x), y: lensPct(c.y, LENS.y) }));
-  const routeA = `M ${pt[0].x} ${pt[0].y} C ${pt[0].x + 14} ${pt[0].y + 12}, ${pt[2].x + 14} ${pt[2].y - 14}, ${pt[2].x} ${pt[2].y}`; /* Irbid to Amman */
-  const routeB = `M ${pt[1].x} ${pt[1].y} C ${pt[1].x - 10} ${pt[1].y + 6}, ${pt[2].x - 12} ${pt[2].y - 6}, ${pt[2].x} ${pt[2].y}`; /* Salt to Amman */
+  /* Each road is drawn once and driven both ways: trucks leave Amman for Irbid and for Salt, and others come back */
+  const roadA = { a: pt[0], c1: { x: pt[0].x + 14, y: pt[0].y + 12 }, c2: { x: pt[2].x + 14, y: pt[2].y - 14 }, b: pt[2] }; /* Irbid and Amman */
+  const roadB = { a: pt[1], c1: { x: pt[1].x - 10, y: pt[1].y + 6 }, c2: { x: pt[2].x - 12, y: pt[2].y - 6 }, b: pt[2] }; /* Salt and Amman */
+  const there = (r: typeof roadA) => `M ${r.a.x} ${r.a.y} C ${r.c1.x} ${r.c1.y}, ${r.c2.x} ${r.c2.y}, ${r.b.x} ${r.b.y}`; /* to Amman */
+  const back = (r: typeof roadA) => `M ${r.b.x} ${r.b.y} C ${r.c2.x} ${r.c2.y}, ${r.c1.x} ${r.c1.y}, ${r.a.x} ${r.a.y}`; /* out of Amman */
+  const roads = [there(roadA), there(roadB)];
+  /* The trucks: coming into Amman and going out of it, on each road, each at its own speed and moment */
+  const trucks = [
+    { d: there(roadA), out: false, dur: 5.2, begin: 0 },
+    { d: back(roadA), out: true, dur: 5.8, begin: 2.4 },
+    { d: there(roadB), out: false, dur: 4.2, begin: 1.1 },
+    { d: back(roadB), out: true, dur: 4.6, begin: 3.3 },
+  ];
 
   return (
     <Tilt max={20} className="mx-auto w-full max-w-md">
@@ -580,13 +605,25 @@ function FleetMap() {
             <div className="absolute inset-0 bg-gradient-to-br from-[#e8f7f3] to-[#cfeae3]" />
             <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, ...lensMask }} />
             <svg aria-hidden viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">
-              {[routeA, routeB].map((d, i) => (
-                <g key={i}>
-                  <path d={d} fill="none" stroke="rgb(var(--primary))" strokeWidth="0.9" strokeLinecap="round" strokeDasharray="2.4 2.4" opacity="0.55" />
-                  {/* a delivery moving along the route */}
-                  <circle r="2.1" fill="rgb(var(--primary))">
-                    <animateMotion dur={`${4.2 + i * 1.3}s`} repeatCount="indefinite" path={d} begin={`${i * 0.8}s`} />
-                  </circle>
+              {roads.map((d, i) => (
+                <path key={i} d={d} fill="none" stroke="rgb(var(--primary))" strokeWidth="0.9" strokeLinecap="round" strokeDasharray="2.4 2.4" opacity="0.55" />
+              ))}
+              {trucks.map((t, i) => (
+                <g key={`t${i}`}>
+                  {/* a delivery truck driving along the road: a small round badge with a truck, which bobs a little as it goes.
+                      The ones leaving Amman are black with the truck turned the other way; the ones coming in are the brand color. */}
+                  <g>
+                    <circle r="4.6" fill={t.out ? "#111111" : "rgb(var(--primary))"} stroke="#ffffff" strokeWidth="0.7" />
+                    <g transform={t.out ? "translate(2.9 -2.9) scale(-0.24 0.24)" : "translate(-2.9 -2.9) scale(0.24)"} fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <g>
+                        <path d="M2 6.5h12V16H2zM14 9.5h4l3 3.5V16h-7" />
+                        <circle cx="6.5" cy="17.5" r="1.8" fill={t.out ? "#111111" : "rgb(var(--primary))"} />
+                        <circle cx="17.5" cy="17.5" r="1.8" fill={t.out ? "#111111" : "rgb(var(--primary))"} />
+                        <animateTransform attributeName="transform" type="translate" values="0 0;0 -1.4;0 0;0 -1;0 0" dur="0.5s" repeatCount="indefinite" />
+                      </g>
+                    </g>
+                    <animateMotion dur={`${t.dur}s`} repeatCount="indefinite" path={t.d} begin={`${t.begin}s`} />
+                  </g>
                 </g>
               ))}
             </svg>

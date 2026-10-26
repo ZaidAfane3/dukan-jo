@@ -39,7 +39,7 @@ export const demoStores: DemoStore[] = [
     mark: "star",
     logo: "/demo/perfume/logo.png",
     favicon: "/demo/perfume/favicon.png",
-    hero: { title: bi("Noir or Blanc", "Noir or Blanc"), subtitle: bi("A soft, sweet scent for every hour", "عطرٌ حلوٌ ناعم لكل الأوقات"), button: bi("Shop now", "تسوّق الآن") },
+    hero: { title: bi("Noir Blanc", "Noir Blanc"), subtitle: bi("A soft, sweet scent for every hour", "عطرٌ حلوٌ ناعم لكل الأوقات"), button: bi("Shop now", "تسوّق الآن") },
     announcement: [
       { text: bi("Free gift box with every order above 40 JOD", "علبة هدية مجانية مع كل طلب فوق 40 د.أ"), color: "#2b241d" },
       { text: bi("Free delivery across Jordan on orders above 25 JOD", "توصيل مجاني لكل الأردن للطلبات فوق 25 د.أ"), color: "#8a6a3a" },
@@ -48,7 +48,7 @@ export const demoStores: DemoStore[] = [
     featured: bi("Best sellers", "الأكثر طلبًا"),
     products: [
       { name: bi("Rose Garden 50ml", "حديقة الورد 50 مل"), category: bi("Perfumes", "عطور"), price: 48, featured: true, hue: 345 },
-      { name: bi("Noir or Blanc 30ml", "نوار أو بلان 30 مل"), category: bi("Perfumes", "عطور"), price: 29, sale: 23, hue: 40 },
+      { name: bi("Noir Blanc 30ml", "نوار بلان 30 مل"), category: bi("Perfumes", "عطور"), price: 29, sale: 23, hue: 40 },
       { name: bi("Cuir Curcuma 50ml", "كوير كركوما 50 مل"), category: bi("Perfumes", "عطور"), price: 62, featured: true, hue: 30 },
       { name: bi("Golden Leather 100ml", "جولدن ليذر 100 مل"), category: bi("Perfumes", "عطور"), price: 74, featured: true, hue: 40 },
       { name: bi("Black Piano 50ml", "بلاك بيانو 50 مل"), category: bi("Perfumes", "عطور"), price: 44, featured: true, hue: 120 },

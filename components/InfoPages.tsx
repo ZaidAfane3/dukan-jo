@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { brandName } from "./content";
+import type { SectionConfig } from "./storefront/config";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 
 type Bi = { en: string; ar: string };
-type Page = {
+export type InfoPage = {
   id: number;
   type: 0 | 1 | 2; /* general, return policy, privacy and terms */
   published: boolean;
@@ -14,6 +15,8 @@ type Page = {
   title: Bi;
   content: Bi;
   created: number;
+  /* The elements of the page (text, products, banners...), built in the store designer like the home page */
+  sections?: SectionConfig[];
 };
 
 const KEY = "seen-pages";
@@ -22,7 +25,7 @@ const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
 
 /* The pages every store starts with. The text is a starting point he can edit. */
-const defaults: Omit<Page, "id" | "created">[] = [
+const defaults: Omit<InfoPage, "id" | "created">[] = [
   {
     type: 1,
     published: true,
@@ -128,10 +131,10 @@ const copy = {
   },
 };
 
-function load(): Page[] {
+export function load(): InfoPage[] {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as Page[];
+    if (raw) return JSON.parse(raw) as InfoPage[];
   } catch {
     /* fall through to the defaults */
   }
@@ -139,12 +142,77 @@ function load(): Page[] {
   return defaults.map((d, i) => ({ ...d, id: i + 1, created: now - i * 1000 }));
 }
 
+/** Saves the list of pages (the same list the Info pages dashboard shows) */
+export function savePages(list: InfoPage[]): boolean {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* Ready pages a merchant can start a new page from. The text is a starting point he can edit. */
+export const pageTemplates: { id: string; name: Bi; title: Bi; content: Bi }[] = [
+  {
+    id: "about",
+    name: { en: "About us", ar: "من نحن" },
+    title: { en: "About us", ar: "من نحن" },
+    content: {
+      en: "About us\n\nWe are a small team that loves what we sell. Every piece in our store is picked with care, and we are always happy to hear from you.\n\nTell your story here: who you are, when you started, and what makes your store different.",
+      ar: "من نحن\n\nنحن فريق صغير يحب ما يبيعه. كل قطعة في متجرنا مختارة بعناية، ويسعدنا دائمًا أن نسمع منك.\n\nاحكِ قصتك هنا: من أنتم، ومتى بدأتم، وما الذي يميّز متجركم.",
+    },
+  },
+  {
+    id: "shipping",
+    name: { en: "Shipping information", ar: "معلومات الشحن" },
+    title: { en: "Shipping information", ar: "معلومات الشحن" },
+    content: {
+      en: "Shipping information\n\nWe deliver across Jordan. Orders are prepared within 1 to 2 working days, and delivery usually takes 1 to 3 days after that.\n\nYou will get a message when your order is on its way. Write your delivery prices and any free-delivery offer here.",
+      ar: "معلومات الشحن\n\nنوصّل إلى كل مناطق الأردن. نجهّز الطلبات خلال يوم إلى يومين عمل، ويستغرق التوصيل عادةً من يوم إلى 3 أيام بعد ذلك.\n\nستصلك رسالة عندما يكون طلبك في الطريق. اكتب هنا أسعار التوصيل وأي عرض توصيل مجاني.",
+    },
+  },
+  {
+    id: "sizes",
+    name: { en: "Size guide", ar: "دليل المقاسات" },
+    title: { en: "Size guide", ar: "دليل المقاسات" },
+    content: {
+      en: "Size guide\n\nChoose your size by your chest and waist measurements. If you are between two sizes, we suggest the bigger one for a relaxed fit.\n\nAdd your size table here.",
+      ar: "دليل المقاسات\n\nاختر مقاسك حسب قياس الصدر والخصر. وإن كنت بين مقاسين ننصحك بالأكبر لقصّة مريحة.\n\nأضف جدول المقاسات هنا.",
+    },
+  },
+  {
+    id: "contact",
+    name: { en: "Contact us", ar: "تواصل معنا" },
+    title: { en: "Contact us", ar: "تواصل معنا" },
+    content: {
+      en: "Contact us\n\nQuestions about an order or a product? Message us and we will reply as soon as we can.\n\nAdd your phone number, WhatsApp, email and working hours here.",
+      ar: "تواصل معنا\n\nعندك سؤال عن طلب أو منتج؟ راسلنا وسنرد عليك بأسرع وقت.\n\nأضف هنا رقم هاتفك وواتساب وبريدك الإلكتروني وأوقات العمل.",
+    },
+  },
+  {
+    id: "faq",
+    name: { en: "Questions and answers", ar: "الأسئلة الشائعة" },
+    title: { en: "Questions and answers", ar: "الأسئلة الشائعة" },
+    content: {
+      en: "Questions and answers\n\nHow long does delivery take?\nUsually 1 to 3 days after we prepare your order.\n\nCan I exchange an item?\nYes, within 7 days if it is unused.\n\nAdd your own questions and answers here.",
+      ar: "الأسئلة الشائعة\n\nكم يستغرق التوصيل؟\nعادةً من يوم إلى 3 أيام بعد تجهيز طلبك.\n\nهل يمكنني استبدال منتج؟\nنعم، خلال 7 أيام إن كان غير مستخدم.\n\nأضف أسئلتك وأجوبتك هنا.",
+    },
+  },
+  {
+    id: "blank",
+    name: { en: "Blank page", ar: "صفحة فارغة" },
+    title: { en: "", ar: "" },
+    content: { en: "", ar: "" },
+  },
+];
+
 export function InfoPages() {
   const { lang } = usePrefs();
   const c = copy[lang];
   const other = lang === "ar" ? "en" : "ar";
 
-  const [pages, setPages] = useState<Page[]>([]);
+  const [pages, setPages] = useState<InfoPage[]>([]);
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState(0);
@@ -188,7 +256,7 @@ export function InfoPages() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pages, query, sort, lang]);
 
-  const open = (p: Page) => {
+  const open = (p: InfoPage) => {
     setEditing(p.id);
     setTitle(t(p.title));
     setType(p.type);

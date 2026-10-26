@@ -73,6 +73,11 @@ export const copy = {
 
 export const currency = (lang: Lang) => (lang === "ar" ? "د.أ" : "JOD");
 export const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+/** The language the prices are shown in: the page's language, or the one the merchant chose for his prices */
+export const priceLang = (mode: "auto" | "ar" | "en" | undefined, lang: Lang): Lang => (mode === "ar" ? "ar" : mode === "en" ? "en" : lang);
+/** An amount in the chosen language: Arabic-Indic digits and the Arabic decimal mark, or Latin digits */
+export const moneyIn = (n: number, lang: Lang) =>
+  lang === "ar" ? money(n).replace(/[0-9]/g, (d) => "٠١٢٣٤٥٦٧٨٩"[Number(d)]).replace(".", "٫") : money(n);
 export const priceOf = (p: StoreProduct) => (p.sale ?? p.price ?? 0);
 
 const base = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -109,8 +114,22 @@ export const icons = {
 };
 
 /** The picture of a product. Without a real photo it is a soft color wash with a bag. */
-export function ProductImage({ p, className = "" }: { p: StoreProduct; className?: string }) {
+export function ProductImage({ p, className = "", flat = false }: { p: StoreProduct; className?: string; flat?: boolean }) {
   const h = p.hue ?? 190;
+  /* flat: one soft color and a garment, no circles and no gradient (the playful stores) */
+  if (flat) {
+    return (
+      <div className={`relative grid place-items-center overflow-hidden ${className}`} style={{ background: `hsl(${h} 75% 86%)` }}>
+        <svg viewBox="0 0 24 24" className="relative h-1/2 w-1/2" fill={`hsl(${h} 70% 96%)`} stroke={`hsl(${h} 40% 30%)`} strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M8.5 3 3 6l1.8 4.2L7 9.200V20h10V9.200l2.200.9L21 6l-5.500-3a3.500 3.500 0 0 1-7 0Z" />
+        </svg>
+        {p.image && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={p.focus ? { objectPosition: `${p.focus.x}% ${p.focus.y}%` } : undefined} />
+        )}
+      </div>
+    );
+  }
   return (
     <div
       className={`relative grid place-items-center overflow-hidden ${className}`}
@@ -128,6 +147,12 @@ export function ProductImage({ p, className = "" }: { p: StoreProduct; className
       )}
     </div>
   );
+}
+
+/** The style that puts a picture where he dragged it inside its frame (nothing when he never moved it) */
+export function picStyle(p?: { x: number; y: number; zoom: number }): React.CSSProperties | undefined {
+  if (!p || (p.x === 0 && p.y === 0 && p.zoom === 1)) return undefined;
+  return { transform: `translate(${p.x}%, ${p.y}%) scale(${p.zoom})`, transformOrigin: "50% 50%" };
 }
 
 /** Readable text color on top of the brand color. */

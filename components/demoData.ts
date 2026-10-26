@@ -5,7 +5,7 @@ import { demoConfig, perfumeStore } from "./storefront/demoStores";
    customers and coupons. Nothing here belongs to a real store, person or phone number. */
 
 /* Raise this whenever the demo's data changes: a tab that holds an older copy then loads the new one by itself */
-export const DEMO_SEED_VERSION = 14;
+export const DEMO_SEED_VERSION = 15;
 
 const DAY = 86_400_000;
 const bi = (lang: Lang, en: string, ar: string) => (lang === "ar" ? ar : en);
@@ -77,7 +77,7 @@ export function demoSeed(lang: Lang): { local: Record<string, string>; session: 
   const products = [
     p(10, ["Peach Body Mist", "معطّر جسم بالخوخ"], mists, 14, 5, 47, { photo: "/demo/perfume/p10.jpg", focus: [50, 45], notes: ["peach · rose · musk", "خوخ · ورد · مسك"], badge: ["New", "جديد"] }),
     p(8, ["Rose Oil 12ml", "دهن الورد 12 مل"], oils, 18, 7, 0, { photo: "/demo/perfume/p8.jpg", focus: [45, 50], notes: ["rose · green leaves", "ورد · أوراق خضراء"], badge: ["New", "جديد"] }),
-    p(2, ["Noir or Blanc 30ml", "نوار أو بلان 30 مل"], perfumes, 29, 12, 40, { sale: 23, photo: "/demo/perfume/p2.jpg", focus: [50, 32], notes: ["vanilla · tonka · musk", "فانيلا · تونكا · مسك"], badge: ["New", "جديد"] }),
+    p(2, ["Noir Blanc 30ml", "نوار بلان 30 مل"], perfumes, 29, 12, 40, { sale: 23, photo: "/demo/perfume/p2.jpg", focus: [50, 32], notes: ["vanilla · tonka · musk", "فانيلا · تونكا · مسك"], badge: ["New", "جديد"] }),
     p(11, ["Xanat Trio Gift Set", "طقم زانات الثلاثي"], gifts, 58, 26, 12, { sale: 49, photo: "/demo/perfume/p11.jpg", focus: [50, 38], notes: ["oud · amber · fresh", "عود · عنبر · منعش"], badge: ["Gift", "هدية"] }),
     p(7, ["Myst Oud 50ml", "مست عود 50 مل"], perfumes, 56, 25, 14, { sale: 49, photo: "/demo/perfume/p7.jpg", focus: [50, 58], notes: ["oud · citrus · smoke", "عود · حمضيات · دخان"] }),
     p(1, ["Rose Garden 50ml", "حديقة الورد 50 مل"], perfumes, 48, 22, 24, { photo: "/demo/perfume/p1.jpg", focus: [50, 45], featured: true, notes: ["rose · musk · incense", "ورد · مسك · بخور"], badge: ["Best seller", "الأكثر مبيعًا"], description: ["A soft rose with a fresh green heart.", "ورد ناعم بقلب أخضر منعش."] }),

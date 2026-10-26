@@ -28,7 +28,7 @@ export type Slide = { image: string; link: string };
 export type Tile = { image: string; label: Bi; link: string; chip?: "light" | "dark" };
 
 /* The fonts a merchant can pick, and the extra display fonts a banner title can use */
-export type ThemeFont = "readex" | "plex" | "elegant" | "cairo" | "tajawal";
+export type ThemeFont = "readex" | "plex" | "elegant" | "cairo" | "tajawal" | "baloo";
 /* The font of the hero title: "" follows the titles font of the store */
 export type HeroFont = "" | ThemeFont | "ruqaa" | "lemonada" | "amiri";
 /* The faint pattern behind the page */
@@ -60,16 +60,31 @@ export type Banner = {
   textColor?: string;
   /* A color of his own for the frosted panel (otherwise light or dark follows `panel`) */
   panelColor?: string;
+  /* "card": a card of one color with the small line, the title and a dark button, and the picture in an arch or tilted */
+  variant?: "photo" | "card";
+  bg?: string;
+  shape?: "arch" | "tilt";
+  /* where the picture sits in its frame */
+  pos?: PicPos;
+  /* the size of the small line above the title of a color card */
+  eyebrowSize?: number;
+  /* more pictures of a color card, shown with the first one as a small overlapping collage (up to 3 more) */
+  images?: string[];
 };
 
+/* Where a picture sits inside its frame: moved by x and y (percent of the frame) and zoomed. Set by dragging the picture in the designer. */
+export type PicPos = { x: number; y: number; zoom: number };
+
 export type SectionConfig =
-  | { id: string; type: "hero"; visible: boolean; settings: { title: Bi; subtitle: Bi; button: Bi; backgrounds: HeroBg[]; autoplay: boolean; seconds: number; showCards: boolean; layout?: "banner" | "split"; photo?: string; photoSide?: "start" | "end"; eyebrow?: Bi; price?: string; size?: Bi; button2?: Bi; panelColor?: string; fullWidth?: boolean; titleFont?: HeroFont; colors?: { title?: string; subtitle?: string; eyebrow?: string; price?: string; detail?: string; button?: string }; sizes?: { title?: number; subtitle?: number; eyebrow?: number; price?: number; detail?: number; button?: number } } }
+  | { id: string; type: "hero"; visible: boolean; settings: { title: Bi; subtitle: Bi; button: Bi; backgrounds: HeroBg[]; autoplay: boolean; seconds: number; showCards: boolean; layout?: "banner" | "split" | "pop"; photo?: string; photoSide?: "start" | "end"; photo2?: string; /* where the two buttons lead (see linkProps in sections.tsx) */ link?: string; link2?: string; photoPos?: PicPos; photo2Pos?: PicPos; sticker?: Bi; accentWord?: Bi; popColors?: { accent?: string; blob?: string; sticker?: string }; eyebrow?: Bi; price?: string; size?: Bi; button2?: Bi; panelColor?: string; fullWidth?: boolean; titleFont?: HeroFont; colors?: { title?: string; subtitle?: string; eyebrow?: string; price?: string; detail?: string; button?: string }; sizes?: { title?: number; subtitle?: number; eyebrow?: number; price?: number; detail?: number; button?: number } } }
   | { id: string; type: "perks"; visible: boolean; settings: { items: Perk[] } }
   | { id: string; type: "featured"; visible: boolean; settings: { title: Bi; count: number } }
   | { id: string; type: "discounts"; visible: boolean; settings: { title: Bi; count: number } }
   | { id: string; type: "tiles"; visible: boolean; settings: { title: Bi; items: Tile[]; columns: 3 | 4 | 5; style?: "classic" | "editorial" } }
   | { id: string; type: "banners"; visible: boolean; settings: { items: Banner[]; height?: "normal" | "tall" } }
   | { id: string; type: "ribbon"; visible: boolean; settings: { items: Bi[]; background: string; color: string } }
+  | { id: string; type: "chips"; visible: boolean; settings: { items: { label: Bi; color: string; link: string }[]; /* how the row sits: where the buttons gather, whether they are tilted, how big */ align?: "start" | "center" | "end"; tilt?: boolean; size?: "sm" | "md" | "lg" } }
+  | { id: string; type: "newsletter"; visible: boolean; settings: { title: Bi; accentWord: Bi; text: Bi; button: Bi; placeholder: Bi; thanks: Bi; background: string; accent: string; buttonColor: string; /* after subscribing: the thank-you message (default) or go to a destination */ after?: "message" | "link" | "popup"; link?: string; /* the pop-up shown after subscribing */ popup?: { title: Bi; text: Bi; button: Bi; background: string; accent: string; image?: string } } }
   | { id: string; type: "slides"; visible: boolean; settings: { slides: Slide[]; autoplay: boolean; seconds: number; ratio: "wide" | "standard" } }
   | { id: string; type: "collection"; visible: boolean; settings: { title: Bi; productIds: number[]; count: number; columns: 2 | 3 | 4 } }
   | { id: string; type: "reviews"; visible: boolean; settings: { title: Bi; items: Review[] } }
@@ -78,7 +93,55 @@ export type SectionConfig =
 
 export type SectionType = SectionConfig["type"];
 
+/* What the store menu (the burger button) shows, in this order: the categories, the pages of the store, the links of the header */
+export type DrawerItem = { kind: "categories" | "pages" | "links" | "custom"; visible: boolean };
+
+/* A footer link of the merchant's own ("Contact us"): its words, where it leads (see linkProps), and whether it shows */
+export type FooterTab = { id: string; label: Bi; link: string; visible: boolean };
+
+/* A column of the footer. The built-in ones ("pages", "contact", "social", "licenses", "about") follow their own data and switches;
+   a "custom" one is the merchant's own: a title and his own links. The list is in the order they show. */
+export type FooterColumn = { id: string; kind: "about" | "pages" | "contact" | "social" | "licenses" | "custom"; visible: boolean; title?: Bi; links?: FooterTab[] };
+
+const builtinColumns = ["about", "pages", "contact", "social", "licenses"] as const;
+
+/** The columns of a footer in their order. A design saved before columns existed gets the usual five; a missing built-in one is added at the end. */
+export function footerColumns(f: { columns?: FooterColumn[] }): FooterColumn[] {
+  const out = (f.columns ?? []).filter((x) => x && x.id && ["about", "pages", "contact", "social", "licenses", "custom"].includes(x.kind));
+  for (const k of builtinColumns) if (!out.some((x) => x.kind === k)) out.push({ id: k, kind: k, visible: true });
+  return out;
+}
+
+/** Fills the footer from what the site already has: a "Shop" column with its categories (the colored buttons, or the menu links, or the
+    categories of the products), and a "Help" column with the pages of the store. The title of each is picked at random from a few wordings,
+    so footers do not all read the same. The built-in columns stay as they are; his own columns are replaced by these. */
+export function autoFooterColumns(cfg: StorefrontConfig, lang: "en" | "ar", pages: { id: number; title: string }[], categories: string[] = []): FooterColumn[] {
+  const pickOne = <T,>(list: T[]) => list[Math.floor(Math.random() * list.length)];
+  const L = (en: string, ar: string) => (lang === "ar" ? ar : en);
+  const stamp = Date.now().toString(36);
+  const productsId = cfg.sections.find((s) => s.type === "products")?.id ?? cfg.sections.find((s) => s.type === "tiles" || s.type === "featured")?.id ?? "";
+  const chips = cfg.sections.find((s) => s.type === "chips");
+  const fromChips = chips && chips.type === "chips" ? chips.settings.items.map((x) => ({ label: x.label, link: x.link || productsId })) : [];
+  const fromNav = cfg.nav.links.filter((l) => l.to).map((l) => ({ label: { en: l.en, ar: l.ar }, link: l.to as string }));
+  const fromProducts = categories.map((name) => ({ label: { en: name, ar: name }, link: productsId }));
+  const shop = (fromChips.length ? fromChips : fromNav.length ? fromNav : fromProducts).slice(0, 6);
+  const kept = footerColumns(cfg.footer).filter((x) => x.kind !== "custom");
+  const out: FooterColumn[] = [...kept];
+  if (shop.length) {
+    const t = pickOne([{ en: "Shop", ar: "تسوّق" }, { en: "Browse", ar: "تصفّح" }, { en: "Categories", ar: "الأقسام" }, { en: "Discover", ar: "اكتشف" }]);
+    out.push({ id: `col-shop-${stamp}`, kind: "custom", visible: true, title: t, links: shop.map((x, i) => ({ id: `lnk-${stamp}-${i}`, label: x.label, link: x.link, visible: true })) });
+  }
+  if (pages.length) {
+    const t = pickOne([{ en: "Help", ar: "مساعدة" }, { en: "Need a hand?", ar: "تحتاج مساعدة؟" }, { en: "Customer care", ar: "خدمة العملاء" }]);
+    out.push({ id: `col-help-${stamp}`, kind: "custom", visible: true, title: t, links: pages.slice(0, 5).map((p, i) => ({ id: `lnk-h-${stamp}-${i}`, label: { en: p.title, ar: p.title }, link: `page:${p.id}`, visible: true })) });
+  }
+  void L;
+  return out;
+}
+
 export type StorefrontConfig = {
+  /* custom: the merchant's own links in the menu (each with its words, its destination and its switch) */
+  drawer: { items: DrawerItem[]; custom?: FooterTab[] };
   theme: {
     /* "" means: use the color the merchant picked when he set up the store */
     primary: string;
@@ -92,14 +155,18 @@ export type StorefrontConfig = {
     headingFont: ThemeFont | "";
     /* A second color for small accents: eyebrows, "view all" links, the pattern ("" means the store color) */
     accent: string;
-    titleStyle: "bold" | "light";
+    /* "pop": big heavy titles, and a colored line under "view all" */
+    titleStyle: "bold" | "light" | "pop";
+    /* The prices: like the page's language (default), always Arabic (٢٤ د.أ) or always English (24 JOD) */
+    prices?: "auto" | "ar" | "en";
     /* The size of the titles of the sections ("Collections", "Best sellers" ...) */
     sectionTitleSize?: number;
     spacing: "normal" | "airy";
   };
   /* The header's menu: a button that opens the side menu, or a row of links in the middle of the header */
   /* A link can go to a part of the page: `to` is the id of a section, or "footer" (the contact details) */
-  nav: { style: "button" | "links"; links: (Bi & { to?: string })[] };
+  /* style "pill": the logo in a dark pill, the links in a white pill (the first one is the active one), and a round basket button */
+  nav: { style: "button" | "links" | "pill"; links: (Bi & { to?: string })[]; activeColor?: string; cartColor?: string };
   /* A faint pattern behind the page and a big word behind the picture tiles, both in the accent color */
   texture: { pattern: PatternKey; watermark: Bi };
   /* showLanguage: a button in the header that lets visitors switch the store between Arabic and English. Off by default:
@@ -123,12 +190,20 @@ export type StorefrontConfig = {
     showStock: boolean;
     showHeart: boolean;
     showAdd: boolean;
+    /* Pressing a product opens its own page */
+    openPage: boolean;
     /* The product's notes line (for example "rose · musk · incense") */
     showNotes: boolean;
     image: "portrait" | "square" | "wide";
-    style: "shadow" | "outline" | "flat";
+    style: "shadow" | "outline" | "flat" | "pop";
     /* "row" puts the name on one side and the price on the other */
     info: "stack" | "row";
+    /* "plus": a round + button instead of the wide "add to cart" button */
+    add: "wide" | "plus";
+    /* The color of the price ("" means the text color) */
+    priceColor: string;
+    /* The color of the round + button */
+    addColor?: string;
   };
   /* Words the store uses in small places. An empty text falls back to the built-in wording. */
   texts: { search: Bi; viewAll: Bi; allFilter: Bi; noProducts: Bi };
@@ -137,6 +212,16 @@ export type StorefrontConfig = {
     showLinks: boolean;
     showContact: boolean;
     showSocial: boolean;
+    /* the merchant's own links, shown with the pages of the store */
+    tabs?: FooterTab[];
+    /* the columns of the footer, in their order (see footerColumns) */
+    columns?: FooterColumn[];
+    /* the size of the footer's texts, in px (empty: the theme's own size) */
+    sizes?: { title?: number; text?: number; name?: number };
+    /* The titles of the footer's columns. A title left empty shows the default word. */
+    labels?: { pages: Bi; contact: Bi; follow: Bi; licenses: Bi };
+    /* "simple": one row with the name, the links and the copyright line */
+    style: "full" | "simple";
     /* Footer colors ("" means a soft tint of the store color) */
     background: string;
     text: string;
@@ -157,6 +242,7 @@ const none: Bi = { en: "", ar: "" };
 export const defaultConfig: StorefrontConfig = {
   theme: { primary: "", background: "#fafaf8", text: "#12262b", titleColor: "", radius: "xl", font: "readex", headingFont: "", accent: "", titleStyle: "bold", spacing: "normal" },
   nav: { style: "button", links: [] },
+  drawer: { items: [{ kind: "categories", visible: true }, { kind: "pages", visible: true }, { kind: "links", visible: false }, { kind: "custom", visible: true }], custom: [] },
   texture: { pattern: "none", watermark: { en: "", ar: "" } },
   header: { showMenu: true, showSearch: true, showUser: true, showCart: true, showLanguage: false, sticky: true },
   identity: { showLogo: true, align: "start", logo: { kind: "auto", sample: "shop", image: "" }, favicon: "" },
@@ -203,13 +289,14 @@ export const defaultConfig: StorefrontConfig = {
     motion: "fade",
     seconds: 4,
   },
-  cards: { showName: true, showCategory: true, showPrice: true, showOldPrice: true, showBadge: true, showStock: false, showHeart: true, showAdd: true, showNotes: false, image: "portrait", style: "shadow", info: "stack" },
+  cards: { showName: true, showCategory: true, showPrice: true, showOldPrice: true, showBadge: true, showStock: false, showHeart: true, showAdd: true, openPage: true, showNotes: false, image: "portrait", style: "shadow", info: "stack", add: "wide", priceColor: "" },
   texts: { search: { ...none }, viewAll: { ...none }, allFilter: { ...none }, noProducts: { ...none } },
   footer: {
     showLogo: true,
     showLinks: true,
     showContact: true,
     showSocial: true,
+    style: "full",
     background: "",
     text: "",
     about: { ...none },
@@ -258,6 +345,7 @@ export const fontFamily: Record<ThemeFont, string> = {
   elegant: "var(--font-elegant-latin), var(--font-elegant-ar), Georgia, serif",
   cairo: "var(--font-cairo), sans-serif",
   tajawal: "var(--font-tajawal), sans-serif",
+  baloo: "var(--font-baloo), var(--font-sans), sans-serif",
 };
 
 /* A new picture-tiles element starts empty: he adds his own pictures. */
@@ -302,4 +390,43 @@ export function heroTitleFamily(key?: HeroFont): string {
   if (!key) return "var(--sf-heading)";
   if (key === "ruqaa" || key === "lemonada" || key === "amiri") return displayFamily[key];
   return fontFamily[key];
+}
+
+/* A new row of colored chips (quick categories). Each chip has its own color and sits a little tilted. */
+export function newChips(id: string): SectionConfig {
+  const bi = (en: string, ar: string): Bi => ({ en, ar });
+  return {
+    id,
+    type: "chips",
+    visible: true,
+    settings: {
+      items: [
+        { label: bi("New", "جديد"), color: "#ff8fb1", link: "" },
+        { label: bi("Best sellers", "الأكثر طلبًا"), color: "#c9b6ff", link: "" },
+        { label: bi("Offers", "عروض"), color: "#ffe36e", link: "" },
+        { label: bi("Gifts", "هدايا"), color: "#b9f3d0", link: "" },
+      ],
+    },
+  };
+}
+
+/* A new newsletter block: a dark block with a title, a line of text and an email field. Nothing is sent in this prototype. */
+export function newNewsletter(id: string): SectionConfig {
+  const bi = (en: string, ar: string): Bi => ({ en, ar });
+  return {
+    id,
+    type: "newsletter",
+    visible: true,
+    settings: {
+      title: bi("Join our club", "انضم لنادينا"),
+      accentWord: bi("club", "لنادينا"),
+      text: bi("10% off your first order, and news before everyone else", "خصم ١٠٪ على أول طلب + أخبار الإصدارات قبل الكل"),
+      button: bi("Subscribe", "اشترك"),
+      placeholder: bi("Your email", "إيميلك"),
+      thanks: bi("Thank you! We will be in touch.", "شكرًا! سنتواصل معك."),
+      background: "#2b1b47",
+      accent: "#ffe36e",
+      buttonColor: "#ffe36e",
+    },
+  };
 }

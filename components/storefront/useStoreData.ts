@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Lang } from "../content";
 import { accountName, accountPhone } from "../setup";
+import type { SectionConfig } from "./config";
 
 /* What the storefront shows comes from what the merchant has saved in this browser,
    so a product added in the dashboard appears in the store by itself. A new store has
@@ -38,6 +39,8 @@ export type StoreData = {
   products: StoreProduct[];
   categories: string[];
   links: { id: number; title: string }[];
+  /* Every published page of the store, with its text: buttons can lead to any of them, and the footer shows the ones that asked to be there */
+  pages: { id: number; title: string; content: string; sections: SectionConfig[] }[];
   isDemo: boolean;
 };
 
@@ -93,9 +96,10 @@ function build(lang: Lang, sample: boolean): StoreData {
     ? demo.map((d, i) => ({ id: -(i + 1), name: d.name[lang], category: d.category[lang], price: d.price, sale: d.sale, featured: d.featured, quantity: d.qty ?? 10, hue: d.hue }))
     : saved;
 
-  const pages = (read<{ id: number; published: boolean; footer: boolean; title: Bi }[]>("seen-pages") ?? [])
-    .filter((p) => p.published && p.footer)
-    .map((p) => ({ id: p.id, title: p.title[lang] || p.title[lang === "ar" ? "en" : "ar"] }));
+  const other = lang === "ar" ? "en" : "ar";
+  const allPages = (read<{ id: number; published: boolean; footer: boolean; title: Bi; content?: Bi; sections?: SectionConfig[] }[]>("seen-pages") ?? []).filter((p) => p.published);
+  const pages = allPages.filter((p) => p.footer).map((p) => ({ id: p.id, title: p.title[lang] || p.title[other] }));
+  const pageList = allPages.map((p) => ({ id: p.id, title: p.title[lang] || p.title[other], content: p.content?.[lang] || p.content?.[other] || "", sections: Array.isArray(p.sections) ? p.sections : [] }));
 
   return {
     name: setup?.name?.trim() || accountName() || (lang === "ar" ? "متجرك" : "Your store"),
@@ -107,11 +111,12 @@ function build(lang: Lang, sample: boolean): StoreData {
     products,
     categories: Array.from(new Set(products.map((p) => p.category).filter(Boolean))),
     links: pages,
+    pages: pageList,
     isDemo,
   };
 }
 
-const empty: StoreData = { name: "", description: "", color: "#004956", phone: "", slug: "", logo: "", products: [], categories: [], links: [], isDemo: true };
+const empty: StoreData = { name: "", description: "", color: "#004956", phone: "", slug: "", logo: "", products: [], categories: [], links: [], pages: [], isDemo: true };
 
 export function useStoreData(lang: Lang, sample = false): StoreData {
   const [data, setData] = useState<StoreData>(empty);

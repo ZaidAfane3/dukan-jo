@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { latin } from "../digits";
 import type { Lang } from "../content";
-import { defaultConfig, fontFamily, heroTitleFamily, newBanners, newCollection, newRibbon, newSlides, newTextSection, newTiles, type Banner, type DisplayFont, type HeroBg, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type StorefrontConfig } from "../storefront/config";
-import { icons as storeIcons, LogoMark, markKeys, onColor, resolveLogo, sampleMarks } from "../storefront/parts";
+import { autoFooterColumns, defaultConfig, footerColumns, fontFamily, heroTitleFamily, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type Banner, type DisplayFont, type HeroBg, type FooterColumn, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type StorefrontConfig } from "../storefront/config";
+import { copy as storeCopy, icons as storeIcons, LogoMark, markKeys, onColor, resolveLogo, sampleMarks } from "../storefront/parts";
 import { demoActive } from "../demoSandbox";
 import { loadSetup } from "../setup";
 import { patterns } from "../storefront/patterns";
@@ -14,6 +14,9 @@ import { readProducts } from "../storefront/useStoreData";
 import { deleteMedia, putMedia, useMediaUrl } from "../storefront/mediaStore";
 import { ColorPicker, Field, input, SecondsPicker, Toggle } from "./controls";
 import { dc, sampleTexts } from "./copy";
+import { LinkPicker, LinkTargets, PictureMover, useStorePages } from "./PageLink";
+import { readSubscribers } from "../storefront/sections";
+import { load as loadInfoPages } from "../InfoPages";
 
 export type Identity = { name: string; description: string; color: string; phone: string };
 export type Draft = { config: StorefrontConfig; identity: Identity };
@@ -51,6 +54,8 @@ const ic = {
     slides: <svg {...icon}><rect x="3" y="6" width="18" height="12" rx="2.500" /><path d="m3 15 5-4 4 3 3-2 6 4M8.500 9.500h.01" /></svg>,
     tiles: <svg {...icon}><rect x="3" y="4" width="5" height="16" rx="1.500" /><rect x="9.500" y="4" width="5" height="16" rx="1.500" /><rect x="16" y="4" width="5" height="16" rx="1.500" /></svg>,
     banners: <svg {...icon}><rect x="3" y="4" width="18" height="16" rx="2.500" /><path d="M7 14h6M7 10h9" /></svg>,
+    chips: <svg {...icon}><rect x="3" y="6" width="8" height="5" rx="2.500" /><rect x="13" y="6" width="8" height="5" rx="2.500" /><rect x="7" y="13" width="10" height="5" rx="2.500" /></svg>,
+    newsletter: <svg {...icon}><rect x="3" y="5" width="18" height="14" rx="2.500" /><path d="m3.500 7 8.500 6 8.500-6" /></svg>,
     ribbon: <svg {...icon}><rect x="2.500" y="8" width="19" height="8" rx="1.500" /><path d="M7 12h.01M12 12h.01M17 12h.01" /></svg>,
     collection: <svg {...icon}><path d="M12 17v5M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Z" /></svg>,
     products: <svg {...icon}><rect x="4" y="4" width="7" height="7" rx="1.500" /><rect x="13" y="4" width="7" height="7" rx="1.500" /><rect x="4" y="13" width="7" height="7" rx="1.500" /><rect x="13" y="13" width="7" height="7" rx="1.500" /></svg>,
@@ -58,6 +63,273 @@ const ic = {
 };
 
 const noText = { en: "", ar: "" };
+
+/* The words of the playful ("pop") features: the hero layout, colored chips, the newsletter, round "+" cards, the pill header */
+const popT = {
+  en: {
+    layoutPop: "Playful",
+    chip: "Small chip above the title",
+    accentWord: "Colored word of the title",
+    accentWordHint: "A word of the title that is shown in the pop color",
+    sticker: "Round sticker",
+    photo1: "Main photo (arch)",
+    photo2: "Second photo (tilted)",
+    colorAccent: "Pop color",
+    colorBlob: "Shape behind the photos",
+    colorSticker: "Sticker color",
+    chipsHint: "Small colored buttons, a little tilted. A button can go to a part of the page (write its name, like products) or to a web address.",
+    chipLabel: "Button text",
+    chipColor: "Button color",
+    chipLink: "Link (optional)",
+    chipRemove: "Remove this button",
+    chipAdd: "Add a button",
+    pricesTitle: "Language of the prices",
+    pricesAuto: "Like the page",
+    pricesAr: "Arabic (٢٤ د.أ)",
+    pricesEn: "English (24 JOD)",
+    autoFill: "Fill the footer for me",
+    autoFillHint: "Adds a column of your categories and a column of your pages, with words picked for you. Your own columns are replaced; you can change everything after.",
+    nAfterPop: "Show a pop-up",
+    popTitle: "Pop-up title",
+    popText: "Pop-up text",
+    popButton: "Pop-up button",
+    popBg: "Pop-up color",
+    popAccent: "Pop-up button color",
+    popPic: "Pop-up picture (optional)",
+    popHint: "Press the subscribe button in the preview to see the pop-up while you adjust it.",
+    nAfter: "After someone subscribes",
+    nAfterMsg: "Show the thank-you message",
+    nAfterLink: "Show it, then go to...",
+    nSubs: "Subscribers",
+    nSubsCount: "emails saved in this browser",
+    nCsv: "Download the list (CSV)",
+    nClear: "Clear the list",
+    nSubsHint: "In this prototype the emails are kept in this browser, until there is a mail service.",
+    showSocialHere: "Show social media in the footer",
+    showContactHere: "Show the contact column in the footer",
+    showLicensesHere: "Show the licenses column in the footer",
+    sizesTitle: "Footer text sizes (px)",
+    szTitles: "Column titles",
+    szText: "Texts and links",
+    szName: "Store name",
+    morePics: "More pictures (a small collage)",
+    morePicsHint: "Add up to 3 more pictures. They sit beside the first one, a little overlapping and tilted.",
+    addPic: "Add a picture",
+    removePic: "Remove this picture",
+    colsTitle: "Footer columns",
+    colsHint: "Turn each column on or off, drag it by its handle to change the order, or add a column of your own with its own title and links.",
+    cAbout: "Name and about text",
+    cPages: "Links",
+    cContact: "Contact",
+    cSocial: "Social media",
+    cLicenses: "Licenses",
+    colAdd: "Add a column",
+    colTitle: "Column title",
+    colRemove: "Remove this column",
+    colDefault: "My column",
+    wordsTitle: "Footer words",
+    wordsHint: "Choose the title of each column of the footer. Leave one empty to use the usual word.",
+    wPages: "Title of the links column",
+    wContact: "Title of the contact column",
+    wFollow: "Title of the social media column",
+    wLicenses: "Title of the licenses column",
+    dCustom: "Your own links",
+    menuLinkAdd: "Add a menu link",
+    menuLinksTitle: "Your own links in the menu",
+    menuLinksHint: "Choose what else the menu has and where each link goes: a page of the store, a part of the page or a web address. Each one has its own switch.",
+    tabsTitle: "Your own footer links",
+    tabsHint: "Add links like Contact us or Shipping. Each one leads where you choose and has its own switch. Drag one by its handle to change its place.",
+    tabLabel: "Link text",
+    tabAdd: "Add a footer link",
+    tabRemove: "Remove this link",
+    tabDefault: "Contact us",
+    tabShow: "Show this link",
+    eyebrowSize: "Size of the small line",
+    cardOpens: "Pressing a product opens its page",
+    drawerTitle: "What the menu shows",
+    drawerHint: "Turn each group on or off, and drag a group up or down to change its order.",
+    dCategories: "Categories",
+    dPages: "Pages of the store",
+    dLinks: "Header links",
+    buttonLeads: "Where this button leads",
+    button2Leads: "Where the second button leads",
+    storePages: "Pages of the store",
+    chipMove: "Pull a button with the mouse to a new place, right on the page or in this list. The first one comes first in the row.",
+    chipRules: "How the row sits",
+    chipAlign: "Where the buttons gather",
+    alStart: "Start",
+    alCenter: "Center",
+    alEnd: "End",
+    chipTilt: "Tilt the buttons a little",
+    chipSize: "Button size",
+    szS: "Small",
+    szM: "Medium",
+    szL: "Large",
+    nTitle: "Title",
+    nAccent: "Colored word of the title",
+    nText: "Small text",
+    nButton: "Button",
+    nPlaceholder: "Email field text",
+    nThanks: "Thank-you message",
+    nHint: "The visitor writes an email and presses the button. In this prototype nothing is sent.",
+    nBg: "Block color",
+    nAccentColor: "Colored word color",
+    nButtonColor: "Button color",
+    stylePop: "Playful",
+    cardAdd: "Add to basket button",
+    addWide: "Wide button",
+    addPlus: "Round +",
+    priceColor: "Price color",
+    addColor: "Round + button color",
+    titlePop: "Playful",
+    navPill: "Pill",
+    navActive: "Chosen link color",
+    navCart: "Basket button color",
+    footerStyle: "Footer style",
+    footerFull: "Full",
+    footerSimple: "One line",
+    bannerVariant: "Banner look",
+    variantPhoto: "Photo",
+    variantCard: "Color card",
+    cardColor: "Card color",
+    shape: "Picture shape",
+    shapeArch: "Arch",
+    shapeTilt: "Tilted",
+    btnColor: "Button color",
+  },
+  ar: {
+    layoutPop: "مرح",
+    chip: "الشارة الصغيرة فوق العنوان",
+    accentWord: "الكلمة الملوّنة من العنوان",
+    accentWordHint: "كلمة من العنوان تظهر بلون المرح",
+    sticker: "الملصق الدائري",
+    photo1: "الصورة الرئيسية (قوس)",
+    photo2: "الصورة الثانية (مائلة)",
+    colorAccent: "لون المرح",
+    colorBlob: "الشكل خلف الصور",
+    colorSticker: "لون الملصق",
+    chipsHint: "أزرار صغيرة ملوّنة ومائلة قليلًا. يمكن لكل زر أن يذهب إلى جزء من الصفحة (اكتب اسمه مثل products) أو إلى عنوان موقع.",
+    chipLabel: "نص الزر",
+    chipColor: "لون الزر",
+    chipLink: "الرابط (اختياري)",
+    chipRemove: "إزالة هذا الزر",
+    chipAdd: "إضافة زر",
+    pricesTitle: "لغة الأسعار",
+    pricesAuto: "مثل لغة الصفحة",
+    pricesAr: "عربي (٢٤ د.أ)",
+    pricesEn: "إنجليزي (24 JOD)",
+    autoFill: "املأ التذييل لي",
+    autoFillHint: "يضيف عمودًا بأقسامك وعمودًا بصفحاتك، بكلمات مختارة لك. يُستبدل أعمدتك الخاصة، ويمكنك تعديل كل شيء بعدها.",
+    nAfterPop: "إظهار نافذة منبثقة",
+    popTitle: "عنوان النافذة",
+    popText: "نص النافذة",
+    popButton: "زر النافذة",
+    popBg: "لون النافذة",
+    popAccent: "لون زر النافذة",
+    popPic: "صورة النافذة (اختيارية)",
+    popHint: "اضغط زر الاشتراك في المعاينة لترى النافذة أثناء تعديلها.",
+    nAfter: "بعد الاشتراك",
+    nAfterMsg: "إظهار رسالة الشكر",
+    nAfterLink: "إظهارها ثم الذهاب إلى...",
+    nSubs: "المشتركون",
+    nSubsCount: "إيميل محفوظ في هذا المتصفح",
+    nCsv: "تنزيل القائمة (CSV)",
+    nClear: "مسح القائمة",
+    nSubsHint: "في هذه النسخة التجريبية تُحفظ الإيميلات في هذا المتصفح حتى توجد خدمة بريد.",
+    showSocialHere: "إظهار التواصل الاجتماعي في التذييل",
+    showContactHere: "إظهار عمود التواصل في التذييل",
+    showLicensesHere: "إظهار عمود التراخيص في التذييل",
+    sizesTitle: "أحجام نصوص التذييل (بكسل)",
+    szTitles: "عناوين الأعمدة",
+    szText: "النصوص والروابط",
+    szName: "اسم المتجر",
+    morePics: "صور أخرى (كولاج صغير)",
+    morePicsHint: "أضف حتى 3 صور أخرى. تظهر بجانب الأولى، متداخلة قليلًا ومائلة.",
+    addPic: "إضافة صورة",
+    removePic: "إزالة هذه الصورة",
+    colsTitle: "أعمدة التذييل",
+    colsHint: "فعّل أو ألغِ كل عمود، واسحبه من مقبضه لتغيير الترتيب، أو أضف عمودًا خاصًا بك بعنوانه وروابطه.",
+    cAbout: "الاسم والنص التعريفي",
+    cPages: "الروابط",
+    cContact: "التواصل",
+    cSocial: "التواصل الاجتماعي",
+    cLicenses: "التراخيص",
+    colAdd: "إضافة عمود",
+    colTitle: "عنوان العمود",
+    colRemove: "إزالة هذا العمود",
+    colDefault: "عمودي",
+    wordsTitle: "كلمات التذييل",
+    wordsHint: "اختر عنوان كل عمود في التذييل. اترك الحقل فارغًا للكلمة المعتادة.",
+    wPages: "عنوان عمود الروابط",
+    wContact: "عنوان عمود التواصل",
+    wFollow: "عنوان عمود التواصل الاجتماعي",
+    wLicenses: "عنوان عمود التراخيص",
+    dCustom: "روابطك الخاصة",
+    menuLinkAdd: "إضافة رابط في القائمة",
+    menuLinksTitle: "روابطك الخاصة في القائمة",
+    menuLinksHint: "اختر ماذا تضم القائمة أيضًا وإلى أين يذهب كل رابط: صفحة من المتجر أو جزء من الصفحة أو عنوان موقع. لكل واحد مفتاحه الخاص.",
+    tabsTitle: "روابطك الخاصة في التذييل",
+    tabsHint: "أضف روابط مثل تواصل معنا أو الشحن. كل رابط يذهب إلى ما تختاره وله مفتاحه الخاص. اسحب الرابط من مقبضه لتغيير مكانه.",
+    tabLabel: "نص الرابط",
+    tabAdd: "إضافة رابط في التذييل",
+    tabRemove: "إزالة هذا الرابط",
+    tabDefault: "تواصل معنا",
+    tabShow: "إظهار هذا الرابط",
+    eyebrowSize: "حجم السطر الصغير",
+    cardOpens: "الضغط على المنتج يفتح صفحته",
+    drawerTitle: "ماذا تعرض القائمة",
+    drawerHint: "فعّل أو ألغِ كل مجموعة، واسحب المجموعة لأعلى أو أسفل لتغير ترتيبها.",
+    dCategories: "الأقسام",
+    dPages: "صفحات المتجر",
+    dLinks: "روابط الهيدر",
+    buttonLeads: "إلى أين يذهب هذا الزر",
+    button2Leads: "إلى أين يذهب الزر الثاني",
+    storePages: "صفحات المتجر",
+    chipMove: "اسحب الزر بالماوس إلى مكان جديد، مباشرة على الصفحة أو في هذه القائمة. الأول يظهر أولًا في الصف.",
+    chipRules: "كيف ينتظم الصف",
+    chipAlign: "أين تتجمع الأزرار",
+    alStart: "البداية",
+    alCenter: "المنتصف",
+    alEnd: "النهاية",
+    chipTilt: "إمالة الأزرار قليلًا",
+    chipSize: "حجم الأزرار",
+    szS: "صغير",
+    szM: "متوسط",
+    szL: "كبير",
+    nTitle: "العنوان",
+    nAccent: "الكلمة الملوّنة من العنوان",
+    nText: "النص الصغير",
+    nButton: "الزر",
+    nPlaceholder: "نص حقل الإيميل",
+    nThanks: "رسالة الشكر",
+    nHint: "يكتب الزائر إيميله ويضغط الزر. في هذه النسخة التجريبية لا يُرسل شيء.",
+    nBg: "لون الكتلة",
+    nAccentColor: "لون الكلمة الملوّنة",
+    nButtonColor: "لون الزر",
+    stylePop: "مرح",
+    cardAdd: "زر الإضافة للسلة",
+    addWide: "زر عريض",
+    addPlus: "+ دائري",
+    priceColor: "لون السعر",
+    addColor: "لون زر + الدائري",
+    titlePop: "مرح",
+    navPill: "كبسولة",
+    navActive: "لون الرابط المختار",
+    navCart: "لون زر السلة",
+    footerStyle: "شكل التذييل",
+    footerFull: "كامل",
+    footerSimple: "سطر واحد",
+    bannerVariant: "شكل البنر",
+    variantPhoto: "صورة",
+    variantCard: "بطاقة ملوّنة",
+    cardColor: "لون البطاقة",
+    shape: "شكل الصورة",
+    shapeArch: "قوس",
+    shapeTilt: "مائلة",
+    btnColor: "لون الزر",
+  },
+};
+const popPastels = ["#ff8fb1", "#c9b6ff", "#ffe36e", "#b9f3d0", "#ffb787", "#ffffff"];
 
 /** How many texts of the store are written in `from` but have nothing in the other language yet. */
 function missingTexts(cfg: StorefrontConfig, from: Lang): number {
@@ -92,17 +364,20 @@ function Seg<T extends string>({ value, options, onChange, cols = 2 }: { value: 
   );
 }
 
-/** The color of one text: a swatch that opens the color picker, and a way back to the automatic color. */
-function ColorChip({ lang, label, value, onChange, onReset }: { lang: Lang; label: string; value: string | undefined; onChange: (v: string) => void; onReset: () => void }) {
-  const lx = dc[lang].luxe;
+/** The color the texts of the store have now (the theme's text color): shown in a color box that has not been changed yet */
+export const TextColorNow = createContext("#1c1a17");
+
+/** The color of one text: a swatch that opens the color picker and shows the color it has now. */
+function ColorChip({ label, value, onChange }: { lang?: Lang; label: string; value: string | undefined; onChange: (v: string) => void; onReset?: () => void }) {
+  const now = useContext(TextColorNow);
+  const shown = value || now;
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="text-xs font-semibold text-fg/80">{label}</span>
       <div className="flex items-center gap-2" dir="ltr">
-        {value && <button type="button" onClick={onReset} className="text-xs font-semibold text-primary hover:underline">{lx.sizeReset}</button>}
         <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-fg/15 px-2 py-1 transition hover:bg-soft">
-          <input type="color" value={value || "#1c1a17"} onChange={(e) => onChange(e.target.value)} aria-label={label} className="h-6 w-6 cursor-pointer rounded-full border-0 bg-transparent p-0" />
-          <span className="min-w-[4.5rem] text-xs font-bold uppercase tabular-nums">{value || lx.colorAuto}</span>
+          <input type="color" value={/^#[0-9a-f]{6}$/i.test(shown) ? shown : "#1c1a17"} onChange={(e) => onChange(e.target.value)} aria-label={label} className="h-6 w-6 cursor-pointer rounded-full border-0 bg-transparent p-0" />
+          <span className="min-w-[4.5rem] text-xs font-bold uppercase tabular-nums">{shown}</span>
         </label>
       </div>
     </div>
@@ -159,6 +434,8 @@ function defaultSection(type: SectionType, lang: Lang): SectionConfig {
   if (type === "tiles") return newTiles(newId("tiles"));
   if (type === "banners") return newBanners(newId("banners"));
   if (type === "ribbon") return newRibbon(newId("ribbon"));
+  if (type === "chips") return newChips(newId("chips"));
+  if (type === "newsletter") return newNewsletter(newId("newsletter"));
   const base = defaultConfig.sections.find((s) => s.type === type);
   const copy = base ? (JSON.parse(JSON.stringify(base)) as SectionConfig) : (null as never);
   copy.id = newId(type);
@@ -171,7 +448,7 @@ function defaultSection(type: SectionType, lang: Lang): SectionConfig {
 /*  Store pages: header, page elements, footer                         */
 /* ------------------------------------------------------------------ */
 
-export function PagesPanel({ lang, draft, update, editing, setEditing, focus }: { lang: Lang; draft: Draft; update: Update; editing: string | null; setEditing: (id: string | null) => void; focus: Focus }) {
+export function PagesPanel({ lang, draft, update, editing, setEditing, focus, onlyElements = false }: { lang: Lang; draft: Draft; update: Update; editing: string | null; setEditing: (id: string | null) => void; focus: Focus; /* a page of the store has only elements: no header and no footer */ onlyElements?: boolean }) {
   const t = dc[lang];
   const [open, setOpen] = useState({ header: false, elements: true, footer: false });
   const [picker, setPicker] = useState(false);
@@ -194,7 +471,9 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus }: 
     }
     if (focus?.id === "footer") {
       setOpen({ header: false, elements: false, footer: true });
-      setSub(null);
+      /* A text of the footer was clicked: open the footer settings with the cursor in that text's field */
+      setSub(focus.field ? "footerSettings" : null);
+      if (focus.field) setTimeout(() => (document.querySelector(`[data-field="${focus.field}"]`) as HTMLElement | null)?.focus(), 160);
     }
   }, [focus]);
 
@@ -228,15 +507,15 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus }: 
 
   if (editing) {
     const s = cfg.sections.find((x) => x.id === editing);
-    if (s) return <ElementForm lang={lang} section={s} focusField={focus?.id === s.id ? focus.field : undefined} nonce={focus?.n ?? 0} onBack={() => setEditing(null)} onChange={(next) => setSections((all) => all.map((x) => (x.id === s.id ? next : x)))} onDelete={() => { setSections((all) => all.filter((x) => x.id !== s.id)); setEditing(null); }} />;
+    if (s) return <LinkTargets.Provider value={cfg.sections.filter((x) => x.id !== s.id).map((x) => ({ id: x.id, name: t.elements[x.type] }))}><ElementForm lang={lang} section={s} focusField={focus?.id === s.id ? focus.field : undefined} nonce={focus?.n ?? 0} onBack={() => setEditing(null)} onChange={(next) => setSections((all) => all.map((x) => (x.id === s.id ? next : x)))} onDelete={() => { setSections((all) => all.filter((x) => x.id !== s.id)); setEditing(null); }} /></LinkTargets.Provider>;
   }
 
   if (sub) {
     return (
       <SubShell lang={lang} title={t.rows[sub]} onBack={() => setSub(null)}>
-        {sub === "headerSettings" && <HeaderSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} />}
-        {sub === "announcement" && <AnnouncementForm lang={lang} cfg={cfg} setCfg={setCfg} />}
-        {sub === "footerSettings" && <FooterSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} />}
+        {sub === "headerSettings" && <LinkTargets.Provider value={[...cfg.sections.map((x) => ({ id: x.id, name: t.elements[x.type] })), { id: "footer", name: t.luxe.navFooter }]}><HeaderSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
+        {sub === "announcement" && <LinkTargets.Provider value={cfg.sections.map((x) => ({ id: x.id, name: t.elements[x.type] }))}><AnnouncementForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
+        {sub === "footerSettings" && <LinkTargets.Provider value={cfg.sections.map((x) => ({ id: x.id, name: t.elements[x.type] }))}><FooterSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
         {sub === "service" && <ServiceForm lang={lang} draft={draft} update={update} />}
         {sub === "certificate" && <CertificateForm lang={lang} cfg={cfg} setCfg={setCfg} />}
         {sub === "social" && <SocialForm lang={lang} cfg={cfg} setCfg={setCfg} />}
@@ -246,13 +525,14 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus }: 
 
   return (
     <div>
+      {!onlyElements && (
       <Accordion title={t.sectionsTitle.header} info={t.sectionsInfo.header} open={open.header} onToggle={() => setOpen((o) => ({ ...o, header: !o.header }))}>
         <ul>
           <RowLink icon={ic.gear} label={t.rows.headerSettings} onClick={() => setSub("headerSettings")} />
           <RowLink icon={ic.megaphone} label={t.rows.announcement} onClick={() => setSub("announcement")} badge={cfg.announcement.show} />
         </ul>
       </Accordion>
-
+      )}
 
       <Accordion title={t.sectionsTitle.elements} info={t.sectionsInfo.elements} open={open.elements} onToggle={() => setOpen((o) => ({ ...o, elements: !o.elements }))}>
         <ul className="space-y-1.5">
@@ -318,6 +598,7 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus }: 
         </button>
       </Accordion>
 
+      {!onlyElements && (
       <Accordion title={t.sectionsTitle.footer} info={t.sectionsInfo.footer} open={open.footer} onToggle={() => setOpen((o) => ({ ...o, footer: !o.footer }))}>
         <ul>
           <RowLink icon={ic.gear} label={t.rows.footerSettings} onClick={() => setSub("footerSettings")} />
@@ -326,6 +607,7 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus }: 
           <RowLink icon={ic.share} label={t.rows.social} onClick={() => setSub("social")} />
         </ul>
       </Accordion>
+      )}
 
       {picker && (
         <Picker
@@ -415,7 +697,10 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
   if (s.type === "hero") {
     const split = s.settings.layout === "split";
     const full = !!s.settings.fullWidth;
-    const defaults = { title: split ? (full ? 100 : 48) : 36, subtitle: split ? (full ? 24 : 15) : 15, eyebrow: 34, price: 26, detail: 13, button: split ? 15 : 14 };
+    const pop = s.settings.layout === "pop";
+    const pp = popT[lang];
+    const defaults = { title: pop ? 108 : split ? (full ? 100 : 48) : 36, subtitle: pop ? 20 : split ? (full ? 24 : 15) : 15, eyebrow: 34, price: 26, detail: 13, button: pop ? 16 : split ? 15 : 14 };
+    const setPop = (patch: Partial<NonNullable<typeof s.settings.popColors>>) => onChange({ ...s, settings: { ...s.settings, popColors: { ...(s.settings.popColors ?? {}), ...patch } } });
     type HeroKey = keyof typeof defaults;
     const setSize = (key: HeroKey, v: number | undefined) => onChange({ ...s, settings: { ...s.settings, sizes: { ...(s.settings.sizes ?? {}), [key]: v } } });
     const stepper = (key: HeroKey) => (
@@ -437,7 +722,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
         {withSize(text(s.settings.title, (title) => onChange({ ...s, settings: { ...s.settings, title } }), t.form.title, false, "title"), "title")}
         <Field label={t.luxe.titleFont}>
           <div className="grid grid-cols-2 gap-2">
-            {(["", "readex", "plex", "elegant", "cairo", "tajawal", "ruqaa", "lemonada", "amiri"] as HeroFont[]).map((k) => {
+            {(["", "readex", "plex", "baloo", "elegant", "cairo", "tajawal", "ruqaa", "lemonada", "amiri"] as HeroFont[]).map((k) => {
               const on = (s.settings.titleFont ?? "") === k;
               const name = k === "" ? t.luxe.fontDefault : k === "ruqaa" ? t.luxe.fontRuqaa : k === "lemonada" ? t.luxe.fontLemonada : k === "amiri" ? t.luxe.fontAmiri : t.options.fonts[k];
               return (
@@ -451,11 +736,14 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
         </Field>
         {withSize(text(s.settings.subtitle, (subtitle) => onChange({ ...s, settings: { ...s.settings, subtitle } }), t.form.subtitle, true, "subtitle"), "subtitle")}
         {withSize(text(s.settings.button, (button) => onChange({ ...s, settings: { ...s.settings, button } }), t.form.button, false, "button"), "button")}
+        <Field label={popT[lang].buttonLeads}>
+          <LinkPicker lang={lang} value={s.settings.link ?? ""} onChange={(link) => onChange({ ...s, settings: { ...s.settings, link } })} label={popT[lang].buttonLeads} />
+        </Field>
         <Field label={t.form.heroLayout}>
-          <div className="grid grid-cols-2 gap-2">
-            {(["banner", "split"] as const).map((k) => (
+          <div className="grid grid-cols-3 gap-2">
+            {(["banner", "split", "pop"] as const).map((k) => (
               <button key={k} type="button" onClick={() => onChange({ ...s, settings: { ...s.settings, layout: k } })} aria-pressed={(s.settings.layout ?? "banner") === k} className={`rounded-xl border px-3 py-2.5 text-xs font-semibold transition ${(s.settings.layout ?? "banner") === k ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
-                {k === "banner" ? t.form.layoutBanner : t.form.layoutSplit}
+                {k === "banner" ? t.form.layoutBanner : k === "split" ? t.form.layoutSplit : pp.layoutPop}
               </button>
             ))}
           </div>
@@ -484,11 +772,38 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
             </Field>
             {withSize(text(s.settings.size ?? noText, (size) => onChange({ ...s, settings: { ...s.settings, size } }), t.luxe.heroSize), "detail")}
             {text(s.settings.button2 ?? noText, (button2) => onChange({ ...s, settings: { ...s.settings, button2 } }), t.luxe.heroButton2, false, "button2")}
+            <Field label={popT[lang].button2Leads}>
+              <LinkPicker lang={lang} value={s.settings.link2 ?? ""} onChange={(link2) => onChange({ ...s, settings: { ...s.settings, link2 } })} label={popT[lang].button2Leads} />
+            </Field>
+          </div>
+        )}
+        {pop && (
+          <div className="space-y-4 rounded-xl bg-soft/70 p-3">
+            {text(s.settings.eyebrow ?? noText, (eyebrow) => onChange({ ...s, settings: { ...s.settings, eyebrow } }), pp.chip, false, "eyebrow")}
+            <Field label={pp.accentWord} hint={pp.accentWordHint}>
+              <input data-field="accentWord" value={(s.settings.accentWord ?? noText)[lang]} onChange={(e) => onChange({ ...s, settings: { ...s.settings, accentWord: { ...(s.settings.accentWord ?? noText), [lang]: e.target.value } } })} maxLength={30} className={`${input} h-11`} />
+            </Field>
+            {text(s.settings.button2 ?? noText, (button2) => onChange({ ...s, settings: { ...s.settings, button2 } }), t.luxe.heroButton2, false, "button2")}
+            <Field label={popT[lang].button2Leads}>
+              <LinkPicker lang={lang} value={s.settings.link2 ?? ""} onChange={(link2) => onChange({ ...s, settings: { ...s.settings, link2 } })} label={popT[lang].button2Leads} />
+            </Field>
+            <Field label={pp.sticker}>
+              <textarea data-field="sticker" value={(s.settings.sticker ?? noText)[lang]} onChange={(e) => onChange({ ...s, settings: { ...s.settings, sticker: { ...(s.settings.sticker ?? noText), [lang]: e.target.value } } })} rows={2} maxLength={30} className={`${input} resize-none py-2.5`} />
+            </Field>
+            <Field label={pp.photo1}>
+              <div data-field="photo" className="space-y-3"><PhotoPicker lang={lang} value={s.settings.photo ?? ""} onChange={(photo) => onChange({ ...s, settings: { ...s.settings, photo, photoPos: undefined } })} max={1200} /><PictureMover lang={lang} image={s.settings.photo ?? ""} value={s.settings.photoPos} onChange={(photoPos) => onChange({ ...s, settings: { ...s.settings, photoPos } })} ratio="3 / 4" radius="999px 999px 26px 26px" /></div>
+            </Field>
+            <Field label={pp.photo2}>
+              <div data-field="photo2" className="space-y-3"><PhotoPicker lang={lang} value={s.settings.photo2 ?? ""} onChange={(photo2) => onChange({ ...s, settings: { ...s.settings, photo2, photo2Pos: undefined } })} max={1200} /><PictureMover lang={lang} image={s.settings.photo2 ?? ""} value={s.settings.photo2Pos} onChange={(photo2Pos) => onChange({ ...s, settings: { ...s.settings, photo2Pos } })} ratio="3 / 4" radius="22px" /></div>
+            </Field>
+            <ColorChip lang={lang} label={pp.colorAccent} value={s.settings.popColors?.accent} onChange={(accent) => setPop({ accent })} onReset={() => setPop({ accent: undefined })} />
+            <ColorChip lang={lang} label={pp.colorBlob} value={s.settings.popColors?.blob} onChange={(blob) => setPop({ blob })} onReset={() => setPop({ blob: undefined })} />
+            <ColorChip lang={lang} label={pp.colorSticker} value={s.settings.popColors?.sticker} onChange={(sticker) => setPop({ sticker })} onReset={() => setPop({ sticker: undefined })} />
           </div>
         )}
         {/* The backgrounds and the product cards belong to the plain banner. In the photo-beside-text layout the panel color above is the color. */}
-        {s.settings.layout !== "split" && <HeroBackgrounds lang={lang} settings={s.settings} onChange={(settings) => onChange({ ...s, settings })} />}
-        {s.settings.layout !== "split" && <Toggle on={s.settings.showCards ?? true} onChange={(showCards) => onChange({ ...s, settings: { ...s.settings, showCards } })} label={t.form.showCards} />}
+        {s.settings.layout !== "split" && !pop && <HeroBackgrounds lang={lang} settings={s.settings} onChange={(settings) => onChange({ ...s, settings })} />}
+        {s.settings.layout !== "split" && !pop && <Toggle on={s.settings.showCards ?? true} onChange={(showCards) => onChange({ ...s, settings: { ...s.settings, showCards } })} label={t.form.showCards} />}
       </>
     );
   } else if (s.type === "featured" || s.type === "discounts") {
@@ -533,6 +848,10 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
     body = <BannersForm lang={lang} s={s} onChange={onChange} />;
   } else if (s.type === "ribbon") {
     body = <RibbonForm lang={lang} s={s} onChange={onChange} />;
+  } else if (s.type === "chips") {
+    body = <ChipsForm lang={lang} s={s} onChange={onChange} />;
+  } else if (s.type === "newsletter") {
+    body = <NewsletterForm lang={lang} s={s} onChange={onChange} text={text} />;
   } else if (s.type === "collection") {
     body = <CollectionForm lang={lang} s={s} onChange={onChange} text={text} />;
   } else if (s.type === "reviews") {
@@ -809,7 +1128,7 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
       </Field>
       <Field label={t.font}>
         <div className="grid grid-cols-2 gap-2">
-          {(["readex", "plex", "elegant", "cairo", "tajawal"] as const).map((k) => (
+          {(["readex", "plex", "baloo", "elegant", "cairo", "tajawal"] as const).map((k) => (
             <button key={k} type="button" onClick={() => set({ font: k })} aria-pressed={(th.font ?? "readex") === k} className={`rounded-xl border px-3 py-3 text-start transition ${(th.font ?? "readex") === k ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
               <span className="block text-base font-bold leading-snug" style={{ fontFamily: fontFamily[k] || undefined }}>{t.fontSample}</span>
               <span className="mt-1 block text-[11px] font-semibold text-muted">{t.fonts[k]}</span>
@@ -819,7 +1138,7 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
       </Field>
       <Field label={lx.headingFont}>
         <div className="grid grid-cols-2 gap-2">
-          {(["", "readex", "plex", "elegant", "cairo", "tajawal"] as const).map((k) => {
+          {(["", "readex", "plex", "baloo", "elegant", "cairo", "tajawal"] as const).map((k) => {
             const on = (th.headingFont ?? "") === k;
             return (
               <button key={k || "same"} type="button" onClick={() => set({ headingFont: k })} aria-pressed={on} className={`rounded-xl border px-3 py-3 text-start transition ${on ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
@@ -837,17 +1156,17 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
         </div>
       </Field>
       <Field label={lx.titleStyle}>
-        <Seg value={th.titleStyle ?? "bold"} onChange={(titleStyle) => set({ titleStyle })} options={[{ key: "bold", label: lx.titleBold }, { key: "light", label: lx.titleLight }]} />
+        <Seg value={th.titleStyle ?? "bold"} onChange={(titleStyle) => set({ titleStyle })} cols={3} options={[{ key: "bold", label: lx.titleBold }, { key: "light", label: lx.titleLight }, { key: "pop", label: popT[lang].titlePop }]} />
       </Field>
       <Field label={lx.sectionTitleSize}>
-        <Stepper lang={lang} label={lx.textSize} value={th.sectionTitleSize ?? (th.titleStyle === "light" ? 34 : 24)} auto={th.sectionTitleSize === undefined} min={14} max={80} onChange={(sectionTitleSize) => set({ sectionTitleSize })} onReset={() => set({ sectionTitleSize: undefined })} />
+        <Stepper lang={lang} label={lx.textSize} value={th.sectionTitleSize ?? (th.titleStyle === "light" ? 34 : th.titleStyle === "pop" ? 44 : 24)} auto={th.sectionTitleSize === undefined} min={14} max={80} onChange={(sectionTitleSize) => set({ sectionTitleSize })} onReset={() => set({ sectionTitleSize: undefined })} />
       </Field>
       <Field label={lx.spacing}>
         <Seg value={th.spacing ?? "normal"} onChange={(spacing) => set({ spacing })} options={[{ key: "normal", label: lx.spaceNormal }, { key: "airy", label: lx.spaceAiry }]} />
       </Field>
       <div data-section="cards">
         <p className="mb-2 text-sm font-semibold">{t.cards}</p>
-        {(["showName", "showCategory", "showPrice", "showOldPrice", "showBadge", "showStock", "showHeart", "showAdd"] as const).map((k) => (
+        {(["showName", "showCategory", "showPrice", "showOldPrice", "showBadge", "showStock"] as const).map((k) => (
           <Toggle key={k} on={draft.config.cards[k]} onChange={(v) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, [k]: v } } }))} label={t[k]} />
         ))}
         <Toggle on={draft.config.cards.showNotes} onChange={(v) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, showNotes: v } } }))} label={lx.showNotes} />
@@ -855,6 +1174,11 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
       <Field label={lx.cardInfo}>
         <Seg value={draft.config.cards.info ?? "stack"} onChange={(info) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, info } } }))} options={[{ key: "stack", label: lx.infoStack }, { key: "row", label: lx.infoRow }]} />
       </Field>
+      <Field label={popT[lang].cardAdd}>
+        <Seg value={draft.config.cards.add ?? "wide"} onChange={(add) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, add } } }))} options={[{ key: "wide", label: popT[lang].addWide }, { key: "plus", label: popT[lang].addPlus }]} />
+      </Field>
+      <ColorChip lang={lang} label={popT[lang].priceColor} value={draft.config.cards.priceColor || undefined} onChange={(priceColor) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, priceColor } } }))} onReset={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, priceColor: "" } } }))} />
+      {draft.config.cards.add === "plus" && <ColorChip lang={lang} label={popT[lang].addColor} value={draft.config.cards.addColor} onChange={(addColor) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, addColor } } }))} onReset={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, addColor: undefined } } }))} />}
       <Field label={t.cardImage}>
         <div className="grid grid-cols-3 gap-2">
           {(["portrait", "square", "wide"] as const).map((r) => (
@@ -867,13 +1191,16 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
         <p className="mt-2 text-xs leading-relaxed text-muted">{lx.cropNote}</p>
       </Field>
       <Field label={t.cardStyle}>
-        <div className="grid grid-cols-3 gap-2">
-          {(["shadow", "outline", "flat"] as const).map((r) => (
+        <div className="grid grid-cols-2 gap-2">
+          {(["shadow", "outline", "flat", "pop"] as const).map((r) => (
             <button key={r} type="button" onClick={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, style: r } } }))} aria-pressed={draft.config.cards.style === r} className={`rounded-xl border px-3 py-3 text-xs font-semibold transition ${draft.config.cards.style === r ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
-              {t.styleKinds[r]}
+              {r === "pop" ? popT[lang].stylePop : t.styleKinds[r]}
             </button>
           ))}
         </div>
+      </Field>
+      <Field label={popT[lang].pricesTitle}>
+        <Seg value={th.prices ?? "auto"} cols={1} onChange={(prices) => set({ prices })} options={[{ key: "auto", label: popT[lang].pricesAuto }, { key: "ar", label: popT[lang].pricesAr }, { key: "en", label: popT[lang].pricesEn }]} />
       </Field>
       <Field label={t.corners}>
         <div className="grid grid-cols-3 gap-2">
@@ -902,9 +1229,6 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
               );
             })}
           </div>
-        </Field>
-        <Field label={lx.watermark}>
-          <input value={draft.config.texture.watermark[lang]} onChange={(e) => update((d) => ({ ...d, config: { ...d.config, texture: { ...d.config.texture, watermark: { ...d.config.texture.watermark, [lang]: e.target.value } } } }))} placeholder={lx.watermarkPh} maxLength={12} className={`${input} h-11`} />
         </Field>
       </div>
     </div>
@@ -1311,16 +1635,9 @@ export function ProductPicturePanel({ lang, name, image, value, onChange, onBack
 }
 
 function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg }) {
+  const storePages = useStorePages(lang);
   const t = dc[lang];
   const lx = t.luxe;
-  /* Turning the language button on opens a pop-up that explains what he must do */
-  const [langNote, setLangNote] = useState(false);
-  useEffect(() => {
-    if (!langNote) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setLangNote(false);
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [langNote]);
   const tog = (key: keyof StorefrontConfig["header"], label: string) => (
     <Toggle key={key} on={cfg.header[key]} onChange={(v) => setCfg((c) => ({ ...c, header: { ...c.header, [key]: v } }))} label={label} />
   );
@@ -1330,14 +1647,12 @@ function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
         {tog("showMenu", t.header.showMenu)}
         {!cfg.header.showMenu && <Tip text={t.header.tipMenu} />}
         {tog("showSearch", t.header.showSearch)}
-        {tog("showUser", t.header.showUser)}
         {tog("showCart", t.header.showCart)}
         {!cfg.header.showCart && <Tip text={t.header.tipCart} />}
-        <Toggle on={cfg.header.showLanguage} onChange={(v) => { setCfg((c) => ({ ...c, header: { ...c.header, showLanguage: v } })); if (v) setLangNote(true); }} label={lx.langButton} />
-        {cfg.header.showLanguage && missingTexts(cfg, lang) > 0 && <Tip text={lx.langMissing.replace("{n}", String(missingTexts(cfg, lang)))} />}
         {tog("sticky", t.header.sticky)}
         <Toggle on={cfg.identity.showLogo} onChange={(v) => setCfg((c) => ({ ...c, identity: { ...c.identity, showLogo: v } }))} label={t.header.showLogo} />
       </div>
+      {cfg.header.showMenu && <DrawerItemsForm lang={lang} cfg={cfg} setCfg={setCfg} />}
       <Field label={t.header.align}>
         <div className="flex gap-2">
           {(["start", "center"] as const).map((a) => (
@@ -1348,9 +1663,15 @@ function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
         </div>
       </Field>
       <Field label={lx.navStyle}>
-        <Seg value={cfg.nav.style} onChange={(style) => setCfg((c) => ({ ...c, nav: { ...c.nav, style } }))} options={[{ key: "button", label: lx.navButton }, { key: "links", label: lx.navLinks }]} />
+        <Seg value={cfg.nav.style} onChange={(style) => setCfg((c) => ({ ...c, nav: { ...c.nav, style } }))} cols={3} options={[{ key: "button", label: lx.navButton }, { key: "links", label: lx.navLinks }, { key: "pill", label: popT[lang].navPill }]} />
       </Field>
-      {cfg.nav.style === "links" && (
+      {cfg.nav.style === "pill" && (
+        <div className="space-y-3">
+          <ColorChip lang={lang} label={popT[lang].navActive} value={cfg.nav.activeColor} onChange={(activeColor) => setCfg((c) => ({ ...c, nav: { ...c.nav, activeColor } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, activeColor: undefined } }))} />
+          <ColorChip lang={lang} label={popT[lang].navCart} value={cfg.nav.cartColor} onChange={(cartColor) => setCfg((c) => ({ ...c, nav: { ...c.nav, cartColor } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, cartColor: undefined } }))} />
+        </div>
+      )}
+      {cfg.nav.style !== "button" && (
         <div className="space-y-2">
           <p className="text-xs text-muted">{lx.navHint}</p>
           {cfg.nav.links.map((l, i) => (
@@ -1359,16 +1680,9 @@ function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
                 <input value={l[lang] ?? ""} onChange={(e) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, [lang]: e.target.value } : x)) } }))} placeholder={lx.navLink} aria-label={lx.navLink} maxLength={20} className={`${input} h-10 flex-1`} />
                 <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.filter((_, j) => j !== i) } }))} aria-label={lx.navRemove} title={lx.navRemove}>{ic.trash}</button>
               </div>
-              <label className="flex items-center justify-between gap-2 text-xs font-semibold text-fg/80">
-                {lx.navTarget}
-                <select value={l.to ?? ""} onChange={(e) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, to: e.target.value || undefined } : x)) } }))} className={`${input} h-9 w-auto max-w-[60%]`}>
-                  <option value="">{lx.navNone}</option>
-                  {cfg.sections.map((sec) => (
-                    <option key={sec.id} value={sec.id}>{t.elements[sec.type]}</option>
-                  ))}
-                  <option value="footer">{lx.navFooter}</option>
-                </select>
-              </label>
+              <Field label={lx.navTarget}>
+                <LinkPicker lang={lang} value={l.to ?? ""} onChange={(to) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, to: to || undefined } : x)) } }))} label={lx.navTarget} />
+              </Field>
             </div>
           ))}
           {cfg.nav.links.length < 8 && (
@@ -1377,15 +1691,6 @@ function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
               {lx.navAdd}
             </button>
           )}
-        </div>
-      )}
-      {langNote && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4" onMouseDown={(e) => e.target === e.currentTarget && setLangNote(false)}>
-          <div role="dialog" aria-modal="true" aria-label={lx.langButton} className="dash w-full max-w-md rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
-            <h2 className="text-lg font-bold">{lx.langButton}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted">{lx.langHint}</p>
-            <button type="button" autoFocus onClick={() => setLangNote(false)} className="mt-5 h-11 w-full rounded-xl bg-ink text-sm font-semibold text-onink transition hover:bg-deep">{lx.langOk}</button>
-          </div>
         </div>
       )}
     </>
@@ -1402,6 +1707,8 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
   return (
     <>
       <Toggle on={a.show} onChange={(show) => set({ show })} label={t.show} />
+      {a.show && (
+      <>
 
       <Field label={t.motion}>
         <div className="flex gap-1 rounded-xl border border-fg/15 bg-card p-1">
@@ -1427,7 +1734,7 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
               )}
             </div>
             <input value={m.text[lang]} onChange={(e) => edit(i, { text: { ...m.text, [lang]: e.target.value } })} aria-label={t.text} placeholder={t.text} maxLength={90} className={`${input} h-11`} />
-            <input dir="ltr" value={m.link} onChange={(e) => edit(i, { link: e.target.value })} aria-label={t.link} placeholder={t.link} maxLength={160} className={`${input} h-10 text-start`} />
+            <LinkPicker lang={lang} value={m.link} onChange={(link) => edit(i, { link })} label={t.link} />
             <div>
               <p className="mb-2 text-xs font-semibold text-fg/80">{a.motion === "ticker" && i > 0 ? t.colorFirst : t.color}</p>
               <ColorPicker value={m.color} onChange={(color) => edit(i, { color })} label={t.color} bad={dc[lang].identity.hexBad} />
@@ -1453,6 +1760,8 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
           {t.add}
         </button>
       )}
+      </>
+      )}
     </>
   );
 }
@@ -1461,30 +1770,51 @@ function FooterSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefront
   const t = dc[lang];
   const f = cfg.footer;
   const set = (patch: Partial<StorefrontConfig["footer"]>) => setCfg((c) => ({ ...c, footer: { ...c.footer, ...patch } }));
-  const tog = (key: "showLogo" | "showLinks" | "showContact" | "showSocial", label: string) => <Toggle key={key} on={f[key]} onChange={(v) => set({ [key]: v })} label={label} />;
+  const tog = (key: "showLogo", label: string) => <Toggle key={key} on={f[key]} onChange={(v) => set({ [key]: v })} label={label} />;
   return (
     <>
+      <Field label={popT[lang].footerStyle}>
+        <Seg value={f.style ?? "full"} onChange={(style) => set({ style })} options={[{ key: "full", label: popT[lang].footerFull }, { key: "simple", label: popT[lang].footerSimple }]} />
+      </Field>
       <div className="space-y-1">
         {tog("showLogo", t.footer.showLogo)}
-        {tog("showLinks", t.footer.showLinks)}
-        {tog("showContact", t.footer.showContact)}
-        {tog("showSocial", t.footer.showSocial)}
       </div>
       <div className="space-y-3">
         <p className="text-sm font-semibold">{t.luxe.footerColors}</p>
         {(["background", "text"] as const).map((key) => (
           <Field key={key} label={key === "background" ? t.luxe.footerBg : t.luxe.footerText}>
-            {f[key] ? (
-              <>
-                <ColorPicker value={f[key]} onChange={(v) => set({ [key]: v })} label={key} bad={t.identity.hexBad} list={key === "background" ? ["#16120f", "#1c1a17", "#2b2118", "#004956", "#f4f1ea", "#ffffff"] : ["#e9e1d3", "#ffffff", "#c9a46a", "#1c1a17", "#12262b"]} />
-                <button type="button" onClick={() => set({ [key]: "" })} className="mt-2 text-sm font-semibold text-primary hover:underline">{t.luxe.footerAutoBack}</button>
-              </>
-            ) : (
-              <button type="button" onClick={() => set({ [key]: key === "background" ? "#16120f" : "#e9e1d3" })} className="w-full rounded-xl border border-dashed border-fg/25 px-3 py-2.5 text-start text-sm font-medium text-muted transition hover:bg-soft">{t.luxe.footerAuto}</button>
-            )}
+            <ColorPicker value={f[key] || (key === "background" ? "#f4f1ea" : cfg.theme.text)} onChange={(v) => set({ [key]: v })} label={key} bad={t.identity.hexBad} list={key === "background" ? ["#16120f", "#1c1a17", "#2b2118", "#004956", "#f4f1ea", "#ffffff"] : ["#e9e1d3", "#ffffff", "#c9a46a", "#1c1a17", "#12262b"]} />
           </Field>
         ))}
       </div>
+      <FooterColumnsForm lang={lang} cfg={cfg} setCfg={setCfg} />
+      <div className="space-y-3">
+        <p className="text-sm font-semibold">{popT[lang].sizesTitle}</p>
+        {([["title", popT[lang].szTitles, 14, 10, 40], ["text", popT[lang].szText, 14, 10, 32], ["name", popT[lang].szName, f.style === "simple" ? 20 : 18, 12, 48]] as const).map(([k, label, def, min, max]) => (
+          <Stepper key={k} lang={lang} label={label} value={f.sizes?.[k] ?? def} auto={f.sizes?.[k] === undefined} min={min} max={max} onChange={(v) => set({ sizes: { ...(f.sizes ?? {}), [k]: v } })} onReset={() => set({ sizes: { ...(f.sizes ?? {}), [k]: undefined } })} />
+        ))}
+      </div>
+      <div className="space-y-3">
+        <p className="text-sm font-semibold">{popT[lang].wordsTitle}</p>
+        <p className="text-xs leading-relaxed text-muted">{popT[lang].wordsHint}</p>
+        {(["pages", "contact", "follow", "licenses"] as const).map((k) => {
+          const label = { pages: popT[lang].wPages, contact: popT[lang].wContact, follow: popT[lang].wFollow, licenses: popT[lang].wLicenses }[k];
+          const cur = f.labels?.[k] ?? { en: "", ar: "" };
+          return (
+            <Field key={k} label={label}>
+              <input
+                value={cur[lang]}
+                onChange={(e) => set({ labels: { pages: noText, contact: noText, follow: noText, licenses: noText, ...(f.labels ?? {}), [k]: { ...cur, [lang]: e.target.value } } })}
+                placeholder={storeCopy[lang][k]}
+                aria-label={label}
+                maxLength={30}
+                className={`${input} h-11`}
+              />
+            </Field>
+          );
+        })}
+      </div>
+      <OwnLinksForm lang={lang} tabs={cfg.footer.tabs ?? []} onChange={(tabs) => setCfg((c) => ({ ...c, footer: { ...c.footer, tabs } }))} title={popT[lang].tabsTitle} hint={popT[lang].tabsHint} add={popT[lang].tabAdd} />
       <Field label={t.footerFields.about} hint={t.footerFields.aboutHint}>
         <textarea data-field="about" value={f.about[lang]} onChange={(e) => set({ about: { ...f.about, [lang]: e.target.value } })} rows={3} maxLength={200} className={`${input} resize-none py-3`} />
       </Field>
@@ -1501,6 +1831,7 @@ function ServiceForm({ lang, draft, update }: { lang: Lang; draft: Draft; update
   const set = (patch: Partial<StorefrontConfig["footer"]>) => update((d) => ({ ...d, config: { ...d.config, footer: { ...d.config.footer, ...patch } } }));
   return (
     <>
+      <Toggle on={f.showContact} onChange={(showContact) => set({ showContact })} label={popT[lang].showContactHere} />
       <p className="text-xs text-muted">{t.sub.service.hint}</p>
       <Field label={t.footerFields.servicePhone} hint={t.footerFields.servicePhoneHint}>
         <span dir="ltr" className="flex h-11 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25">
@@ -1539,6 +1870,11 @@ function CertificateForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCon
   const set = (patch: Partial<typeof c>) => setCfg((x) => ({ ...x, footer: { ...x.footer, certificate: { ...x.footer.certificate, ...patch } } }));
   return (
     <>
+      <Toggle
+        on={footerColumns(cfg.footer).find((x) => x.kind === "licenses")?.visible !== false}
+        onChange={(visible) => setCfg((x) => ({ ...x, footer: { ...x.footer, columns: footerColumns(x.footer).map((col) => (col.kind === "licenses" ? { ...col, visible } : col)) } }))}
+        label={popT[lang].showLicensesHere}
+      />
       <p className="rounded-xl bg-soft px-4 py-3 text-xs leading-relaxed text-muted">{t.hint}</p>
       <Field label={t.kind}>
         <div className="grid grid-cols-3 gap-2">
@@ -1581,6 +1917,7 @@ function SocialForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; 
   ];
   return (
     <>
+      <Toggle on={f.showSocial} onChange={(showSocial) => setCfg((c) => ({ ...c, footer: { ...c.footer, showSocial } }))} label={popT[lang].showSocialHere} />
       <p className="text-xs text-muted">{t.footerFields.socialHint}</p>
       <div className="space-y-3">
         {names.map((n) => (
@@ -1634,7 +1971,7 @@ function SlidesForm({ lang, s, onChange }: { lang: Lang; s: SlidesEl; onChange: 
                 <button type="button" className={roundBtnSm} disabled={i === slides.length - 1} onClick={() => move(i, 1)} aria-label={dc[lang].actions.down} title={dc[lang].actions.down}>{ic.down}</button>
                 <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set({ slides: slides.filter((_, j) => j !== i) })} aria-label={t.removeSlide} title={t.removeSlide}>{ic.trash}</button>
               </div>
-              <input dir="ltr" value={x.link} onChange={(e) => edit(i, { link: e.target.value })} placeholder={t.slideLink} aria-label={t.slideLink} maxLength={160} className={`${input} h-10 text-start`} />
+              <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(i, { link })} label={t.slideLink} />
             </li>
           ))}
         </ol>
@@ -1759,7 +2096,7 @@ function TilesForm({ lang, s, onChange, text }: { lang: Lang; s: TilesEl; onChan
                 <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set({ items: items.filter((_, j) => j !== i) })} aria-label={t.removeTile} title={t.removeTile}>{ic.trash}</button>
               </div>
               <input value={x.label?.[lang] ?? ""} onChange={(e) => edit(i, { label: { ...(x.label ?? { en: "", ar: "" }), [lang]: e.target.value } })} placeholder={t.tileLabel} aria-label={t.tileLabel} maxLength={40} className={`${input} h-10`} />
-              <input dir="ltr" value={x.link} onChange={(e) => edit(i, { link: e.target.value })} placeholder={t.tileLink} aria-label={t.tileLink} maxLength={160} className={`${input} h-10 text-start`} />
+              <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(i, { link })} label={t.tileLink} />
               {s.settings.style === "editorial" && (
                 <div className="space-y-1.5">
                   <p className="text-xs font-semibold text-fg/80">{lx.tileChip}</p>
@@ -1806,32 +2143,70 @@ function TilesForm({ lang, s, onChange, text }: { lang: Lang; s: TilesEl; onChan
 /* ------------------------------------------------------------------ */
 
 function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange: (s: SectionConfig) => void }) {
+  const textNow = useContext(TextColorNow);
   const t = dc[lang].form;
   const lx = dc[lang].luxe;
   const items = s.settings.items ?? [];
   const set = (next: Banner[]) => onChange({ ...s, settings: { ...s.settings, items: next } });
   const fonts: { key: DisplayFont; label: string }[] = [{ key: "default", label: lx.fontDefault }, { key: "ruqaa", label: lx.fontRuqaa }, { key: "lemonada", label: lx.fontLemonada }, { key: "amiri", label: lx.fontAmiri }];
   const edit = (i: number, patch: Partial<Banner>) => set(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  /* The "color card" look has no frosted panel, outline button or fixed height: those fields belong to the photo look only */
+  const anyPhoto = items.some((x) => x.variant !== "card");
   const bi = (i: number, k: "title" | "text" | "button" | "eyebrow", v: string) => edit(i, { [k]: { ...(items[i][k] ?? { en: "", ar: "" }), [lang]: v } } as Partial<Banner>);
 
   return (
     <>
       <p className="text-xs leading-relaxed text-muted">{t.bannersHint}</p>
+{anyPhoto && (
       <Field label={lx.bannerHeight}>
         <Seg value={s.settings.height ?? "normal"} onChange={(height) => onChange({ ...s, settings: { ...s.settings, height } })} options={[{ key: "normal", label: lx.heightNormal }, { key: "tall", label: lx.heightTall }]} />
       </Field>
+)}
       {items.map((x, i) => (
         <div key={i} className="space-y-3 rounded-xl border border-fg/10 p-3">
+          <Field label={popT[lang].bannerVariant}>
+            <Seg value={x.variant ?? "photo"} onChange={(variant) => edit(i, { variant })} options={[{ key: "photo", label: popT[lang].variantPhoto }, { key: "card", label: popT[lang].variantCard }]} />
+          </Field>
+          {x.variant === "card" && (
+            <>
+              <Field label={popT[lang].cardColor}>
+                <ColorPicker value={x.bg || "#b9f3d0"} onChange={(bg) => edit(i, { bg })} label={popT[lang].cardColor} bad={dc[lang].identity.hexBad} list={popPastels} />
+              </Field>
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">{popT[lang].morePics}</p>
+                <p className="text-xs leading-relaxed text-muted">{popT[lang].morePicsHint}</p>
+                {(x.images ?? []).map((img, k) => (
+                  <div key={k} className="space-y-2 rounded-xl border border-fg/10 p-2.5">
+                    <PhotoPicker lang={lang} value={img} onChange={(v) => edit(i, { images: (x.images ?? []).map((y, j) => (j === k ? v : y)) })} max={1200} />
+                    <button type="button" onClick={() => edit(i, { images: (x.images ?? []).filter((_, j) => j !== k) })} className="text-xs font-semibold text-rose-600 hover:underline">{popT[lang].removePic}</button>
+                  </div>
+                ))}
+                {(x.images ?? []).length < 3 && (
+                  <button type="button" onClick={() => edit(i, { images: [...(x.images ?? []), ""] })} className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/60 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/5">
+                    {ic.plus}
+                    {popT[lang].addPic}
+                  </button>
+                )}
+              </div>
+              <Stepper lang={lang} label={popT[lang].eyebrowSize} value={x.eyebrowSize ?? 24} auto={x.eyebrowSize === undefined} min={12} max={60} onChange={(eyebrowSize) => edit(i, { eyebrowSize })} onReset={() => edit(i, { eyebrowSize: undefined })} />
+                      <Field label={popT[lang].shape}>
+                <Seg value={x.shape ?? "arch"} onChange={(shape) => edit(i, { shape })} options={[{ key: "arch", label: popT[lang].shapeArch }, { key: "tilt", label: popT[lang].shapeTilt }]} />
+              </Field>
+            </>
+          )}
           <div className="flex items-center gap-2">
             <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-soft text-xs font-bold">{i + 1}</span>
             <span className="flex-1" />
             <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set(items.filter((_, j) => j !== i))} aria-label={t.removeBanner} title={t.removeBanner}>{ic.trash}</button>
           </div>
-          <PhotoPicker lang={lang} value={x.image} onChange={(image) => edit(i, { image })} max={1600} />
+          <PhotoPicker lang={lang} value={x.image} onChange={(image) => edit(i, { image, pos: undefined })} max={1600} />
+          <PictureMover lang={lang} image={x.image} value={x.pos} onChange={(pos) => edit(i, { pos })} ratio={x.variant === "card" ? "3 / 4" : "16 / 9"} radius={x.variant === "card" ? (x.shape === "tilt" ? "20px" : "999px 999px 20px 20px") : "12px"} />
           <input value={x.title?.[lang] ?? ""} onChange={(e) => bi(i, "title", e.target.value)} placeholder={t.bannerTitle} aria-label={t.bannerTitle} maxLength={60} className={`${input} h-10`} />
           <textarea value={x.text?.[lang] ?? ""} onChange={(e) => bi(i, "text", e.target.value)} placeholder={t.bannerText} aria-label={t.bannerText} rows={2} maxLength={140} className={`${input} resize-none py-2.5`} />
           <input value={x.button?.[lang] ?? ""} onChange={(e) => bi(i, "button", e.target.value)} placeholder={t.bannerButton} aria-label={t.bannerButton} maxLength={30} className={`${input} h-10`} />
-          <input dir="ltr" value={x.link} onChange={(e) => edit(i, { link: e.target.value })} placeholder={t.bannerLink} aria-label={t.bannerLink} maxLength={160} className={`${input} h-10 text-start`} />
+          <Field label={t.bannerLink}>
+            <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(i, { link })} label={t.bannerLink} />
+          </Field>
           <input value={x.eyebrow?.[lang] ?? ""} onChange={(e) => bi(i, "eyebrow", e.target.value)} placeholder={lx.bannerEyebrow} aria-label={lx.bannerEyebrow} maxLength={40} className={`${input} h-10`} />
           <Field label={lx.bannerFont}>
             <Seg value={x.font ?? "default"} onChange={(font) => edit(i, { font })} options={fonts} />
@@ -1839,14 +2214,16 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
           <Field label={lx.bannerTextFont}>
             <Seg value={x.textFont ?? "default"} onChange={(textFont) => edit(i, { textFont })} options={fonts} />
           </Field>
-          <Stepper lang={lang} label={lx.titleSize} value={x.titleSize ?? 84} auto={x.titleSize === undefined} min={20} max={200} onChange={(titleSize) => edit(i, { titleSize })} onReset={() => edit(i, { titleSize: undefined })} />
+          <Stepper lang={lang} label={lx.titleSize} value={x.titleSize ?? (x.variant === "card" ? 64 : 84)} auto={x.titleSize === undefined} min={20} max={200} onChange={(titleSize) => edit(i, { titleSize })} onReset={() => edit(i, { titleSize: undefined })} />
           <Stepper lang={lang} label={lx.textSize} value={x.textSize ?? (x.textFont && x.textFont !== "default" ? 20 : 15)} auto={x.textSize === undefined} min={10} max={60} onChange={(textSize) => edit(i, { textSize })} onReset={() => edit(i, { textSize: undefined })} />
           <Field label={lx.bannerTitleColor}>
-            <ColorPicker value={x.titleColor || "#ffffff"} onChange={(titleColor) => edit(i, { titleColor })} label={lx.bannerTitleColor} bad={dc[lang].identity.hexBad} list={["#ffffff", "#d9b776", "#b03a5b", "#1c1a17", "#004956"]} />
+            <ColorPicker value={x.titleColor || (x.variant === "card" ? textNow : "#ffffff")} onChange={(titleColor) => edit(i, { titleColor })} label={lx.bannerTitleColor} bad={dc[lang].identity.hexBad} list={["#ffffff", "#d9b776", "#b03a5b", "#1c1a17", "#004956"]} />
           </Field>
+{x.variant !== "card" && (
           <Field label={lx.bannerPanel}>
             <Seg value={x.panel ?? "none"} cols={3} onChange={(panel) => edit(i, { panel })} options={[{ key: "none", label: lx.panelNone }, { key: "light", label: lx.panelLight }, { key: "dark", label: lx.panelDark }]} />
           </Field>
+)}
           {(x.panel === "light" || x.panel === "dark") && (
             <Field label={lx.bannerPanelColor}>
               <ColorPicker value={x.panelColor || (x.panel === "dark" ? "#12100d" : "#fff5f8")} onChange={(panelColor) => edit(i, { panelColor })} label={lx.bannerPanelColor} bad={dc[lang].identity.hexBad} list={["#fff5f8", "#ffffff", "#f4efe6", "#12100d", "#16120f", "#004956", "#b03a5b"]} />
@@ -1860,9 +2237,11 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
               <Seg value={x.position ?? "top-start"} onChange={(position) => edit(i, { position })} options={[{ key: "top-start", label: lx.posTopStart }, { key: "top-end", label: lx.posTopEnd }, { key: "bottom-start", label: lx.posBottomStart }, { key: "bottom-end", label: lx.posBottomEnd }]} />
             </Field>
           )}
+{x.variant !== "card" && (
           <Field label={lx.bannerButtonStyle}>
             <Seg value={x.buttonStyle ?? "filled"} onChange={(buttonStyle) => edit(i, { buttonStyle })} options={[{ key: "filled", label: lx.btnFilled }, { key: "outline", label: lx.btnOutline }]} />
           </Field>
+)}
           <ColorChip lang={lang} label={lx.bannerEyebrowColor} value={x.eyebrowColor} onChange={(eyebrowColor) => edit(i, { eyebrowColor })} onReset={() => edit(i, { eyebrowColor: undefined })} />
           <ColorChip lang={lang} label={lx.bannerTextColor} value={x.textColor} onChange={(textColor) => edit(i, { textColor })} onReset={() => edit(i, { textColor: undefined })} />
           <ColorChip lang={lang} label={lx.bannerButtonColor} value={x.accent} onChange={(accent) => edit(i, { accent })} onReset={() => edit(i, { accent: undefined })} />
@@ -1929,5 +2308,441 @@ function Tip({ text }: { text: string }) {
       </svg>
       {text}
     </p>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/*  Colored chips                                                      */
+/* ------------------------------------------------------------------ */
+
+type ChipsEl = Extract<SectionConfig, { type: "chips" }>;
+
+function ChipsForm({ lang, s, onChange }: { lang: Lang; s: ChipsEl; onChange: (s: SectionConfig) => void }) {
+  const pp = popT[lang];
+  const t = dc[lang];
+  const items = s.settings.items ?? [];
+  const [dragAt, setDragAt] = useState<number | null>(null);
+  const [overAt, setOverAt] = useState<number | null>(null);
+  /* a card is only pulled by its handle, so the text fields and the color keep working with the mouse */
+  const [handle, setHandle] = useState<number | null>(null);
+  const set = (next: ChipsEl["settings"]["items"]) => onChange({ ...s, settings: { ...s.settings, items: next } });
+  const setRule = (patch: Partial<ChipsEl["settings"]>) => onChange({ ...s, settings: { ...s.settings, ...patch } });
+  const edit = (i: number, patch: Partial<ChipsEl["settings"]["items"][number]>) => set(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  /* Moves the button at `from` to the place `to` */
+  const move = (from: number, to: number) => {
+    if (to < 0 || to >= items.length || from === to) return;
+    const next = [...items];
+    const [x] = next.splice(from, 1);
+    next.splice(to, 0, x);
+    set(next);
+  };
+  return (
+    <>
+      <p className="text-xs leading-relaxed text-muted">{pp.chipsHint}</p>
+      <p className="text-xs leading-relaxed text-muted">{pp.chipMove}</p>
+      {items.map((x, i) => (
+        <div
+          key={i}
+          draggable={handle === i}
+          onDragStart={(e) => {
+            setDragAt(i);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOverAt(i);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (dragAt !== null) move(dragAt, i);
+            setDragAt(null);
+            setOverAt(null);
+          }}
+          onDragEnd={() => {
+            setDragAt(null);
+            setOverAt(null);
+            setHandle(null);
+          }}
+          className={`space-y-3 rounded-xl border p-3 transition ${overAt === i && dragAt !== null && dragAt !== i ? "border-primary shadow-[0_0_0_2px_rgb(var(--primary)/0.25)]" : "border-fg/10"} ${dragAt === i ? "opacity-40" : ""}`}
+        >
+          <div className="flex items-center gap-1.5">
+            <span aria-hidden title={t.actions.drag} onMouseDown={() => setHandle(i)} onMouseUp={() => setHandle(null)} className="grid h-7 w-6 shrink-0 cursor-grab place-items-center text-muted/70 active:cursor-grabbing">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><circle cx="9" cy="6" r="1.500" /><circle cx="15" cy="6" r="1.500" /><circle cx="9" cy="12" r="1.500" /><circle cx="15" cy="12" r="1.500" /><circle cx="9" cy="18" r="1.500" /><circle cx="15" cy="18" r="1.500" /></svg>
+            </span>
+            <input value={x.label[lang] ?? ""} onChange={(e) => edit(i, { label: { ...x.label, [lang]: e.target.value } })} placeholder={pp.chipLabel} aria-label={pp.chipLabel} maxLength={24} className={`${input} h-10 min-w-0 flex-1`} />
+            <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set(items.filter((_, j) => j !== i))} aria-label={pp.chipRemove} title={pp.chipRemove}>{ic.trash}</button>
+          </div>
+          <Field label={pp.chipColor}>
+            <ColorPicker value={x.color} onChange={(color) => edit(i, { color })} label={pp.chipColor} bad={dc[lang].identity.hexBad} list={popPastels} />
+          </Field>
+          <Field label={pp.chipLink}>
+            <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(i, { link })} label={pp.chipLink} />
+          </Field>
+        </div>
+      ))}
+      {items.length < 8 && (
+        <button type="button" onClick={() => set([...items, { label: { en: "", ar: "" }, color: "#ff8fb1", link: "" }])} className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/60 py-3 text-sm font-semibold text-primary transition hover:bg-primary/5">
+          {ic.plus}
+          {pp.chipAdd}
+        </button>
+      )}
+
+      <div className="space-y-3 rounded-xl bg-soft/70 p-3">
+        <p className="text-sm font-semibold">{pp.chipRules}</p>
+        <Field label={pp.chipAlign}>
+          <Seg value={s.settings.align ?? "center"} cols={3} onChange={(align) => setRule({ align })} options={[{ key: "start", label: pp.alStart }, { key: "center", label: pp.alCenter }, { key: "end", label: pp.alEnd }]} />
+        </Field>
+        <Field label={pp.chipSize}>
+          <Seg value={s.settings.size ?? "md"} cols={3} onChange={(size) => setRule({ size })} options={[{ key: "sm", label: pp.szS }, { key: "md", label: pp.szM }, { key: "lg", label: pp.szL }]} />
+        </Field>
+        <Toggle on={s.settings.tilt !== false} onChange={(tilt) => setRule({ tilt })} label={pp.chipTilt} />
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Newsletter                                                         */
+/* ------------------------------------------------------------------ */
+
+type NewsEl = Extract<SectionConfig, { type: "newsletter" }>;
+
+function NewsletterForm({ lang, s, onChange, text }: { lang: Lang; s: NewsEl; onChange: (s: SectionConfig) => void; text: (v: { en: string; ar: string }, set: (b: { en: string; ar: string }) => void, label: string, area?: boolean, field?: string) => React.ReactNode }) {
+  const pp = popT[lang];
+  const set = (patch: Partial<NewsEl["settings"]>) => onChange({ ...s, settings: { ...s.settings, ...patch } });
+  const st = s.settings;
+  return (
+    <>
+      <p className="text-xs leading-relaxed text-muted">{pp.nHint}</p>
+      {text(st.title, (title) => set({ title }), pp.nTitle, false, "title")}
+      {text(st.accentWord, (accentWord) => set({ accentWord }), pp.nAccent)}
+      {text(st.text, (t) => set({ text: t }), pp.nText, false, "text")}
+      {text(st.button, (button) => set({ button }), pp.nButton)}
+      {text(st.placeholder, (placeholder) => set({ placeholder }), pp.nPlaceholder)}
+      {text(st.thanks, (thanks) => set({ thanks }), pp.nThanks)}
+      <Field label={pp.nBg}>
+        <ColorPicker value={st.background} onChange={(background) => set({ background })} label={pp.nBg} bad={dc[lang].identity.hexBad} list={["#2b1b47", "#16120f", "#004956", "#1c1a17", "#ffffff"]} />
+      </Field>
+      <Field label={pp.nAccentColor}>
+        <ColorPicker value={st.accent} onChange={(accent) => set({ accent })} label={pp.nAccentColor} bad={dc[lang].identity.hexBad} list={["#ffe36e", "#ff8fb1", "#b9f3d0", "#c9b6ff", "#ffffff"]} />
+      </Field>
+      <Field label={pp.nAfter}>
+        <Seg value={st.after ?? "message"} onChange={(after) => set({ after })} options={[{ key: "message", label: pp.nAfterMsg }, { key: "link", label: pp.nAfterLink }, { key: "popup", label: pp.nAfterPop }]} cols={1} />
+      </Field>
+      {st.after === "link" && <LinkPicker lang={lang} value={st.link ?? ""} onChange={(link) => set({ link })} label={pp.nAfter} />}
+      {st.after === "popup" && (() => {
+        const pop = st.popup ?? { title: { en: "You are in!", ar: "شكرًا لانضمامك!" }, text: st.thanks, button: { en: "Great", ar: "تمام" }, background: "#ffffff", accent: st.buttonColor };
+        const setPop = (patch: Partial<typeof pop>) => set({ popup: { ...pop, ...patch } });
+        return (
+          <div className="space-y-4 rounded-xl bg-soft/70 p-3">
+            <p className="text-xs leading-relaxed text-muted">{pp.popHint}</p>
+            {text(pop.title, (title) => setPop({ title }), pp.popTitle)}
+            {text(pop.text, (t) => setPop({ text: t }), pp.popText, true)}
+            {text(pop.button, (button) => setPop({ button }), pp.popButton)}
+            <Field label={pp.popBg}>
+              <ColorPicker value={pop.background} onChange={(background) => setPop({ background })} label={pp.popBg} bad={dc[lang].identity.hexBad} list={["#ffffff", "#fff6ea", "#b9f3d0", "#ffe36e", "#2b1b47"]} />
+            </Field>
+            <Field label={pp.popAccent}>
+              <ColorPicker value={pop.accent} onChange={(accent) => setPop({ accent })} label={pp.popAccent} bad={dc[lang].identity.hexBad} list={["#ffe36e", "#ff8fb1", "#b9f3d0", "#c9b6ff", "#ffffff"]} />
+            </Field>
+            <Field label={pp.popPic}>
+              <PhotoPicker lang={lang} value={pop.image ?? ""} onChange={(image) => setPop({ image })} max={1000} />
+            </Field>
+          </div>
+        );
+      })()}
+      <SubscribersBox lang={lang} />
+      <Field label={pp.nButtonColor}>
+        <ColorPicker value={st.buttonColor} onChange={(buttonColor) => set({ buttonColor })} label={pp.nButtonColor} bad={dc[lang].identity.hexBad} list={["#ffe36e", "#ff8fb1", "#b9f3d0", "#c9b6ff", "#ffffff"]} />
+      </Field>
+    </>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/*  The store menu (the burger button): what it shows, and in which order */
+/* ------------------------------------------------------------------ */
+
+function DrawerItemsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg }) {
+  const pp = popT[lang];
+  const t = dc[lang];
+  const items = cfg.drawer.items;
+  const [dragAt, setDragAt] = useState<number | null>(null);
+  const [overAt, setOverAt] = useState<number | null>(null);
+  const [handle, setHandle] = useState<number | null>(null);
+  const names = { categories: pp.dCategories, pages: pp.dPages, links: pp.dLinks, custom: pp.dCustom };
+  const set = (next: typeof items) => setCfg((c) => ({ ...c, drawer: { ...c.drawer, items: next } }));
+  const move = (from: number, to: number) => {
+    if (from === to) return;
+    const next = [...items];
+    const [x] = next.splice(from, 1);
+    next.splice(to, 0, x);
+    set(next);
+  };
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-semibold">{pp.drawerTitle}</p>
+      <p className="text-xs leading-relaxed text-muted">{pp.drawerHint}</p>
+      {items.map((it, i) => (
+        <div
+          key={it.kind}
+          draggable={handle === i}
+          onDragStart={(e) => {
+            setDragAt(i);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOverAt(i);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (dragAt !== null) move(dragAt, i);
+            setDragAt(null);
+            setOverAt(null);
+          }}
+          onDragEnd={() => {
+            setDragAt(null);
+            setOverAt(null);
+            setHandle(null);
+          }}
+          className={`flex items-center gap-2 rounded-xl border px-2 py-1.5 transition ${overAt === i && dragAt !== null && dragAt !== i ? "border-primary shadow-[0_0_0_2px_rgb(var(--primary)/0.25)]" : "border-fg/10"} ${dragAt === i ? "opacity-40" : ""}`}
+        >
+          <span aria-hidden title={t.actions.drag} onMouseDown={() => setHandle(i)} onMouseUp={() => setHandle(null)} className="grid h-7 w-6 shrink-0 cursor-grab place-items-center text-muted/70 active:cursor-grabbing">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><circle cx="9" cy="6" r="1.500" /><circle cx="15" cy="6" r="1.500" /><circle cx="9" cy="12" r="1.500" /><circle cx="15" cy="12" r="1.500" /><circle cx="9" cy="18" r="1.500" /><circle cx="15" cy="18" r="1.500" /></svg>
+          </span>
+          <div className="min-w-0 flex-1">
+            <Toggle on={it.visible} onChange={(visible) => set(items.map((x, j) => (j === i ? { ...x, visible } : x)))} label={names[it.kind]} />
+          </div>
+        </div>
+      ))}
+      <div className="pt-3">
+        <OwnLinksForm lang={lang} tabs={cfg.drawer.custom ?? []} onChange={(custom) => setCfg((c) => ({ ...c, drawer: { ...c.drawer, custom } }))} title={pp.menuLinksTitle} hint={pp.menuLinksHint} add={pp.menuLinkAdd} />
+      </div>
+    </div>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/*  The footer's own links ("Contact us"): words, a destination, a switch */
+/* ------------------------------------------------------------------ */
+
+function OwnLinksForm({ lang, tabs, onChange, title, hint, add }: { lang: Lang; tabs: NonNullable<StorefrontConfig["footer"]["tabs"]>; onChange: (next: NonNullable<StorefrontConfig["footer"]["tabs"]>) => void; title: string; hint: string; add: string }) {
+  const pp = popT[lang];
+  const t = dc[lang];
+  const [dragAt, setDragAt] = useState<number | null>(null);
+  const [overAt, setOverAt] = useState<number | null>(null);
+  const [handle, setHandle] = useState<number | null>(null);
+  const set = onChange;
+  const edit = (i: number, patch: Partial<NonNullable<StorefrontConfig["footer"]["tabs"]>[number]>) => set(tabs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const move = (from: number, to: number) => {
+    if (from === to) return;
+    const next = [...tabs];
+    const [x] = next.splice(from, 1);
+    next.splice(to, 0, x);
+    set(next);
+  };
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="text-xs leading-relaxed text-muted">{hint}</p>
+      {tabs.map((x, i) => (
+        <div
+          key={x.id}
+          draggable={handle === i}
+          onDragStart={(e) => {
+            setDragAt(i);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOverAt(i);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (dragAt !== null) move(dragAt, i);
+            setDragAt(null);
+            setOverAt(null);
+          }}
+          onDragEnd={() => {
+            setDragAt(null);
+            setOverAt(null);
+            setHandle(null);
+          }}
+          className={`space-y-3 rounded-xl border p-3 transition ${overAt === i && dragAt !== null && dragAt !== i ? "border-primary shadow-[0_0_0_2px_rgb(var(--primary)/0.25)]" : "border-fg/10"} ${dragAt === i ? "opacity-40" : ""} ${x.visible ? "" : "opacity-70"}`}
+        >
+          <div className="flex items-center gap-1.5">
+            <span aria-hidden title={t.actions.drag} onMouseDown={() => setHandle(i)} onMouseUp={() => setHandle(null)} className="grid h-7 w-6 shrink-0 cursor-grab place-items-center text-muted/70 active:cursor-grabbing">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><circle cx="9" cy="6" r="1.500" /><circle cx="15" cy="6" r="1.500" /><circle cx="9" cy="12" r="1.500" /><circle cx="15" cy="12" r="1.500" /><circle cx="9" cy="18" r="1.500" /><circle cx="15" cy="18" r="1.500" /></svg>
+            </span>
+            <input value={x.label[lang] ?? ""} onChange={(e) => edit(i, { label: { ...x.label, [lang]: e.target.value } })} placeholder={pp.tabLabel} aria-label={pp.tabLabel} maxLength={30} className={`${input} h-10 min-w-0 flex-1`} />
+            <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set(tabs.filter((_, j) => j !== i))} aria-label={pp.tabRemove} title={pp.tabRemove}>{ic.trash}</button>
+          </div>
+          <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(i, { link })} label={pp.tabLabel} />
+          <Toggle on={x.visible} onChange={(visible) => edit(i, { visible })} label={pp.tabShow} />
+        </div>
+      ))}
+      {tabs.length < 8 && (
+        <button type="button" onClick={() => set([...tabs, { id: newId("tab"), label: { en: lang === "en" ? popT.en.tabDefault : "", ar: lang === "ar" ? popT.ar.tabDefault : "" }, link: "", visible: true }])} className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/60 py-3 text-sm font-semibold text-primary transition hover:bg-primary/5">
+          {ic.plus}
+          {add}
+        </button>
+      )}
+    </div>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/*  The footer's columns: which ones, in which order, and his own       */
+/* ------------------------------------------------------------------ */
+
+function FooterColumnsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg }) {
+  const pp = popT[lang];
+  const t = dc[lang];
+  const f = cfg.footer;
+  const cols = footerColumns(f);
+  const [dragAt, setDragAt] = useState<number | null>(null);
+  const [overAt, setOverAt] = useState<number | null>(null);
+  const [handle, setHandle] = useState<number | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const names: Record<FooterColumn["kind"], string> = { about: pp.cAbout, pages: pp.cPages, contact: pp.cContact, social: pp.cSocial, licenses: pp.cLicenses, custom: pp.colDefault };
+  const set = (next: FooterColumn[]) => setCfg((c) => ({ ...c, footer: { ...c.footer, columns: next } }));
+  const edit = (i: number, patch: Partial<FooterColumn>) => set(cols.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const move = (from: number, to: number) => {
+    if (from === to) return;
+    const next = [...cols];
+    const [x] = next.splice(from, 1);
+    next.splice(to, 0, x);
+    set(next);
+  };
+  /* The links, contact and social columns follow the switches the footer already had; the others have their own */
+  const on = (col: FooterColumn) => (col.kind === "pages" ? f.showLinks : col.kind === "contact" ? f.showContact : col.kind === "social" ? f.showSocial : col.visible !== false);
+  const turn = (i: number, col: FooterColumn, v: boolean) => {
+    if (col.kind === "pages") setCfg((c) => ({ ...c, footer: { ...c.footer, columns: cols, showLinks: v } }));
+    else if (col.kind === "contact") setCfg((c) => ({ ...c, footer: { ...c.footer, columns: cols, showContact: v } }));
+    else if (col.kind === "social") setCfg((c) => ({ ...c, footer: { ...c.footer, columns: cols, showSocial: v } }));
+    else edit(i, { visible: v });
+  };
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-semibold">{pp.colsTitle}</p>
+      <p className="text-xs leading-relaxed text-muted">{pp.colsHint}</p>
+      {cols.map((col, i) => (
+        <div
+          key={col.id}
+          draggable={handle === i}
+          onDragStart={(e) => {
+            setDragAt(i);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOverAt(i);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (dragAt !== null) move(dragAt, i);
+            setDragAt(null);
+            setOverAt(null);
+          }}
+          onDragEnd={() => {
+            setDragAt(null);
+            setOverAt(null);
+            setHandle(null);
+          }}
+          className={`rounded-xl border px-2 py-1.5 transition ${overAt === i && dragAt !== null && dragAt !== i ? "border-primary shadow-[0_0_0_2px_rgb(var(--primary)/0.25)]" : "border-fg/10"} ${dragAt === i ? "opacity-40" : ""}`}
+        >
+          <div className="flex items-center gap-2">
+            <span aria-hidden title={t.actions.drag} onMouseDown={() => setHandle(i)} onMouseUp={() => setHandle(null)} className="grid h-7 w-6 shrink-0 cursor-grab place-items-center text-muted/70 active:cursor-grabbing">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><circle cx="9" cy="6" r="1.500" /><circle cx="15" cy="6" r="1.500" /><circle cx="9" cy="12" r="1.500" /><circle cx="15" cy="12" r="1.500" /><circle cx="9" cy="18" r="1.500" /><circle cx="15" cy="18" r="1.500" /></svg>
+            </span>
+            <div className="min-w-0 flex-1">
+              <Toggle on={on(col)} onChange={(v) => turn(i, col, v)} label={col.kind === "custom" ? col.title?.[lang] || names.custom : names[col.kind]} />
+            </div>
+            {col.kind === "custom" && (
+              <>
+                <button type="button" onClick={() => setOpen(open === col.id ? null : col.id)} aria-expanded={open === col.id} aria-label={pp.colTitle} className={roundBtnSm}>{ic.edit}</button>
+                <button type="button" className={`${roundBtnSm} hover:!text-rose-600`} onClick={() => set(cols.filter((_, j) => j !== i))} aria-label={pp.colRemove} title={pp.colRemove}>{ic.trash}</button>
+              </>
+            )}
+          </div>
+          {col.kind === "custom" && open === col.id && (
+            <div className="space-y-3 border-t border-fg/10 px-1 pb-2 pt-3">
+              <Field label={pp.colTitle}>
+                <input value={col.title?.[lang] ?? ""} onChange={(e) => edit(i, { title: { en: col.title?.en ?? "", ar: col.title?.ar ?? "", [lang]: e.target.value } })} maxLength={30} className={`${input} h-11`} />
+              </Field>
+              <OwnLinksForm lang={lang} tabs={col.links ?? []} onChange={(links) => edit(i, { links })} title={popT[lang].tabsTitle} hint={popT[lang].tabsHint} add={popT[lang].tabAdd} />
+            </div>
+          )}
+        </div>
+      ))}
+      <div className="space-y-1.5 rounded-xl bg-soft/70 p-3">
+        <button
+          type="button"
+          onClick={() => {
+            const other = lang === "ar" ? "en" : "ar";
+            void other;
+            const pages = loadInfoPages().filter((x) => x.published).map((x) => ({ id: x.id, title: x.title[lang] || x.title[lang === "ar" ? "en" : "ar"] }));
+            const cats = readProducts().map((x) => x.category).filter(Boolean);
+            set(autoFooterColumns(cfg, lang, pages, Array.from(new Set(cats))));
+          }}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white transition hover:opacity-90"
+        >
+          {pp.autoFill}
+        </button>
+        <p className="text-xs leading-relaxed text-muted">{pp.autoFillHint}</p>
+      </div>
+      {cols.filter((x) => x.kind === "custom").length < 4 && (
+        <button
+          type="button"
+          onClick={() => {
+            const id = newId("col");
+            set([...cols, { id, kind: "custom", visible: true, title: { en: popT.en.colDefault, ar: popT.ar.colDefault }, links: [] }]);
+            setOpen(id);
+          }}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/60 py-3 text-sm font-semibold text-primary transition hover:bg-primary/5"
+        >
+          {ic.plus}
+          {pp.colAdd}
+        </button>
+      )}
+    </div>
+  );
+}
+
+
+/* The emails left in the newsletter block: how many, a file to download, and a way to clear them */
+function SubscribersBox({ lang }: { lang: Lang }) {
+  const pp = popT[lang];
+  const [list, setList] = useState<{ email: string; at: number }[]>([]);
+  useEffect(() => {
+    const read = () => setList(readSubscribers());
+    read();
+    window.addEventListener("storage", read);
+    return () => window.removeEventListener("storage", read);
+  }, []);
+  const download = () => {
+    const rows = ["email,date", ...list.map((x) => `${x.email},${new Date(x.at).toISOString().slice(0, 10)}`)].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([rows], { type: "text/csv" }));
+    a.download = "subscribers.csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  return (
+    <div className="space-y-2 rounded-xl bg-soft/70 p-3">
+      <p className="text-sm font-semibold">{pp.nSubs}: <span dir="ltr" className="tabular-nums">{list.length}</span> {pp.nSubsCount}</p>
+      <p className="text-xs leading-relaxed text-muted">{pp.nSubsHint}</p>
+      {list.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={download} className="text-sm font-semibold text-primary hover:underline">{pp.nCsv}</button>
+          <button type="button" onClick={() => { try { localStorage.removeItem("seen-subscribers"); } catch { /* storage unavailable */ } setList([]); }} className="text-sm font-semibold text-rose-600 hover:underline">{pp.nClear}</button>
+        </div>
+      )}
+    </div>
   );
 }

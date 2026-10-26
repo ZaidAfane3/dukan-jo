@@ -3,6 +3,9 @@ import { demoSeed } from "./demoData";
 import { demoActive } from "./demoSandbox";
 import { loadSetup } from "./setup";
 import { atelierConfig } from "./storefront/atelierTheme";
+import type { InfoPage } from "./InfoPages";
+import { lammaPages } from "./storefront/lammaPages";
+import { lammaConfig, lammaProducts } from "./storefront/lammaTheme";
 import type { Bi, StorefrontConfig } from "./storefront/config";
 import { loadConfig, saveConfig } from "./storefront/storage";
 import { toStoreProduct, type StoreProduct } from "./storefront/useStoreData";
@@ -40,6 +43,13 @@ export type ThemeInfo = {
   custom?: boolean;
   /* For a customized copy of a bought theme: the id of that theme */
   from?: string;
+  /* The made-up store a theme is previewed with, when it is not the perfume store: its products and who it is */
+  sampleProducts?: (lang: Lang) => StoreProduct[];
+  /* The version of the theme's sample. A private copy (/saad/<theme>) made from an older version starts again from the new one. */
+  rev?: number;
+  /* The sub pages the theme's buttons lead to. They are saved as the store's pages when a private copy of the theme is opened. */
+  pages?: () => InfoPage[];
+  demo?: { name: Bi; about: Bi; color: string; phone: string };
   build: (lang: Lang, o: { samples: boolean; storeName?: string }) => StorefrontConfig;
 };
 
@@ -52,9 +62,9 @@ export const themes: ThemeInfo[] = [
       "A warm page with a big photo beside the title, a ribbon, collections and two large banners, set in elegant Arabic type. Change the words and the pictures and it fits any store.",
       "صفحة دافئة بصورة كبيرة بجانب العنوان، وشريط، ومجموعات وبنرين كبيرين، بخطوط عربية أنيقة. غيّر الكلمات والصور فتناسب أي متجر.",
     ),
-    price: 49,
+    price: 19.99,
     tags: [bi("Dukkan design", "تصميم دكان")],
-    shot: "/themes/atelier.jpg",
+    shot: "/themes/atelier.jpg?v=2x",
     features: [
       bi("Edit everything: change every text, every picture and every color", "عدّل كل شيء: غيّر كل نص وكل صورة وكل لون"),
       bi("Your current products are imported into it automatically", "تُستورد منتجاتك الحالية فيه تلقائيًا"),
@@ -67,12 +77,40 @@ export const themes: ThemeInfo[] = [
     ],
     build: atelierConfig,
   },
+  {
+    id: "lamma",
+    name: bi("Lamma", "لَمّة"),
+    tagline: bi("A playful, colorful home page for clothes and youth stores", "صفحة رئيسية مرحة وملوّنة للملابس ومتاجر الشباب"),
+    about: bi(
+      "A bright page with a bold title, a collage of photos, colored quick buttons, round-corner product cards and color banner cards, in a friendly rounded font. Change the words, the pictures and the colors and it fits any lively store.",
+      "صفحة مشرقة بعنوان عريض، وكولاج من الصور، وأزرار سريعة ملوّنة، وبطاقات منتجات بحواف دائرية، وبنرات بطاقات ملوّنة، بخط مدوّر ودود. غيّر الكلمات والصور والألوان فتناسب أي متجر مرح.",
+    ),
+    price: 39,
+    tags: [bi("Dukkan design", "تصميم دكان")],
+    shot: "/themes/lamma.jpg?v=3",
+    features: [
+      bi("Edit everything: change every text, every picture and every color", "عدّل كل شيء: غيّر كل نص وكل صورة وكل لون"),
+      bi("Your current products are imported into it automatically", "تُستورد منتجاتك الحالية فيه تلقائيًا"),
+      bi("A bold title with one colored word, a photo collage and a round sticker", "عنوان عريض بكلمة ملوّنة، وكولاج صور، وملصق دائري"),
+      bi("A pill menu with a round basket button", "قائمة كبسولة مع زر سلة دائري"),
+      bi("Colored quick buttons for your categories", "أزرار سريعة ملوّنة لأقسامك"),
+      bi("Product cards with a hard shadow and a round + button", "بطاقات منتجات بظل صلب وزر + دائري"),
+      bi("Color banner cards with an arch or tilted picture", "بنرات بطاقات ملوّنة بصورة قوس أو مائلة"),
+      bi("A newsletter block and a simple one-line footer", "كتلة نشرة بريدية وتذييل بسيط بسطر واحد"),
+    ],
+    sampleProducts: lammaProducts,
+    rev: 11,
+    pages: lammaPages,
+    demo: { name: bi("Lamma", "لَمّة"), about: bi("Comfy pieces in beautiful colors, for every place.", "قطع مريحة بألوان جميلة، لكل مكان."), color: "#2b1b47", phone: "70 000 0000" },
+    build: lammaConfig,
+  },
 ];
 
 export const findTheme = (id: string | null | undefined) => themes.find((t) => t.id === id) ?? null;
 
 /** The made-up perfumes a theme is previewed with (the same ones as the platform tour). */
-export function previewProducts(lang: Lang): StoreProduct[] {
+export function previewProducts(lang: Lang, theme?: ThemeInfo | null): StoreProduct[] {
+  if (theme?.sampleProducts) return theme.sampleProducts(lang);
   try {
     const raw = JSON.parse(demoSeed(lang).local["seen-products"]) as Record<string, unknown>[];
     return raw.filter((p) => !p.hidden).map(toStoreProduct);

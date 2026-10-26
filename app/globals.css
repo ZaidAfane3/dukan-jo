@@ -422,3 +422,4 @@ label:has(> .sr-only) { position: relative; }
 .dk-shot { animation: dk-shot 50s cubic-bezier(0.45, 0, 0.55, 1) infinite; will-change: transform; }
 .group:hover .dk-shot { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { .dk-shot { animation: none; } }
+

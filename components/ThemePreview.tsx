@@ -111,7 +111,7 @@ export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeIn
     c.identity.logo = { kind: "image", sample: "star", image: "/demo/perfume/logo.png" };
     return c;
   }, [theme, lang]);
-  const products = useMemo(() => (theme.shot ? [] : theme.look ? undefined : previewProducts(lang)), [theme, lang]);
+  const products = useMemo(() => (theme.shot ? [] : theme.look ? undefined : previewProducts(lang, theme)), [theme, lang]);
 
   return (
     <div className="rounded-2xl p-3 sm:p-5" style={{ background: "linear-gradient(135deg, #efe6d6, #f7f2ea 55%, #e6d9c2)" }} onClickCapture={onClickCapture}>

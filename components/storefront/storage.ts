@@ -46,8 +46,18 @@ function patternOf(v: unknown): StorefrontConfig["texture"]["pattern"] {
   return typeof v === "string" && ["stars", "dots", "lines", "diamonds", "waves"].includes(v) ? (v as StorefrontConfig["texture"]["pattern"]) : "none";
 }
 
+/* A design saved before the store menu could be arranged gets the default one; a kind that is missing is added at the end */
+function mergeDrawer(saved: unknown): StorefrontConfig["drawer"] {
+  const items = Array.isArray((saved as { items?: unknown } | undefined)?.items) ? ((saved as { items: StorefrontConfig["drawer"]["items"] }).items) : [];
+  const out = items.filter((x) => x && ["categories", "pages", "links", "custom"].includes(x.kind)).map((x) => ({ kind: x.kind, visible: x.visible !== false }));
+  for (const d of defaultConfig.drawer.items) if (!out.some((x) => x.kind === d.kind)) out.push({ ...d });
+  const custom = (saved as { custom?: unknown } | undefined)?.custom;
+  return { items: out, custom: Array.isArray(custom) ? (custom as NonNullable<StorefrontConfig["drawer"]["custom"]>) : [] };
+}
+
 function merge(s: Partial<StorefrontConfig>): StorefrontConfig {
   return {
+    drawer: mergeDrawer(s.drawer),
     theme: { ...defaultConfig.theme, ...s.theme },
     header: { ...defaultConfig.header, ...s.header },
     nav: { ...defaultConfig.nav, ...s.nav },

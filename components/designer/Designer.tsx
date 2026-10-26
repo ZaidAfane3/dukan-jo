@@ -5,6 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { brandName } from "../content";
 import { demoActive } from "../demoSandbox";
 import { findTheme, previewProducts, saveDesignAsTheme, type ThemeInfo } from "../themes";
+import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
+import { PageEditor } from "./PageEditor";
+import { load as loadPages, savePages } from "../InfoPages";
 import { freshMine, loadMine, resetMine, saveMine } from "./mineTemplate";
 import { LangSwitch, usePrefs } from "../Prefs";
 import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
@@ -15,7 +18,7 @@ import { defaultConfig } from "../storefront/config";
 import { Canvas } from "./Canvas";
 import { HEX, input } from "./controls";
 import { dc } from "./copy";
-import { IdentityPanel, OptionsPanel, PagesPanel, ProductPicturePanel, TextsPanel, type Draft, type Focus } from "./panels";
+import { IdentityPanel, OptionsPanel, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, type Draft, type Focus } from "./panels";
 import { saveProductFocus, type StoreProduct } from "../storefront/useStoreData";
 
 const ico = { viewBox: "0 0 24 24", className: "h-5 w-5", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -44,12 +47,19 @@ function initial(): Draft {
 }
 
 /* `mine` is Saad's private copy of the demo template at /saad (temporary, see mineTemplate.ts): fully editable, saved under its own key. */
-export function Designer({ mine = false }: { mine?: boolean } = {}) {
+export function Designer({ mine: mineProp = false }: { mine?: boolean | string } = {}) {
+  /* /saad shows the demo template; /saad/<theme> shows a ready theme of the theme store (kept under its own key) */
+  const themeId = typeof mineProp === "string" && findTheme(mineProp) ? mineProp : undefined;
+  const mine = !!mineProp;
   const { lang } = usePrefs();
   const t = dc[lang];
   const router = useRouter();
 
   const [draft, setDraft] = useState<Draft | null>(null);
+  /* Ctrl+Z takes back the last edit, Ctrl+Shift+Z (or Ctrl+Y) puts it back. A burst of changes (typing, dragging a slider) is one step. */
+  const draftRef = useRef<Draft | null>(null);
+  draftRef.current = draft;
+  const hist = useRef<{ past: Draft[]; future: Draft[]; at: number }>({ past: [], future: [], at: 0 });
   const [saved, setSaved] = useState("");
   const [tab, setTab] = useState<Tab>("pages");
   const [panelOpen, setPanelOpen] = useState(true);
@@ -57,6 +67,28 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
   const [selected, setSelected] = useState<string | null>(null);
   const [focus, setFocus] = useState<Focus>(null);
   const [pagesMenu, setPagesMenu] = useState(false);
+  /* The dialog that makes a page of the store */
+  const [makingPage, setMakingPage] = useState(false);
+  /* The page of the store open in the preview and in the side panel (null: the home page) */
+  const [openedPage, setOpenedPage] = useState<number | null>(null);
+  const [pagesVersion, setPagesVersion] = useState(0);
+  /* The product page is open in the preview (the page of the first product) */
+  const [productView, setProductView] = useState(false);
+  /* The page asked about in the trash question of the page menu */
+  const [delAsk, setDelAsk] = useState<number | null>(null);
+  const storePages = useStorePages(lang, pagesVersion);
+  /* The page open in the designer, with its elements */
+  const pageRec = useMemo(() => (openedPage === null ? null : loadPages().find((p) => p.id === openedPage) ?? null), [openedPage, pagesVersion]);
+  /* A click in the preview on the header, the footer or the product cards edits the whole store, even while a page is open */
+  const [pagePanel, setPagePanel] = useState(true);
+  useEffect(() => {
+    setEditingRaw(null);
+    setPagePanel(true);
+  }, [openedPage]);
+  /* If the page open in the designer is gone (deleted from the menu or from the dashboard), go back to the home page */
+  useEffect(() => {
+    if (openedPage !== null && !loadPages().some((p) => p.id === openedPage)) setOpenedPage(null);
+  }, [openedPage, pagesVersion]);
   const [moreMenu, setMoreMenu] = useState(false);
   /* The name being typed to save this design as a theme (null: the form is closed) */
   const [themeName, setThemeName] = useState<string | null>(null);
@@ -87,8 +119,8 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
   const [pic, setPic] = useState<{ id: number; name: string; image: string; focus: { x: number; y: number } } | null>(null);
   const [focusOverrides, setFocusOverrides] = useState<Record<number, { x: number; y: number }>>({});
   const tryProducts = useMemo(
-    () => (trying || mine ? previewProducts(lang).map((p) => (focusOverrides[p.id] ? { ...p, focus: focusOverrides[p.id] } : p)) : undefined),
-    [trying, mine, lang, focusOverrides],
+    () => (trying || mine ? previewProducts(lang, trying ?? findTheme(themeId)).map((p) => (focusOverrides[p.id] ? { ...p, focus: focusOverrides[p.id] } : p)) : undefined),
+    [trying, mine, themeId, lang, focusOverrides],
   );
   const bar = useRef<HTMLDivElement>(null);
 
@@ -103,7 +135,7 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
     const template = !ro && !mine && q.get("template") === "1";
     const d = initial();
     if (mine) {
-      const m = loadMine(lang);
+      const m = loadMine(lang, themeId);
       d.config = m.config;
       d.identity = m.identity;
     }
@@ -120,6 +152,38 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
   }, []);
 
   const dirty = draft !== null && JSON.stringify(draft) !== saved;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      const redo = (k === "z" && e.shiftKey) || k === "y";
+      if (k !== "z" && k !== "y") return;
+      /* A picture or dialog is open on top: leave the keys to it */
+      if (document.querySelector('[role="dialog"]')) return;
+      const h = hist.current;
+      const cur = draftRef.current;
+      if (!cur) return;
+      const target = redo ? h.future.pop() : h.past.pop();
+      e.preventDefault();
+      if (!target) return;
+      (redo ? h.past : h.future).push(cur);
+      h.at = 0;
+      setDraft(target);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /* At /saad the store's name is the made-up one in the page's language. The language is only known after the first render, so it is set again here (never over unsaved edits). */
+  useEffect(() => {
+    if (!mine || !draft || dirty) return;
+    const identity = freshMine(lang, themeId).identity;
+    if (JSON.stringify(identity) === JSON.stringify(draft.identity)) return;
+    const next = { ...draft, identity };
+    setDraft(next);
+    setSaved(JSON.stringify(next));
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Closing the tab or reloading with unsaved changes asks first. */
   useEffect(() => {
@@ -166,6 +230,7 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
     setPic(null);
     setPanelOpen(true);
     setSelected(id);
+    if (id === "identity" || id === "cards") setPagePanel(false);
     if (id === "identity") {
       setTab("identity");
       scrollPanel("top");
@@ -176,6 +241,7 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
       scrollPanel("cards");
       return;
     }
+    setPagePanel(!(id === "header" || id === "footer" || id === "announcement"));
     setTab("pages");
     scrollPanel("top");
     setFocus({ id, field, n: Date.now() });
@@ -216,6 +282,14 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
       setTimeout(() => setFlash((f) => (f === "demo" ? null : f)), 3000);
       return;
     }
+    const h = hist.current;
+    const now = Date.now();
+    if (draftRef.current && now - h.at > 700) {
+      h.past.push(draftRef.current);
+      if (h.past.length > 100) h.past.shift();
+      h.future = [];
+    }
+    h.at = now;
     setDraft((d) => d && fn(d));
   };
 
@@ -227,12 +301,41 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
     setPic({ id: p.id, name: p.name, image: p.image, focus: focusOverrides[p.id] ?? p.focus ?? { x: 50, y: 50 } });
     scrollPanel("top");
   };
+  /* Dragging a colored button in the preview: it moves to the place of the one it is dropped over */
+  const reorderChips = (sectionId: string, from: number, to: number) =>
+    update((dr) => ({
+      ...dr,
+      config: {
+        ...dr.config,
+        sections: dr.config.sections.map((sec) => {
+          if (sec.id !== sectionId || sec.type !== "chips" || to < 0 || to >= sec.settings.items.length) return sec;
+          const items = [...sec.settings.items];
+          const [x] = items.splice(from, 1);
+          items.splice(to, 0, x);
+          return { ...sec, settings: { ...sec.settings, items } };
+        }),
+      },
+    }));
   /* The chosen point is kept with the product (sample products of a theme try-out live only on screen) */
   const setPicFocus = (f: { x: number; y: number }) => {
     if (!pic) return;
     setPic({ ...pic, focus: f });
     if (pic.id < 0 || mine || trying) setFocusOverrides((m) => ({ ...m, [pic.id]: f }));
     else saveProductFocus(pic.id, f);
+  };
+  /* Designing a page: its elements are edited with the same panel as the home page's, and saved with the page */
+  const viewDraft: Draft = pageRec ? { ...draft, config: { ...draft.config, sections: pageRec.sections ?? [] } } : draft;
+  const viewUpdate = (fn: (d: Draft) => Draft) => {
+    if (!pageRec) return update(fn);
+    if (readOnly) {
+      setFlash("demo");
+      setTimeout(() => setFlash((f) => (f === "demo" ? null : f)), 3000);
+      return;
+    }
+    const next = fn(viewDraft);
+    savePages(loadPages().map((p) => (p.id === pageRec.id ? { ...p, sections: next.config.sections } : p)));
+    window.dispatchEvent(new Event("storage"));
+    setPagesVersion((v) => v + 1);
   };
   const blockedNote = () => {
     setFlash("demo");
@@ -273,7 +376,7 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
       setTimeout(() => setFlash(null), 6000);
       return false;
     }
-    if (!(mine ? saveMine(draft.config) : templateMode ? saveTemplate(draft.config) : saveConfig(draft.config))) {
+    if (!(mine ? saveMine(draft.config, themeId) : templateMode ? saveTemplate(draft.config) : saveConfig(draft.config))) {
       setFlash("full");
       setTimeout(() => setFlash(null), 4000);
       return false;
@@ -361,26 +464,52 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
 
         <div className="relative">
           <button type="button" onClick={() => { setPagesMenu((o) => !o); setMoreMenu(false); }} aria-expanded={pagesMenu} className={`${pill} flex items-center gap-2`}>
-            {t.pages[0]}
+            {openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : t.pages[0]}
             <span className={`transition-transform ${pagesMenu ? "rotate-180" : ""}`}>{railIcons.chevron}</span>
           </button>
           {pagesMenu && (
             <ul className="absolute start-0 top-full z-40 mt-2 w-56 overflow-hidden rounded-2xl bg-card p-1.5 shadow-2xl ring-1 ring-fg/10">
-              {t.pages.map((p, i) => (
+              {t.pages.slice(0, 2).map((p, i) => (
                 <li key={p}>
                   <button
                     type="button"
-                    disabled={i !== 0}
-                    onClick={() => setPagesMenu(false)}
-                    className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-medium transition ${i === 0 ? "bg-primary/15 font-bold text-primary" : "text-muted/70"}`}
+                    disabled={i > 1}
+                    onClick={() => { setPagesMenu(false); setOpenedPage(null); setProductView(i === 1); }}
+                    className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-medium transition ${(i === 0 && openedPage === null && !productView) || (i === 1 && productView) ? "bg-primary/15 font-bold text-primary" : i <= 1 ? "font-bold hover:bg-soft" : "text-muted/70"}`}
                   >
                     {p}
-                    {i !== 0 && <span className="text-[10px] font-semibold">{t.soon}</span>}
+                    {i > 1 && <span className="text-[10px] font-semibold">{t.soon}</span>}
                   </button>
                 </li>
               ))}
+              {storePages.map((p) => (
+                <li key={p.id}>
+                  {delAsk === p.id ? (
+                    <div className="flex items-center gap-2 rounded-xl bg-rose-500/10 px-3 py-2">
+                      <span className="flex-1 text-xs text-rose-700 dark:text-rose-400">{lang === "ar" ? "حذف هذه الصفحة؟" : "Delete this page?"}</span>
+                      <button type="button" disabled={readOnly} onClick={() => { savePages(loadPages().filter((x) => x.id !== p.id)); window.dispatchEvent(new Event("storage")); setPagesVersion((v) => v + 1); if (openedPage === p.id) setOpenedPage(null); setDelAsk(null); }} className="rounded-md bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-40">{lang === "ar" ? "نعم" : "Yes"}</button>
+                      <button type="button" onClick={() => setDelAsk(null)} className="rounded-md border border-fg/20 px-2.5 py-1 text-xs font-semibold">{lang === "ar" ? "لا" : "No"}</button>
+                    </div>
+                  ) : (
+                    <div className={`flex items-center rounded-xl transition hover:bg-soft ${openedPage === p.id ? "bg-primary/15" : ""}`}>
+                      <button type="button" onClick={() => { setPagesMenu(false); setOpenedPage(p.id); setProductView(false); setPanelOpen(true); }} className={`min-w-0 flex-1 truncate px-3 py-2.5 text-start text-sm font-medium ${openedPage === p.id ? "font-bold text-primary" : ""}`}>
+                        {p.title}
+                      </button>
+                      <button type="button" disabled={readOnly} onClick={() => setDelAsk(p.id)} aria-label={lang === "ar" ? "حذف الصفحة" : "Delete the page"} title={lang === "ar" ? "حذف الصفحة" : "Delete the page"} className="me-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-30">
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+              <li className="mt-1 border-t border-fg/10 pt-1">
+                <button type="button" disabled={readOnly} title={readOnly ? t.demoBlocked : undefined} onClick={() => { setPagesMenu(false); setMakingPage(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-bold text-primary transition hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent">
+                  + {lang === "ar" ? "صفحة جديدة" : "New page"}
+                </button>
+              </li>
             </ul>
           )}
+          {makingPage && <NewPageDialog lang={lang} onClose={() => setMakingPage(false)} onCreated={(id) => { setMakingPage(false); setPagesVersion((v) => v + 1); setOpenedPage(id); setProductView(false); setPanelOpen(true); }} />}
         </div>
 
         <div className="flex-1" />
@@ -429,8 +558,8 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
                   type="button"
                   onClick={() => {
                     if (!window.confirm(t.mineResetAsk)) return;
-                    resetMine();
-                    const f = freshMine(lang);
+                    resetMine(themeId);
+                    const f = freshMine(lang, themeId);
                     setDraft({ config: f.config, identity: f.identity });
                     setSaved(JSON.stringify({ config: f.config, identity: f.identity }));
                     setEditing(null);
@@ -494,13 +623,21 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
 
         {/* Panel */}
         {panelOpen && (
+          <TextColorNow.Provider value={draft.config.theme.text}>
+          <OpenPage.Provider value={(id) => { setOpenedPage(id); setProductView(false); setPanelOpen(true); }}>
           <aside className="flex max-h-[45vh] shrink-0 flex-col border-b border-fg/10 bg-card lg:max-h-none lg:w-[20rem] lg:border-b-0 lg:border-e">
             <div ref={panelBox} className="min-h-0 flex-1 overflow-y-auto">
+              {!pic && openedPage !== null && pagePanel && (
+                <>
+                  {editing === null && <PageEditor lang={lang} id={openedPage} onBack={() => setOpenedPage(null)} onChanged={() => setPagesVersion((v) => v + 1)} />}
+                  <PagesPanel lang={lang} draft={viewDraft} update={viewUpdate} editing={editing} setEditing={setEditing} focus={focus} onlyElements />
+                </>
+              )}
               {pic && <ProductPicturePanel lang={lang} name={pic.name} image={pic.image} value={pic.focus} onChange={setPicFocus} onBack={() => setPic(null)} blocked={readOnly} onBlocked={blockedNote} />}
-              {!pic && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditing} focus={focus} />}
-              {!pic && tab === "identity" && <IdentityPanel lang={lang} draft={draft} update={update} showErrors={showErrors} attn={attn?.id} />}
-              {!pic && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
-              {!pic && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attn?.id} />}
+              {!pic && (openedPage === null || !pagePanel) && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditing} focus={focus} />}
+              {!pic && (openedPage === null || !pagePanel) && tab === "identity" && <IdentityPanel lang={lang} draft={draft} update={update} showErrors={showErrors} attn={attn?.id} />}
+              {!pic && (openedPage === null || !pagePanel) && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
+              {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attn?.id} />}
             </div>
             <div className="shrink-0 border-t border-fg/10 p-3">
               <p className="mb-2 text-xs text-muted">{templateMode ? t.templateNote : t.note}</p>
@@ -509,6 +646,8 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
               </button>
             </div>
           </aside>
+          </OpenPage.Provider>
+          </TextColorNow.Provider>
         )}
 
         {/* Preview: the store can be made smaller to see it all, and moved around */}
@@ -520,7 +659,9 @@ export function Designer({ mine = false }: { mine?: boolean } = {}) {
             sample={sample}
             products={tryProducts}
             owner
-            design={{ selected, select, selectProduct }}
+            showPage={openedPage}
+            showProduct={productView}
+            design={{ selected, select, selectProduct, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); if (id !== null) setPanelOpen(true); } }}
             store={{ name: draft.identity.name, description: draft.identity.description, color: colorOk, phone: draft.identity.phone }}
           />
         </Canvas>

@@ -56,7 +56,16 @@ export type IndustryDetail = {
 /* Industries: name + one-line blurb per language (same order as the icons). */
 export const industries: Record<Lang, { name: string; blurb: string; detail?: IndustryDetail }[]> = {
   en: [
-    { name: "Fashion", blurb: "Sizes, variants and seasonal drops, handled." },
+    {
+      name: "Clothes & looks",
+      blurb: "Colors, sizes and new drops every week, handled.",
+      detail: {
+        title: "A clothing store that looks like you",
+        body: "Hoodies, tees, caps or anything you can wear. Your store comes alive with bold colors, quick category buttons and a product page with sizes and reviews.",
+        bullets: ["Colorful quick buttons for Men, Women and more", "Product pages with sizes, stars and customer opinions", "A page for every category, ready to fill"],
+        shots: [{ src: "/themes/lamma.jpg?v=3", y: 0 }, { src: "/themes/lamma-product.jpg", y: 0 }],
+      },
+    },
     {
       name: "Perfumes",
       blurb: "Collections, gift sets and samples, handled.",
@@ -64,7 +73,7 @@ export const industries: Record<Lang, { name: string; blurb: string; detail?: In
         title: "Smart tools for selling your perfumes",
         body: "Whether you sell fine fragrances, oud or gift sets, your store shows every scent with elegance and takes orders without any technical fuss.",
         bullets: ["Show each perfume's notes and size on its card", "A ready luxury design for your collections and banners", "Choose which part of each bottle's picture shows"],
-        shots: [{ src: "/themes/atelier.jpg", y: 0 }, { src: "/themes/atelier.jpg", y: 34 }],
+        shots: [{ src: "/themes/atelier.jpg?v=2x", y: 0 }, { src: "/themes/atelier.jpg?v=2x", y: 34 }],
       },
     },
     { name: "Digital products", blurb: "Instant delivery for downloads, courses and licenses." },
@@ -74,7 +83,16 @@ export const industries: Record<Lang, { name: string; blurb: string; detail?: In
     { name: "Home", blurb: "Large catalogs with flexible shipping." },
   ],
   ar: [
-    { name: "عبايات وأزياء", blurb: "المقاسات والألوان والتشكيلات الموسمية، كلها بسهولة." },
+    {
+      name: "ملابس وإطلالات",
+      blurb: "ألوان ومقاسات وموديلات جديدة كل أسبوع، كلها بسهولة.",
+      detail: {
+        title: "متجر ملابس يشبه ذوقك",
+        body: "هوديز وتيشيرتات وكابات وكل ما يُلبس. يصير متجرك مليان حياة بألوان جريئة، وأزرار تصنيفات سريعة، وصفحة منتج فيها مقاسات وتقييمات.",
+        bullets: ["أزرار ملوّنة سريعة لرجالي ونسائي وغيرها", "صفحات منتجات بمقاسات ونجوم وآراء العملاء", "صفحة جاهزة لكل تصنيف وتنتظر منتجاتك"],
+        shots: [{ src: "/themes/lamma.jpg?v=3", y: 0 }, { src: "/themes/lamma-product.jpg", y: 0 }],
+      },
+    },
     {
       name: "العطور",
       blurb: "مجموعات وأطقم هدايا وعيّنات، كلها بسهولة.",
@@ -82,7 +100,7 @@ export const industries: Record<Lang, { name: string; blurb: string; detail?: In
         title: "حلول ذكية لبيع عطورك",
         body: "سواء كنت تبيع عطورًا فاخرة أو دهن عود أو أطقم هدايا، يعرض متجرك كل عطر بأناقة ويستقبل الطلبات بدون أي تعقيدات تقنية.",
         bullets: ["اعرض نوتات كل عطر وحجمه على بطاقته", "تصميم فاخر جاهز لمجموعاتك وبنراتك", "اختر الجزء الظاهر من صورة كل زجاجة"],
-        shots: [{ src: "/themes/atelier.jpg", y: 0 }, { src: "/themes/atelier.jpg", y: 34 }],
+        shots: [{ src: "/themes/atelier.jpg?v=2x", y: 0 }, { src: "/themes/atelier.jpg?v=2x", y: 34 }],
       },
     },
     { name: "المنتجات الرقمية", blurb: "تسليم فوري للملفات والدورات والتراخيص." },

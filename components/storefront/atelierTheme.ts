@@ -36,6 +36,22 @@ export function atelierConfig(lang: Lang, o: { samples: boolean; storeName?: str
   c.texture = { pattern: "none", watermark: o.samples ? bi("Scent", "عِطر") : bi("", "") };
   c.announcement = { ...c.announcement, show: false };
   c.cards = { ...c.cards, showCategory: false, showHeart: false, showAdd: false, showNotes: true, showStock: false, style: "flat", info: "row", image: "portrait" };
+  /* The sample footer has a column of the site's own categories, built with the footer's own links */
+  if (o.samples) {
+    c.footer.columns = [
+      { id: "about", kind: "about", visible: true },
+      { id: "pages", kind: "pages", visible: true },
+      { id: "shop", kind: "custom", visible: true, title: bi("Collections", "المجموعات"), links: [
+        { id: "shop-unisex", label: bi("Unisex", "مشترك"), link: "tiles", visible: true },
+        { id: "shop-men", label: bi("Men", "رجالي"), link: "tiles", visible: true },
+        { id: "shop-women", label: bi("Women", "نسائي"), link: "tiles", visible: true },
+        { id: "shop-oud", label: bi("Oud", "العود"), link: "banners", visible: true },
+      ] },
+      { id: "contact", kind: "contact", visible: true },
+      { id: "social", kind: "social", visible: true },
+      { id: "licenses", kind: "licenses", visible: true },
+    ];
+  }
   c.footer.background = "#16120f";
   c.footer.text = "#e9e1d3";
 
@@ -44,7 +60,7 @@ export function atelierConfig(lang: Lang, o: { samples: boolean; storeName?: str
     type: "hero",
     visible: true,
     settings: {
-      title: o.samples ? bi("Noir or Blanc", "Noir or Blanc") : bi(name, name),
+      title: o.samples ? bi("Noir Blanc", "Noir Blanc") : bi(name, name),
       subtitle: o.samples ? bi("A soft, sweet scent for every hour", "عطرٌ حلوٌ ناعم لكل الأوقات") : bi("A short line about your best product", "سطر قصير عن أفضل منتج لديك"),
       button: bi("Shop now", "تسوّق الآن"),
       backgrounds: [{ kind: "color", color: "#f8f6f2", image: "" }],
@@ -52,6 +68,8 @@ export function atelierConfig(lang: Lang, o: { samples: boolean; storeName?: str
       seconds: 5,
       showCards: false,
       layout: "split",
+      /* the title is set in the elegant serif font, one word to a line */
+      titleFont: o.samples ? "elegant" : undefined,
       photo: photo(2),
       photoSide: "end",
       fullWidth: true,
