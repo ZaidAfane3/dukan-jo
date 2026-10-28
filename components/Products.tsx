@@ -9,33 +9,11 @@ import { latin } from "./digits";
 import { readPhoto } from "./designer/image";
 import { demoActive } from "./demoSandbox";
 import { FocusPicker } from "./FocusPicker";
+import { ImageCropper } from "./ImageCropper";
+import { PRODUCT_MAX, cleanCategory, cleanProduct, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
+import { cleanLine, cleanLines } from "./safe";
+import { RequiredMark, RequiredNote } from "./Required";
 
-type Product = {
-  id: number;
-  /* Photos of the product (small pictures kept with it), the first one is the main one */
-  images?: string[];
-  /* The part of the main picture that stays visible when the store crops it (percent from the left and the top) */
-  focus?: { x: number; y: number };
-  name: string;
-  price: number | null;
-  sale: number | null;
-  cost: number | null;
-  category: string;
-  brand: string;
-  description: string;
-  /* Shown on the store's product card: a short notes line, and a small label on the picture */
-  notes?: string;
-  badge?: string;
-  quantity: number;
-  hidden: boolean;
-  featured: boolean;
-  shipping: boolean;
-  lowAt: number;
-  restockMin: number;
-  restockPct: number;
-  created: number;
-  deletedAt?: number;
-};
 
 type Draft = {
   name: string;
@@ -48,18 +26,24 @@ type Draft = {
   notes: string;
   badge: string;
   quantity: string;
+  /* the stock has no limit: the quantity is not asked */
+  unlimited: boolean;
   hidden: boolean;
   featured: boolean;
   shipping: boolean;
   lowAt: string;
   restockMin: string;
   restockPct: string;
+  lowBy: SendBy;
+  restockBy: SendBy;
 };
 
 const KEY = "seen-products";
 const card = "rounded-2xl bg-card shadow-sm ring-1 ring-fg/10";
 const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
+/* a field with a mistake in it */
+const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const blank: Draft = {
   name: "",
@@ -71,22 +55,29 @@ const blank: Draft = {
   description: "",
   notes: "",
   badge: "",
-  quantity: "0",
+  quantity: "1",
+  unlimited: false,
   hidden: false,
   featured: false,
   shipping: true,
   lowAt: "5",
   restockMin: "15",
   restockPct: "100",
+  lowBy: "both",
+  restockBy: "both",
 };
 
-const num = (v: string) => (v.trim() === "" ? null : Number(v));
-const digits = (v: string) => latin(v).replace(/[^\d.]/g, "");
+/* An amount typed in a field: null when empty, NaN when it is not an amount Dukkan accepts (more than a million too) */
+const num = (v: string) => (v.trim() === "" ? null : money(v) ?? NaN);
+/* An amount of money as he types it: one dot, at most two decimals (fils), no extra zeros in front ("007" becomes "7") */
+const digits = (v: string) => typedMoney(v);
+/* A whole number as he types it: digits only, no extra zeros in front, and never above `max` */
+const whole = (v: string, max?: number) => typedCount(v, max);
 
+/* What is saved is checked again when it is read: storage can hold old, broken or hand-changed products */
 function load(): Product[] {
   try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Product[]) : [];
+    return parseList(localStorage.getItem(KEY), cleanProduct);
   } catch {
     return [];
   }
@@ -99,11 +90,12 @@ const matches: Record<FilterKey, (p: Product) => boolean> = {
   featured: (p) => p.featured,
   hidden: (p) => p.hidden,
   discounted: (p) => p.sale !== null,
-  soldOut: (p) => p.quantity <= 0,
-  forSale: (p) => !p.hidden && p.quantity > 0 && p.price !== null,
+  /* a product with unlimited stock never sells out and never runs low */
+  soldOut: (p) => !p.unlimited && p.quantity <= 0,
+  forSale: (p) => !p.hidden && (p.unlimited || p.quantity > 0) && p.price !== null,
   uncategorized: (p) => !p.category.trim(),
   shipping: (p) => p.shipping,
-  nearSoldOut: (p) => p.quantity > 0 && p.quantity <= p.lowAt,
+  nearSoldOut: (p) => !p.unlimited && p.quantity > 0 && p.quantity <= p.lowAt,
   noDescription: (p) => !p.description.trim(),
 };
 
@@ -122,11 +114,112 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
   );
 }
 
-function Label({ id, children, hint }: { id: string; children: React.ReactNode; hint?: string }) {
+function Label({ id, children, hint, required = false }: { id: string; children: React.ReactNode; hint?: string; required?: boolean }) {
   return (
     <div className="mb-2">
-      <label htmlFor={id} className="block text-sm font-semibold">{children}</label>
+      <label htmlFor={id} className="block text-sm font-semibold">
+        {children}
+        {required && <RequiredMark />}
+      </label>
       {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+/* His own categories (بنطلون، جينز، تيشرت…): he makes them once and picks one for each product. Kept in this browser with the
+   categories his products already have. */
+const CATS = "seen-categories";
+
+function loadCategories(products: Product[]): string[] {
+  let saved: string[] = [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(CATS) ?? "[]");
+    if (Array.isArray(raw)) saved = raw.map(cleanCategory).filter(Boolean);
+  } catch {
+    /* none saved yet */
+  }
+  const used = products.filter((x) => !x.deletedAt).map((x) => x.category.trim()).filter(Boolean);
+  return Array.from(new Set([...saved, ...used]));
+}
+
+/** The category of a product: his categories as chips to pick from, a box to make a new one, and × on the ones no product uses */
+function CategoryPicker({ value, onChange, onTyped, products, words }: { value: string; onChange: (v: string) => void; onTyped: (v: string) => void; products: Product[]; words: { catNewPh: string; catAdd: string; catNone: string; catRemove: string; catEmpty: string } }) {
+  const [list, setList] = useState<string[]>([]);
+  const [typed, setTyped] = useState("");
+  useEffect(() => setList(loadCategories(products)), [products]);
+  const keep = (next: string[]) => {
+    setList(next);
+    try {
+      localStorage.setItem(CATS, JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const add = () => {
+    const v = cleanCategory(typed);
+    if (!v) return;
+    if (!list.includes(v)) keep([...list, v]);
+    onChange(v);
+    setTyped("");
+    onTyped("");
+  };
+  const used = (c: string) => products.some((x) => !x.deletedAt && x.category.trim() === c);
+  return (
+    <div className="space-y-3">
+      {list.length === 0 ? (
+        <p className="text-xs text-muted">{words.catNone}</p>
+      ) : (
+        <div role="radiogroup" className="flex flex-wrap gap-2">
+          {/* the category is optional: "No category" puts the product under "Other" in the store */}
+          <span className={`inline-flex items-center rounded-full border border-dashed text-sm font-semibold transition ${!value ? "border-ink bg-ink text-onink" : "border-fg/25 text-muted hover:bg-soft"}`}>
+            <button type="button" role="radio" aria-checked={!value} onClick={() => onChange("")} className="px-4 py-1.5">{words.catEmpty}</button>
+          </span>
+          {list.map((c) => (
+            <span key={c} className={`inline-flex items-center rounded-full border text-sm font-semibold transition ${value === c ? "border-ink bg-ink text-onink" : "border-fg/15 hover:bg-soft"}`}>
+              <button type="button" role="radio" aria-checked={value === c} onClick={() => onChange(c)} className="px-4 py-1.5">{c}</button>
+              {!used(c) && value !== c && (
+                <button type="button" onClick={() => keep(list.filter((x) => x !== c))} aria-label={`${words.catRemove}: ${c}`} title={words.catRemove} className="-ms-2 grid h-7 w-7 place-items-center rounded-full text-muted transition hover:text-rose-600">
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <input
+          id="p-category"
+          value={typed}
+          onChange={(e) => { setTyped(e.target.value); onTyped(e.target.value); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder={words.catNewPh}
+          maxLength={40}
+          className={`${field} h-11 flex-1`}
+        />
+        <button type="button" onClick={add} disabled={!typed.trim()} className="h-11 shrink-0 rounded-xl border border-primary/60 px-5 text-sm font-semibold text-primary transition hover:bg-primary/5 disabled:opacity-40">+ {words.catAdd}</button>
+      </div>
+    </div>
+  );
+}
+
+/** How a notification goes out: WhatsApp, email, or both */
+function SendByPick({ label, value, onChange, words }: { label: string; value: SendBy; onChange: (v: SendBy) => void; words: { byWhatsapp: string; byEmail: string; byBoth: string } }) {
+  const opts: { key: SendBy; label: string }[] = [{ key: "whatsapp", label: words.byWhatsapp }, { key: "email", label: words.byEmail }, { key: "both", label: words.byBoth }];
+  return (
+    <div role="radiogroup" aria-label={label} className="mt-3">
+      <p className="mb-1.5 text-xs font-semibold text-muted">{label}</p>
+      <div className="grid grid-cols-3 gap-2">
+        {opts.map((o) => (
+          <button key={o.key} type="button" role="radio" aria-checked={value === o.key} onClick={() => onChange(o.key)} className={`h-10 rounded-xl border text-xs font-semibold transition ${value === o.key ? "border-ink bg-ink text-onink" : "border-fg/15 hover:bg-soft"}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -142,15 +235,28 @@ export function Products() {
   const [sort, setSort] = useState(0);
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(blank);
-  const [errors, setErrors] = useState<{ name?: string; price?: string; sale?: string }>({});
+  /* he typed a share above 100%: it stopped at 100, and a short note says why */
+  const [pctCapped, setPctCapped] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string; price?: string; sale?: string; images?: string; quantity?: string }>({});
   const [picked, setPicked] = useState<number[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [flash, setFlash] = useState(false);
   /* The product's photos: shrunk and saved with the product, so the store shows them */
   const [photos, setPhotos] = useState<string[]>([]);
   const [photoBad, setPhotoBad] = useState(false);
+  /* photos still being read, and the ones that failed to show: neither counts as the product's photo */
+  const [uploading, setUploading] = useState(0);
+  const [broken, setBroken] = useState<string[]>([]);
+  /* a new category typed in the box but not added with its button yet */
+  const typedCat = useRef("");
+  /* the photo being cropped (the first photo has its own focus picker below) */
+  const [cropAt, setCropAt] = useState<number | null>(null);
   const [focus, setFocus] = useState({ x: 50, y: 50 });
   const fileInput = useRef<HTMLInputElement>(null);
+  /* The editor as it was when opened or last saved, to know if there are unsaved changes */
+  const [clean, setClean] = useState("");
+  const snapshot = (d: Draft, imgs: string[], f: { x: number; y: number }) => JSON.stringify([d, imgs, f]);
+  const dirty = editing !== null && snapshot(draft, photos, focus) !== clean;
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${p.title}`;
@@ -159,6 +265,10 @@ export function Products() {
   useEffect(() => {
     setItems(load());
     setReady(true);
+    /* Another tab changed the products (or the store sold some): take its list, so this tab never writes back an old one */
+    const onStorage = (e: StorageEvent) => e.key === KEY && setItems(load());
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   /* A search result links here with ?open=ID. */
@@ -197,9 +307,11 @@ export function Products() {
 
   const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  /* Unsaved changes are only thrown away after he says so */
+  const leave = () => !dirty || window.confirm(p.discardAsk);
+
   const openEdit = (x: Product) => {
-    setEditing(x.id);
-    setDraft({
+    const d: Draft = {
       name: x.name,
       price: x.price === null ? "" : String(x.price),
       sale: x.sale === null ? "" : String(x.sale),
@@ -210,18 +322,27 @@ export function Products() {
       notes: x.notes ?? "",
       badge: x.badge ?? "",
       quantity: String(x.quantity),
+      unlimited: x.unlimited === true,
       hidden: x.hidden,
       featured: x.featured,
       shipping: x.shipping,
       lowAt: String(x.lowAt),
+      lowBy: x.lowBy ?? "both",
+      restockBy: x.restockBy ?? "both",
       restockMin: String(x.restockMin),
       restockPct: String(x.restockPct),
-    });
+    };
+    setEditing(x.id);
+    setDraft(d);
     setErrors({});
     setConfirmDelete(false);
     setPhotos(x.images ?? []);
+    setCropAt(null);
     setFocus(x.focus ?? { x: 50, y: 50 });
+    setClean(snapshot(d, x.images ?? [], x.focus ?? { x: 50, y: 50 }));
     setPhotoBad(false);
+    setBroken([]);
+    typedCat.current = "";
   };
 
   const openNew = () => {
@@ -230,18 +351,40 @@ export function Products() {
     setErrors({});
     setConfirmDelete(false);
     setPhotos([]);
+    setCropAt(null);
     setFocus({ x: 50, y: 50 });
+    setClean(snapshot(blank, [], { x: 50, y: 50 }));
     setPhotoBad(false);
+    setBroken([]);
+    typedCat.current = "";
   };
+
+  const close = () => {
+    if (leave()) setEditing(null);
+  };
+
+  /* Escape closes the editor, asking first when there are unsaved changes */
+  useEffect(() => {
+    if (editing === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && (!dirty || window.confirm(p.discardAsk))) setEditing(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [editing, dirty, p]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
   /* Each photo is shrunk to a small picture, so a few of them fit in the browser's storage */
   const addPhotos = async (files: FileList | null) => {
-    if (!files) return;
-    const made = await Promise.all(Array.from(files).filter((f) => f.size <= 8_000_000).map((f) => readPhoto(f, 900)));
+    if (!files || !files.length) return;
+    const n = files.length;
+    setUploading((u) => u + n);
+    const made = await Promise.all(Array.from(files).filter((f) => f.size <= 8_000_000).map((f) => readPhoto(f, 900))).finally(() => setUploading((u) => Math.max(0, u - n)));
     const ok = made.filter((u): u is string => !!u);
-    setPhotoBad(ok.length < files.length);
+    if (ok.length) setErrors((x) => ({ ...x, images: undefined }));
+    /* a file that is not a picture, and pictures past the 6 that fit, are reported, not dropped silently */
+    setPhotoBad(ok.length < files.length || photos.length + ok.length > 6);
     setPhotos((cur) => [...cur, ...ok].slice(0, 6));
   };
 
@@ -250,30 +393,50 @@ export function Products() {
     const next: typeof errors = {};
     const price = num(draft.price);
     const sale = num(draft.sale);
-    if (draft.name.trim().length < 2) next.name = p.errName;
-    if (price !== null && !(price >= 0)) next.price = p.errPrice;
-    if (sale !== null && (price === null || !(sale < price))) next.sale = p.errSale;
+    /* only the photos that are really there count: one still uploading or that failed to show does not */
+    const shownPhotos = photos.filter((u) => !broken.includes(u));
+    const quantity = draft.quantity.trim() === "" ? null : Number(draft.quantity);
+    /* The name, the price, a photo and (unless it is unlimited) the quantity must be filled (the same rules the server
+       will use). The category is optional: without one the store shows the product under "Other". */
+    const bad = productProblems({ name: draft.name, price, sale, images: shownPhotos, quantity, unlimited: draft.unlimited });
+    if (bad.includes("name")) next.name = p.errName;
+    if (bad.includes("images")) next.images = uploading > 0 ? p.imagesUploading : p.errImages;
+    if (bad.includes("price")) next.price = p.errPrice;
+    if (bad.includes("sale")) next.sale = p.errSale;
+    if (bad.includes("quantity")) next.quantity = p.errQuantity;
     setErrors(next);
-    if (Object.keys(next).length) return;
+    /* the first field with a mistake comes into view with the cursor in it */
+    const first = (["name", "images", "price", "sale", "quantity"] as const).find((k) => next[k]);
+    if (first) {
+      const el = document.getElementById(first === "quantity" ? "p-qty" : `p-${first}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
+      return;
+    }
 
     const base = {
-      name: draft.name.trim(),
+      name: cleanLine(draft.name, PRODUCT_MAX.name),
       price,
       sale,
-      cost: num(draft.cost),
-      category: draft.category.trim(),
-      brand: draft.brand.trim(),
-      description: draft.description.trim(),
-      notes: draft.notes.trim(),
-      badge: draft.badge.trim(),
+      /* a cost that is not an amount is left out rather than saved wrong */
+      cost: money(num(draft.cost)),
+      /* a new category typed but not added with its button still counts; only spaces is no category */
+      category: cleanCategory(draft.category) || cleanCategory(typedCat.current),
+      brand: cleanLine(draft.brand, PRODUCT_MAX.brand),
+      description: cleanLines(draft.description, PRODUCT_MAX.description),
+      notes: cleanLine(draft.notes, PRODUCT_MAX.notes),
+      badge: cleanLine(draft.badge, PRODUCT_MAX.badge),
       quantity: Math.max(0, Math.floor(Number(draft.quantity) || 0)),
+      unlimited: draft.unlimited,
       hidden: draft.hidden,
       featured: draft.featured,
       shipping: draft.shipping,
       lowAt: Math.max(0, Math.floor(Number(draft.lowAt) || 0)),
+      lowBy: draft.lowBy,
+      restockBy: draft.restockBy,
       restockMin: Math.max(0, Math.floor(Number(draft.restockMin) || 0)),
       restockPct: Math.min(100, Math.max(0, Math.floor(Number(draft.restockPct) || 0))),
-      images: photos,
+      images: shownPhotos,
       focus,
     };
 
@@ -282,8 +445,10 @@ export function Products() {
       setItems((list) => [{ id, created: Date.now(), ...base }, ...list]);
       setEditing(id);
     } else {
-      setItems((list) => list.map((x) => (x.id === editing ? { ...x, ...base } : x)));
+      /* if the product was removed meanwhile (in another tab), his edits bring it back instead of being lost */
+      setItems((list) => (list.some((x) => x.id === editing) ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list]));
     }
+    setClean(snapshot(draft, photos, focus));
     setFlash(true);
     setTimeout(() => setFlash(false), 1800);
   };
@@ -330,7 +495,7 @@ export function Products() {
           </svg>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={p.searchPh} aria-label={p.searchPh} className={`${field} h-12 ps-12`} />
         </div>
-          <button type="button" onClick={openNew} className="h-12 shrink-0 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep"> + {p.newProduct} </button>
+          <button type="button" onClick={() => leave() && openNew()} className="h-12 shrink-0 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep"> + {p.newProduct} </button>
         </div>
 
         <div className="grid items-start gap-5 lg:grid-cols-[16rem_minmax(0,24rem)_minmax(0,1fr)]">
@@ -397,7 +562,7 @@ export function Products() {
                 {shown.map((x) => (
                   <li key={x.id} className={`flex items-center gap-3 px-4 py-3 transition-colors ${editing === x.id ? "bg-black/[0.07] dark:bg-white/[0.1]" : "hover:bg-fg/[0.05]"}`}>
                     <input type="checkbox" checked={picked.includes(x.id)} onChange={() => togglePick(x.id)} aria-label={x.name} className="h-4 w-4 shrink-0 accent-[rgb(var(--primary))]" />
-                    <button type="button" onClick={() => openEdit(x)} className="flex min-w-0 flex-1 items-center gap-3 text-start">
+                    <button type="button" onClick={() => x.id !== editing && leave() && openEdit(x)} className="flex min-w-0 flex-1 items-center gap-3 text-start">
                       <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-soft text-muted">
                         {x.images?.[0] ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -414,7 +579,7 @@ export function Products() {
                           {x.hidden && <span className="shrink-0 rounded bg-fg/10 px-1.5 py-0.5 text-[10px] font-bold text-muted">{p.filters.hidden.split(" ").pop()}</span>}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted">
-                          {x.category || "-"} · <span dir="ltr">{x.quantity}</span> {p.piece}
+                          {x.category || p.otherCategory} · {x.unlimited ? p.unlimitedShort : <><span dir="ltr">{x.quantity}</span> {p.piece}</>}
                         </span>
                         <span dir="ltr" className="mt-0.5 block text-start text-sm font-bold">
                           {x.price === null ? (
@@ -454,25 +619,35 @@ export function Products() {
                 <h2 className="text-lg font-extrabold">{editing === "new" ? p.newProduct : p.edit}</h2>
                 {typeof editing === "number" && items.find((x) => x.id === editing)?.deletedAt && <p className="rounded-xl bg-amber-500/15 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">{p.deletedNote}</p>}
 
-                <div className="space-y-5">
-                  <h3 className="font-bold">{p.basic}</h3>
+                {/* a thin line under every field, like the store designer */}
+                <div className="space-y-5 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="font-bold">{p.basic}</h3>
+                    <RequiredNote text={p.requiredNote} />
+                  </div>
                   <div>
-                    <Label id="p-name">{p.name}</Label>
-                    <input id="p-name" value={draft.name} onChange={(e) => set("name", e.target.value)} placeholder={p.namePh} maxLength={80} className={`${field} h-12`} />
+                    <Label id="p-name" required>{p.name}</Label>
+                    <input id="p-name" required aria-invalid={!!errors.name} value={draft.name} onChange={(e) => { set("name", e.target.value); if (errors.name) setErrors((x) => ({ ...x, name: undefined })); }} placeholder={p.namePh} maxLength={80} className={`${field} h-12 ${errors.name ? bad : ""}`} />
                     {errors.name && <p className="mt-1.5 text-xs text-rose-600">{errors.name}</p>}
                   </div>
 
                   <div>
-                    <p className="mb-2 text-sm font-semibold">{p.images}</p>
-                    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                    <p id="p-images-label" className="mb-2 text-sm font-semibold">{p.images}<RequiredMark /></p>
+                    <div role="group" aria-labelledby="p-images-label" aria-describedby={errors.images ? "p-images-err" : undefined} className={`grid grid-cols-3 gap-3 rounded-xl sm:grid-cols-4 ${errors.images ? "ring-2 ring-rose-500 ring-offset-4 ring-offset-card" : ""}`}>
                       {photos.map((u, i) => (
                         <div key={u} className="group relative aspect-square overflow-hidden rounded-xl bg-soft ring-1 ring-fg/10">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={u} alt="" className="h-full w-full object-cover" />
+                          <img src={u} alt="" onError={() => setBroken((b) => (b.includes(u) ? b : [...b, u]))} onLoad={() => setBroken((b) => b.filter((x) => x !== u))} className="h-full w-full object-cover" />
+                          {broken.includes(u) && <span className="absolute inset-0 grid place-items-center bg-rose-600/80 p-1 text-center text-[10px] font-bold leading-tight text-white">{p.imageBroken}</span>}
                           {i === 0 && <span className="absolute start-1.5 top-1.5 rounded-md bg-primary px-2 py-0.5 text-[10px] font-bold text-white">{p.primary}</span>}
+                          {i > 0 && !demoActive() && (
+                            <button type="button" onClick={() => setCropAt(i)} className="absolute bottom-1.5 start-1.5 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white opacity-0 transition focus:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+                              {lang === "ar" ? "قصّ" : "Crop"}
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => setPhotos((cur) => cur.filter((x) => x !== u))}
+                            onClick={() => { setCropAt(null); setPhotos((cur) => cur.filter((x) => x !== u)); }}
                             aria-label={p.removeImage}
                             className="absolute end-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white opacity-0 transition focus:opacity-100 group-hover:opacity-100"
                           >
@@ -482,8 +657,11 @@ export function Products() {
                       ))}
                       {photos.length < 6 && (
                         <button
+                          id="p-images"
                           type="button"
                           onClick={() => fileInput.current?.click()}
+                          aria-invalid={!!errors.images}
+                          aria-describedby={errors.images ? "p-images-err" : undefined}
                           className="grid aspect-square place-items-center rounded-xl border-2 border-dashed border-fg/20 text-center text-xs font-semibold text-muted transition hover:border-primary hover:text-primary"
                         >
                           <span>
@@ -495,7 +673,13 @@ export function Products() {
                         </button>
                       )}
                     </div>
+                    {cropAt !== null && photos[cropAt] && (
+                      <div className="mt-3">
+                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onCancel={() => setCropAt(null)} onDone={(url) => { const at = cropAt; setPhotos((cur) => cur.map((x, j) => (j === at ? url : x))); setCropAt(null); }} />
+                      </div>
+                    )}
                     <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
+                    {errors.images && <p id="p-images-err" role="alert" className="mt-2 text-xs font-semibold text-rose-600">{errors.images}</p>}
                     <p className={`mt-2 text-xs ${photoBad ? "text-rose-600" : "text-muted"}`}>{photoBad ? p.imagesBad : p.imagesHint}</p>
 
                     {/* What stays visible: the store crops the picture to its shape, so he chooses the part that must always show */}
@@ -504,30 +688,34 @@ export function Products() {
                         <p className="text-sm font-bold">{p.focusTitle}</p>
                         <p className="mt-1 text-xs leading-relaxed text-muted">{p.focusNote}</p>
                         <div className="mt-3">
-                          <FocusPicker image={photos[0]} value={focus} onChange={setFocus} disabled={demoActive()} labels={{ tall: p.shapeTall, square: p.shapeSquare, wide: p.shapeWide, center: p.focusCenter }} />
+                          <FocusPicker image={photos[0]} value={focus} onChange={setFocus} disabled={demoActive()} labels={{ tall: p.shapeTall, square: p.shapeSquare, wide: p.shapeWide, center: p.focusCenter, zoom: lang === "ar" ? "تكبير (قصّ أقرب)" : "Zoom (crop closer)" }} />
                         </div>
                       </div>
                     )}
                   </div>
 
-                  <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="grid gap-5 sm:grid-cols-2 [&>div]:border-b-2 [&>div]:border-fg/20 [&>div]:pb-5">
                     <div>
-                      <Label id="p-price">{p.price} ({p.currency})</Label>
-                      <input id="p-price" dir="ltr" inputMode="decimal" value={draft.price} onChange={(e) => set("price", digits(e.target.value))} placeholder="0.00" maxLength={10} className={`${field} h-12 text-start`} />
+                      <Label id="p-price" required>{p.price} ({p.currency})</Label>
+                      <input id="p-price" required aria-invalid={!!errors.price} dir="ltr" inputMode="decimal" value={draft.price} onChange={(e) => { set("price", digits(e.target.value)); if (errors.price) setErrors((x) => ({ ...x, price: undefined })); }} placeholder="0.00" maxLength={10} className={`${field} h-12 text-start ${errors.price ? bad : ""}`} />
                       {errors.price && <p className="mt-1.5 text-xs text-rose-600">{errors.price}</p>}
+                      {/* Zero is allowed, but may be a slip */}
+                      {!errors.price && draft.price !== "" && Number(draft.price) === 0 && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{p.priceZero}</p>}
                     </div>
                     <div>
                       <Label id="p-cost" hint={p.costHint}>{p.cost} ({p.currency})</Label>
                       <input id="p-cost" dir="ltr" inputMode="decimal" value={draft.cost} onChange={(e) => set("cost", digits(e.target.value))} placeholder="0.00" maxLength={10} className={`${field} h-12 text-start`} />
+                      {/* a soft warning, it still saves: the cost is more than he sells it for */}
+                      {num(draft.cost) !== null && num(draft.price) !== null && (num(draft.cost) as number) > (num(draft.sale) ?? (num(draft.price) as number)) && <p role="status" className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">{p.costAbove}</p>}
                     </div>
                     <div>
                       <Label id="p-sale" hint={p.saleHint}>{p.sale} ({p.currency})</Label>
-                      <input id="p-sale" dir="ltr" inputMode="decimal" value={draft.sale} onChange={(e) => set("sale", digits(e.target.value))} placeholder="0.00" maxLength={10} className={`${field} h-12 text-start`} />
+                      <input id="p-sale" aria-invalid={!!errors.sale} dir="ltr" inputMode="decimal" value={draft.sale} onChange={(e) => { set("sale", digits(e.target.value)); if (errors.sale) setErrors((x) => ({ ...x, sale: undefined })); }} placeholder="0.00" maxLength={10} className={`${field} h-12 text-start ${errors.sale ? bad : ""}`} />
                       {errors.sale && <p className="mt-1.5 text-xs text-rose-600">{errors.sale}</p>}
                     </div>
-                    <div>
-                      <Label id="p-category">{p.category}</Label>
-                      <input id="p-category" value={draft.category} onChange={(e) => set("category", e.target.value)} placeholder={p.categoryPh} maxLength={40} className={`${field} h-12`} />
+                    <div className="sm:col-span-2">
+                      <Label id="p-category" hint={p.catHint}>{p.category}</Label>
+                      <CategoryPicker value={draft.category} products={items} words={p} onChange={(v) => set("category", v)} onTyped={(v) => { typedCat.current = v; }} />
                     </div>
                     <div>
                       <Label id="p-brand">{p.brand}</Label>
@@ -535,7 +723,7 @@ export function Products() {
                     </div>
                   </div>
 
-                  <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="grid gap-5 sm:grid-cols-2 [&>div]:border-b-2 [&>div]:border-fg/20 [&>div]:pb-5">
                     <div>
                       <Label id="p-notes" hint={p.notesHint}>{p.notes}</Label>
                       <input id="p-notes" value={draft.notes} onChange={(e) => set("notes", e.target.value)} placeholder={p.notesPh} maxLength={60} className={`${field} h-12`} />
@@ -552,41 +740,53 @@ export function Products() {
                   </div>
                 </div>
 
-                <div className="space-y-5 border-t border-fg/10 pt-6">
+                <div className="space-y-5 border-t border-fg/10 pt-6 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
                   <h3 className="font-bold">{p.visibility}</h3>
                   <Toggle on={draft.hidden} onChange={(v) => set("hidden", v)} label={p.hidden} hint={p.hiddenHint} />
                   <Toggle on={draft.featured} onChange={(v) => set("featured", v)} label={p.featured} hint={p.featuredHint} />
                   <Toggle on={draft.shipping} onChange={(v) => set("shipping", v)} label={p.shipping} hint={p.shippingHint} />
                 </div>
 
-                <div className="space-y-5 border-t border-fg/10 pt-6">
+                <div className="space-y-5 border-t border-fg/10 pt-6 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
                   <h3 className="font-bold">{p.stock}</h3>
-                  <div className="max-w-xs">
-                    <Label id="p-qty" hint={p.quantityHint}>{p.quantity}</Label>
-                    <input id="p-qty" dir="ltr" inputMode="numeric" value={draft.quantity} onChange={(e) => set("quantity", latin(e.target.value).replace(/\D/g, ""))} maxLength={7} className={`${field} h-12 text-start`} />
+                  <div>
+                    <Toggle on={draft.unlimited} onChange={(v) => { set("unlimited", v); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }} label={p.unlimited} hint={p.unlimitedHint} />
                   </div>
+                  {!draft.unlimited && (
+                    <div className="max-w-xs">
+                      <Label id="p-qty" hint={p.quantityHint} required>{p.quantity}</Label>
+                      <input id="p-qty" required aria-invalid={!!errors.quantity} dir="ltr" inputMode="numeric" value={draft.quantity} onChange={(e) => { set("quantity", whole(e.target.value)); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }} maxLength={7} className={`${field} h-12 text-start ${errors.quantity ? bad : ""}`} />
+                      {errors.quantity && <p className="mt-1.5 text-xs text-rose-600">{errors.quantity}</p>}
+                    </div>
+                  )}
                 </div>
 
-                <div className="space-y-5 border-t border-fg/10 pt-6">
+                <div className="space-y-5 border-t border-fg/10 pt-6 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
                   <h3 className="font-bold">{p.alerts}</h3>
-                  <div>
-                    <Label id="p-low" hint={p.lowAtHint}>{p.lowAt}</Label>
-                    <input id="p-low" dir="ltr" inputMode="numeric" value={draft.lowAt} onChange={(e) => set("lowAt", latin(e.target.value).replace(/\D/g, ""))} maxLength={5} className={`${field} h-12 text-start`} />
-                  </div>
+                  {/* an unlimited product never runs low, so there is nothing to warn about */}
+                  {!draft.unlimited && (
+                    <div>
+                      <Label id="p-low" hint={p.lowAtHint}>{p.lowAt}</Label>
+                      <input id="p-low" dir="ltr" inputMode="numeric" value={draft.lowAt} onChange={(e) => set("lowAt", whole(e.target.value))} maxLength={5} className={`${field} h-12 text-start`} />
+                      <SendByPick label={p.sendBy} value={draft.lowBy} onChange={(v) => set("lowBy", v)} words={p} />
+                    </div>
+                  )}
                   <div>
                     <Label id="p-min" hint={p.restockMinHint}>{p.restockMin}</Label>
-                    <input id="p-min" dir="ltr" inputMode="numeric" value={draft.restockMin} onChange={(e) => set("restockMin", latin(e.target.value).replace(/\D/g, ""))} maxLength={5} className={`${field} h-12 text-start`} />
+                    <input id="p-min" dir="ltr" inputMode="numeric" value={draft.restockMin} onChange={(e) => set("restockMin", whole(e.target.value))} maxLength={5} className={`${field} h-12 text-start`} />
                   </div>
                   <div>
                     <Label id="p-pct" hint={p.restockPctHint}>{p.restockPct} (%)</Label>
-                    <input id="p-pct" dir="ltr" inputMode="numeric" value={draft.restockPct} onChange={(e) => set("restockPct", latin(e.target.value).replace(/\D/g, ""))} maxLength={3} className={`${field} h-12 text-start`} />
+                    <input id="p-pct" dir="ltr" inputMode="numeric" value={draft.restockPct} onChange={(e) => { const typed = latin(e.target.value).replace(/\D/g, ""); setPctCapped(Number(typed) > 100); set("restockPct", whole(typed, 100)); }} maxLength={3} className={`${field} h-12 text-start`} />
+                    {/* a share above 100% is not possible: it stops at 100 and says why */}
+                    {pctCapped && <p role="status" className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">{p.pctMax}</p>}
+                    <SendByPick label={p.sendByCustomers} value={draft.restockBy} onChange={(v) => set("restockBy", v)} words={p} />
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 border-t border-fg/10 pt-6">
                   <button type="submit" className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition hover:bg-deep">{p.save}</button>
-                  <button type="button" onClick={() => setEditing(null)} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{p.cancel}</button>
-                  {flash && <p role="status" className="text-sm font-semibold text-primary">{p.saved}</p>}
+                  <button type="button" onClick={close} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{p.cancel}</button>
 
                   {typeof editing === "number" &&
                     (items.find((x) => x.id === editing)?.deletedAt ? (
@@ -617,6 +817,13 @@ export function Products() {
           </section>
         </div>
       </main>
+
+      {/* The save message floats at the bottom of the screen, so it shows wherever he scrolled to */}
+      {flash && (
+        <div role="status" className="fixed bottom-6 start-1/2 z-[60] -translate-x-1/2 rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-onink shadow-2xl rtl:translate-x-1/2">
+          {p.saved}
+        </div>
+      )}
     </div>
   );
 }

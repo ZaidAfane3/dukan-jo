@@ -14,6 +14,10 @@ import {
   type StatusKey,
 } from "./ordersContent";
 import { usePrefs } from "./Prefs";
+import { pickPicture } from "./designer/image";
+import { ImageCropper } from "./ImageCropper";
+import { imageRules, uploadProblemText, type UploadProblem } from "./safe";
+import { cleanInvoice, taxNumber } from "./records";
 import { loadSetup } from "./setup";
 import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
 import { loadConfig } from "./storefront/storage";
@@ -27,7 +31,8 @@ const field =
 function load(): InvoiceSettings {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? { ...defaultInvoice, ...(JSON.parse(raw) as Partial<InvoiceSettings>) } : defaultInvoice;
+    /* every saved setting is checked again: a broken one goes back to its default */
+    return raw ? cleanInvoice(JSON.parse(raw)) : defaultInvoice;
   } catch {
     return defaultInvoice;
   }
@@ -102,20 +107,26 @@ function PosPicker({ value, onChange, labels, name, vertical }: { value: Pos; on
 }
 
 function ImagePick({ title, copy, url, onPick, choose }: { title: string; copy: { drop: string; dropHint: string; choose: string; remove: string }; url: string; onPick: (u: string) => void; choose?: string }) {
+  const { lang } = usePrefs();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
-  const take = (f?: File) => {
-    if (!f || !/^image\/(png|jpe?g)$/.test(f.type) || f.size > 3_000_000) return;
-    if (url) URL.revokeObjectURL(url);
-    onPick(URL.createObjectURL(f));
+  const [problem, setProblem] = useState<UploadProblem | null>(null);
+  /* the chosen picture, waiting to be cropped */
+  const [pending, setPending] = useState("");
+  const take = async (f?: File) => {
+    if (!f) return;
+    const picked = await pickPicture(f, imageRules.invoice, 1600, "image/png");
+    setProblem("problem" in picked ? picked.problem : null);
+    if ("url" in picked) setPending(picked.url);
   };
   return (
     <div>
       <p className="mb-2 text-sm font-semibold">{title}</p>
+      {pending && <ImageCropper lang={lang} src={pending} shapes={["original", "square", "wide"]} out={800} onCancel={() => setPending("")} onDone={(u) => { setPending(""); onPick(u); }} />}
       <div
         onDragOver={(e) => { e.preventDefault(); setOver(true); }}
         onDragLeave={() => setOver(false)}
-        onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files[0]); }}
+        onDrop={(e) => { e.preventDefault(); setOver(false); void take(e.dataTransfer.files[0]); }}
         className={`flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-4 py-8 text-center transition ${over ? "border-primary bg-primary/5" : "border-fg/20"}`}
       >
         {url ? (
@@ -134,8 +145,9 @@ function ImagePick({ title, copy, url, onPick, choose }: { title: string; copy: 
             <button type="button" onClick={() => { URL.revokeObjectURL(url); onPick(""); }} className="rounded-lg border border-rose-500/50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{copy.remove}</button>
           )}
         </div>
-        <input ref={input} type="file" accept="image/png,image/jpeg" className="sr-only" onChange={(e) => { take(e.target.files?.[0]); e.target.value = ""; }} />
+        <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void take(e.target.files?.[0]); e.target.value = ""; }} />
       </div>
+      {problem && <p role="alert" className="mt-2 text-xs text-rose-600">{uploadProblemText[problem][lang]}</p>}
     </div>
   );
 }
@@ -228,6 +240,11 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
     setMark({ logo: resolveLogo(loadConfig().identity.logo, setup?.logo ?? ""), color: setup?.color || "#004956" });
   }, []);
   const money = (n: number) => `${n.toFixed(2)} ${w.cur}`;
+  /* The sample order: tax is 16% of the products, then shipping is added on top */
+  const subtotal = 30;
+  const shipping = 3;
+  const tax = Math.round(subtotal * 0.16 * 100) / 100;
+  const grand = subtotal + shipping + tax;
 
   return (
     <div dir={rtl ? "rtl" : "ltr"} className="store-preview relative overflow-hidden bg-white p-5 text-[11px] leading-5 text-black">
@@ -267,6 +284,7 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
           <div>
             <p className="font-semibold underline" style={main}>{w.from}</p>
             <p style={sub}>{shop}</p>
+            {s.taxNumber && <p style={sub}>{w.taxNo}: <span dir="ltr">{s.taxNumber}</span></p>}
             {s.address && <p style={sub}>{w.storeAddress}: {w.address}</p>}
           </div>
         </div>
@@ -281,7 +299,7 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
           </div>
           <div>
             <p className="font-semibold" style={{ ...main, color: "#9ca3af" }}>{w.payment}</p>
-            <p>{w.amount}: <span dir="ltr">{money(34.8)}</span></p>
+            <p>{w.amount}: <span dir="ltr">{money(grand)}</span></p>
             <p>{w.method}: {w.method1}</p>
           </div>
         </div>
@@ -298,22 +316,21 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
             <div className="min-w-0">
               <p style={main}>{w.product1}</p>
               {s.description && <p>{w.desc}</p>}
-              {s.weight && <p>{w.wt}: <span dir="ltr">0.4 {w.kg}</span></p>}
               {s.barcode && <Barcode />}
             </div>
           </div>
           <span className="w-10 text-center">1</span>
-          <span className="w-16 text-center" dir="ltr">{money(30)}</span>
-          <span className="w-16 text-end" dir="ltr">{money(30)}</span>
+          <span className="w-16 text-center" dir="ltr">{money(subtotal)}</span>
+          <span className="w-16 text-end" dir="ltr">{money(subtotal)}</span>
         </div>
 
         {s.summary && (
           <div className="mt-1 divide-y divide-black/20 border-y border-black/20">
             {[
-              [w.sub, money(30), true],
-              [w.ship, `+ ${money(3)}`, false],
-              [w.tax, `+ ${money(1.8)}`, true],
-              [w.grand, money(34.8), false],
+              [w.sub, money(subtotal), true],
+              [w.ship, `+ ${money(shipping)}`, false],
+              [w.tax, `+ ${money(tax)}`, true],
+              [w.grand, money(grand), false],
             ].map(([k, v, shade], i) => (
               <p key={i} className={`flex justify-between px-2 py-1.5 ${shade ? "bg-zinc-100" : ""}`} style={i === 3 ? main : sub}>
                 <span>{k}</span>
@@ -396,12 +413,15 @@ export function Invoices() {
   const set = <K extends keyof InvoiceSettings>(k: K, v: InvoiceSettings[K]) => setS((x) => ({ ...x, [k]: v }));
 
   const save = () => {
+    /* saved the way it is read back: cleaned, so what he sees is what was kept */
+    const kept = cleanInvoice(s);
     try {
-      localStorage.setItem(KEY, JSON.stringify(s));
+      localStorage.setItem(KEY, JSON.stringify(kept));
     } catch {
       /* storage unavailable */
     }
-    setSaved(s);
+    setS(kept);
+    setSaved(kept);
     setFlash(true);
     setTimeout(() => setFlash(false), 1800);
   };
@@ -445,6 +465,12 @@ export function Invoices() {
                   <label htmlFor="inv-store" className="text-sm font-semibold">{c.storeName}</label>
                   <p className="mt-0.5 text-xs text-muted">{c.storeNameHint}</p>
                   <input id="inv-store" value={s.storeName} onChange={(e) => set("storeName", e.target.value)} placeholder={shopName} maxLength={50} className={`${field} mt-3 h-11`} />
+                </div>
+
+                <div>
+                  <label htmlFor="inv-tax" className="text-sm font-semibold">{c.taxNumber}</label>
+                  <p className="mt-0.5 text-xs text-muted">{c.taxNumberHint}</p>
+                  <input id="inv-tax" dir="ltr" inputMode="numeric" value={s.taxNumber} onChange={(e) => set("taxNumber", taxNumber(e.target.value))} maxLength={15} className={`${field} mt-3 h-11 text-start`} />
                 </div>
               </div>
             </section>

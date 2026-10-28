@@ -1,12 +1,18 @@
 "use client";
 
+import { GIFT_FLAG } from "./ThemePopup";
+import { createAccount, logIn, logOut } from "./accounts";
+import { demoActive, endDemo } from "./demoSandbox";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { brandName, content } from "./content";
 import { FlagJO } from "./Flag";
 import { Logo } from "./Nav";
 import { LangSwitch, ThemeToggle, usePrefs } from "./Prefs";
-import { latin } from "./digits";
+import { isJordanMobile, jordanMobile, phoneError, typedPhone } from "./phone";
+import { cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
+import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { ACCOUNT_LIMITS, passwordError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { resetToStarterDesign } from "./storefront/storage";
 
@@ -59,25 +65,36 @@ const icons = {
 function Field({
   label,
   icon,
+  hint,
+  error,
   children,
 }: {
   label: string;
   icon?: React.ReactNode;
+  hint?: string;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-semibold">{label}</span>
-      <span className="relative block">
-        {icon && <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted">{icon}</span>}
-        {children}
-      </span>
-    </label>
+    <div>
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold">{label}<RequiredMark /></span>
+        <span className="relative block">
+          {icon && <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted">{icon}</span>}
+          {children}
+        </span>
+      </label>
+      {error ? <p className="mt-1.5 text-xs text-rose-600">{error}</p> : hint && <p className="mt-1.5 text-xs text-muted">{hint}</p>}
+    </div>
   );
 }
 
 const inputClass =
   "h-12 w-full rounded-xl border border-fg/15 bg-card text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
+/* a field with a mistake in it */
+const bad = "!border-rose-500 focus:!ring-rose-500/25";
+
+type Errors = { name?: string; email?: string; phone?: string; password?: string; loginId?: string };
 
 export function SignupForm() {
   const { lang, t } = usePrefs();
@@ -87,8 +104,11 @@ export function SignupForm() {
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", loginId: "" });
+  const [errors, setErrors] = useState<Errors>({});
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
+    /* a field's mistake goes away as soon as he edits it */
+    if (key in errors) setErrors((x) => ({ ...x, [key]: undefined }));
   };
 
   /* Open on the login tab when arriving from the "Log in" button. */
@@ -101,41 +121,78 @@ export function SignupForm() {
       setTour(true);
       setTab((t) => (q.get("tab") ? t : "login"));
     }
+    /* Making his own account ends the platform tour: otherwise his new store would be saved into the tour's made-up
+       perfume store (the tour lives in this tab). The page opens again with his real data. */
+    else if (demoActive()) endDemo(window.location.pathname + window.location.search);
   }, []);
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${tab === "create" ? c.tabs.create : c.tabs.login}`;
   }, [tab, c]);
 
-  const createValid =
-    form.name.trim().length >= 2 &&
-    /^\S+@\S+\.\S+$/.test(form.email) &&
-    form.phone.replace(/\D/g, "").length >= 8 &&
-    form.password.length >= 8;
+  /* The create form is checked when he presses the button, each mistake shown under its field */
+  const check = (): Errors => {
+    const e: Errors = {};
+    if (visibleLength(form.name) < 2) e.name = c.errName;
+    if (!emailOf(form.email)) e.email = c.errEmail;
+    if (!isJordanMobile(form.phone)) e.phone = phoneError[lang];
+    const pw = passwordProblem(form.password);
+    if (pw) e.password = pw === "short" ? c.errPassword : passwordError[pw][lang];
+    return e;
+  };
   /* Prototype: there are no real accounts yet, so any sign-in works. */
-  const loginValid = form.loginId.trim().length >= 1 && form.password.length >= 1;
-  const valid = tab === "create" ? createValid : loginValid;
+  const loginValid = !isBlank(form.loginId) && !isBlank(form.password);
 
   /* Prototype only: nothing is sent or stored anywhere. Go to first-time setup. */
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    let valid = loginValid;
+    if (tab === "create") {
+      const found = check();
+      setErrors(found);
+      valid = Object.keys(found).length === 0;
+      /* the cursor goes to the first field with a mistake */
+      const first = (["name", "email", "phone", "password"] as const).find((k) => found[k]);
+      if (first) document.getElementById(`s-${first}`)?.focus();
+    }
+    /* Each account has its own store: a new email makes an empty one, and logging in needs an account that exists */
+    /* what is kept: the name cleaned, the email in lower case and the 9 digits of the mobile */
+    const name = cleanLine(form.name, ACCOUNT_LIMITS.name);
+    const email = emailOf(form.email);
+    const phone = jordanMobile(form.phone);
+    if (valid && tab === "create" && !tour && createAccount({ email, name, phone, password: form.password }) === "taken") {
+      setErrors({ email: c.errTaken });
+      document.getElementById("s-email")?.focus();
+      return;
+    }
+    let goTo = "/onboarding";
+    if (valid && tab === "login" && !tour) {
+      const r = logIn(form.loginId, form.password);
+      if (r !== "ok") {
+        setErrors(r === "none" ? { loginId: c.errNoAccount } : { password: c.errWrongPassword });
+        document.getElementById(r === "none" ? "s-loginId" : "s-password")?.focus();
+        return;
+      }
+      /* his store is ready: the dashboard, or the setup if it is not finished */
+      if ((loadSetup()?.done ?? []).filter(Boolean).length >= 6) goTo = "/dashboard";
+    }
     if (valid) {
       /* Kept only for this browser session, so setup can offer it as the support number. */
       try {
         if (tab === "create") {
           /* A new account starts from the starter template (the default design). Not in the tour: it must never touch real data. */
           if (!tour) resetToStarterDesign();
-          sessionStorage.setItem("seen-account-phone", form.phone.trim());
+          sessionStorage.setItem("seen-account-phone", phone);
           /* Never the password, only what the settings page can show. */
-          sessionStorage.setItem("seen-account-profile", JSON.stringify({ name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim() }));
+          sessionStorage.setItem("seen-account-profile", JSON.stringify({ name, email, phone }));
           /* His name and the number he registered with are the starting name and contact number of his store, until he changes them in setup or the designer. */
           const prev = loadSetup();
           if (!prev?.name || !prev?.phone) {
             saveSetup({
-              name: prev?.name || form.name.trim(),
+              name: prev?.name || name,
               description: prev?.description ?? "",
               color: prev?.color ?? "#004956",
-              phone: prev?.phone || form.phone.trim(),
+              phone: prev?.phone || phone,
               slug: prev?.slug ?? "",
               done: prev?.done ?? Array.from({ length: 6 }, () => false),
               pickup: prev?.pickup,
@@ -151,22 +208,27 @@ export function SignupForm() {
       }
       try {
         sessionStorage.setItem("seen-signed-in", "1");
+        /* a real account (not the tour): the founders' gift greets it on the next page, once per account */
+        if (!tour) sessionStorage.setItem(GIFT_FLAG, "1");
       } catch {
         /* storage unavailable */
       }
-      router.push(tour ? "/demo" : "/onboarding");
+      router.push(tour ? "/demo" : goTo);
     }
   };
 
+  const creating = tab === "create";
   const passwordField = (
-    <Field label={c.password} icon={icons.lock}>
+    <Field label={c.password} icon={icons.lock} hint={creating ? c.passwordHint : undefined} error={errors.password}>
       <input
+        id="s-password"
         type={showPassword ? "text" : "password"}
         value={form.password}
         onChange={set("password")}
         placeholder={c.passwordPh}
-        autoComplete={tab === "create" ? "new-password" : "current-password"}
-        className={`${inputClass} ps-11 pe-11`}
+        autoComplete={creating ? "new-password" : "current-password"}
+        aria-required aria-invalid={!!errors.password}
+        className={`${inputClass} ps-11 pe-11 ${errors.password ? bad : ""}`}
       />
       <button
         type="button"
@@ -215,22 +277,28 @@ export function SignupForm() {
           </div>
 
           <form onSubmit={onSubmit} className="mt-8 space-y-5" noValidate>
+            <RequiredNote text={requiredNote[lang]} />
             {tab === "create" ? (
               <>
-                <Field label={c.fullName} icon={icons.user}>
-                  <input value={form.name} onChange={set("name")} placeholder={c.fullNamePh} autoComplete="name" className={`${inputClass} ps-11`} />
+                <Field label={c.fullName} icon={icons.user} error={errors.name}>
+                  <input id="s-name" maxLength={ACCOUNT_LIMITS.name * 2} value={form.name} onChange={set("name")} placeholder={c.fullNamePh} autoComplete="name" aria-required aria-invalid={!!errors.name} className={`${inputClass} ps-11 ${errors.name ? bad : ""}`} />
                 </Field>
-                <Field label={c.email} icon={icons.mail}>
-                  <input type="email" value={form.email} onChange={set("email")} placeholder={c.emailPh} autoComplete="email" className={`${inputClass} ps-11`} />
+                <Field label={c.email} icon={icons.mail} error={errors.email}>
+                  <input id="s-email" type="email" maxLength={254} value={form.email} onChange={set("email")} placeholder={c.emailPh} autoComplete="email" aria-required aria-invalid={!!errors.email} className={`${inputClass} ps-11 ${errors.email ? bad : ""}`} />
                 </Field>
-                <Field label={c.phone}>
-                  <span dir="ltr" className="flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25">
+                <Field label={c.phone} error={errors.phone}>
+                  <span dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${errors.phone ? "!border-rose-500 focus-within:!ring-rose-500/25" : ""}`}>
                     <span className="flex h-full items-center gap-2 border-e border-fg/15 bg-soft/60 px-3 font-semibold"><FlagJO />+962</span>
                     <input
+                      id="s-phone"
                       type="tel"
                       inputMode="tel"
                       value={form.phone}
-                      onChange={(e) => setForm((f) => ({ ...f, phone: latin(e.target.value).replace(/[^\d\s]/g, "").replace(/^[\s0]+/, "") }))}
+                      aria-required aria-invalid={!!errors.phone}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, phone: typedPhone(e.target.value) }));
+                        if (errors.phone) setErrors((x) => ({ ...x, phone: undefined }));
+                      }}
                       placeholder={c.phonePh}
                       autoComplete="tel-national"
                       className="h-full flex-1 bg-transparent px-3 outline-none placeholder:text-muted/70"
@@ -241,8 +309,8 @@ export function SignupForm() {
               </>
             ) : (
               <>
-                <Field label={c.loginId} icon={icons.user}>
-                  <input value={form.loginId} onChange={set("loginId")} placeholder={c.loginIdPh} autoComplete="username" className={`${inputClass} ps-11`} />
+                <Field label={c.loginId} icon={icons.user} error={errors.loginId}>
+                  <input id="s-loginId" maxLength={254} value={form.loginId} onChange={set("loginId")} placeholder={c.loginIdPh} autoComplete="username" aria-required aria-invalid={!!errors.loginId} className={`${inputClass} ps-11 ${errors.loginId ? bad : ""}`} />
                 </Field>
                 {passwordField}
                 <a href="#" className="block text-sm font-medium text-primary hover:underline">{c.forgot}</a>
@@ -259,9 +327,10 @@ export function SignupForm() {
               </p>
             )}
 
+            {/* Always pressable when creating an account: pressing it shows what is missing */}
             <button
               type="submit"
-              disabled={!valid}
+              disabled={tab === "login" && !loginValid}
               className="h-12 w-full rounded-xl bg-ink text-sm font-semibold text-white transition enabled:hover:-translate-y-0.5 enabled:hover:bg-deep disabled:cursor-not-allowed disabled:bg-primary/20 disabled:text-muted"
             >
               {tab === "create" ? c.register : c.loginBtn}
@@ -280,6 +349,7 @@ export function SignupForm() {
             type="button"
             onClick={() => {
               try {
+                logOut();
                 sessionStorage.removeItem("seen-account-phone");
                 sessionStorage.setItem("seen-signed-in", "1");
               } catch {

@@ -1,5 +1,7 @@
 "use client";
 
+import { focusStyle } from "../FocusPicker";
+import { unitPrice } from "../safeOrder";
 import type { Lang } from "../content";
 import type { LogoConfig, MarkKey } from "./config";
 import type { StoreProduct } from "./useStoreData";
@@ -37,6 +39,10 @@ export const copy = {
     certificate: { commercial: "Commercial registration no.", license: "Trade license no.", other: "Registration no." },
     rights: "All rights reserved",
     like: "Save",
+    /* footer: the names of the networks (for screen readers), "opens in a new tab", a link to a page that is gone (designer only) */
+    networks: { instagram: "Instagram", facebook: "Facebook", x: "X", youtube: "YouTube", snapchat: "Snapchat", tiktok: "TikTok" },
+    newTab: "opens in a new tab",
+    missingPage: "This page no longer exists: visitors will not see this link",
   },
   ar: {
     search: "ابحث عن منتج",
@@ -68,6 +74,9 @@ export const copy = {
     certificate: { commercial: "سجل تجاري رقم", license: "رخصة مهن رقم", other: "رقم التسجيل" },
     rights: "جميع الحقوق محفوظة",
     like: "حفظ",
+    networks: { instagram: "إنستغرام", facebook: "فيسبوك", x: "إكس", youtube: "يوتيوب", snapchat: "سناب شات", tiktok: "تيك توك" },
+    newTab: "يفتح في نافذة جديدة",
+    missingPage: "هذه الصفحة لم تعد موجودة: لن يرى الزوار هذا الرابط",
   },
 } satisfies Record<Lang, unknown>;
 
@@ -78,7 +87,7 @@ export const priceLang = (mode: "auto" | "ar" | "en" | undefined, lang: Lang): L
 /** An amount in the chosen language: Arabic-Indic digits and the Arabic decimal mark, or Latin digits */
 export const moneyIn = (n: number, lang: Lang) =>
   lang === "ar" ? money(n).replace(/[0-9]/g, (d) => "٠١٢٣٤٥٦٧٨٩"[Number(d)]).replace(".", "٫") : money(n);
-export const priceOf = (p: StoreProduct) => (p.sale ?? p.price ?? 0);
+export const priceOf = (p: StoreProduct) => unitPrice(p) ?? 0;
 
 const base = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 
@@ -125,7 +134,7 @@ export function ProductImage({ p, className = "", flat = false }: { p: StoreProd
         </svg>
         {p.image && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={p.focus ? { objectPosition: `${p.focus.x}% ${p.focus.y}%` } : undefined} />
+          <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={focusStyle(p.focus)} />
         )}
       </div>
     );
@@ -143,7 +152,7 @@ export function ProductImage({ p, className = "", flat = false }: { p: StoreProd
       </svg>
       {p.image && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={p.focus ? { objectPosition: `${p.focus.x}% ${p.focus.y}%` } : undefined} />
+        <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={focusStyle(p.focus)} />
       )}
     </div>
   );
@@ -165,8 +174,18 @@ export function picStyle(p?: { x: number; y: number; zoom: number }): React.CSSP
 }
 
 /** Readable text color on top of the brand color. */
+/* A background the merchant chose: one color ("#004956"), or a gradient from one color to another ("linear-gradient(135deg, #a, #b)") */
+export const isGradient = (v?: string) => !!v && v.trim().startsWith("linear-gradient");
+/** The colors of a gradient (or the one color), so text on it can be made readable */
+export const fillColors = (v: string): string[] => (isGradient(v) ? v.match(/#[0-9a-f]{6}/gi) ?? [] : [v]);
+export const gradientOf = (a: string, b: string) => `linear-gradient(135deg, ${a}, ${b})`;
+/* A moving gradient: the two colors flow into each other slowly. It is written at -45deg, which the page's style sheet
+   recognizes and animates (globals.css, "dk-flow"); a visitor who asked for less motion sees it still. */
+export const flowingOf = (a: string, b: string) => `linear-gradient(-45deg, ${a}, ${b}, ${a}, ${b})`;
+export const isFlowing = (v?: string) => !!v && v.trim().startsWith("linear-gradient(-45deg");
+
 export function onColor(hex: string): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  const m = /^#?([0-9a-f]{6})$/i.exec((fillColors(hex)[0] ?? hex).trim());
   if (!m) return "#ffffff";
   const n = parseInt(m[1], 16);
   const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {

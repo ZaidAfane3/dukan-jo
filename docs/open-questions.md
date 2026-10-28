@@ -23,3 +23,10 @@ Dukkan Ship, the store pays for it. The delivery fee (3 JOD per order) is deduct
 paid out to the merchant, and the customer pays no delivery. The owner also said a percentage is "added"; we still
 need to confirm what that percentage is (Dukkan's commission on the order, or on the delivery fee).
 
+## Confirming before deleting an order (C8)
+
+DECIDED (owner, 2026-10-28): deleting an order asks for a reason. The dialog has a required multi-line field
+("This reason will be sent to Dukkan in case anything goes wrong." / "سيتم إرسال هذا السبب إلى دكّان في حال حدوث أي مشكلة.")
+and "Yes, delete" stays off until it holds at least 5 visible characters. The reason is saved with the deletion and
+sent to Dukkan (backend details: docs/forms-and-uploads-notes.md, "Deleting an order"). No password or code is asked.
+Still open: whether other deletions (products, coupons) should ask for a reason too.

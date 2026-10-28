@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
+import { cleanOrder, cleanProduct, parseList } from "./records";
 
 type Result = { id: string; group: 0 | 1 | 2; label: string; sub?: string; href: string };
 
@@ -44,10 +45,11 @@ const norm = (s: string) =>
     .replace(/ة/g, "ه")
     .trim();
 
-function read<T>(key: string): T[] {
+/* Saved orders and products, cleaned the same way their own pages clean them (anything broken is left out) */
+function read(key: "seen-orders" | "seen-products"): Record<string, unknown>[] {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T[]) : [];
+    return (key === "seen-orders" ? parseList(raw, cleanOrder) : parseList(raw, cleanProduct)) as unknown as Record<string, unknown>[];
   } catch {
     return [];
   }

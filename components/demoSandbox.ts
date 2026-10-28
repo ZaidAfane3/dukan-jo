@@ -109,6 +109,50 @@ export function installDemoIfActive() {
   };
 }
 
+/* Each account has its own store. While someone is signed in, everything saved in this browser is kept under that
+   account's name ("acct:<email>:seen-products"), so two accounts never see each other's store. The language, the
+   theme, the accounts themselves and Saad's private copies (saad-...) are shared. Nobody signed in: the plain keys. */
+const ACCOUNT = "dukkan-account";
+let account: string | null = null;
+let accountsOn = false;
+const shared = (k: string) => PASS.has(k) || k.startsWith("dukkan-") || k.startsWith("saad-");
+
+/** Called before any page reads its data, like the tour. The tour, when it runs, takes over instead. */
+export function installAccounts() {
+  if (accountsOn || !proto || !orig || demoActive()) return;
+  accountsOn = true;
+  try {
+    account = orig.get.call(window.localStorage, ACCOUNT);
+  } catch {
+    account = null;
+  }
+  const o = orig;
+  const scoped = (s: Storage, k: string) => (account && s === window.localStorage && !shared(k) ? `acct:${account}:${k}` : k);
+  proto.getItem = function (this: Storage, k: string) {
+    return o.get.call(this, scoped(this, k));
+  };
+  proto.setItem = function (this: Storage, k: string, v: string) {
+    return o.set.call(this, scoped(this, k), v);
+  };
+  proto.removeItem = function (this: Storage, k: string) {
+    return o.remove.call(this, scoped(this, k));
+  };
+}
+
+/** Signs in to an account (its store is used from now on), or out (null) */
+export function signInAs(email: string | null) {
+  account = email;
+  try {
+    if (email) orig?.set.call(window.localStorage, ACCOUNT, email);
+    else orig?.remove.call(window.localStorage, ACCOUNT);
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/** The email of the account signed in, or null */
+export const signedInAs = () => account;
+
 /** True while the platform tour runs. False on the first render, so the page matches what the server sent. */
 export function useDemo(): boolean {
   const [on, setOn] = useState(false);

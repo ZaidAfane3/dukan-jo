@@ -5,39 +5,35 @@ import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { FlagJO } from "./Flag";
 import { usePrefs } from "./Prefs";
-import { latin } from "./digits";
+import { isJordanMobile, jordanMobile, phoneError, typedPhone } from "./phone";
+import { cleanDate, cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
+import { ACCOUNT_LIMITS, cleanProfile, DOB_MIN, dobError, passwordError, type Profile } from "./safeAccount";
 
 const PROFILE_KEY = "seen-account-profile";
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 const field =
   "h-12 w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
-
-type Profile = {
-  name: string;
-  email: string;
-  phone: string;
-  dob: string;
-  gender: "male" | "female" | "";
-  city: string;
-};
+/* a field with a mistake in it */
+const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const EMPTY: Profile = { name: "", email: "", phone: "", dob: "", gender: "", city: "" };
 
 function loadProfile(): Profile {
   try {
-    const raw = sessionStorage.getItem(PROFILE_KEY);
-    return { ...EMPTY, ...(raw ? JSON.parse(raw) : {}) };
+    /* anything can be written into this browser storage: a wrong field comes back empty */
+    return cleanProfile(JSON.parse(sessionStorage.getItem(PROFILE_KEY) ?? "null"));
   } catch {
     return EMPTY;
   }
 }
 
-const digits = (v: string) => v.replace(/\D/g, "").length;
-
-function Field({ label, children, error }: { label: string; children: React.ReactNode; error?: string }) {
+function Field({ label, children, error, id, required = false }: { label: string; children: React.ReactNode; error?: string; id?: string; required?: boolean }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-semibold">{label}</label>
+      <label htmlFor={id} className="mb-2 block text-sm font-semibold">
+        {label}
+        {required && <span className="ms-1 text-rose-600" aria-hidden>*</span>}
+      </label>
       {children}
       {error && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}
     </div>
@@ -64,7 +60,10 @@ export function Settings() {
   const [confirm, setConfirm] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState("");
+  /* The profile as last loaded or saved, to know if there are unsaved changes */
+  const [kept, setKept] = useState(JSON.stringify(EMPTY));
   const today = new Date().toISOString().slice(0, 10);
+  const dirty = JSON.stringify(p) !== kept || current !== "" || next !== "" || confirm !== "";
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${s.tab}`;
@@ -72,34 +71,60 @@ export function Settings() {
 
   /* What he typed at signup, plus anything saved here before. */
   useEffect(() => {
-    setP(loadProfile());
+    const loaded = loadProfile();
+    setP(loaded);
+    setKept(JSON.stringify(loaded));
   }, []);
+
+  /* Leaving the page with unsaved changes asks first */
+  useEffect(() => {
+    if (!dirty) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [dirty]);
 
   const set = <K extends keyof Profile>(key: K, value: Profile[K]) => setP((old) => ({ ...old, [key]: value }));
 
   const save = () => {
     const e: Record<string, string> = {};
-    if (p.name.trim().length < 2) e.name = s.errors.name;
-    if (!/^\S+@\S+\.\S+$/.test(p.email)) e.email = s.errors.email;
-    if (digits(p.phone) < 8) e.phone = s.errors.phone;
+    if (visibleLength(p.name) < 2) e.name = s.errors.name;
+    if (!emailOf(p.email)) e.email = s.errors.email;
+    if (!isJordanMobile(p.phone)) e.phone = phoneError[lang];
     if (p.dob && p.dob > today) e.dob = s.errors.dob;
+    else if (p.dob && !cleanDate(p.dob, DOB_MIN, today)) e.dob = dobError[lang];
 
     /* Passwords are only checked, never stored. */
     const changing = current !== "" || next !== "" || confirm !== "";
     if (changing) {
-      if (current === "") e.current = s.errors.current;
-      if (next.length < 8) e.next = s.errors.short;
+      if (isBlank(current)) e.current = s.errors.current;
+      const pw = passwordProblem(next);
+      if (pw) e.next = pw === "short" ? s.errors.short : passwordError[pw][lang];
       else if (next !== confirm) e.confirm = s.errors.mismatch;
     }
     setErrors(e);
-    if (Object.keys(e).length) return;
+    /* the first field with a mistake comes into view with the cursor in it */
+    const first = (["name", "phone", "email", "dob", "current", "next", "confirm"] as const).find((k) => e[k]);
+    if (first) {
+      const el = document.getElementById(`set-${first}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
+      return;
+    }
 
+    /* what is kept: the name cleaned, the email in lower case and the 9 digits of the mobile */
+    const clean: Profile = { ...cleanProfile(p), name: cleanLine(p.name, ACCOUNT_LIMITS.name), email: emailOf(p.email), phone: jordanMobile(p.phone) };
     try {
-      sessionStorage.setItem(PROFILE_KEY, JSON.stringify(p));
-      sessionStorage.setItem("seen-account-phone", p.phone.trim());
+      sessionStorage.setItem(PROFILE_KEY, JSON.stringify(clean));
+      sessionStorage.setItem("seen-account-phone", clean.phone);
     } catch {
       /* storage unavailable: the page still behaves, nothing is kept */
     }
+    setP(clean);
+    setKept(JSON.stringify(clean));
     setCurrent("");
     setNext("");
     setConfirm("");
@@ -131,28 +156,30 @@ export function Settings() {
         <section id="account" className={`${card} scroll-mt-24`}>
           <h2 className="text-xl font-bold">{s.account.title}</h2>
           <div className="mt-6 grid gap-5 md:grid-cols-2">
-            <Field label={s.account.name} error={errors.name}>
-              <input value={p.name} onChange={(e) => set("name", e.target.value)} autoComplete="name" className={field} />
+            <Field label={s.account.name} error={errors.name} id="set-name" required>
+              <input id="set-name" aria-invalid={!!errors.name} maxLength={ACCOUNT_LIMITS.name * 2} value={p.name} onChange={(e) => set("name", e.target.value)} autoComplete="name" className={`${field} ${errors.name ? bad : ""}`} />
             </Field>
-            <Field label={s.account.phone} error={errors.phone}>
-              <span dir="ltr" className="flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25">
+            <Field label={s.account.phone} error={errors.phone} id="set-phone" required>
+              <span dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${errors.phone ? "!border-rose-500 focus-within:!ring-rose-500/25" : ""}`}>
                 <span className="flex h-full items-center gap-2 border-e border-fg/15 bg-soft/60 px-3 font-semibold">
                   <FlagJO />+962
                 </span>
                 <input
+                  id="set-phone"
+                  aria-invalid={!!errors.phone}
                   type="tel"
                   inputMode="tel"
                   value={p.phone}
-                  onChange={(e) => set("phone", latin(e.target.value).replace(/[^\d\s]/g, "").replace(/^[\s0]+/, ""))}
+                  onChange={(e) => set("phone", typedPhone(e.target.value))}
                   className="h-full flex-1 bg-transparent px-3 outline-none"
                 />
               </span>
             </Field>
-            <Field label={s.account.email} error={errors.email}>
-              <input type="email" dir="ltr" value={p.email} onChange={(e) => set("email", e.target.value)} autoComplete="email" className={`${field} text-start`} />
+            <Field label={s.account.email} error={errors.email} id="set-email" required>
+              <input id="set-email" aria-invalid={!!errors.email} type="email" dir="ltr" maxLength={254} value={p.email} onChange={(e) => set("email", e.target.value)} autoComplete="email" className={`${field} text-start ${errors.email ? bad : ""}`} />
             </Field>
-            <Field label={s.account.dob} error={errors.dob}>
-              <input type="date" value={p.dob} max={today} onChange={(e) => set("dob", e.target.value)} className={field} />
+            <Field label={s.account.dob} error={errors.dob} id="set-dob">
+              <input id="set-dob" aria-invalid={!!errors.dob} type="date" value={p.dob} min={DOB_MIN} max={today} onChange={(e) => set("dob", e.target.value)} className={`${field} ${errors.dob ? bad : ""}`} />
             </Field>
           </div>
 
@@ -165,8 +192,8 @@ export function Settings() {
             </Field>
 
             <div className="grid gap-5 md:grid-cols-2">
-              <Field label={s.account.city}>
-                <select value={p.city} onChange={(e) => set("city", e.target.value)} className={field}>
+              <Field label={s.account.city} id="set-city">
+                <select id="set-city" value={p.city} onChange={(e) => set("city", e.target.value)} className={field}>
                   <option value="">{s.account.cityPh}</option>
                   {cities.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -181,15 +208,15 @@ export function Settings() {
         <section className={card}>
           <h2 className="text-xl font-bold">{s.password.title}</h2>
           <div className="mt-6 space-y-5">
-            <Field label={s.password.current} error={errors.current}>
-              <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder={s.password.ph} autoComplete="current-password" className={field} />
+            <Field label={s.password.current} error={errors.current} id="set-current">
+              <input id="set-current" aria-invalid={!!errors.current} type="password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder={s.password.ph} autoComplete="current-password" className={`${field} ${errors.current ? bad : ""}`} />
             </Field>
             <div className="grid gap-5 md:grid-cols-2">
-              <Field label={s.password.next} error={errors.next}>
-                <input type="password" value={next} onChange={(e) => setNext(e.target.value)} placeholder={s.password.ph} autoComplete="new-password" className={field} />
+              <Field label={s.password.next} error={errors.next} id="set-next">
+                <input id="set-next" aria-invalid={!!errors.next} type="password" value={next} onChange={(e) => setNext(e.target.value)} placeholder={s.password.ph} autoComplete="new-password" className={`${field} ${errors.next ? bad : ""}`} />
               </Field>
-              <Field label={s.password.confirm} error={errors.confirm}>
-                <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={s.password.ph} autoComplete="new-password" className={field} />
+              <Field label={s.password.confirm} error={errors.confirm} id="set-confirm">
+                <input id="set-confirm" aria-invalid={!!errors.confirm} type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={s.password.ph} autoComplete="new-password" className={`${field} ${errors.confirm ? bad : ""}`} />
               </Field>
             </div>
             <p className="text-xs text-muted">{s.password.note}</p>

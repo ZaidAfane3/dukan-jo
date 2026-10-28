@@ -5,14 +5,12 @@ import { brandName, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
+import { cleanDomain, isSlug, RESERVED_SLUGS, SLUG_RULE, typedSlug } from "./safe";
+import { ACCOUNT_LIMITS, cleanDomains, reservedSlugError, type CustomDomain as Custom } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
-
-type Custom = { id: number; name: string; added: number };
 
 const KEY = "seen-domains";
 const PREFIX = "dukkan.store/";
-const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
-const DOMAIN_RULE = /^(?!-)([a-z0-9-]{1,63}\.)+[a-z]{2,}$/;
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
@@ -93,7 +91,8 @@ const copy = {
 function load(): Custom[] {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Custom[]) : [];
+    /* anything can be written into this browser storage: only real domains are kept */
+    return raw ? cleanDomains(JSON.parse(raw)) : [];
   } catch {
     return [];
   }
@@ -178,8 +177,8 @@ export function Domain() {
 
   const saveSlug = () => {
     const v = draft.trim();
-    if (!SLUG_RULE.test(v)) {
-      setSlugError(c.invalid);
+    if (!isSlug(v)) {
+      setSlugError(SLUG_RULE.test(v) && RESERVED_SLUGS.has(v) ? reservedSlugError[lang] : c.invalid);
       return;
     }
     const s = loadSetup();
@@ -192,9 +191,10 @@ export function Domain() {
 
   const addDomain = (e: React.FormEvent) => {
     e.preventDefault();
-    const v = name.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
-    if (!DOMAIN_RULE.test(v)) return setNameError(c.errDomain);
+    const v = cleanDomain(name);
+    if (!v) return setNameError(c.errDomain);
     if (list.some((d) => d.name === v)) return setNameError(c.errDup);
+    if (list.length >= ACCOUNT_LIMITS.domains) return setNameError(c.errDomain);
     setList((l) => [...l, { id: l.reduce((m, d) => Math.max(m, d.id), 0) + 1, name: v, added: Date.now() }]);
     setName("");
     setNameError("");
@@ -250,7 +250,7 @@ export function Domain() {
                   autoFocus
                   value={draft}
                   onChange={(e) => {
-                    setDraft(e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30));
+                    setDraft(typedSlug(e.target.value));
                     setSlugError("");
                   }}
                   onKeyDown={(e) => e.key === "Enter" && saveSlug()}

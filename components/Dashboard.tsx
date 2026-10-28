@@ -8,7 +8,7 @@ import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./Reports";
 import { demoActive } from "./demoSandbox";
 import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";
-import { latin } from "./digits";
+import { cleanOrder, money, parseList, typedMoney } from "./records";
 
 const TOTAL_TASKS = 6;
 
@@ -82,7 +82,7 @@ export function Dashboard() {
       setSample(true);
       setTour(true);
       try {
-        const list = JSON.parse(localStorage.getItem("seen-orders") ?? "[]") as { customer: string; total: number; status: StatusKey; created: number }[];
+        const list = parseList(localStorage.getItem("seen-orders"), cleanOrder);
         setTourOrders(list.sort((a, b) => b.created - a.created).slice(0, 3).map((x) => ({ name: x.customer, total: String(x.total), status: x.status })));
       } catch {
         /* the sample list stays */
@@ -145,20 +145,7 @@ export function Dashboard() {
             <h1 className="text-2xl font-extrabold">{name ? h.welcome.replace("{name}", name) : h.welcomeNoName}</h1>
             <p className="mt-1 text-sm text-muted">{h.welcomeSub}</p>
           </div>
-          {!tour && <label className="flex cursor-pointer items-center gap-3 text-sm font-medium">
-            {r.sampleToggle}
-            <button
-              type="button"
-              role="switch"
-              aria-checked={sample}
-              onClick={() => setSample((s) => !s)}
-              className={`relative h-6 w-11 rounded-full transition-colors ${sample ? "bg-primary" : "bg-fg/20"}`}
-            >
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${sample ? "start-[1.375rem]" : "start-0.5"}`} />
-            </button>
-          </label>}
         </div>
-        {sample && !tour && <p className="rounded-xl bg-primary/15 px-4 py-2 text-center text-sm font-medium text-deep dark:text-primary">{r.sampleNote}</p>}
 
         {/* Setup progress. The tour shows a store that is already running, so it has none. */}
         {!tour && (
@@ -262,7 +249,7 @@ export function Dashboard() {
                 className="flex flex-wrap items-center gap-3"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  const v = parseFloat(goalText);
+                  const v = money(goalText) ?? 0;
                   if (v > 0) {
                     setGoal(v);
                     setGoalOpen(false);
@@ -271,8 +258,8 @@ export function Dashboard() {
                 }}
               >
                 <label className="text-sm font-bold" htmlFor="goal">{h.goalLabel}</label>
-                <input id="goal" value={goalText} onChange={(e) => setGoalText(latin(e.target.value).replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder={cur} dir="ltr" className="h-11 w-40 rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
-                <button type="submit" disabled={!(parseFloat(goalText) > 0)} className="h-11 rounded-xl bg-ink px-5 text-sm font-semibold text-onink transition enabled:hover:bg-deep disabled:cursor-not-allowed disabled:opacity-50">{h.goalSave}</button>
+                <input id="goal" value={goalText} onChange={(e) => setGoalText(typedMoney(e.target.value))} inputMode="decimal" placeholder={cur} dir="ltr" className="h-11 w-40 rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+                <button type="submit" disabled={!((money(goalText) ?? 0) > 0)} className="h-11 rounded-xl bg-ink px-5 text-sm font-semibold text-onink transition enabled:hover:bg-deep disabled:cursor-not-allowed disabled:opacity-50">{h.goalSave}</button>
               </form>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-4">

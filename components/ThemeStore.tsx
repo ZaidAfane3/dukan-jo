@@ -5,9 +5,10 @@ import { useEffect, useState } from "react";
 import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
+import { PreviewEye, PreviewWindow } from "./ThemePopup";
 import { ThemePreview } from "./ThemePreview";
 import { themeWords } from "./themesContent";
-import { buyTheme, loadThemeState, themes, type ThemeInfo, type ThemeState } from "./themes";
+import { buyTheme, isFreeTheme, loadThemeState, themes, type ThemeInfo, type ThemeState } from "./themes";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 
@@ -19,6 +20,7 @@ const methods = [
   { key: "paypal", logo: "/logos/paypal.png", h: "h-5" },
 ] as const;
 
+/* A small eye beside a theme's name: it opens the theme in a new tab, as a whole store, to look at */
 export function ThemeStore() {
   const { lang } = usePrefs();
   const w = themeWords[lang];
@@ -30,7 +32,7 @@ export function ThemeStore() {
     document.title = `${brandName(lang)} | ${w.store.title}`;
   }, [lang, w]);
   useEffect(() => setState(loadThemeState()), []);
-  /* Opened from the designer on one theme (?theme=lujain): that theme is brought into view and marked for a moment */
+  /* Opened from the designer on one theme (?theme=lamma): that theme is brought into view and marked for a moment */
   const [focus, setFocus] = useState("");
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("theme");
@@ -54,8 +56,11 @@ export function ThemeStore() {
           <p className="mt-1 text-sm text-muted">{w.store.sub}</p>
         </div>
 
-        {themes.map((t) => {
-          const owned = state.owned.some((o) => o.id === t.id);
+        {/* only the themes still offered (a theme taken out of the store is not listed) */}
+        {themes.filter((t) => t.inStore !== false).map((t) => {
+          /* a free design (Mada) is every merchant's already: no checkout, it waits in My themes */
+          const free = isFreeTheme(t.id);
+          const owned = free || state.owned.some((o) => o.id === t.id);
           return (
             <section key={t.id} id={`theme-${t.id}`} className={`${card} grid scroll-mt-24 items-start gap-7 transition-shadow duration-700 lg:grid-cols-[1.1fr_1fr] ${focus === t.id ? "!ring-2 !ring-primary shadow-xl" : ""}`}>
               {/* Pressing the picture opens the preview, like the Preview button */}
@@ -84,7 +89,10 @@ export function ThemeStore() {
                     <span key={x.en} className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{x[lang]}</span>
                   ))}
                 </div>
-                <h2 className="mt-4 text-2xl font-extrabold">{t.name[lang]}</h2>
+                <div className="mt-4 flex items-center gap-3">
+                  <h2 className="text-2xl font-extrabold">{t.name[lang]}</h2>
+                  <PreviewEye onOpen={() => setPreviewing(t)} />
+                </div>
                 <p className="mt-1 font-semibold text-primary">{t.tagline[lang]}</p>
                 <p className="mt-3 text-sm leading-relaxed text-muted">{t.about[lang]}</p>
 
@@ -102,7 +110,7 @@ export function ThemeStore() {
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   {owned ? (
                     <>
-                      <span className="rounded-full bg-emerald-500/15 px-4 py-2 text-sm font-bold text-emerald-700 dark:text-emerald-400">{w.store.owned}</span>
+                      <span className="rounded-full bg-emerald-500/15 px-4 py-2 text-sm font-bold text-emerald-700 dark:text-emerald-400">{free ? w.store.freeOwned : w.store.owned}</span>
                       <Link href="/themes/mine" className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold leading-[2.75rem] text-onink transition hover:bg-deep">{w.store.goMine}</Link>
                     </>
                   ) : (
@@ -120,15 +128,7 @@ export function ThemeStore() {
         <p className="text-center text-sm text-muted">{w.store.more}</p>
       </main>
 
-      {previewing && (
-        <Modal onClose={() => setPreviewing(null)} label={w.previewTitle} wide>
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-bold">{previewing.name[lang]}</h2>
-            <button type="button" onClick={() => setPreviewing(null)} className="h-9 rounded-lg border border-fg/20 px-4 text-sm font-semibold transition hover:bg-soft">{w.close}</button>
-          </div>
-          <ThemePreview theme={previewing} height="64vh" scroll />
-        </Modal>
-      )}
+      {previewing && <PreviewWindow theme={previewing} onClose={() => setPreviewing(null)} />}
 
       {buying && (
         <Checkout

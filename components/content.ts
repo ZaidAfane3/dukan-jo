@@ -55,6 +55,10 @@ export type Content = {
     phonePh: string;
     password: string;
     passwordPh: string;
+    passwordHint: string;
+    errName: string;
+    errEmail: string;
+    errPassword: string;
     showPassword: string;
     hidePassword: string;
     register: string;
@@ -64,6 +68,9 @@ export type Content = {
     forgot: string;
     or: string;
     guest: string;
+    errTaken: string;
+    errNoAccount: string;
+    errWrongPassword: string;
     terms: { before: string; terms: string; and: string; privacy: string };
     side: { kicker: string; heading: string; panelTitle: string; steps: string[]; caption: string };
   };
@@ -97,6 +104,8 @@ export type Content = {
     colorLabel: string;
     colorHint: string;
     save: string;
+    requiredNote: string;
+    errName: string;
     product: {
       typeQuestion: string;
       types: { title: string; desc: string }[];
@@ -119,6 +128,7 @@ export type Content = {
       kg: string;
       quantityLabel: string;
       quantityPh: string;
+      errQuantity: string;
       unlimited: string;
       limited: string;
       previewEmpty: string;
@@ -128,6 +138,9 @@ export type Content = {
       addToCart: string;
       buyNow: string;
       add: string;
+      errName: string;
+      errPrice: string;
+      errWeight: string;
     };
     shipping: {
       label: string;
@@ -169,6 +182,8 @@ export type Content = {
       features: string[];
       previewSeen: string;
       errCity: string;
+      errName: string;
+      errAddress: string;
     };
     service: { label: string; hint: string; phoneLabel: string; phonePh: string; invalid: string; previewHint: string; contact: string; useSame: string; registered: string; otherLabel: string };
     domain: {
@@ -178,6 +193,7 @@ export type Content = {
       ph: string;
       examples: string;
       invalid: string;
+      errEmpty: string;
       previewHint: string;
       suggest: string;
       fallback: string;
@@ -312,13 +328,23 @@ export type Content = {
       save: string;
       cancel: string;
       saved: string;
-      errName: string;
+      nameHint: string;
+      description: string;
+      descriptionPh: string;
+      descriptionHint: string;
       errCode: string;
       errValue: string;
       errPercent: string;
       errDates: string;
       errDays: string;
+      errDup: string;
+      errPast: string;
+      errOverMin: string;
+      example: string;
     };
+    turnOn: string;
+    turnOff: string;
+    expiredOff: string;
   };
   sidebar: {
     collapse: string;
@@ -334,7 +360,7 @@ export type Content = {
     tabs: string[];
     empty: string;
     viewAll: string;
-    templates: Record<"welcome" | "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated", string>;
+    templates: Record<"welcome" | "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated", string>;
   };
   support: {
     title: string;
@@ -347,6 +373,13 @@ export type Content = {
     category: string;
     message: string;
     messagePh: string;
+    pictures: string;
+    optional: string;
+    picturesHint: string;
+    addPicture: string;
+    removePicture: string;
+    picturesFull: string;
+    picturesCount: string;
     send: string;
     cancel: string;
     close: string;
@@ -389,7 +422,6 @@ export type Content = {
     errors: {
       name: string;
       email: string;
-      phone: string;
       dob: string;
       current: string;
       short: string;
@@ -468,6 +500,10 @@ export const content: Record<Lang, Content> = {
       phonePh: "7X XXX XXXX",
       password: "Password",
       passwordPh: "Enter your password",
+      passwordHint: "8 characters at least",
+      errName: "Enter your full name.",
+      errEmail: "Enter a valid email address, e.g. name@example.com",
+      errPassword: "The password must be at least 8 characters.",
       showPassword: "Show password",
       hidePassword: "Hide password",
       register: "Register",
@@ -477,6 +513,9 @@ export const content: Record<Lang, Content> = {
       forgot: "Forgot your password?",
       or: "or",
       guest: "Continue without an account",
+      errTaken: "This email already has an account. Log in instead.",
+      errNoAccount: "No account with this email or number. Create one first.",
+      errWrongPassword: "The password is not right. Try again.",
       terms: {
         before: "By creating an account, you agree to Dukkan's ",
         terms: "Terms of Service",
@@ -528,13 +567,15 @@ export const content: Record<Lang, Content> = {
       colorLabel: "Store color",
       colorHint: "Choose the main color for your storefront.",
       save: "Save",
+      requiredNote: "Fields with * must be filled",
+      errName: "Enter a store name, at least 2 letters.",
       product: {
         typeQuestion: "What type of product do you want to add?",
         types: [
-          { title: "Ready product", desc: "Physical items you ship to customers" },
-          { title: "Digital product", desc: "E-books, files and recorded courses" },
-          { title: "Digital card", desc: "Gift cards and prepaid codes to resell" },
-          { title: "Food", desc: "Meals and drinks that need special shipping" },
+          { title: "A product you ship", desc: "Clothes, perfumes, devices… needs delivery" },
+          { title: "A file to download", desc: "E-books, courses, designs… delivered instantly" },
+          { title: "A card or code", desc: "Gift cards, subscriptions, activation codes" },
+          { title: "Food & same-day orders", desc: "Meals and sweets delivered within hours" },
         ],
         dataTitle: "Add product details",
         imageAdd: "Add a new image",
@@ -555,6 +596,7 @@ export const content: Record<Lang, Content> = {
         kg: "kg",
         quantityLabel: "Quantity",
         quantityPh: "Set the quantity available for sale",
+        errQuantity: "Enter how many you have, or choose unlimited.",
         unlimited: "Unlimited quantity",
         limited: "Limited quantity",
         previewEmpty: "Enter product data to see it here",
@@ -564,6 +606,9 @@ export const content: Record<Lang, Content> = {
         addToCart: "Add to cart",
         buyNow: "Buy now",
         add: "Add product",
+        errName: "Enter a product name, at least 2 letters.",
+        errPrice: "Enter a price above 0.",
+        errWeight: "Enter the product weight in kg.",
       },
       shipping: {
         label: "Shipping method",
@@ -574,7 +619,7 @@ export const content: Record<Lang, Content> = {
         namePhs: ["Enter the company name", "Enter the person's name"],
         phoneLabel: "Their phone number",
         phoneHint: "The number we can reach them on.",
-        phoneInvalid: "Enter a valid phone number, at least 8 digits.",
+        phoneInvalid: "Enter a valid Jordan mobile number, e.g. 0791234567",
         proofLabel: "Proof for this partner",
         proofHint: "Add any documents that show who they are, such as a commercial registration, ID, a contract or delivery receipts.",
         proofAdd: "Upload your documents",
@@ -608,13 +653,15 @@ export const content: Record<Lang, Content> = {
         features: ["Pickup from your address", "Tracking for every order", "Flat price, no contracts"],
         previewSeen: "This is how Dukkan Ship will appear in your account",
         errCity: "Choose a pickup city.",
+        errName: "Enter their name, at least 2 letters.",
+        errAddress: "Enter the pickup address: area, street and building.",
       },
       service: {
         label: "Customer service number",
         hint: "Add the number you want to receive your customers' inquiries on.",
         phoneLabel: "Phone number",
         phonePh: "7X XXX XXXX",
-        invalid: "Enter a valid phone number, at least 8 digits.",
+        invalid: "Enter a valid Jordan mobile number, e.g. 0791234567",
         previewHint: "Your number appears in your store footer",
         contact: "Contact us",
         useSame: "Use the same number registered in your account",
@@ -628,6 +675,7 @@ export const content: Record<Lang, Content> = {
         ph: "domain",
         examples: "Examples: dukkan.store/brandname or dukkan.store/brand-name",
         invalid: "Use 3 to 30 letters (a to z), numbers or hyphens. It can't start or end with a hyphen.",
+        errEmpty: "Choose your store domain.",
         previewHint: "Your domain appears in the browser tab and when your store is shared",
         suggest: "Use",
         fallback: "your-store",
@@ -831,13 +879,23 @@ export const content: Record<Lang, Content> = {
         save: "Save coupon",
         cancel: "Cancel",
         saved: "Coupon saved",
-        errName: "Enter a coupon name.",
+        nameHint: "Optional. Leave empty to use the code.",
+        description: "Description",
+        descriptionPh: "For example: 10% off everything for our summer customers",
+        descriptionHint: "Optional. A note about the coupon, up to 300 characters.",
         errCode: "Use 3 to 16 letters or numbers for the code.",
         errValue: "Enter a valid discount value.",
         errPercent: "A percentage must be between 1 and 100.",
         errDates: "The end date must be after the start date.",
         errDays: "Enter a number of days between 1 and 365.",
+        errDup: "You already have a coupon with this code.",
+        errPast: "The end date has already passed. Pick today or a later date.",
+        errOverMin: "The discount can't be more than the minimum order amount.",
+        example: "e.g.",
       },
+      turnOn: "Turn on coupon {code}",
+      turnOff: "Turn off coupon {code}",
+      expiredOff: "This coupon has expired. Change its end date to turn it on again.",
     },
     sidebar: {
       collapse: "Collapse menu",
@@ -857,6 +915,7 @@ export const content: Record<Lang, Content> = {
         welcome: "Welcome to {brand}! Finish setting up your store to start selling.",
         taskDone: "You completed: {task}",
         couponCreated: "Coupon {code} was created",
+        orderCreated: "New order #{id} from {name}: {total}",
         reminderSent: "A reminder was sent to {name}",
         ticketCreated: "Support ticket {id} was created",
       },
@@ -865,13 +924,20 @@ export const content: Record<Lang, Content> = {
       title: "Support tickets",
       newTicket: "New ticket",
       cols: ["Ticket", "Category", "Status", "Created", "Actions"],
-      categories: ["Orders", "Payments", "Technical issue", "Website design", "Suggestions", "Other"],
+      categories: ["Orders", "Payments", "Technical issue", "Store design", "Suggestions", "Other"],
       statuses: ["Open", "Closed"],
       subject: "Subject",
       subjectPh: "What do you need help with?",
       category: "Category",
       message: "Message",
       messagePh: "Describe the problem with as much detail as you can.",
+      pictures: "Pictures",
+      optional: "Optional",
+      picturesHint: "Screenshots help us see the problem. Up to 5 pictures.",
+      addPicture: "Add a picture",
+      removePicture: "Remove this picture",
+      picturesFull: "You can add up to 5 pictures.",
+      picturesCount: "pictures",
       send: "Create ticket",
       cancel: "Cancel",
       close: "Close ticket",
@@ -885,7 +951,7 @@ export const content: Record<Lang, Content> = {
     settings: {
       tab: "Account settings",
       group: "General",
-      entries: ["Account settings", "Notifications"],
+      entries: ["Account settings", "Customize notifications"],
       back: "Back to home",
       save: "Save",
       saved: "Settings saved on this device. Prototype: nothing was sent.",
@@ -914,7 +980,6 @@ export const content: Record<Lang, Content> = {
       errors: {
         name: "Enter your name.",
         email: "Enter a valid email address.",
-        phone: "Enter a valid phone number, at least 8 digits.",
         dob: "The date of birth can't be in the future.",
         current: "Enter your current password to change it.",
         short: "The new password must be at least 8 characters.",
@@ -1041,6 +1106,10 @@ export const content: Record<Lang, Content> = {
       phonePh: "7X XXX XXXX",
       password: "كلمة المرور",
       passwordPh: "أدخل كلمة المرور",
+      passwordHint: "8 أحرف على الأقل",
+      errName: "أدخل اسمك الكامل.",
+      errEmail: "أدخل بريدًا إلكترونيًا صحيحًا، مثل name@example.com",
+      errPassword: "يجب ألا تقل كلمة المرور عن 8 أحرف.",
       showPassword: "إظهار كلمة المرور",
       hidePassword: "إخفاء كلمة المرور",
       register: "إنشاء الحساب",
@@ -1050,6 +1119,9 @@ export const content: Record<Lang, Content> = {
       forgot: "نسيت كلمة المرور؟",
       or: "أو",
       guest: "المتابعة بدون حساب",
+      errTaken: "يوجد حساب بهذا البريد. سجّل الدخول بدلًا من ذلك.",
+      errNoAccount: "لا يوجد حساب بهذا البريد أو الرقم. أنشئ حسابًا أولًا.",
+      errWrongPassword: "كلمة المرور غير صحيحة. حاول مرة أخرى.",
       terms: {
         before: "بإنشائك حسابًا، فإنك توافق على ",
         terms: "شروط الاستخدام",
@@ -1101,13 +1173,15 @@ export const content: Record<Lang, Content> = {
       colorLabel: "لون المتجر",
       colorHint: "اختر اللون الرئيسي لواجهة متجرك.",
       save: "حفظ",
+      requiredNote: "الحقول التي عليها * مطلوبة",
+      errName: "أدخل اسم المتجر، حرفان على الأقل.",
       product: {
         typeQuestion: "ما نوع المنتج الذي تود إضافته؟",
         types: [
-          { title: "منتج جاهز", desc: "منتجات ملموسة وقابلة للشحن" },
-          { title: "منتج رقمي", desc: "كتب وملفات إلكترونية ودورات مسجّلة" },
-          { title: "بطاقة رقمية", desc: "بطاقات هدايا وأكواد مسبقة الدفع لإعادة بيعها" },
-          { title: "أكل", desc: "مأكولات ومشروبات تتطلب شحنًا خاصًا" },
+          { title: "منتج يُشحن", desc: "ملابس، عطور، أجهزة… يحتاج توصيلًا" },
+          { title: "ملف للتحميل", desc: "كتب إلكترونية، دورات، تصاميم… يصل للعميل فورًا" },
+          { title: "بطاقة أو رمز", desc: "بطاقات هدايا، اشتراكات، أكواد تفعيل" },
+          { title: "طعام وطلبات اليوم", desc: "أكل وحلويات تُوصَّل خلال ساعات" },
         ],
         dataTitle: "أضف بيانات المنتج",
         imageAdd: "أضف صورة جديدة",
@@ -1128,6 +1202,7 @@ export const content: Record<Lang, Content> = {
         kg: "كيلوغرام",
         quantityLabel: "الكمية",
         quantityPh: "حدّد الكمية المتوفرة للبيع",
+        errQuantity: "أدخل الكمية المتوفرة، أو اختر غير محدودة.",
         unlimited: "كمية لا محدودة",
         limited: "كمية محدودة",
         previewEmpty: "أدخل بيانات المنتج لمعاينة ظهوره هنا",
@@ -1137,6 +1212,9 @@ export const content: Record<Lang, Content> = {
         addToCart: "أضف للسلة",
         buyNow: "اشترِ الآن",
         add: "إضافة المنتج",
+        errName: "أدخل اسم المنتج، حرفان على الأقل.",
+        errPrice: "أدخل سعرًا أكبر من 0.",
+        errWeight: "أدخل وزن المنتج بالكيلوغرام.",
       },
       shipping: {
         label: "طريقة الشحن",
@@ -1147,7 +1225,7 @@ export const content: Record<Lang, Content> = {
         namePhs: ["أدخل اسم الشركة", "أدخل اسم الشخص"],
         phoneLabel: "رقم هاتفه",
         phoneHint: "الرقم الذي يمكننا التواصل معه عليه.",
-        phoneInvalid: "أدخل رقم هاتف صحيحًا من 8 أرقام على الأقل.",
+        phoneInvalid: "أدخل رقم موبايل أردني صحيح، مثل 0791234567",
         proofLabel: "إثباتات هذه الجهة",
         proofHint: "أضف أي مستندات تثبت هويتهم، مثل السجل التجاري أو الهوية أو عقد التعاون أو إيصالات التسليم.",
         proofAdd: "ارفع مستنداتك",
@@ -1181,13 +1259,15 @@ export const content: Record<Lang, Content> = {
         features: ["استلام من عنوانك", "تتبّع لكل طلب", "سعر ثابت بلا عقود"],
         previewSeen: "هكذا سيظهر شحن دكان في حسابك",
         errCity: "اختر مدينة الاستلام.",
+        errName: "أدخل الاسم، حرفان على الأقل.",
+        errAddress: "أدخل عنوان الاستلام: المنطقة والشارع والمبنى.",
       },
       service: {
         label: "رقم خدمة العملاء",
         hint: "أضف الرقم الذي تود استخدامه لتلقّي استفسارات عملائك.",
         phoneLabel: "رقم الجوال",
         phonePh: "7X XXX XXXX",
-        invalid: "أدخل رقم جوال صحيحًا من 8 أرقام على الأقل.",
+        invalid: "أدخل رقم موبايل أردني صحيح، مثل 0791234567",
         previewHint: "سيظهر رقمك في تذييل متجرك",
         contact: "تواصل معنا",
         useSame: "استخدام نفس الرقم المسجَّل في حسابك",
@@ -1201,6 +1281,7 @@ export const content: Record<Lang, Content> = {
         ph: "domain",
         examples: "أمثلة: dukkan.store/brandname أو dukkan.store/brand-name",
         invalid: "استخدم من 3 إلى 30 حرفًا لاتينيًا (a-z) أو أرقامًا أو شرطات، ولا يبدأ أو ينتهي بشرطة.",
+        errEmpty: "اختر دومين متجرك.",
         previewHint: "يظهر دومين متجرك في تبويب المتصفح وعند مشاركة المتجر",
         suggest: "استخدم",
         fallback: "your-store",
@@ -1404,13 +1485,23 @@ export const content: Record<Lang, Content> = {
         save: "حفظ الكوبون",
         cancel: "إلغاء",
         saved: "تم حفظ الكوبون",
-        errName: "أدخل اسم الكوبون.",
+        nameHint: "اختياري. اتركه فارغًا لاستخدام الرمز.",
+        description: "الوصف",
+        descriptionPh: "مثال: خصم 10% على كل المنتجات لعملائنا في الصيف",
+        descriptionHint: "اختياري. ملاحظة عن الكوبون، حتى 300 حرف.",
         errCode: "استخدم من 3 إلى 16 حرفًا أو رقمًا للرمز.",
         errValue: "أدخل قيمة خصم صحيحة.",
         errPercent: "يجب أن تكون النسبة بين 1 و100.",
         errDates: "يجب أن يكون تاريخ الانتهاء بعد تاريخ البداية.",
         errDays: "أدخل عدد أيام بين 1 و365.",
+        errDup: "لديك كوبون آخر بنفس الرمز.",
+        errPast: "تاريخ الانتهاء مضى. اختر اليوم أو تاريخًا لاحقًا.",
+        errOverMin: "لا يمكن أن يكون الخصم أكبر من الحد الأدنى للطلب.",
+        example: "مثال:",
       },
+      turnOn: "تفعيل الكوبون {code}",
+      turnOff: "إيقاف الكوبون {code}",
+      expiredOff: "انتهت صلاحية هذا الكوبون. غيّر تاريخ الانتهاء لتفعيله من جديد.",
     },
     sidebar: {
       collapse: "طي القائمة",
@@ -1430,6 +1521,7 @@ export const content: Record<Lang, Content> = {
         welcome: "أهلًا بك في {brand}! أكمل إعداد متجرك لتبدأ البيع.",
         taskDone: "أكملت مهمة: {task}",
         couponCreated: "تم إنشاء الكوبون {code}",
+        orderCreated: "طلب جديد رقم {id} من {name}: {total}",
         reminderSent: "أُرسل تذكير إلى {name}",
         ticketCreated: "تم إنشاء تذكرة الدعم {id}",
       },
@@ -1438,13 +1530,20 @@ export const content: Record<Lang, Content> = {
       title: "تذاكر الدعم",
       newTicket: "تذكرة جديدة",
       cols: ["التذكرة", "التصنيف", "الحالة", "تاريخ الإنشاء", "إجراءات"],
-      categories: ["الطلبات", "المدفوعات", "مشكلة تقنية", "تصميم موقع", "اقتراحات", "أخرى"],
+      categories: ["الطلبات", "المدفوعات", "مشكلة تقنية", "تصميم المتجر", "اقتراحات", "أخرى"],
       statuses: ["مفتوحة", "مغلقة"],
       subject: "الموضوع",
       subjectPh: "بماذا تحتاج المساعدة؟",
       category: "التصنيف",
       message: "الرسالة",
       messagePh: "اشرح المشكلة بأكبر قدر ممكن من التفاصيل.",
+      pictures: "الصور",
+      optional: "اختياري",
+      picturesHint: "لقطات الشاشة تساعدنا على فهم المشكلة. حتى 5 صور.",
+      addPicture: "أضف صورة",
+      removePicture: "احذف هذه الصورة",
+      picturesFull: "يمكنك إضافة 5 صور كحد أقصى.",
+      picturesCount: "صور",
       send: "إنشاء التذكرة",
       cancel: "إلغاء",
       close: "إغلاق التذكرة",
@@ -1458,7 +1557,7 @@ export const content: Record<Lang, Content> = {
     settings: {
       tab: "إعدادات الحساب",
       group: "عام",
-      entries: ["إعدادات الحساب", "الإشعارات"],
+      entries: ["إعدادات الحساب", "تخصيص الإشعارات"],
       back: "العودة إلى الرئيسية",
       save: "حفظ",
       saved: "تم حفظ الإعدادات على هذا الجهاز. هذا نموذج أولي، ولم يُرسل شيء.",
@@ -1487,7 +1586,6 @@ export const content: Record<Lang, Content> = {
       errors: {
         name: "أدخل اسمك.",
         email: "أدخل بريدًا إلكترونيًا صحيحًا.",
-        phone: "أدخل رقم جوال صحيحًا من 8 أرقام على الأقل.",
         dob: "لا يمكن أن يكون تاريخ الميلاد في المستقبل.",
         current: "أدخل كلمة المرور الحالية لتغييرها.",
         short: "يجب ألا تقل كلمة المرور الجديدة عن 8 أحرف.",

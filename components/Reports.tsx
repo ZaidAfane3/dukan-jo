@@ -6,6 +6,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { brandName, content, type Content, type ReportWidget, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
+import { cleanProduct, parseList } from "./records";
+import { cleanLine } from "./safe";
 
 /* ====================================================================
    Data. A brand-new store has no sales, so every figure starts at zero.
@@ -85,7 +87,7 @@ function useTourProducts(): string[] {
   useEffect(() => {
     if (!demoActive()) return;
     try {
-      const list = JSON.parse(localStorage.getItem("seen-products") ?? "[]") as { name: string; deletedAt?: number; hidden?: boolean }[];
+      const list = parseList(localStorage.getItem("seen-products"), cleanProduct);
       setNames(list.filter((p) => !p.deletedAt && !p.hidden).map((p) => p.name).slice(0, 10));
     } catch {
       /* the sample names stay */
@@ -449,10 +451,18 @@ export function Reports() {
   /* A report he sets up is kept in this browser as a saved definition (nothing is sent anywhere) */
   const createReport = (e: React.FormEvent) => {
     e.preventDefault();
-    if (reportName.trim().length < 2) return setReportError(true);
+    const name = cleanLine(reportName, 60);
+    if (name.length < 2) return setReportError(true);
     try {
-      const list = JSON.parse(localStorage.getItem("seen-reports") ?? "[]") as unknown[];
-      list.unshift({ id: Date.now(), name: reportName.trim(), section: reportSection, range: reportRange, format: reportFormat });
+      /* a saved list that is broken or not a list starts again */
+      let list: unknown[] = [];
+      try {
+        const old = JSON.parse(localStorage.getItem("seen-reports") ?? "[]");
+        if (Array.isArray(old)) list = old.filter((x) => x && typeof x === "object");
+      } catch {
+        /* broken: starts empty */
+      }
+      list.unshift({ id: Date.now(), name, section: reportSection, range: reportRange, format: reportFormat });
       localStorage.setItem("seen-reports", JSON.stringify(list));
     } catch {
       /* storage unavailable */
@@ -462,11 +472,6 @@ export function Reports() {
     setCreating(false);
     setReportToast(true);
     window.setTimeout(() => setReportToast(false), 2600);
-  };
-
-  const toggleSample = () => {
-    setSample((s) => !s);
-    setUpdatedAt(new Date());
   };
 
   const formatDate = (d: Date) =>
@@ -646,21 +651,8 @@ export function Reports() {
               <span dir="ltr" className="text-sm text-muted">{rangeText}</span>
             </div>
 
-            {!tour && <label className="flex cursor-pointer items-center gap-3 text-sm font-medium">
-              {r.sampleToggle}
-              <button
-                type="button"
-                role="switch"
-                aria-checked={sample}
-                onClick={toggleSample}
-                className={`relative h-6 w-11 rounded-full transition-colors ${sample ? "bg-primary" : "bg-fg/20"}`}
-              >
-                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${sample ? "start-[1.375rem]" : "start-0.5"}`} />
-              </button>
-            </label>}
           </div>
 
-          {sample && !tour && <p className="rounded-xl bg-primary/15 px-4 py-2 text-center text-sm font-medium text-deep dark:text-primary">{r.sampleNote}</p>}
 
           {section === 0 ? (
             <>

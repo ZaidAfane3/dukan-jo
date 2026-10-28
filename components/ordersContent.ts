@@ -41,6 +41,9 @@ type OrdersCopy = {
   status: string;
   delete: string;
   deleteAsk: string;
+  deleteReason: string;
+  deleteReasonPh: string;
+  deleteReasonHint: string;
   deleteYes: string;
   cancel: string;
   create: string;
@@ -51,6 +54,23 @@ type OrdersCopy = {
   paid: string;
   unpaid: string;
   paymentHint: string;
+  cancelledPay: string;
+  refundedPay: string;
+  changeStatus: string;
+  statusAsk: string;
+  statusYes: string;
+  statusNo: string;
+  phoneHint: string;
+  fulfil: string;
+  fulfilDelivery: string;
+  fulfilPickup: string;
+  city: string;
+  cityPh: string;
+  address: string;
+  addressPh: string;
+  errCity: string;
+  errAddress: string;
+  pickedUp: string;
   ago: string;
   title: string;
 };
@@ -90,6 +110,9 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     status: "Order status",
     delete: "Delete order",
     deleteAsk: "Delete this order? This cannot be undone.",
+    deleteReason: "Why are you deleting this order?",
+    deleteReasonPh: "This reason will be sent to Dukkan in case anything goes wrong.",
+    deleteReasonHint: "Write at least {min} characters.",
     deleteYes: "Yes, delete",
     cancel: "Cancel",
     create: "Create order",
@@ -100,6 +123,23 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     paid: "Paid",
     unpaid: "Unpaid",
     paymentHint: "You can send the customer a payment link to complete the order.",
+    cancelledPay: "Cancelled, not paid",
+    refundedPay: "Refunded to the customer",
+    changeStatus: "Change order status",
+    statusAsk: "Change this order to \"{status}\"?",
+    statusYes: "Yes, change it",
+    statusNo: "No, keep it",
+    phoneHint: "Optional",
+    fulfil: "Delivery",
+    fulfilDelivery: "Deliver to the customer",
+    fulfilPickup: "Customer picks it up",
+    city: "City",
+    cityPh: "Choose a city",
+    address: "Area, street and building",
+    addressPh: "Khalda, Wasfi Al-Tal St, building 12",
+    errCity: "Choose the delivery city",
+    errAddress: "Write where to deliver",
+    pickedUp: "Picked up from the store",
     ago: "ago",
     title: "Orders",
   },
@@ -137,6 +177,9 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     status: "حالة الطلب",
     delete: "حذف الطلب",
     deleteAsk: "هل تريد حذف هذا الطلب؟ لا يمكن التراجع عن ذلك.",
+    deleteReason: "لماذا تحذف هذا الطلب؟",
+    deleteReasonPh: "سيتم إرسال هذا السبب إلى دكّان في حال حدوث أي مشكلة.",
+    deleteReasonHint: "اكتب {min} أحرف على الأقل.",
     deleteYes: "نعم، احذف",
     cancel: "إلغاء",
     create: "إنشاء الطلب",
@@ -147,6 +190,23 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     paid: "مدفوع",
     unpaid: "غير مدفوع",
     paymentHint: "يمكنك إرسال رابط الدفع للعميل لإكمال الطلب.",
+    cancelledPay: "ملغي — لم يُدفع",
+    refundedPay: "أُعيد المبلغ للعميل",
+    changeStatus: "تغيير حالة الطلب",
+    statusAsk: "هل تريد تغيير حالة هذا الطلب إلى «{status}»؟",
+    statusYes: "نعم، غيّر الحالة",
+    statusNo: "لا، أبقِها كما هي",
+    phoneHint: "اختياري",
+    fulfil: "التوصيل",
+    fulfilDelivery: "توصيل للعميل",
+    fulfilPickup: "يستلمه العميل من المتجر",
+    city: "المدينة",
+    cityPh: "اختر المدينة",
+    address: "المنطقة والشارع والبناية",
+    addressPh: "خلدا، شارع وصفي التل، بناية 12",
+    errCity: "اختر مدينة التوصيل",
+    errAddress: "اكتب عنوان التوصيل",
+    pickedUp: "استلام من المتجر",
     ago: "منذ",
     title: "الطلبات",
   },
@@ -167,6 +227,8 @@ type InvoiceCopy = {
   storeName: string;
   storeNameHint: string;
   storeNamePh: string;
+  taxNumber: string;
+  taxNumberHint: string;
   saved: string;
   titleDefault: string;
   titleCustom: string;
@@ -203,6 +265,8 @@ export type InvoiceSettings = {
   customTitle: string;
   invoiceLang: Lang;
   storeName: string;
+  /* the seller's sales tax number, for stores registered for sales tax (digits only, may be empty) */
+  taxNumber: string;
   image: boolean;
   description: boolean;
   weight: boolean;
@@ -234,6 +298,7 @@ export const defaultInvoice: InvoiceSettings = {
   customTitle: "",
   invoiceLang: "ar",
   storeName: "",
+  taxNumber: "",
   image: true,
   description: true,
   weight: false,
@@ -271,6 +336,8 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
     storeName: "Store name",
     storeNameHint: "Customize the text shown before your store name in the \"Issued by\" section.",
     storeNamePh: "Store name",
+    taxNumber: "Sales tax number (optional)",
+    taxNumberHint: "If your store is registered for sales tax, your tax number must show on every invoice.",
     saved: "Saved",
     titleDefault: "Dukkan default",
     titleCustom: "Custom",
@@ -306,7 +373,6 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
         rows: [
           { key: "image", label: "Show product image" },
           { key: "description", label: "Show product description" },
-          { key: "weight", label: "Show product weight" },
           { key: "barcode", label: "Show product barcode" },
         ],
       },
@@ -342,6 +408,8 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
     storeName: "اسم المتجر",
     storeNameHint: "خصّص النص الظاهر قبل اسم المتجر في قسم «صادرة من».",
     storeNamePh: "اسم المتجر",
+    taxNumber: "الرقم الضريبي (اختياري)",
+    taxNumberHint: "إذا كان متجرك مسجّلًا في ضريبة المبيعات، يجب أن يظهر رقمك الضريبي على كل فاتورة.",
     saved: "تم الحفظ",
     titleDefault: "الافتراضي من دكان",
     titleCustom: "مخصص",
@@ -377,7 +445,6 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
         rows: [
           { key: "image", label: "إظهار صورة المنتج" },
           { key: "description", label: "إظهار وصف المنتجات" },
-          { key: "weight", label: "إظهار وزن المنتج" },
           { key: "barcode", label: "إظهار باركود المنتج" },
         ],
       },
@@ -427,6 +494,7 @@ export const invoiceWords: Record<Lang, Record<string, string>> = {
     sub: "Subtotal",
     ship: "Shipping fees",
     tax: "Sales tax (16%)",
+    taxNo: "Tax no.",
     grand: "Grand total",
     notes: "Order notes",
     contact: "Contact details",
@@ -468,6 +536,7 @@ export const invoiceWords: Record<Lang, Record<string, string>> = {
     sub: "الإجمالي الفرعي",
     ship: "رسوم الشحن",
     tax: "ضريبة المبيعات (16%)",
+    taxNo: "الرقم الضريبي",
     grand: "إجمالي الطلب",
     notes: "ملاحظات على الطلب",
     contact: "بيانات التواصل",

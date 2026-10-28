@@ -4,6 +4,8 @@
    OPEN QUESTION: this feature is not finished and needs studying with merchants before we build
    more (see docs/open-questions.md). */
 
+import { money } from "./records";
+
 export type FreeDelivery = { on: boolean; min: number };
 
 const KEY = "seen-freedelivery";
@@ -12,7 +14,8 @@ export function loadFreeDelivery(): FreeDelivery {
   try {
     const raw = localStorage.getItem(KEY);
     const v = raw ? (JSON.parse(raw) as Partial<FreeDelivery>) : {};
-    return { on: v.on === true, min: typeof v.min === "number" && v.min > 0 ? v.min : 25 };
+    const min = money(v.min);
+    return { on: v.on === true, min: min !== null && min > 0 ? min : 25 };
   } catch {
     return { on: false, min: 25 };
   }

@@ -34,6 +34,9 @@
    mint tint used on the marketing site. Dark mode sets its own grays below. */
 .dash {
   --soft: 244 244 245;
+  /* text inside the dashboard is near-black, so the brand teal stays for buttons, links and active items */
+  --fg: 24 24 27; /* #18181b */
+  color: rgb(var(--fg));
 }
 
 [data-theme="dark"] .dash {
@@ -83,12 +86,13 @@ html[data-side="collapsed"] { --side-w: 4.75rem; }
 html:has(.dash) {
   font-size: 15px;
 }
-.dash .font-extrabold { font-weight: 600; }
-.dash .font-bold { font-weight: 550; }
-.dash .font-semibold { font-weight: 500; }
-.dash .font-medium { font-weight: 450; }
+/* The store preview inside the designer keeps the store's own weights, so it looks like the live store */
+.dash .font-extrabold:not(.store-preview *) { font-weight: 600; }
+.dash .font-bold:not(.store-preview *) { font-weight: 550; }
+.dash .font-semibold:not(.store-preview *) { font-weight: 500; }
+.dash .font-medium:not(.store-preview *) { font-weight: 450; }
 /* The big numbers read best light */
-.dash .font-bold:is(.text-3xl, .text-4xl, .text-5xl, .text-6xl) { font-weight: 450; }
+.dash .font-bold:is(.text-3xl, .text-4xl, .text-5xl, .text-6xl):not(.store-preview *) { font-weight: 450; }
 
 html {
   scroll-behavior: smooth;
@@ -421,5 +425,29 @@ label:has(> .sr-only) { position: relative; }
 }
 .dk-shot { animation: dk-shot 50s cubic-bezier(0.45, 0, 0.55, 1) infinite; will-change: transform; }
 .group:hover .dk-shot { animation-play-state: paused; }
-@media (prefers-reduced-motion: reduce) { .dk-shot { animation: none; } }
+/* One store of a few taking turns in the same window: it fades in and scrolls down its whole page at a steady pace, without
+   stopping (not even under the mouse), and the next store takes over right away */
+@keyframes dk-appear { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dk-shot-once {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(-100% + var(--box))); }
+}
+.dk-shot-once { animation: dk-appear 1.2s ease, dk-shot-once 24s linear both; will-change: transform; }
+/* the store that just finished stays where it ended and fades away over the next one, so the change is soft */
+@keyframes dk-vanish { from { opacity: 1; } to { opacity: 0; } }
+.dk-shot-gone { transform: translateY(calc(-100% + var(--box))); animation: dk-vanish 1.2s ease forwards; }
+@media (prefers-reduced-motion: reduce) { .dk-shot, .dk-shot-once { animation: none; } }
 
+/* A moving gradient the merchant chose for a background (written at -45deg, see flowingOf in storefront/parts.tsx):
+   the colors flow slowly from one side to the other and back. */
+[style*="linear-gradient(-45deg"] {
+  background-size: 300% 300% !important;
+  animation: dk-flow 9s ease-in-out infinite;
+}
+@keyframes dk-flow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="linear-gradient(-45deg"] { animation: none; }
+}

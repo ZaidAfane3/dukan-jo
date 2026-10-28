@@ -5,16 +5,10 @@ import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
+import { REMINDER_MAX, cleanReminder, parseList, type Reminder } from "./records";
+import { cleanLine, visibleLength } from "./safe";
+import { RequiredMark, RequiredNote, requiredNote } from "./Required";
 
-type Reminder = {
-  id: number;
-  name: string;
-  amount: number;
-  unit: 0 | 1; /* hours, days */
-  channel: 0 | 1; /* email, SMS */
-  discount: number; /* percent, 0 = none */
-  active: boolean;
-};
 
 const KEYS = { abandoned: "seen-reminders", repurchase: "seen-repurchase" };
 const card = "rounded-2xl bg-card shadow-sm ring-1 ring-fg/10";
@@ -102,10 +96,10 @@ const repurchase = {
   },
 };
 
+/* What is saved is checked again when it is read: storage can hold old, broken or hand-changed reminders */
 function load(key: string): Reminder[] {
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as Reminder[]) : [];
+    return parseList(localStorage.getItem(key), cleanReminder);
   } catch {
     return [];
   }
@@ -167,14 +161,14 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
     const next: typeof errors = {};
     const amt = Number(amount);
     const disc = Number(discount || 0);
-    if (name.trim().length < 2) next.name = c.errName;
-    if (!(amt > 0)) next.amount = c.errAmount;
-    if (!(disc >= 0 && disc <= 90)) next.discount = c.errDiscount;
+    if (visibleLength(cleanLine(name, REMINDER_MAX.name)) < 2) next.name = c.errName;
+    if (!(amt > 0 && amt <= REMINDER_MAX.amount)) next.amount = c.errAmount;
+    if (!(disc >= 0 && disc <= REMINDER_MAX.discount)) next.discount = c.errDiscount;
     setErrors(next);
     if (Object.keys(next).length) return;
 
     const id = list.reduce((mx, r) => Math.max(mx, r.id), 0) + 1;
-    setList((l) => [...l, { id, name: name.trim(), amount: Math.floor(amt), unit, channel, discount: Math.floor(disc), active: true }]);
+    setList((l) => [...l, { id, name: cleanLine(name, REMINDER_MAX.name), amount: Math.floor(amt), unit, channel, discount: Math.floor(disc), active: true }]);
     setName("");
     setAmount("1");
     setUnit(0);
@@ -266,16 +260,17 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setCreating(false)}>
           <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={c.formTitle} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
             <h2 className="text-lg font-bold">{c.formTitle}</h2>
+            <div className="mt-2"><RequiredNote text={requiredNote[lang]} /></div>
             <div className="mt-5 space-y-5">
               <div>
-                <label htmlFor="r-name" className="mb-2 block text-sm font-semibold">{c.name}</label>
-                <input id="r-name" ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder={c.namePh} maxLength={50} className={`${field} h-11`} />
+                <label htmlFor="r-name" className="mb-2 block text-sm font-semibold">{c.name}<RequiredMark /></label>
+                <input id="r-name" ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder={c.namePh} maxLength={50} aria-required aria-invalid={!!errors.name} className={`${field} h-11`} />
                 {errors.name && <p className="mt-1.5 text-xs text-rose-600">{errors.name}</p>}
               </div>
               <div>
-                <label htmlFor="r-amount" className="mb-2 block text-sm font-semibold">{c.after}</label>
+                <label htmlFor="r-amount" className="mb-2 block text-sm font-semibold">{c.after}<RequiredMark /></label>
                 <div className="flex gap-3">
-                  <input id="r-amount" dir="ltr" inputMode="numeric" value={amount} onChange={(e) => setAmount(latin(e.target.value).replace(/\D/g, ""))} maxLength={3} className={`${field} h-11 w-28 text-start`} />
+                  <input id="r-amount" dir="ltr" inputMode="numeric" value={amount} onChange={(e) => setAmount(latin(e.target.value).replace(/\D/g, ""))} maxLength={3} aria-required aria-invalid={!!errors.amount} className={`${field} h-11 w-28 text-start`} />
                   <select value={unit} onChange={(e) => setUnit(Number(e.target.value) as 0 | 1)} aria-label={c.after} className={`${field} h-11 flex-1`}>
                     {c.units.map((u, i) => <option key={u} value={i}>{u}</option>)}
                   </select>

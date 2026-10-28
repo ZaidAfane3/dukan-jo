@@ -6,9 +6,10 @@ import { useEffect, useState } from "react";
 import { brandName, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
+import { PreviewEye, PreviewWindow } from "./ThemePopup";
 import { ThemePreview } from "./ThemePreview";
 import { themeWords } from "./themesContent";
-import { applyTheme, customizeTheme, deleteSavedTheme, findTheme, loadThemeState, resetCopy, saveDesignAsTheme, savedThemeInfo, type ThemeInfo, type ThemeState } from "./themes";
+import { applyTheme, customizeTheme, renameTheme, DEFAULT_THEME_ID, deleteSavedTheme, findTheme, freeThemes, isFreeTheme, loadThemeState, resetCopy, saveDesignAsTheme, savedThemeInfo, type ThemeInfo, type ThemeState } from "./themes";
 import { input } from "./designer/controls";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-6";
@@ -16,26 +17,42 @@ const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-6";
 type Note = "" | "applied" | "failed" | "saved" | "full" | "limit" | "reset";
 
 /* What can be done with each kind of theme:
+   - Dukkan's two free designs (the default one and «مؤسسو دكان»): always first, use them or customize them (never deleted);
    - a bought theme: use it, customize it (never deleted);
    - a customized copy of a bought theme: use it, customize it, reset it to the original (never deleted);
    - a design he saved from his own store: use it, customize it, delete it. */
+/* A small eye beside a theme's name: it opens the theme in a new tab, as a whole store, to look at */
 export function MyThemes() {
   const { lang } = usePrefs();
   const router = useRouter();
   const w = themeWords[lang].mine;
   const [state, setState] = useState<ThemeState | null>(null);
   const [asking, setAsking] = useState<{ id: string; kind: "use" | "reset" | "delete" } | null>(null);
+  /* the small filter above the cards: the free designs, the themes he bought (and his copies of them), the designs he saved himself */
+  const [show, setShow] = useState<"all" | "default" | "bought" | "mine">("all");
   const [note, setNote] = useState<Note>("");
   const [naming, setNaming] = useState<string | null>(null);
+  /* the theme shown in the preview window (the eye, or a click on its picture) */
+  const [previewing, setPreviewing] = useState<ThemeInfo | null>(null);
+  /* the theme whose name he is changing, and the name typed so far */
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${w.title}`;
   }, [lang, w]);
   useEffect(() => setState(loadThemeState()), []);
 
-  const bought = (state?.owned ?? []).map((o) => ({ at: o.at, theme: findTheme(o.id) })).filter((x): x is { at: number; theme: ThemeInfo } => !!x.theme);
+  /* a free design he "bought" in the theme store is already among the free ones */
+  const bought = (state?.owned ?? []).filter((o) => !isFreeTheme(o.id)).map((o) => ({ at: o.at, theme: findTheme(o.id) })).filter((x): x is { at: number; theme: ThemeInfo } => !!x.theme);
   const saved = (state?.custom ?? []).map((c) => ({ at: c.at, theme: savedThemeInfo(c) }));
-  const all = [...bought.map((x) => ({ ...x, kind: "bought" as const })), ...saved.map((x) => ({ ...x, kind: x.theme.from ? ("copy" as const) : ("saved" as const) }))];
+  /* Drawn once the browser's state is read: the previews show his own store, which the server cannot know (no hydration mismatch) */
+  /* the name he gave a theme, if he renamed it */
+  const named = (t: ThemeInfo): ThemeInfo => (state?.names?.[t.id] ? { ...t, name: { en: state.names[t.id], ar: state.names[t.id] } } : t);
+  const all = !state ? [] : [...freeThemes.map((t) => ({ at: 0, theme: named(t), kind: "default" as const })), ...bought.map((x) => ({ ...x, theme: named(x.theme), kind: "bought" as const })), ...saved.map((x) => ({ ...x, kind: x.theme.from ? ("copy" as const) : ("saved" as const) }))];
+  const saveName = () => {
+    if (renaming) setState(renameTheme(renaming.id, renaming.name));
+    setRenaming(null);
+  };
 
   const refresh = () => setState(loadThemeState());
   const done = (n: Note) => {
@@ -47,7 +64,7 @@ export function MyThemes() {
   const use = (t: ThemeInfo) => done(applyTheme(t, lang) ? "applied" : "failed");
 
   /* "Customize": a bought theme gets its own copy in My themes (once), then the designer opens on it */
-  const customize = (t: ThemeInfo, kind: "bought" | "copy" | "saved") => {
+  const customize = (t: ThemeInfo, kind: "default" | "bought" | "copy" | "saved") => {
     if (kind === "bought") {
       if (customizeTheme(t, lang) === "ok") router.push("/design");
       else done("full");
@@ -102,7 +119,7 @@ export function MyThemes() {
           </div>
         )}
 
-        {state && all.length === 0 && (
+        {state && all.length === freeThemes.length && (
           <section className={`${card} grid place-items-center py-16 text-center`}>
             <span className="grid h-20 w-20 place-items-center rounded-full bg-soft text-primary">
               <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -118,23 +135,67 @@ export function MyThemes() {
           </section>
         )}
 
-        {all.map(({ at, theme: t, kind }) => {
-          const active = state?.active === t.id;
+        {/* the themes side by side: three in a row on a big screen, two on a tablet, one on a phone */}
+        {(() => {
+          const group = (k: (typeof all)[number]["kind"]) => (k === "default" ? "default" : k === "saved" ? "mine" : "bought");
+          const count = (g: "default" | "bought" | "mine") => all.filter((x) => group(x.kind) === g).length;
+          return (
+            <div role="tablist" aria-label={w.title} className="flex flex-wrap gap-2">
+              {(["all", "default", "bought", "mine"] as const).map((g) => {
+                const n = g === "all" ? all.length : count(g);
+                return (
+                  <button key={g} type="button" role="tab" aria-selected={show === g} onClick={() => setShow(g)} className={`h-9 rounded-full border px-4 text-sm font-semibold transition ${show === g ? "border-ink bg-ink text-onink" : "border-fg/15 hover:bg-soft"}`}>
+                    {w.filters[g]} <span className={`ms-1 text-xs ${show === g ? "opacity-80" : "text-muted"}`}>{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+        <div className="grid items-stretch gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        {all.filter((x) => show === "all" || (show === "default" ? x.kind === "default" : show === "mine" ? x.kind === "saved" : x.kind === "bought" || x.kind === "copy")).map(({ at, theme: t, kind }) => {
+          /* Dukkan's default design is the one in use until he picks another theme (or when the one he picked is gone) */
+          const active = state?.active === t.id || (t.id === DEFAULT_THEME_ID && !all.some((x) => x.theme.id === state?.active));
           const ask = asking?.id === t.id ? asking.kind : null;
           const base = t.from ? findTheme(t.from) : null;
           return (
-            <section key={t.id} className={`${card} grid items-start gap-6 md:grid-cols-[320px_1fr]`}>
-              <ThemePreview theme={t} height={300} />
-              <div>
+            <section key={t.id} className={`${card} flex flex-col gap-5 ${active ? "ring-2 ring-primary/60" : ""}`}>
+              <button type="button" onClick={() => setPreviewing(t)} aria-label={`${lang === "ar" ? "معاينة" : "Preview"}: ${t.name[lang]}`} className="block w-full cursor-pointer rounded-2xl text-start outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+                <ThemePreview theme={t} height={260} />
+              </button>
+              <div className="flex flex-1 flex-col">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-xl font-extrabold">{t.name[lang]}</h2>
+                  {renaming?.id === t.id ? (
+                    <input
+                      autoFocus
+                      value={renaming.name}
+                      onChange={(e) => setRenaming({ id: t.id, name: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveName();
+                        if (e.key === "Escape") setRenaming(null);
+                      }}
+                      onBlur={saveName}
+                      maxLength={40}
+                      aria-label={lang === "ar" ? "اسم الثيم" : "Theme name"}
+                      className={`${input} h-10 min-w-0 flex-1 text-lg font-extrabold`}
+                    />
+                  ) : (
+                    <>
+                      <h2 className="text-xl font-extrabold">{t.name[lang]}</h2>
+                      <button type="button" onClick={() => setRenaming({ id: t.id, name: t.name[lang] })} aria-label={lang === "ar" ? "إعادة التسمية" : "Rename"} title={lang === "ar" ? "إعادة التسمية" : "Rename"} className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-fg/15 text-muted transition hover:bg-soft hover:text-fg">
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9M16.500 3.500a2.100 2.100 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                      </button>
+                    </>
+                  )}
+                  <PreviewEye onOpen={() => setPreviewing(t)} />
                   {active && <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-400">{w.inUse}</span>}
                   {kind === "copy" && <span className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{w.copyTag}</span>}
                   {kind === "saved" && <span className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{w.savedTag}</span>}
+                  {kind === "default" && <span className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{t.id === DEFAULT_THEME_ID ? w.defaultTag : w.freeTag}</span>}
                 </div>
                 <p className="mt-1 text-sm text-muted">{kind === "copy" && base ? `${w.copyOf} ${base.name[lang]}` : t.tagline[lang]}</p>
                 <p className="mt-2 text-xs text-muted">
-                  {kind === "bought" ? w.boughtOn : w.savedOn}: {new Date(at).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" })}
+                  {kind === "default" ? w.defaultNote : `${kind === "bought" ? w.boughtOn : w.savedOn}: ${new Date(at).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" })}`}
                 </p>
 
                 {ask ? (
@@ -159,7 +220,7 @@ export function MyThemes() {
                     </div>
                   </div>
                 ) : (
-                  <div className="mt-5 flex flex-wrap gap-3">
+                  <div className="mt-auto flex flex-wrap gap-3 pt-5">
                     {!active && (
                       <button type="button" onClick={() => { setNote(""); setAsking({ id: t.id, kind: "use" }); }} className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{w.use}</button>
                     )}
@@ -177,7 +238,9 @@ export function MyThemes() {
             </section>
           );
         })}
+        </div>
       </main>
+      {previewing && <PreviewWindow theme={previewing} onClose={() => setPreviewing(null)} />}
     </div>
   );
 }

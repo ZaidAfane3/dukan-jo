@@ -2,7 +2,7 @@
    when something happens (a task is finished, a coupon is created, ...) and
    the bell in the dashboard header shows it. Nothing leaves the browser. */
 
-export type NotificationKind = "welcome" | "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated";
+export type NotificationKind = "welcome" | "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated";
 
 /** Which filter tab a notification belongs to (matches the tab order in content.ts). */
 export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
@@ -11,6 +11,7 @@ export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
   couponCreated: 5,
   ticketCreated: 5,
   reminderSent: 3, /* Abandoned carts */
+  orderCreated: 1, /* Important */
 };
 
 export type AppNotification = {

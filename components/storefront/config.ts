@@ -18,7 +18,7 @@ export type MarkKey = "shop" | "bag" | "star" | "heart" | "leaf" | "bolt";
 export type LogoConfig = { kind: "auto" | "letter" | "sample" | "image"; sample: MarkKey; image: string };
 
 /* One background of the hero banner: a color ("" means the store color) or a picture kept in this browser */
-export type HeroBg = { kind: "color" | "image"; color: string; image: string; /* where the picture sits in the banner */ pos?: PicPos };
+export type HeroBg = { kind: "color" | "image"; color: string; image: string; /* where the picture sits in the banner */ pos?: PicPos; /* words of its own while it shows (empty: the cover's main words) */ title?: Bi; subtitle?: Bi; button?: Bi; link?: string };
 
 /* One picture (or GIF) of the animated-pictures element, with an optional link */
 export type Slide = { image: string; link: string; /* where the picture sits in its frame */ pos?: PicPos };
@@ -28,7 +28,7 @@ export type Slide = { image: string; link: string; /* where the picture sits in 
 export type Tile = { image: string; label: Bi; link: string; chip?: "light" | "dark"; /* where the picture sits in its frame */ pos?: PicPos };
 
 /* The fonts a merchant can pick, and the extra display fonts a banner title can use */
-export type ThemeFont = "readex" | "plex" | "elegant" | "cairo" | "tajawal" | "baloo" | "messiri" | "almarai";
+export type ThemeFont = "readex" | "plex" | "elegant" | "cairo" | "tajawal" | "baloo" | "messiri" | "almarai" | "kufi";
 /* The font of the hero title: "" follows the titles font of the store */
 export type HeroFont = "" | ThemeFont | "ruqaa" | "lemonada" | "amiri";
 /* The faint pattern behind the page */
@@ -47,7 +47,8 @@ export type Banner = {
   font?: DisplayFont;
   titleColor?: string;
   panel?: "light" | "dark" | "none";
-  position?: "top-start" | "top-end" | "bottom-start" | "bottom-end";
+  /* "center": the text sits in the middle of the picture */
+  position?: "top-start" | "top-end" | "bottom-start" | "bottom-end" | "center";
   buttonStyle?: "filled" | "outline";
   accent?: string;
   /* The font of the eyebrow and the small text of the banner */
@@ -72,17 +73,22 @@ export type Banner = {
   images?: string[];
   /* where each of those pictures sits in its frame */
   imagesPos?: (PicPos | undefined)[];
+  /* how its texts sit and look */
+  styles?: { title?: TextStyle; text?: TextStyle; eyebrow?: TextStyle };
 };
+
+/* How one text sits and looks, set in the small editor of that text: right, center or left, bold, italic (empty: the theme's) */
+export type TextStyle = { align?: "right" | "center" | "left"; bold?: boolean; italic?: boolean };
 
 /* Where a picture sits inside its frame: moved by x and y (percent of the frame) and zoomed. Set by dragging the picture in the designer. */
 export type PicPos = { x: number; y: number; zoom: number };
 
 export type SectionConfig =
-  | { id: string; type: "hero"; visible: boolean; settings: { title: Bi; subtitle: Bi; button: Bi; backgrounds: HeroBg[]; autoplay: boolean; seconds: number; showCards: boolean; layout?: "banner" | "split" | "pop" | "orbit"; photo?: string; photoSide?: "start" | "end"; photo2?: string; /* where the two buttons lead (see linkProps in sections.tsx) */ link?: string; link2?: string; photoPos?: PicPos; photo2Pos?: PicPos; sticker?: Bi; accentWord?: Bi; popColors?: { accent?: string; blob?: string; sticker?: string }; eyebrow?: Bi; price?: string; size?: Bi; button2?: Bi; panelColor?: string; fullWidth?: boolean; titleFont?: HeroFont; colors?: { title?: string; subtitle?: string; eyebrow?: string; price?: string; detail?: string; button?: string }; sizes?: { title?: number; subtitle?: number; eyebrow?: number; price?: number; detail?: number; button?: number } } }
+  | { id: string; type: "hero"; visible: boolean; settings: { title: Bi; subtitle: Bi; button: Bi; backgrounds: HeroBg[]; autoplay: boolean; seconds: number; showCards: boolean; layout?: "banner" | "split" | "pop" | "orbit"; photo?: string; photoSide?: "start" | "end"; photo2?: string; /* where the two buttons lead (see linkProps in sections.tsx) */ link?: string; link2?: string; photoPos?: PicPos; photo2Pos?: PicPos; sticker?: Bi; accentWord?: Bi; popColors?: { accent?: string; blob?: string; sticker?: string }; eyebrow?: Bi; price?: string; size?: Bi; button2?: Bi; panelColor?: string; fullWidth?: boolean; /* banner cover: where the words sit and how tall it is */ textPos?: "center" | "bottom-start" | "bottom-center"; height?: "normal" | "tall"; titleFont?: HeroFont; /* the products on the cards beside the text (empty: the first ones) */ cardIds?: number[]; /* how those cards look: fanned (default), in a row or one big picture; a white frame or the picture alone; the picture shape; the name under it */ cardLook?: { arrange?: "fan" | "row" | "single"; frame?: "card" | "bare"; shape?: "portrait" | "square" | "round"; showName?: boolean }; styles?: { title?: TextStyle; subtitle?: TextStyle; eyebrow?: TextStyle }; colors?: { title?: string; subtitle?: string; eyebrow?: string; price?: string; detail?: string; button?: string }; sizes?: { title?: number; subtitle?: number; eyebrow?: number; price?: number; detail?: number; button?: number } } }
   | { id: string; type: "perks"; visible: boolean; settings: { items: Perk[] } }
   | { id: string; type: "featured"; visible: boolean; settings: { title: Bi; count: number } }
   | { id: string; type: "discounts"; visible: boolean; settings: { title: Bi; count: number } }
-  | { id: string; type: "tiles"; visible: boolean; settings: { title: Bi; items: Tile[]; columns: 3 | 4 | 5; /* "circles": round pictures in thin rings, the name under each */ style?: "classic" | "editorial" | "circles" } }
+  | { id: string; type: "tiles"; visible: boolean; settings: { title: Bi; items: Tile[]; columns: 3 | 4 | 5 | 6 | 8; /* "circles": round pictures in thin rings, the name under each */ style?: "classic" | "editorial" | "circles" } }
   | { id: string; type: "banners"; visible: boolean; settings: { items: Banner[]; height?: "normal" | "tall" } }
   | { id: string; type: "ribbon"; visible: boolean; settings: { items: Bi[]; background: string; color: string } }
   | { id: string; type: "chips"; visible: boolean; settings: { items: { label: Bi; color: string; link: string }[]; /* how the row sits: where the buttons gather, whether they are tilted, how big */ align?: "start" | "center" | "end"; tilt?: boolean; size?: "sm" | "md" | "lg" } }
@@ -90,7 +96,7 @@ export type SectionConfig =
   | { id: string; type: "slides"; visible: boolean; settings: { slides: Slide[]; autoplay: boolean; seconds: number; ratio: "wide" | "standard" } }
   | { id: string; type: "collection"; visible: boolean; settings: { title: Bi; productIds: number[]; count: number; columns: 2 | 3 | 4; /* where "view all" leads ("" shows it without a link) */ link?: string; /* a band of its own color across the whole width ("" : none) */ background?: string; color?: string } }
   | { id: string; type: "reviews"; visible: boolean; settings: { title: Bi; items: Review[] } }
-  | { id: string; type: "text"; visible: boolean; settings: { title: Bi; body: Bi; align: "start" | "center"; tint: boolean; /* "statement": a centered block with a small line above, a big title, a button and a row of short promises */ style?: "plain" | "statement"; eyebrow?: Bi; button?: Bi; link?: string; trust?: Bi[]; /* text sizes in pixels and colors of their own (empty: the theme's) */ sizes?: { title?: number; body?: number; eyebrow?: number; button?: number }; colors?: { title?: string; body?: string; eyebrow?: string; button?: string } } }
+  | { id: string; type: "text"; visible: boolean; settings: { title: Bi; body: Bi; align: "start" | "center"; tint: boolean; /* "statement": a centered block with a small line above, a big title, a button and a row of short promises */ style?: "plain" | "statement"; eyebrow?: Bi; button?: Bi; link?: string; trust?: Bi[]; /* text sizes in pixels and colors of their own (empty: the theme's) */ sizes?: { title?: number; body?: number; eyebrow?: number; button?: number }; colors?: { title?: string; body?: string; eyebrow?: string; button?: string }; styles?: { title?: TextStyle; body?: TextStyle; eyebrow?: TextStyle } } }
   | { id: string; type: "products"; visible: boolean; settings: { title: Bi; columns: 2 | 3 | 4; showFilters: boolean; limit?: number } };
 
 export type SectionType = SectionConfig["type"];
@@ -165,16 +171,21 @@ export type StorefrontConfig = {
     prices?: "auto" | "ar" | "en";
     /* The size of the titles of the sections ("Collections", "Best sellers" ...) */
     sectionTitleSize?: number;
+    /* Where the titles of the sections sit: at the start of the row (default) or in the middle */
+    titleAlign?: "start" | "center";
     spacing: "normal" | "airy";
+    /* The color of the sale badges, sale prices and the basket count ("" means the store color) */
+    saleColor?: string;
   };
   /* The header's menu: a button that opens the side menu, or a row of links in the middle of the header */
   /* A link can go to a part of the page: `to` is the id of a section, or "footer" (the contact details) */
   /* style "pill": the logo in a dark pill, the links in a white pill (the first one is the active one), and a round basket button */
   /* place "start": with the name in the middle, the links sit at the start of the header row instead of under it.
-     cartLook "text": the saved items and the basket are written as words, "Saved · Cart (2)" */
-  nav: { style: "button" | "links" | "pill"; links: (Bi & { to?: string })[]; activeColor?: string; cartColor?: string; place?: "below" | "start"; cartLook?: "icon" | "text" };
+     cartLook "text": the saved items and the basket are written as words, "Saved · Cart (2)".
+     A link can have a color of its own ("" or none: the header's usual color) */
+  nav: { style: "button" | "links" | "pill"; links: (Bi & { to?: string; color?: string })[]; activeColor?: string; cartColor?: string; place?: "below" | "start"; cartLook?: "icon" | "text" };
   /* A faint pattern behind the page and a big word behind the picture tiles, both in the accent color */
-  texture: { pattern: PatternKey; watermark: Bi };
+  texture: { pattern: PatternKey; watermark: Bi; /* where the pattern shows (default: under the cover), how strong it is, and whether it fades toward the bottom (default: yes) */ area?: "all" | "below" | "top"; strength?: "light" | "medium" | "strong"; fade?: boolean };
   /* showLanguage: a button in the header that lets visitors switch the store between Arabic and English. Off by default:
      when he turns it on he must write his titles and texts in the other language too. */
   header: { showMenu: boolean; showSearch: boolean; showUser: boolean; showCart: boolean; showLanguage: boolean; sticky: boolean };
@@ -184,7 +195,7 @@ export type StorefrontConfig = {
   sections: SectionConfig[];
   /* A picture, GIF or looping video behind the whole page. The file itself is kept in the browser's
      media storage under `media`. `veil` is how much of the page color covers it, so text stays readable. */
-  pageBackground: { kind: "none" | "image" | "video"; media: string; name: string; size: number; veil: number };
+  pageBackground: { kind: "none" | "image" | "video"; media: string; name: string; size: number; veil: number; /* the part of the picture or video that stays in view */ pos?: PicPos };
   /* A thin bar above the header with a short message */
   announcement: { show: boolean; messages: AnnouncementMessage[]; motion: "fade" | "ticker"; seconds: number };
   /* What each product card shows */
@@ -355,6 +366,7 @@ export const fontFamily: Record<ThemeFont, string> = {
   baloo: "var(--font-baloo), var(--font-sans), sans-serif",
   messiri: "var(--font-messiri), var(--font-sans), sans-serif",
   almarai: "var(--font-almarai), var(--font-sans), sans-serif",
+  kufi: "var(--font-kufi), var(--font-sans), sans-serif",
 };
 
 /* A new picture-tiles element starts empty: he adds his own pictures. */
@@ -438,4 +450,83 @@ export function newNewsletter(id: string): SectionConfig {
       buttonColor: "#ffe36e",
     },
   };
+}
+
+/* ---------------- Links to pages the store does not have ---------------- */
+
+/* A ready theme's sample pages (9100 to 9399) are not in a merchant's store */
+export const samplePageId = (id: number) => id >= 9100 && id < 9400;
+export const pageIdOf = (link: string) => (/^page:\d+$/.test((link ?? "").trim()) ? Number(link.trim().slice(5)) : null);
+/* A page of the store, as the links need it */
+export type PageRef = { id: number; title: Bi; type?: number; published?: boolean };
+const pageTopics: [string, RegExp][] = [
+  ["contact", /contact|تواصل|اتصل/i],
+  ["about", /about|من نحن|قصتنا/i],
+  ["returns", /return|exchange|refund|استرجاع|استبدال|إرجاع/i],
+  ["shipping", /shipping|delivery|شحن|توصيل/i],
+  ["sizes", /\bsizes?\b|مقاس/i],
+  ["care", /\bcar(e|ing)\b|عناية/i],
+  ["faq", /faq|questions|أسئلة/i],
+  ["privacy", /privacy|خصوصية/i],
+  ["terms", /terms|conditions|أحكام|شروط/i],
+];
+export const pageTopicOf = (words: string[]) => pageTopics.find(([, re]) => words.some((w) => re.test(w)))?.[0] ?? null;
+const sameWord = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** His page that a link with these words should lead to: one of the same title, then one of the same kind (a returns page for
+    "Returns"). With no shipping page, the returns policy is the closest; `near` says it was taken that way. */
+export function matchPage(words: string[], live: PageRef[]): { page: PageRef; near: boolean } | undefined {
+  const w = words.filter((x) => !!x?.trim());
+  const same = live.find((p) => w.some((x) => sameWord(x, p.title.en ?? "") || sameWord(x, p.title.ar ?? "")));
+  if (same) return { page: same, near: false };
+  const topic = pageTopicOf(w);
+  const kind = topic ? live.find((p) => pageTopicOf([p.title.en, p.title.ar]) === topic) : undefined;
+  if (kind) return { page: kind, near: false };
+  const near = topic === "shipping" ? live.find((p) => p.type === 1) : undefined;
+  return near ? { page: near, near: true } : undefined;
+}
+
+/** Where a link that led nowhere goes instead: the products of the home page (the grid, then any block of products), else nowhere */
+export function shopTarget(cfg: StorefrontConfig): string {
+  const s = cfg.sections;
+  return (s.find((x) => x.type === "products") ?? s.find((x) => x.type === "featured" || x.type === "collection" || x.type === "discounts" || x.type === "tiles"))?.id ?? "";
+}
+
+/** The menu, the header's links, the bar above the header and every block of the page, with each link to a page the store does not
+    have (a theme's sample page, or a page he deleted) led to his own page of the same title or kind, or else to his products.
+    `pages`: the pages of the store (null when they are not known: then only sample pages count as missing). `wordsOf`: more words
+    for a missing page (a sample page's title). The footer is left as it is (see mergeFooter: it drops such links). */
+export function relinkPages(cfg: StorefrontConfig, pages: PageRef[] | null, wordsOf?: (id: number) => string[]): StorefrontConfig {
+  const has = pages ? new Set(pages.map((p) => p.id)) : null;
+  const live = (pages ?? []).filter((p) => p.published !== false && !samplePageId(p.id));
+  const shop = shopTarget(cfg);
+  let changed = false;
+  const fix = (link: string, words: string[]): string => {
+    const id = pageIdOf(link);
+    /* a page the store has stays (a copy of a theme keeps its sample pages); unknown pages: only sample ones are missing */
+    if (id === null || (has ? has.has(id) : !samplePageId(id))) return link;
+    changed = true;
+    const to = matchPage([...(wordsOf?.(id) ?? []), ...words], live);
+    return to ? `page:${to.page.id}` : shop;
+  };
+  /* the words around a link: the texts of the same item (its label, title, button) */
+  const wordsIn = (o: Record<string, unknown>) =>
+    Object.values(o).flatMap((v) => (v && typeof v === "object" && !Array.isArray(v) && typeof (v as Bi).en === "string" ? [(v as Bi).en, (v as Bi).ar] : []));
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== "object") return v;
+    const o = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(o)) out[k] = (k === "link" || k === "link2") && typeof x === "string" ? fix(x, wordsIn(o)) : walk(x);
+    return out;
+  };
+  const next: StorefrontConfig = {
+    ...cfg,
+    nav: { ...cfg.nav, links: cfg.nav.links.map((l) => (l.to && pageIdOf(l.to) !== null ? { ...l, to: fix(l.to, [l.en, l.ar]) || undefined } : l)) },
+    drawer: { ...cfg.drawer, custom: cfg.drawer.custom?.map((x) => ({ ...x, link: fix(x.link, [x.label?.en, x.label?.ar]) })) },
+    announcement: walk(cfg.announcement) as StorefrontConfig["announcement"],
+    sections: walk(cfg.sections) as SectionConfig[],
+  };
+  if (!cfg.drawer.custom) delete next.drawer.custom;
+  return changed ? next : cfg;
 }

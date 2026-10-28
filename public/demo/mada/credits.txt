@@ -1,0 +1,27 @@
+file used on page | original file | photographer | URL
+hero.jpg | sale.jpg | Ron Lach | https://www.pexels.com/photo/close-up-shot-of-a-clothes-hanging-on-the-hangers-8311882/
+sale.jpg | c8.jpg | MiM Fathi | https://www.pexels.com/photo/brown-leather-handbag-on-white-table-10919291/
+look.jpg | look.jpg | sara kazemi | https://www.pexels.com/photo/stylish-woman-in-beige-suit-walking-outdoors-31240957/
+cat-dresses.jpg | c1-dress.jpg | Jonathan Borba | https://www.pexels.com/photo/elegant-white-dress-on-vintage-wardrobe-28889880/
+cat-blouses.jpg | c2-blouse.jpg | Atlantic Ambience | https://www.pexels.com/photo/striped-shirt-with-a-blank-tag-12955555/
+cat-jeans.jpg | c3-jeans.jpg | Kaboompics.com | https://www.pexels.com/photo/stack-of-jeans-on-white-shelf-4210866/
+cat-sets.jpg | c4-set.jpg | Pegah Sharifi | https://www.pexels.com/photo/modern-female-clothes-on-hanger-between-decorative-frame-5204832/
+cat-shirts.jpg | c5-shirt.jpg | Ivan S | https://www.pexels.com/photo/brown-long-sleeve-shirt-hanging-on-black-metal-rack-7671168/
+cat-sport.jpg | c6-sport.jpg | Kajetan Sumila | https://unsplash.com/photos/a-row-of-shirts-hanging-on-a-rack-apkQDeIvX18
+cat-shoes.jpg | c7-shoes.jpg | Alexandra Gorn | https://unsplash.com/photos/pair-of-shoes-and-white-box-near-plant-CJ6SJO_yR5w
+cat-bags.jpg | c8-bag.jpg | Muneeb Malhotra | https://www.pexels.com/photo/beige-bag-on-white-background-22434782/
+card-men.jpg | men-cover.jpg | Thirdman | https://www.pexels.com/photo/a-man-in-brown-long-sleeves-leaning-on-the-wall-7237028/
+card-women.jpg | women-cover.jpg | Rizky Sabriansyah | https://www.pexels.com/photo/portrait-of-woman-in-burgundy-hijab-and-dress-36211841/
+card-shoes.jpg | c7-shoes.jpg | Alexandra Gorn | https://unsplash.com/photos/pair-of-shoes-and-white-box-near-plant-CJ6SJO_yR5w
+trend-1.jpg | p1.jpg | Murat Ak | https://www.pexels.com/photo/dresses-on-mannequins-near-chair-16086022/
+trend-2.jpg | p2.jpg | dayong tien | https://www.pexels.com/photo/a-folded-elegant-shirt-against-a-white-background-26297709/
+trend-3.jpg | p3.jpg | Mica Asato | https://www.pexels.com/photo/two-hanged-blue-stonewash-and-blue-jeans-1082528/
+trend-4.jpg | p4.jpg | Alexander Mass | https://www.pexels.com/photo/elegant-white-suit-jacket-hanging-on-wooden-rack-30005364/
+look-1.jpg | l1.jpg | dayong tien | https://www.pexels.com/photo/shirt-on-hanger-on-branch-22441291/
+look-2.jpg | l2.jpg | Simona Sergi | https://unsplash.com/photos/black-and-brown-leather-tote-bag-TMo2c_7CKdw
+look-3.jpg | l3.jpg | Mediamodifier | https://unsplash.com/photos/white-crew-neck-long-sleeve-shirt-7cERndkOyDw
+new-1.jpg | n1.jpg | PNW Production | https://www.pexels.com/photo/a-blazer-and-a-purse-hanging-9218538/
+new-2.jpg | n2.jpg | Yuliia Pakhomova | https://unsplash.com/photos/a-knitted-rust-colored-sweater-with-loose-yarn-e9W-oPLQOp8
+new-3.jpg | n3.jpg | Alexander Mass | https://www.pexels.com/photo/elegant-white-bridal-ensemble-on-wooden-hanger-34192106/
+new-4.jpg | n4.jpg | saeed karimi | https://unsplash.com/photos/a-pair-of-glasses-a-book-and-a-pair-of-pants-on-a-table-lBi04ECUJfw
+card-shoes.jpg | l3.jpg | Efrem  Efre | https://www.pexels.com/photo/close-up-shot-of-a-pair-of-brown-sneakers-6961151/

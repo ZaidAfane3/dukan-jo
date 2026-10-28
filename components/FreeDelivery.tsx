@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
-import { latin } from "./digits";
+import { money, typedMoney } from "./records";
 import { loadFreeDelivery, saveFreeDelivery } from "./freeDeliveryStore";
 import { usePrefs } from "./Prefs";
+import { RequiredMark } from "./Required";
 
 const copy = {
   en: {
@@ -62,10 +63,12 @@ export function FreeDelivery() {
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
-    const n = Number(min);
-    if (!(n > 0)) return setError(true);
+    /* The amount is needed only while the offer is on; switched off, the last good amount is kept */
+    const n = money(min);
+    const good = n !== null && n > 0;
+    if (on && !good) return setError(true);
     setError(false);
-    if (saveFreeDelivery({ on, min: n })) {
+    if (saveFreeDelivery({ on, min: good ? n : loadFreeDelivery().min })) {
       setFlash(true);
       setTimeout(() => setFlash(false), 2000);
     }
@@ -88,8 +91,8 @@ export function FreeDelivery() {
           </label>
 
           <div className={`mt-5 transition-opacity ${on ? "" : "pointer-events-none opacity-40"}`}>
-            <label htmlFor="fd-min" className="mb-2 block text-sm font-semibold">{c.min} ({c.cur})</label>
-            <input id="fd-min" dir="ltr" inputMode="decimal" value={min} onChange={(e) => { setMin(latin(e.target.value).replace(/[^\d.]/g, "")); setError(false); }} maxLength={8} disabled={!on} className={`${field} h-11 max-w-[12rem] text-start`} />
+            <label htmlFor="fd-min" className="mb-2 block text-sm font-semibold">{c.min} ({c.cur}){on && <RequiredMark />}</label>
+            <input id="fd-min" dir="ltr" inputMode="decimal" value={min} onChange={(e) => { setMin(typedMoney(e.target.value, 3)); setError(false); }} maxLength={8} disabled={!on} className={`${field} h-11 max-w-[12rem] text-start`} />
             {error ? <p className="mt-1.5 text-xs text-rose-600">{c.err}</p> : <p className="mt-1.5 text-xs text-muted">{c.hint}</p>}
           </div>
 

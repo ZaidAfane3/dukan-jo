@@ -1,4 +1,5 @@
-import { defaultConfig, type SectionConfig, type StorefrontConfig } from "./config";
+import { sanitizeDesign, sanitizePages } from "../safeDesign";
+import { defaultConfig, relinkPages, type PageRef, type SectionConfig, type StorefrontConfig } from "./config";
 
 /* The merchant's design, kept in this browser. Missing parts fall back to the starter design,
    so a design saved by an older version still loads after new options are added.
@@ -75,7 +76,8 @@ function merge(s: Partial<StorefrontConfig>): StorefrontConfig {
 function read(key: string): StorefrontConfig | null {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? merge(JSON.parse(raw) as Partial<StorefrontConfig>) : null;
+    /* A saved design is checked before it is used: it may have been changed by hand (see safeDesign.ts) */
+    return raw ? merge(sanitizeDesign(JSON.parse(raw))) : null;
   } catch {
     return null;
   }
@@ -84,15 +86,27 @@ function read(key: string): StorefrontConfig | null {
 /** The platform's template: what new stores start from. Null when the admin has not made one. */
 export const loadTemplate = () => read(TEMPLATE_KEY);
 
-/** A merchant's own design, or the template (or original) when he has not saved one. */
+/* The store's own pages as saved (see InfoPages). Null when he has none saved yet: then only a theme's sample pages count as missing. */
+function savedPages(): PageRef[] | null {
+  try {
+    const raw = localStorage.getItem("seen-pages");
+    return raw ? ((sanitizePages(JSON.parse(raw)) ?? null) as PageRef[] | null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A merchant's own design, or the template (or original) when he has not saved one. A design saved with links to pages his store
+    does not have (a theme's sample pages, a page he deleted) has them led to his own pages, or to his products (see relinkPages). */
 export function loadConfig(): StorefrontConfig {
-  return read(KEY) ?? loadTemplate() ?? defaultConfig;
+  const own = read(KEY);
+  return own ? relinkPages(own, savedPages()) : loadTemplate() ?? defaultConfig;
 }
 
 /** Returns false when the browser could not keep it (for example, too many large pictures). */
 function write(key: string, config: StorefrontConfig): boolean {
   try {
-    localStorage.setItem(key, JSON.stringify(config));
+    localStorage.setItem(key, JSON.stringify(merge(sanitizeDesign(config))));
     return true;
   } catch {
     return false;

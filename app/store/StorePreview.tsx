@@ -8,6 +8,9 @@ import { defaultConfig, type StorefrontConfig } from "@/components/storefront/co
 import { StoreSkeleton } from "@/components/StoreSkeletons";
 import { loadConfig, loadTemplate } from "@/components/storefront/storage";
 import { accountName, loadSetup } from "@/components/setup";
+import { composeDesign, findTheme, loadThemeState, previewProducts } from "@/components/themes";
+import { safeStoredImage } from "@/components/safe";
+import type { StoreProduct } from "@/components/storefront/useStoreData";
 
 const banner = {
   en: { title: "Your store is under construction", body: "All you have to do is finish the launch steps today to start your journey with Dukkan.", button: "Finish the launch steps", preview: "Preview" },
@@ -24,8 +27,24 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   const b = banner[lang];
   const [config, setConfig] = useState<StorefrontConfig>(defaultConfig);
   const [demo, setDemo] = useState(false);
+  /* /store?theme=mada: a ready theme's own made-up store, with its photos and products, to look at (nothing of his is shown or saved) */
+  /* products: the theme's made-up ones; none: his own (a design he saved is shown on his own store) */
+  const [showcase, setShowcase] = useState<{ products?: StoreProduct[]; name?: string; color?: string } | null>(null);
   /* His saved design is read in the browser, so show a placeholder until it is ready */
   const [ready, setReady] = useState(false);
+
+  /* &look=1 (the preview window of the themes pages): the store can only be scrolled, every click and form is stopped */
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("look") !== "1") return;
+    const stop = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const events = ["click", "auxclick", "submit", "pointerdown", "mousedown", "touchend", "keydown", "dragstart"] as const;
+    events.forEach((n) => window.addEventListener(n, stop, true));
+    document.documentElement.style.cursor = "default";
+    return () => events.forEach((n) => window.removeEventListener(n, stop, true));
+  }, []);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -33,16 +52,32 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
        /store?starter=1 is the template the admin can edit (the original if there is none). Both use sample products. */
     const original = q.get("original") === "1";
     const starter = q.get("starter") === "1";
+    const shown = findTheme(q.get("theme"));
+    if (shown) {
+      setConfig(shown.build(lang, { samples: true }));
+      setShowcase({ products: previewProducts(lang, shown), name: shown.demo?.name[lang] ?? shown.name[lang], color: shown.demo?.color ?? "" });
+      setReady(true);
+      return;
+    }
+    /* /store?saved=<id>: a design he saved in My themes, on his own store */
+    const saved = loadThemeState().custom.find((c) => c.id === q.get("saved"));
+    if (saved) {
+      setConfig(composeDesign(loadConfig(), saved.look));
+      setShowcase({});
+      setReady(true);
+      return;
+    }
     setConfig(original ? defaultConfig : starter ? loadTemplate() ?? defaultConfig : loadConfig());
     /* /store?demo=1 shows the store with sample products, for screenshots. Nothing is saved. */
     setDemo(original || starter || q.get("demo") === "1");
     setReady(true);
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     const name = loadSetup()?.name || accountName();
     if (name) document.title = preview ? `${b.preview} | ${name}` : name;
-    const icon = config.identity.favicon;
+    /* only picture data or the site's own file: never a link to another site or a javascript: address */
+    const icon = safeStoredImage(config.identity.favicon);
     if (!icon) return;
     /* Use his icon instead of the platform's while this page is open */
     const old = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]'));
@@ -87,7 +122,11 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
       )}
       {/* Like a real website, the store keeps a comfortable width on a big screen */}
       <div className="mx-auto max-w-[1180px] bg-white shadow-sm">
-        <StorefrontTheme config={config} owner={!demo} sample={demo} />
+        {showcase ? (
+          <StorefrontTheme config={config} products={showcase.products} store={showcase.name ? { name: showcase.name, color: showcase.color } : undefined} />
+        ) : (
+          <StorefrontTheme config={config} owner={!demo} sample={demo} />
+        )}
       </div>
     </div>
   );

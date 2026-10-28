@@ -37,6 +37,53 @@ const detailIcons = [
   <path key="c" d="M4 4h16v16H4zM4 15l5-4 4 3 3-2 4 3M8.5 8.5h.01" />,
 ];
 
+/* A few stores of an industry taking turns in one window: the first scrolls down its whole page, then the next fades in and does
+   the same, and round again, without ever stopping. The address bar shows the store on screen. With less motion asked for, the
+   stores simply change every few seconds. */
+function StoreTurns({ stores }: { stores: { src: string; address: string; view: string }[] }) {
+  const { lang } = usePrefs();
+  const [i, setI] = useState(0);
+  /* the store that just finished: it stays on top, at the bottom of its page, and fades away while the next one starts */
+  const [gone, setGone] = useState<string | null>(null);
+  const next = () => {
+    setGone(stores[i].src);
+    setI((n) => (n + 1) % stores.length);
+  };
+  useEffect(() => {
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const t = window.setInterval(next, 8000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stores.length]);
+  const st = stores[i];
+  const after = stores[(i + 1) % stores.length];
+  return (
+    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(0,73,86,0.55)] ring-1 ring-black/10">
+      <div dir="ltr" className="relative flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
+        <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+          {st.address}
+        </span>
+        {/* the eye opens the store on screen in a new tab, as a visitor sees it */}
+        <a href={st.view} target="_blank" rel="noreferrer" aria-label={lang === "ar" ? "افتح المتجر في صفحة جديدة" : "Open the store in a new tab"} title={lang === "ar" ? "افتح المتجر في صفحة جديدة" : "Open the store in a new tab"} className="absolute end-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white text-[#3d4a4f] shadow-sm ring-1 ring-black/10 transition hover:scale-105 hover:text-black">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.500-6 10-6 10 6 10 6-3.500 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.500" /></svg>
+        </a>
+      </div>
+      <div className="relative h-[var(--box)] overflow-hidden [--box:22rem] sm:[--box:30rem] lg:[--box:36rem]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img key={`${st.src}-${i}`} src={st.src} alt="" draggable={false} className="dk-shot-once block w-full select-none" onAnimationEnd={(e) => e.animationName === "dk-shot-once" && next()} />
+        {gone && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={`gone-${gone}-${i}`} src={gone} alt="" aria-hidden draggable={false} className="dk-shot-gone pointer-events-none absolute inset-x-0 top-0 block w-full select-none" onAnimationEnd={() => setGone(null)} />
+        )}
+        {/* the next store's picture loads now, so it appears at once */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {after.src !== st.src && <img src={after.src} alt="" aria-hidden className="hidden" />}
+      </div>
+    </div>
+  );
+}
+
 /* What an industry shows when it is pressed: a big window with a store like it (the whole page, scrolling slowly by itself),
    and a few lines about what Dukkan does for it. The card is wider than the page column. */
 function IndustryCard({ d }: { d: IndustryDetail }) {
@@ -60,8 +107,10 @@ function IndustryCard({ d }: { d: IndustryDetail }) {
             <a href="/signup" className={`${cta} mt-10 inline-block`}>{t.start}</a>
           </div>
 
-          {/* The window: the store's whole page scrolls inside it, down and back up, slowly and smoothly */}
-          {shot && (
+          {/* A few stores of this industry take turns in one window */}
+          {d.stores ? (
+            <StoreTurns stores={d.stores} />
+          ) : shot && (
             <div className="relative pb-8 sm:pb-10">
             <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(0,73,86,0.55)] ring-1 ring-black/10">
               <div dir="ltr" className="flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
@@ -591,18 +640,16 @@ function FleetMap() {
 
   /* Routes between the cities, in the magnifier's own coordinates (0 to 100) */
   const pt = fleetCities.map((c) => ({ x: lensPct(c.x, LENS.x), y: lensPct(c.y, LENS.y) }));
-  /* Each road is drawn once and driven both ways: trucks leave Amman for Irbid and for Salt, and others come back */
+  /* Each road is drawn once: trucks leave Amman for Irbid and for Salt */
   const roadA = { a: pt[0], c1: { x: pt[0].x + 14, y: pt[0].y + 12 }, c2: { x: pt[2].x + 14, y: pt[2].y - 14 }, b: pt[2] }; /* Irbid and Amman */
   const roadB = { a: pt[1], c1: { x: pt[1].x - 10, y: pt[1].y + 6 }, c2: { x: pt[2].x - 12, y: pt[2].y - 6 }, b: pt[2] }; /* Salt and Amman */
   const there = (r: typeof roadA) => `M ${r.a.x} ${r.a.y} C ${r.c1.x} ${r.c1.y}, ${r.c2.x} ${r.c2.y}, ${r.b.x} ${r.b.y}`; /* to Amman */
   const back = (r: typeof roadA) => `M ${r.b.x} ${r.b.y} C ${r.c2.x} ${r.c2.y}, ${r.c1.x} ${r.c1.y}, ${r.a.x} ${r.a.y}`; /* out of Amman */
   const roads = [there(roadA), there(roadB)];
-  /* The trucks: coming into Amman and going out of it, on each road, each at its own speed and moment */
+  /* The trucks: going out of Amman on each road, each at its own speed and moment */
   const trucks = [
-    { d: there(roadA), out: false, dur: 5.2, begin: 0 },
-    { d: back(roadA), out: true, dur: 5.8, begin: 2.4 },
-    { d: there(roadB), out: false, dur: 4.2, begin: 1.1 },
-    { d: back(roadB), out: true, dur: 4.6, begin: 3.3 },
+    { d: back(roadA), out: true, dur: 5.8, begin: 0 },
+    { d: back(roadB), out: true, dur: 4.6, begin: 1.6 },
   ];
 
   return (

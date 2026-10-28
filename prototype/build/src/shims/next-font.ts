@@ -12,3 +12,4 @@ export const Aref_Ruqaa = font;
 export const Lemonada = font;
 export const El_Messiri = font;
 export const Almarai = font;
+export const Noto_Kufi_Arabic = font;

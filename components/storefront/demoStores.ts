@@ -65,7 +65,7 @@ export const demoStores: DemoStore[] = [
 
 export const perfumeStore = demoStores[0];
 
-/** The design of a demo store: the "Atelier" theme with the made-up store's pictures, logo and texts. */
+/** The design of a demo store: the "Misk" theme (atelier) with the made-up store's pictures, logo and texts. */
 export function demoConfig(d: DemoStore, lang: "en" | "ar"): StorefrontConfig {
   const c = atelierConfig(lang, { samples: true });
   c.identity.logo = { kind: "image", sample: d.mark, image: d.logo };

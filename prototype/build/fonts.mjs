@@ -14,6 +14,7 @@ const families = [
   ["Lemonada", "wght@400;500;600;700", "--font-lemonada"],
   ["El Messiri", "wght@400;600;700", "--font-messiri"],
   ["Almarai", "wght@300;400;700", "--font-almarai"],
+  ["Noto Kufi Arabic", "wght@300;400;500;600;800", "--font-kufi"],
 ];
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 let css = "";

@@ -67,6 +67,14 @@ type Copy = {
   costHint: string;
   category: string;
   categoryPh: string;
+  catHint: string;
+  pctMax: string;
+  costAbove: string;
+  catNewPh: string;
+  catAdd: string;
+  catNone: string;
+  catRemove: string;
+  catEmpty: string;
   brand: string;
   brandPh: string;
   description: string;
@@ -90,6 +98,11 @@ type Copy = {
   piece: string;
   alerts: string;
   lowAt: string;
+  sendBy: string;
+  sendByCustomers: string;
+  byWhatsapp: string;
+  byEmail: string;
+  byBoth: string;
   lowAtHint: string;
   restockMin: string;
   restockMinHint: string;
@@ -103,7 +116,18 @@ type Copy = {
   deleteYes: string;
   errName: string;
   errPrice: string;
+  priceZero: string;
+  discardAsk: string;
   errSale: string;
+  errImages: string;
+  imagesUploading: string;
+  imageBroken: string;
+  errQuantity: string;
+  unlimited: string;
+  unlimitedHint: string;
+  unlimitedShort: string;
+  otherCategory: string;
+  requiredNote: string;
   untitled: string;
   inStock: string;
   noPrice: string;
@@ -132,7 +156,7 @@ export const productsCopy: Record<Lang, Copy> = {
       discounted: "Discounted products",
       soldOut: "Sold-out products",
       forSale: "Products for sale",
-      uncategorized: "Uncategorized products",
+      uncategorized: "Products without a category (shown under Other)",
       shipping: "Products that need shipping",
       nearSoldOut: "Products almost sold out",
       noDescription: "Products without a description",
@@ -165,20 +189,28 @@ export const productsCopy: Record<Lang, Copy> = {
     removeImage: "Remove image",
     price: "Price",
     sale: "Discounted price",
-    saleHint: "Leave empty if the product has no discount. Needs a price.",
+    saleHint: "Leave empty if the product has no discount.",
     cost: "Cost price",
     costHint: "Only you see this. It is used to work out your profit.",
     category: "Category",
     categoryPh: "For example: Clothing",
+    catHint: "Optional. Pick one of your categories, or make a new one. Your store uses them in its menu and filters, and shows products without one under Other.",
+    pctMax: "The share can't go above 100%",
+    costAbove: "The cost is higher than the price: you lose money on every sale",
+    catNewPh: "New category, e.g. Jeans",
+    catAdd: "Add",
+    catNone: "No categories yet. Add your first one below.",
+    catRemove: "Remove this category",
+    catEmpty: "No category (Other)",
     brand: "Brand",
     brandPh: "Brand name",
     description: "Product description",
     descriptionPh: "Write the details your customers need",
     notes: "Description",
-    notesPh: "cotton · soft · light",
+    notesPh: "e.g. cotton · soft · light",
     notesHint: "A short description. It shows under the name on the product card and on the product page.",
     badge: "Label on the picture",
-    badgePh: "New",
+    badgePh: "e.g. New",
     badgeHint: "A small label on the card, like New or Best seller.",
     visibility: "Visibility and options",
     hidden: "Hide product from the store",
@@ -189,10 +221,15 @@ export const productsCopy: Record<Lang, Copy> = {
     shippingHint: "Turn off for digital products and services.",
     stock: "Quantity",
     quantity: "Available quantity",
-    quantityHint: "The number of pieces you have in stock.",
+    quantityHint: "The number of pieces you have in stock. It goes down by itself with every order from your store.",
     piece: "pcs",
     alerts: "Alerts",
     lowAt: "Warn me when the quantity reaches",
+    sendBy: "How the warning reaches you",
+    sendByCustomers: "How customers are told",
+    byWhatsapp: "WhatsApp",
+    byEmail: "Email",
+    byBoth: "Both",
     lowAtHint: "You get a notification before the product runs out.",
     restockMin: "Notify subscribed customers when quantity is above",
     restockMinHint: "Avoids sending alerts when only a few pieces come back. Default 15.",
@@ -206,7 +243,18 @@ export const productsCopy: Record<Lang, Copy> = {
     deleteYes: "Yes, delete",
     errName: "Enter the product name",
     errPrice: "Enter a valid price",
+    priceZero: "The price is zero. Is this product free?",
+    discardAsk: "You have changes that are not saved. Leave without saving?",
     errSale: "The discounted price must be lower than the price",
+    errImages: "Add at least one product photo. Customers need to see what they are buying.",
+    imagesUploading: "Wait for the photo to finish uploading, then save.",
+    imageBroken: "This photo could not be loaded. Remove it and upload it again.",
+    errQuantity: "Enter how many you have, or choose Unlimited quantity.",
+    unlimited: "Unlimited quantity",
+    unlimitedHint: "For products you can always make or order again. They never sell out in your store.",
+    unlimitedShort: "Unlimited",
+    otherCategory: "Other",
+    requiredNote: "Fields with * must be filled",
     untitled: "Untitled product",
     inStock: "in stock",
     noPrice: "No price",
@@ -233,7 +281,7 @@ export const productsCopy: Record<Lang, Copy> = {
       discounted: "منتجات مخفضة",
       soldOut: "منتجات نفذت",
       forSale: "منتجات للبيع",
-      uncategorized: "منتجات غير مصنفة",
+      uncategorized: "منتجات بلا تصنيف (تظهر تحت أخرى)",
       shipping: "منتجات تتطلب شحن",
       nearSoldOut: "منتجات قاربت على النفاد",
       noDescription: "منتجات بدون وصف",
@@ -266,20 +314,28 @@ export const productsCopy: Record<Lang, Copy> = {
     removeImage: "إزالة الصورة",
     price: "السعر",
     sale: "السعر بعد الخصم",
-    saleHint: "اتركه فارغًا إن لم يكن للمنتج خصم. يتطلب وجود سعر.",
+    saleHint: "اتركه فارغًا إن لم يكن للمنتج خصم.",
     cost: "سعر التكلفة",
     costHint: "يظهر لك وحدك، ويُستخدم لحساب أرباحك.",
     category: "التصنيف",
     categoryPh: "مثال: ملابس",
+    catHint: "اختياري. اختر أحد تصنيفاتك أو أنشئ تصنيفًا جديدًا. يستخدمها متجرك في القائمة والفلاتر، ويعرض المنتجات التي بلا تصنيف تحت «أخرى».",
+    pctMax: "النسبة لا تتجاوز 100٪",
+    costAbove: "سعر التكلفة أعلى من سعر البيع، ستخسر في كل بيعة",
+    catNewPh: "تصنيف جديد، مثال: جينز",
+    catAdd: "إضافة",
+    catNone: "لا توجد تصنيفات بعد. أضف أول تصنيف بالأسفل.",
+    catRemove: "حذف هذا التصنيف",
+    catEmpty: "بلا تصنيف (أخرى)",
     brand: "العلامة التجارية",
     brandPh: "اسم العلامة التجارية",
     description: "وصف المنتج",
     descriptionPh: "اكتب التفاصيل التي يحتاجها عملاؤك",
     notes: "الوصف",
-    notesPh: "قطن · ناعم · خفيف",
+    notesPh: "مثال: قطن · ناعم · خفيف",
     notesHint: "وصف قصير يظهر تحت الاسم في بطاقة المنتج وفي صفحة المنتج.",
     badge: "شارة على الصورة",
-    badgePh: "جديد",
+    badgePh: "مثال: جديد",
     badgeHint: "شارة صغيرة على البطاقة، مثل جديد أو الأكثر مبيعًا.",
     visibility: "الظهور والخيارات",
     hidden: "إخفاء المنتج من المتجر",
@@ -290,10 +346,15 @@ export const productsCopy: Record<Lang, Copy> = {
     shippingHint: "أوقفه للمنتجات الرقمية والخدمات.",
     stock: "الكميات",
     quantity: "الكمية المتوفرة",
-    quantityHint: "عدد القطع الموجودة لديك في المخزون.",
+    quantityHint: "عدد القطع الموجودة لديك في المخزون. تنقص تلقائيًا مع كل طلب من متجرك.",
     piece: "قطعة",
     alerts: "الإشعارات",
     lowAt: "نبهني عند وصول كمية المنتج إلى",
+    sendBy: "كيف يصلك التنبيه",
+    sendByCustomers: "كيف يصل الإشعار للعملاء",
+    byWhatsapp: "واتساب",
+    byEmail: "البريد الإلكتروني",
+    byBoth: "الاثنان",
     lowAtHint: "سيصلك إشعار قبل نفاد كمية المنتج.",
     restockMin: "إشعار العملاء المشتركين عند توفر كمية أكبر من",
     restockMinHint: "لتجنب إرسال الإشعارات عند توفر كمية محدودة من المنتج. القيمة الافتراضية 15.",
@@ -307,7 +368,18 @@ export const productsCopy: Record<Lang, Copy> = {
     deleteYes: "نعم، احذف",
     errName: "أدخل اسم المنتج",
     errPrice: "أدخل سعرًا صحيحًا",
+    priceZero: "السعر صفر، هل المنتج مجاني؟",
+    discardAsk: "لديك تعديلات لم تُحفظ. هل تريد الخروج دون حفظ؟",
     errSale: "يجب أن يكون السعر بعد الخصم أقل من السعر",
+    errImages: "أضف صورة واحدة للمنتج على الأقل، ليرى العملاء ما يشترونه.",
+    imagesUploading: "انتظر حتى ينتهي رفع الصورة، ثم احفظ.",
+    imageBroken: "تعذّر تحميل هذه الصورة. احذفها وارفعها من جديد.",
+    errQuantity: "أدخل الكمية المتوفرة لديك، أو اختر «كمية غير محدودة».",
+    unlimited: "كمية غير محدودة",
+    unlimitedHint: "للمنتجات التي يمكنك دائمًا صنعها أو طلبها من جديد. لا تنفد أبدًا في متجرك.",
+    unlimitedShort: "غير محدود",
+    otherCategory: "أخرى",
+    requiredNote: "الحقول التي عليها * مطلوبة",
     untitled: "منتج بدون اسم",
     inStock: "متوفر",
     noPrice: "بدون سعر",

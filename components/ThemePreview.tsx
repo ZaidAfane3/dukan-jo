@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePrefs } from "./Prefs";
+import { cleanDomains } from "./safeAccount";
 import { loadSetup } from "./setup";
 import { StorefrontTheme } from "./storefront/StorefrontTheme";
-import { composeDesign, previewProducts, type ThemeInfo } from "./themes";
+import { composeDesign, DEFAULT_THEME_ID, lookOf, previewProducts, type ThemeInfo } from "./themes";
 import { loadConfig } from "./storefront/storage";
 
 /* A live preview is laid out as on a wide screen and shrunk to fit, so it shows a lot of the page, not a zoomed-in corner */
@@ -12,18 +13,27 @@ const WIDTH = 1920;
 const SPEED = 28; /* px a second, while it scrolls by itself */
 
 /** A theme's picture: a browser window with the whole home page inside.
-    In the theme store the page scrolls down by itself, slowly, once (it pauses while the mouse is over it), and the visitor can
-    take it with the mouse and move it up or down himself; from then on it stays where he leaves it.
+    In the theme store the page scrolls by itself, slowly, down to the end and back up again, without end (it pauses while the
+    mouse is over it), and the visitor can take it with the mouse and move it up or down himself; from then on it stays where he
+    leaves it.
     With `scroll` the picture is a plain scrolling area (the preview window). */
 export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeInfo; height: number | string; scroll?: boolean }) {
   const { lang } = usePrefs();
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(380);
-  /* The address of the merchant's own store, as chosen on the domain page */
+  /* The address of the merchant's own store: his own domain when he has added one on the domain page, otherwise his dukkan.store address */
   const [address, setAddress] = useState("");
-  useEffect(() => setAddress(`dukkan.store/${loadSetup()?.slug || "your-store"}`), []);
+  useEffect(() => {
+    let own = "";
+    try {
+      own = cleanDomains(JSON.parse(localStorage.getItem("seen-domains") ?? "[]"))[0]?.name ?? "";
+    } catch {
+      /* no domains saved */
+    }
+    setAddress(own || `dukkan.store/${loadSetup()?.slug || "your-store"}`);
+  }, []);
 
-  const state = useRef({ hover: false, stopped: false, pos: 0, dragging: false, moved: false, startY: 0, startTop: 0 });
+  const state = useRef({ hover: false, stopped: false, pos: 0, dir: 1, dragging: false, moved: false, startY: 0, startTop: 0 });
   const [grabbing, setGrabbing] = useState(false);
 
   useEffect(() => {
@@ -50,9 +60,11 @@ export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeIn
       /* It waits a moment before starting, and pauses while the mouse is over it */
       if (t - begin > 1200 && !s.hover && !s.dragging) {
         const max = el.scrollHeight - el.clientHeight;
-        s.pos = Math.min(max, s.pos + SPEED * dt);
+        s.pos = Math.max(0, Math.min(max, s.pos + SPEED * dt * s.dir));
         el.scrollTop = s.pos;
-        if (max > 0 && s.pos >= max) return; /* it stays at the end */
+        /* at the end it turns and goes back up, at the top it goes down again */
+        if (max > 0 && s.pos >= max) s.dir = -1;
+        else if (s.pos <= 0) s.dir = 1;
       }
       raf = requestAnimationFrame(tick);
     };
@@ -107,18 +119,31 @@ export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeIn
     if (theme.shot) return null;
     /* A design the merchant saved is shown on his own store (his logo and his products) */
     if (theme.look) return composeDesign(loadConfig(), theme.look);
+    /* Dukkan's default design is shown on his own store too, so he sees what going back to it looks like */
+    if (theme.id === DEFAULT_THEME_ID) return composeDesign(loadConfig(), lookOf(theme.build(lang, { samples: false })));
     const c = theme.build(lang, { samples: true });
     c.identity.logo = { kind: "image", sample: "star", image: "/demo/perfume/logo.png" };
     return c;
   }, [theme, lang]);
-  const products = useMemo(() => (theme.shot ? [] : theme.look ? undefined : previewProducts(lang, theme)), [theme, lang]);
+  /* his own store (a saved design, the default design): his products; any other theme: its sample products */
+  const own = !!theme.look || theme.id === DEFAULT_THEME_ID;
+  const products = useMemo(() => (theme.shot ? [] : own ? undefined : previewProducts(lang, theme)), [theme, lang, own]);
+
+  /* The frame around the window takes the theme's own colors (its background, with a touch of its accent), so each theme feels like itself */
+  const backdrop = config
+    ? (() => {
+        const bg = config.theme.background || "#f7f2ea";
+        const tint = config.theme.accent || config.theme.primary || config.theme.text || "#c9b48e";
+        return `linear-gradient(135deg, color-mix(in srgb, ${tint} 28%, ${bg}), ${bg} 55%, color-mix(in srgb, ${tint} 40%, ${bg}))`;
+      })()
+    : "linear-gradient(135deg, #efe6d6, #f7f2ea 55%, #e6d9c2)";
 
   return (
-    <div className="rounded-2xl p-3 sm:p-5" style={{ background: "linear-gradient(135deg, #efe6d6, #f7f2ea 55%, #e6d9c2)" }} onClickCapture={onClickCapture}>
+    <div className="rounded-2xl p-3 sm:p-5" style={{ background: backdrop }} onClickCapture={onClickCapture}>
       <div className="overflow-hidden rounded-xl bg-white shadow-[0_30px_60px_-25px_rgba(28,26,23,0.55)] ring-1 ring-black/10">
         {/* The browser's bar with the store's address */}
         <div dir="ltr" className="flex items-center border-b border-black/10 bg-[#f6f2ea] px-3 py-2">
-          <span className="mx-auto flex h-6 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-[11px] text-[#7a6f62] ring-1 ring-black/5">
+          <span className="mx-auto flex h-6 w-4/5 min-w-0 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-white px-2 text-[11px] text-[#7a6f62] ring-1 ring-black/5">
             <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
             {address}
           </span>
@@ -140,7 +165,7 @@ export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeIn
             <img src={theme.shot} alt={theme.name[lang]} className="block w-full" draggable={false} />
           ) : (
             <div aria-hidden className="pointer-events-none" style={{ width: WIDTH, zoom: w / WIDTH }}>
-              {config && <StorefrontTheme config={config} device="desktop" interactive={false} products={products} store={{ name: lang === "ar" ? "متجر عطور" : "Perfume Store", color: "#1c1a17" }} />}
+              {config && <StorefrontTheme config={config} device="desktop" interactive={false} products={products} store={own ? undefined : theme.demo ? { name: theme.demo.name[lang], color: theme.demo.color } : { name: lang === "ar" ? "متجر عطور" : "Perfume Store", color: "#1c1a17" }} />}
             </div>
           )}
         </div>

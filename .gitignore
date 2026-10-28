@@ -35,3 +35,5 @@ prototype/build/node_modules/
 prototype/build/dist/
 prototype/build/src/assets.json
 prototype/build/src/fonts.css
+
+/.next-*/

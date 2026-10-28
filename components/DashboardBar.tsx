@@ -17,9 +17,10 @@ import {
   type AppNotification,
 } from "./notifications";
 import { GlobalSearch } from "./GlobalSearch";
-import { LangSwitch, usePrefs } from "./Prefs";
+import { usePrefs } from "./Prefs";
 import { ordersCopy } from "./ordersContent";
 import { ProfileMenu } from "./ProfileMenu";
+import { loadSetup } from "./setup";
 
 type Section = "home" | "pages" | "domain" | "orders" | "products" | "marketing" | "reports" | "support" | "settings";
 
@@ -43,7 +44,8 @@ const icons = {
   reports: <svg {...ico}><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>,
   apps: <svg {...ico}><rect x="4" y="4" width="6" height="6" rx="1.5" /><rect x="14" y="4" width="6" height="6" rx="1.5" /><rect x="4" y="14" width="6" height="6" rx="1.5" /><path d="M17 14v6M14 17h6" /></svg>,
   settings: <svg {...ico}><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.1-1.2L14 3h-4l-.5 2.7a7 7 0 0 0-2.1 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2.1 1.2L10 21h4l.5-2.7a7 7 0 0 0 2.1-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z" /></svg>,
-  ticket: <svg {...ico}><path d="M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v5H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1ZM20 14h-3v5h3a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1ZM17 19a3 3 0 0 1-3 2h-2" /></svg>,
+  /* support tickets: a ticket (the account menu's «الدعم الفني» keeps the headset) */
+  ticket: <svg {...ico}><path d="M3 9V6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v3a3 3 0 0 0 0 6v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-3a3 3 0 0 0 0-6ZM15 5v2M15 11v2M15 17v2" /></svg>,
   bell: <svg {...ico}><path d="M6 17V11a6 6 0 1 1 12 0v6l2 2H4l2-2ZM10 21a2 2 0 0 0 4 0" /></svg>,
   shield: <svg {...ico}><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></svg>,
   language: <svg {...ico}><path d="M4 6h9M8.5 4v2M6 6c.5 3 2.5 5.5 5.5 7M12 6c-.5 3-3 6-7 7.5M13 20l4-9 4 9M14.4 17h5.2" /></svg>,
@@ -173,11 +175,6 @@ function NotificationBell() {
           </ul>
           {shown.length === 0 && <p className="px-5 py-12 text-center text-sm text-muted">{n.empty}</p>}
 
-          <div className="border-t border-fg/10">
-            <button type="button" onClick={() => setTab(0)} className="w-full py-3.5 text-center text-sm font-semibold text-primary transition hover:bg-soft/60">
-              {n.viewAll}
-            </button>
-          </div>
         </div>
       )}
     </div>
@@ -195,6 +192,47 @@ function NotificationBell() {
  * support tickets icon, notifications, language and theme.
  * Only pages that exist are links, the rest are shown but inactive.
  */
+/* The store setup (the 6 tasks of /onboarding) */
+const SETUP_TASKS = 6;
+
+/** While the store setup is not finished, every dashboard page shows how much of it is left, and a click goes back to it.
+    It hides on the setup page itself and once all the tasks are done. */
+function SetupChip({ lang }: { lang: "en" | "ar" }) {
+  const pathname = usePathname();
+  const [done, setDone] = useState<number | null>(null);
+  useEffect(() => {
+    const read = () => {
+      const s = loadSetup();
+      setDone(s && Array.isArray(s.done) ? s.done.filter(Boolean).length : 0);
+    };
+    read();
+    window.addEventListener("seen-setup", read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener("seen-setup", read);
+      window.removeEventListener("storage", read);
+    };
+  }, []);
+  if (done === null || done >= SETUP_TASKS || pathname === "/onboarding") return null;
+  const pct = Math.round((done / SETUP_TASKS) * 100);
+  const left = 100 - pct;
+  /* the same 0-9 digits as the rest of the dashboard */
+  const label = lang === "ar" ? `إعداد متجرك: باقي ${left}%` : `Store setup: ${left}% left`;
+  const hint = lang === "ar" ? `أنجزت ${done} من ${SETUP_TASKS} مهام. اضغط لمتابعة الإعداد` : `${done} of ${SETUP_TASKS} tasks done. Press to continue the setup`;
+  /* a ring that fills as the tasks are done */
+  const r = 9;
+  const c = 2 * Math.PI * r;
+  return (
+    <Link href="/onboarding" data-nav-item title={hint} aria-label={`${label}. ${hint}`} className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-2 text-xs font-bold text-primary transition hover:bg-primary/10 sm:px-3">
+      <svg viewBox="0 0 24 24" className="h-6 w-6 -rotate-90" aria-hidden>
+        <circle cx="12" cy="12" r={r} fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />
+        <circle cx="12" cy="12" r={r} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - done / SETUP_TASKS)} className="transition-[stroke-dashoffset] duration-700" />
+      </svg>
+      <span className="hidden whitespace-nowrap sm:inline">{label}</span>
+    </Link>
+  );
+}
+
 export function DashboardBar({
   active,
   subtabs,
@@ -442,6 +480,7 @@ export function DashboardBar({
           <GlobalSearch />
 
           <div className="flex shrink-0 items-center gap-2">
+            <SetupChip lang={lang} />
             {action}
             <Link
               href="/support"
@@ -455,7 +494,6 @@ export function DashboardBar({
               </span>
             </Link>
             <NotificationBell />
-            <LangSwitch iconOnly />
             <ProfileMenu />
           </div>
         </div>

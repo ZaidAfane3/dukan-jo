@@ -1,8 +1,10 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { visitorEmail } from "../safeOrder";
+import { cloneElement, Fragment, isValidElement, memo, useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
-import { displayFamily, heroTitleFamily, type SectionConfig, type StorefrontConfig } from "./config";
+import { suggestFor } from "./Cart";
+import { displayFamily, heroTitleFamily, type SectionConfig, type TextStyle, type StorefrontConfig } from "./config";
 import { copy, currency, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import type { StoreData, StoreProduct } from "./useStoreData";
 
@@ -12,8 +14,9 @@ export type Design = { selected: string | null; select: (id: string, field?: str
 export type Ctx = {
   lang: Lang;
   compact: boolean;
-  data: StoreData;
-  config: StorefrontConfig;
+  /* Only what the sections use, so that a change elsewhere (the name, the footer, another section) does not draw every section again */
+  data: Pick<StoreData, "products" | "categories" | "color" | "isDemo">;
+  config: Pick<StorefrontConfig, "theme" | "texts" | "cards">;
   design?: Design;
   owner?: boolean;
   query: string;
@@ -37,8 +40,47 @@ const ringColor = "color-mix(in srgb, var(--sf-primary) 40%, transparent)";
 /* A size set on a wide screen, made smaller for a phone (big titles shrink more than small texts) */
 const scaled = (px: number, compact: boolean) => (compact ? (px > 40 ? Math.round(px * 0.55) : Math.round(px * 0.85)) : px);
 
+/* How a text sits and looks when the merchant set it in its editor: right, center or left (the box moves too), bold, italic */
+const tx = (st?: TextStyle): React.CSSProperties =>
+  st
+    ? {
+        ...(st.align ? { textAlign: st.align, marginLeft: st.align === "left" ? 0 : "auto", marginRight: st.align === "right" ? 0 : "auto" } : {}),
+        ...(st.bold === undefined ? {} : { fontWeight: st.bold ? 800 : 400 }),
+        ...(st.italic ? { fontStyle: "italic" } : {}),
+      }
+    : {};
+
 /* A link a visitor may follow: "shop.com" becomes "https://shop.com" */
 const linkHref = (l: string) => (/^https?:\/\//i.test(l.trim()) ? l.trim() : `https://${l.trim()}`);
+
+/* The ways a merchant writes the dinar: in Latin letters (JOD, JD, dinars, Jordanian dinar) and in Arabic (د.أ, دينار, دنانير, دينار أردني, دينارًا).
+   Both check their neighbours by hand (\b knows no Arabic letters, and "23JOD" has no word edge); the letter before is kept, with a space after a digit. */
+const latinDinar = /(^|[^A-Za-z])(?:Jordanian\s+)?(?:JOD|JD|dinars?)(?![A-Za-z])/gi;
+const arabicDinar = /(^|[^ء-ي])(?:(?:دينار|دنانير)(?:ًا|ا)?(?:\s+أردني(?:ة|ًا|ا)?)?|د\s?\.\s?[أا])(?![ء-ي])/g;
+
+/* A price the merchant wrote himself ("290 JOD", "٢٩٠ د.أ", "٢٣ دينار"): its digits and currency follow the store's price setting like every other price.
+   Every way of writing the dinar, in either language, becomes the store's own: د.أ on Arabic prices, JOD on English ones. */
+const dinarAs = (cur: string) => (_: string, before: string) => `${before}${/[0-9٠-٩]/.test(before) ? " " : ""}${cur}`;
+const writtenPrice = (text: string, ctx: Ctx) => {
+  const ar = priceLang(ctx.config.theme.prices, ctx.lang) === "ar";
+  return ar
+    ? text.replace(/[0-9]/g, (d) => "٠١٢٣٤٥٦٧٨٩"[Number(d)]).replace(/([٠-٩]),(?=[٠-٩])/g, "$1٬").replace(/([٠-٩])\.(?=[٠-٩])/g, "$1٫").replace(latinDinar, dinarAs(currency("ar"))).replace(arabicDinar, dinarAs(currency("ar")))
+    : text.replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/٬/g, ",").replace(/٫/g, ".").replace(arabicDinar, dinarAs(currency("en"))).replace(latinDinar, dinarAs(currency("en")));
+};
+/* It reads in its own direction, so "23 JOD" stays in that order on an Arabic page (and "٢٣ د.أ" on an English one) */
+const WrittenPrice = ({ text, ctx }: { text: string; ctx: Ctx }) => <bdi dir={priceLang(ctx.config.theme.prices, ctx.lang) === "ar" ? "rtl" : "ltr"}>{writtenPrice(text, ctx)}</bdi>;
+
+/* How light a hex color is (0 black … 1 white); below about 0.18 white text reads better on it than dark text */
+const luminance = (hex: string) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 1;
+  const n = parseInt(m[1], 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
 
 /* A button can lead to a page of the store ("page:5"), a part of this page, or a web address */
 const pageOf = (l: string) => {
@@ -74,10 +116,41 @@ const card = "rounded-[var(--sf-r)] bg-white ring-1 ring-black/[0.06]";
 /* The space above and below a section follows the store's spacing choice (--sf-sy above, --sf-sb below) */
 const section = (compact: boolean) => (compact ? "px-4 pt-[var(--sf-syc,1.75rem)] pb-[var(--sf-sbc,1.75rem)]" : "px-8 pt-[var(--sf-sy,2.5rem)] pb-[var(--sf-sb,2.5rem)]");
 
-/** In the designer, a part of the store that can be clicked to edit it. Elsewhere it is just its children. */
+/* Whether a part shows nothing at all: no words (spaces do not count) and no picture or icon. A component counts by the children it is given. */
+const media = new Set(["img", "svg", "video", "picture", "canvas", "iframe", "input", "textarea", "select"]);
+const blank = (n: React.ReactNode): boolean => {
+  if (n === null || n === undefined || typeof n === "boolean") return true;
+  if (typeof n === "string") return !n.trim();
+  if (typeof n === "number" || typeof n === "bigint") return false;
+  if (Array.isArray(n)) return n.every(blank);
+  if (!isValidElement(n)) return false;
+  const props = n.props as { children?: React.ReactNode; dangerouslySetInnerHTML?: unknown };
+  if (typeof n.type === "string" && media.has(n.type)) return false;
+  if (props.dangerouslySetInnerHTML) return false;
+  if (typeof n.type !== "string" && n.type !== Fragment && !("children" in props)) return false;
+  return blank(props.children);
+};
+/* The faint words an emptied text shows in the designer, so there is still something to click to write it again */
+const emptyHint: Record<string, { en: string; ar: string }> = {
+  title: { en: "Add a title", ar: "أضف عنوانًا" },
+  subtitle: { en: "Add a short line", ar: "أضف سطرًا قصيرًا" },
+  eyebrow: { en: "Add a small line", ar: "أضف سطرًا صغيرًا" },
+  button: { en: "Add the button words", ar: "أضف نص الزر" },
+  button2: { en: "Add the button words", ar: "أضف نص الزر" },
+  body: { en: "Add some text", ar: "أضف نصًا" },
+  text: { en: "Add some text", ar: "أضف نصًا" },
+};
+
+/** In the designer, a part of the store that can be clicked to edit it. Elsewhere it is just its children.
+    In the designer an emptied text keeps its place with a faint hint in its own font and size; the store itself shows nothing. */
 export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id: string; field?: string; children: React.ReactNode; block?: boolean }) {
   if (!ctx.design) return <>{children}</>;
   const d = ctx.design;
+  if (blank(children)) {
+    const hint = <span data-sf-empty className="opacity-40">{(emptyHint[field ?? ""] ?? { en: "Add text", ar: "أضف نصًا" })[ctx.lang]}</span>;
+    /* the hint goes inside the emptied element (a title, a button) so it takes that element's look; a bare text gets the hint alone */
+    children = isValidElement(children) && children.type !== Fragment ? cloneElement(children as React.ReactElement<{ children?: React.ReactNode }>, undefined, hint) : hint;
+  }
   return (
     <span
       role="button"
@@ -109,7 +182,7 @@ function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; m
   /* The ornament style: three small diamonds above a centered title; with "view all" the title sits at the start and the link at the end */
   if (ctx.config.theme.titleStyle === "ornament") {
     const size = scaled(ctx.config.theme.sectionTitleSize ?? 44, ctx.compact);
-    const h2 = <h2 className="font-semibold leading-tight text-[var(--sf-title)]" style={{ fontFamily: "var(--sf-heading)", fontSize: size }}>{title}</h2>;
+    const h2 = <h2 className="font-semibold leading-tight text-[var(--sf-title)] [overflow-wrap:anywhere]" style={{ fontFamily: "var(--sf-heading)", fontSize: size }}>{title}</h2>;
     if (more || link) {
       const cls = "inline-flex min-h-[44px] items-center text-sm underline underline-offset-[6px] transition hover:opacity-70";
       return (
@@ -128,31 +201,36 @@ function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; m
       </div>
     );
   }
+  const center = ctx.config.theme.titleAlign === "center";
   return (
-    <div className="mb-5 flex items-end justify-between gap-4">
+    <div className={center ? "mb-5 flex flex-col items-center gap-2 text-center" : "mb-5 flex items-end justify-between gap-4"}>
       <h2
-        className={`tracking-tight text-[var(--sf-title)] ${light ? "font-light leading-tight" : pop ? "font-extrabold leading-tight" : "font-extrabold"}`}
+        className={`tracking-tight text-[var(--sf-title)] [overflow-wrap:anywhere] ${light ? "font-light leading-tight" : pop ? "font-extrabold leading-tight" : "font-extrabold"}`}
         style={{ fontFamily: "var(--sf-heading)", fontSize: scaled(ctx.config.theme.sectionTitleSize ?? (light ? 34 : pop ? 44 : 24), ctx.compact) }}
       >
         {title}
       </h2>
       {more &&
-        (pop ? (
-          <span className="border-b-[3px] pb-0.5 text-sm font-bold text-[var(--sf-text)]" style={{ borderColor: "var(--sf-accent)" }}>{viewAll}</span>
-        ) : light ? (
-          <span className="border-b border-current pb-0.5 text-sm text-[var(--sf-text)]">{viewAll}</span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--sf-title)]">
-            {viewAll}
-            {icons.arrow}
-          </span>
-        ))}
+        (() => {
+          /* "view all": a real link on the store when he set where it leads; in the designer a click selects (Ctrl+click opens a page) */
+          const cls = pop ? "border-b-[3px] pb-0.5 text-sm font-bold text-[var(--sf-text)]" : light ? "border-b border-current pb-0.5 text-sm text-[var(--sf-text)]" : "inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--sf-title)]";
+          const style: React.CSSProperties | undefined = pop ? { borderColor: "var(--sf-accent)" } : undefined;
+          const inner = pop || light ? viewAll : <>{viewAll}{icons.arrow}</>;
+          return link?.trim() && !ctx.design ? (
+            <a {...linkProps(link, ctx)} className={`${cls} transition hover:opacity-70`} style={style}>{inner}</a>
+          ) : (
+            <span className={cls} style={style} onClick={designOpen(link, ctx)}>{inner}</span>
+          );
+        })()}
       {right}
     </div>
   );
 }
 
 /* ---------------- Product card ---------------- */
+
+/* A discounted price shows in his sale color, when he picked one */
+const saleTint = (ctx: Ctx, p: StoreProduct): React.CSSProperties | undefined => (p.sale !== null && ctx.config.theme.saleColor ? { color: "var(--sf-sale)" } : undefined);
 
 function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
   const c = copy[ctx.lang];
@@ -168,7 +246,9 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
     pop: "rounded-[var(--sf-r2)] border-2 border-[var(--sf-text)] bg-white p-3 shadow-[5px_5px_0_var(--sf-text)]",
   }[k.style ?? "shadow"];
   const pop = k.style === "pop";
-  const plus = k.add === "plus";
+  /* the add-to-cart button (or the + button) shows unless he turned it off; the product page keeps its own */
+  const withAdd = k.showAdd ?? true;
+  const plus = withAdd && k.add === "plus";
   const low = k.showStock && p.quantity > 0 && p.quantity <= 5;
   const row = (k.info ?? "stack") === "row";
   /* centered: the name, the material line and the price under the picture, in the middle, the name and price in the titles font */
@@ -185,7 +265,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
     >
       <div
         className="relative overflow-hidden"
-        style={{ borderRadius: pop ? "var(--sf-ri)" : "calc(var(--sf-r) - 8px)" }}
+        style={{ borderRadius: pop ? "var(--sf-ri)" : k.style === "flat" ? "var(--sf-r)" : "calc(var(--sf-r) - 8px)" }}
         onClick={(e) => {
           /* In the designer, the picture itself opens the editor for which part of it stays visible */
           if (ctx.design?.selectProduct && p.image) {
@@ -200,7 +280,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
             <span className="absolute start-2.5 top-2.5 rounded-full bg-white px-3 py-1 text-[12px] font-semibold text-[#1c1a17] shadow-sm">{p.badge}</span>
           ) : (
             off > 0 && (
-              <span className="absolute start-2.5 top-2.5 rounded-full bg-[var(--sf-primary)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--sf-on)] shadow">
+              <span className="absolute start-2.5 top-2.5 rounded-full bg-[var(--sf-sale)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--sf-onsale)] shadow">
                 -{off}%
               </span>
             )
@@ -210,35 +290,35 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
       <div className={`relative px-1.5 pb-1.5 ${centered ? "pt-4 text-center" : "pt-3"}`}>
        <div className={`${row ? "flex items-start justify-between gap-3" : ""} ${plus ? (inBasket > 0 && !out ? "pe-[6.75rem]" : "pe-11") : ""}`}>
         <div className="min-w-0">
-        {p.category && k.showCategory && <p className="text-xs text-[var(--sf-text)]/55">{p.category}</p>}
+        {p.category && k.showCategory && <p className="text-xs text-sf-text/55">{p.category}</p>}
         {k.showName && (centered ? (
           <h3 className="line-clamp-1 font-semibold" style={{ fontFamily: "var(--sf-heading)", fontSize: ctx.compact ? 18 : 22 }}>{p.name}</h3>
         ) : (
           <h3 className={`mt-0.5 text-sm font-bold ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}>{p.name}</h3>
         ))}
-        {k.showNotes && p.notes && <p className="mt-0.5 line-clamp-1 text-[13px] text-[var(--sf-text)]/60">{p.notes}</p>}
+        {k.showNotes && p.notes && <p className="mt-0.5 line-clamp-1 text-[13px] text-sf-text/60">{p.notes}</p>}
         {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
         </div>
         {k.showPrice && (
           <p dir="ltr" className={`${row ? "mt-0.5 shrink-0" : centered ? "mt-2 justify-center" : pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} flex items-baseline gap-1.5 text-start`} style={{ ...(k.priceColor ? { color: k.priceColor } : {}), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
             {p.price === null ? (
-              <span className="text-sm text-[var(--sf-text)]/55">{ctx.lang === "ar" ? "بدون سعر" : "No price"}</span>
+              <span className="text-sm text-sf-text/55">{ctx.lang === "ar" ? "بدون سعر" : "No price"}</span>
             ) : (
               <>
-                <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-                <span className="text-[11px] font-semibold text-[var(--sf-text)]/60">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-                {p.sale !== null && k.showOldPrice && <s className="text-xs text-[var(--sf-text)]/45">{moneyIn(p.price, priceLang(ctx.config.theme.prices, ctx.lang))}</s>}
+                <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                <span className="text-[11px] font-semibold text-sf-text/60">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                {p.sale !== null && k.showOldPrice && <s className="text-xs text-sf-text/45">{moneyIn(p.price, priceLang(ctx.config.theme.prices, ctx.lang))}</s>}
               </>
             )}
           </p>
         )}
        </div>
 
-        {/* Add to cart. Once the product is in the basket the button turns into  -  1  +  */}
+        {/* Add to cart. Once the product is in the basket the button turns into  -  1  +  (both follow the store's corners: round, soft or sharp) */}
         {plus && (
           inBasket > 0 && !out ? (
             <div className="absolute bottom-2 end-1.5">
-              <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-full border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]">
+              <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-[var(--sf-pill,999px)] border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]">
               <button type="button" onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket - 1)} aria-label={`${ctx.lang === "ar" ? "إنقاص" : "Remove one"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10">&minus;</button>
               <span aria-live="polite" className="min-w-[1.25rem] text-center tabular-nums">{inBasket}</span>
               <button type="button" disabled={inBasket >= p.quantity} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
@@ -250,15 +330,16 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               disabled={out || p.price === null}
               onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, 1)}
               aria-label={out ? c.soldOut : `${c.add}: ${p.name}`}
-              className="absolute bottom-2 end-1.5 grid h-9 w-9 place-items-center rounded-full border-2 border-[var(--sf-text)] text-xl font-extrabold leading-none text-[var(--sf-text)] transition hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ background: k.addColor || "#b9f3d0" }}
+              className="absolute bottom-2 end-1.5 grid h-9 w-9 place-items-center rounded-[var(--sf-pill,999px)] border-2 border-[var(--sf-text)] text-xl font-extrabold leading-none text-[var(--sf-text)] transition hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+              /* a dark button color gets a white + so it stays visible (mid tones keep the dark +, which reads better on them) */
+              style={{ background: k.addColor || "#b9f3d0", ...(k.addColor && luminance(k.addColor) < 0.18 ? { color: "#ffffff" } : {}) }}
             >
               +
             </button>
           )
         )}
-        {!plus && (inBasket > 0 && !out ? (
-          <div dir="ltr" className="mt-3 flex h-11 w-full items-center justify-between overflow-hidden rounded-xl border-2 border-[var(--sf-text)] bg-white text-[var(--sf-text)]">
+        {withAdd && !plus && (inBasket > 0 && !out ? (
+          <div dir="ltr" className="mt-3 flex h-11 w-full items-center justify-between overflow-hidden rounded-[min(var(--sf-r),12px)] border-2 border-[var(--sf-text)] bg-white text-[var(--sf-text)]">
             <button
               type="button"
               onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket - 1)}
@@ -284,10 +365,10 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
             disabled={out || p.price === null}
             onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, 1)}
             aria-label={out ? c.soldOut : `${c.add}: ${p.name}`}
-            className={`mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-sm font-bold transition ${
+            className={`mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-[min(var(--sf-r),12px)] border text-sm font-bold transition ${
               out
-                ? "cursor-not-allowed border-black/10 bg-black/[0.05] text-[var(--sf-text)]/40"
-                : "border-[var(--sf-primary)]/50 text-[var(--sf-primary)] hover:bg-[var(--sf-primary)] hover:text-[var(--sf-on)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                ? "cursor-not-allowed border-black/10 bg-black/[0.05] text-sf-text/40"
+                : "border-sf-primary/50 text-[var(--sf-primary)] hover:bg-[var(--sf-primary)] hover:text-[var(--sf-on)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             }`}
           >
             {out ? c.soldOut : <>{icons.bag}{c.add}</>}
@@ -340,7 +421,8 @@ export function ProductPage({ p, ctx, onBack }: { p: StoreProduct; ctx: Ctx; onB
   const off = p.sale !== null && p.price ? Math.round((1 - p.sale / p.price) * 100) : 0;
   const out = p.quantity <= 0;
   const inBasket = ctx.qty[p.id] ?? 0;
-  const others = ctx.data.products.filter((x) => x.id !== p.id).slice(0, 4);
+  /* suggestions: the same category first, then featured products, then the rest */
+  const others = suggestFor(ctx.data.products, [p], 4);
   const btn = "grid h-12 w-12 place-items-center text-xl font-bold transition hover:bg-black/[0.07] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40";
   /* A rating and a number of reviews that stay the same for a product (sample stores only) */
   /* Only sample products (the made-up store) show the sample rating, sizes, perks and opinions */
@@ -355,7 +437,7 @@ export function ProductPage({ p, ctx, onBack }: { p: StoreProduct; ctx: Ctx; onB
   return (
     <section className={ctx.compact ? "min-h-[420px] px-4 py-8" : "min-h-[640px] px-8 py-12"}>
       <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--sf-accent)] hover:underline">
-        <span className={ctx.lang === "ar" ? "" : "rotate-180"}>{icons.arrow}</span>
+        <span className="rotate-180">{icons.arrow}</span>
         {ctx.lang === "ar" ? "العودة إلى المتجر" : "Back to the store"}
       </button>
       <div className={`mt-6 grid items-start gap-10 ${ctx.compact ? "" : "md:grid-cols-2"}`}>
@@ -363,25 +445,25 @@ export function ProductPage({ p, ctx, onBack }: { p: StoreProduct; ctx: Ctx; onB
           <ProductImage p={p} flat={ctx.config.cards.style === "pop"} className="aspect-[4/5] w-full" />
         </div>
         <div>
-          {p.category && <p className="text-sm text-[var(--sf-text)]/60">{p.category}</p>}
+          {p.category && <p className="text-sm text-sf-text/60">{p.category}</p>}
           <h1 className={`mt-1 font-extrabold leading-tight text-[var(--sf-title)] ${ctx.compact ? "text-3xl" : "text-5xl"}`} style={{ fontFamily: "var(--sf-heading)" }}>{p.name}</h1>
           {p.badge && <span className="mt-3 inline-block rounded-full bg-[var(--sf-primary)] px-3 py-1 text-xs font-bold text-[var(--sf-on)]">{p.badge}</span>}
           {sample && (
             <p className="mt-3 flex items-center gap-2 text-sm font-semibold">
               <Stars value={rating} />
               <span>{rating.toFixed(1)}</span>
-              <span className="text-[var(--sf-text)]/55">· {ctx.lang === "ar" ? `${reviewsCount} تقييم` : `${reviewsCount} reviews`}</span>
+              <span className="text-sf-text/55">· {ctx.lang === "ar" ? `${reviewsCount} تقييم` : `${reviewsCount} reviews`}</span>
             </p>
           )}
           {p.price !== null && (
             <p dir="ltr" className="mt-5 flex items-baseline gap-2.5 text-start" style={ctx.config.cards.priceColor ? { color: ctx.config.cards.priceColor } : undefined}>
-              <span className="text-4xl font-extrabold">{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-              <span className="text-sm font-semibold opacity-70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-              {p.sale !== null && <s className="text-lg opacity-50">{moneyIn(p.price, priceLang(ctx.config.theme.prices, ctx.lang))}</s>}
-              {off > 0 && <span className="rounded-full bg-[var(--sf-primary)] px-2.5 py-1 text-xs font-extrabold text-[var(--sf-on)]">-{off}%</span>}
+              <span className="text-4xl font-extrabold" style={saleTint(ctx, p)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+              <span className="text-sm font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+              {p.sale !== null && <s className="text-lg text-sf-text/50">{moneyIn(p.price, priceLang(ctx.config.theme.prices, ctx.lang))}</s>}
+              {off > 0 && <span className="rounded-full bg-[var(--sf-sale)] px-2.5 py-1 text-xs font-extrabold text-[var(--sf-onsale)]">-{off}%</span>}
             </p>
           )}
-          {p.notes && <p className="mt-4 text-lg leading-relaxed text-[var(--sf-text)]/75">{p.notes}</p>}
+          {p.notes && <p className="mt-4 text-lg leading-relaxed text-sf-text/75">{p.notes}</p>}
           <p className={`mt-4 text-sm font-semibold ${out ? "text-rose-600" : p.quantity <= 5 ? "text-amber-600" : "text-emerald-700"}`}>
             {out ? c.soldOut : p.quantity <= 5 ? (ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`) : ctx.lang === "ar" ? "متوفر" : "In stock"}
           </p>
@@ -397,7 +479,7 @@ export function ProductPage({ p, ctx, onBack }: { p: StoreProduct; ctx: Ctx; onB
           )}
           <div className="mt-6">
             {inBasket > 0 && !out ? (
-              <div dir="ltr" className="inline-flex items-center overflow-hidden rounded-xl border-2 border-[var(--sf-text)] bg-white text-[var(--sf-text)]">
+              <div dir="ltr" className="inline-flex items-center overflow-hidden rounded-[min(var(--sf-r),12px)] border-2 border-[var(--sf-text)] bg-white text-[var(--sf-text)]">
                 <button type="button" className={btn} onClick={() => ctx.setQty(p, inBasket - 1)} aria-label={ctx.lang === "ar" ? "إنقاص" : "Remove one"}>−</button>
                 <span aria-live="polite" className="min-w-[3rem] text-center font-extrabold tabular-nums">{inBasket}</span>
                 <button type="button" className={btn} disabled={inBasket >= p.quantity} onClick={() => ctx.setQty(p, inBasket + 1)} aria-label={ctx.lang === "ar" ? "زيادة" : "Add one more"}>+</button>
@@ -407,7 +489,7 @@ export function ProductPage({ p, ctx, onBack }: { p: StoreProduct; ctx: Ctx; onB
                 type="button"
                 disabled={out || p.price === null}
                 onClick={() => ctx.setQty(p, 1)}
-                className="inline-flex h-12 items-center gap-2 rounded-xl bg-[var(--sf-primary)] px-8 text-base font-bold text-[var(--sf-on)] shadow-md transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-12 items-center gap-2 rounded-[min(var(--sf-r),12px)] bg-[var(--sf-primary)] px-8 text-base font-bold text-[var(--sf-on)] shadow-md transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {icons.bag}
                 {out ? c.soldOut : c.add}
@@ -428,7 +510,7 @@ export function ProductPage({ p, ctx, onBack }: { p: StoreProduct; ctx: Ctx; onB
       </div>
       {sample && (
         <div className="mt-14">
-          <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className={ctx.config.theme.titleAlign === "center" ? "flex flex-col items-center" : "flex flex-wrap items-end justify-between gap-3"}>
             <Heading title={ctx.lang === "ar" ? "آراء العملاء" : "What customers say"} ctx={ctx} />
             <p className="mb-6 flex items-center gap-2 text-sm font-semibold">
               <Stars value={rating} size={16} />
@@ -452,7 +534,7 @@ export function ProductPage({ p, ctx, onBack }: { p: StoreProduct; ctx: Ctx; onB
       )}
       {others.length > 0 && (
         <div className="mt-14">
-          <Heading title={ctx.lang === "ar" ? "منتجات أخرى" : "More products"} ctx={ctx} />
+          <Heading title={ctx.lang === "ar" ? "قد يعجبك أيضًا" : "You may also like"} ctx={ctx} />
           <Grid items={others} ctx={ctx} columns={4} />
         </div>
       )}
@@ -514,7 +596,7 @@ function useRail(count: number, cols: number, ctx: Ctx) {
   const arrows = (
     <div className="flex shrink-0 items-center gap-2">
       <button type="button" disabled={edge.start} onClick={() => slide(-1)} aria-label={rtl ? "السابق" : "Previous"} className={arrow}>
-        <span className="rtl:rotate-180">{icons.arrow}</span>
+        <span className="rotate-180">{icons.arrow}</span>
       </button>
       {/* One dot for each row of products, so a change in the number of products shown can be seen: more products, more dots */}
       <span className="flex items-center gap-1.5" aria-hidden>
@@ -523,7 +605,7 @@ function useRail(count: number, cols: number, ctx: Ctx) {
         ))}
       </span>
       <button type="button" disabled={edge.end} onClick={() => slide(1)} aria-label={rtl ? "التالي" : "Next"} className={arrow}>
-        <span className="rotate-180 rtl:rotate-0">{icons.arrow}</span>
+        <span>{icons.arrow}</span>
       </button>
     </div>
   );
@@ -561,10 +643,63 @@ function Grid({ items, ctx, columns, rail }: { items: StoreProduct[]; ctx: Ctx; 
   );
 }
 
+/* An empty product section, seen only by the merchant in the designer: it says what is missing, so the section never looks like it is gone.
+   With `add`, a button opens the products page (in a new tab, so unsaved design changes are not lost). */
+function DesignEmpty({ ctx, hint, add, quote }: { ctx: Ctx; hint: string; add?: boolean; /* a quote mark instead of the bag (for reviews) */ quote?: boolean }) {
+  return (
+    <div className="grid place-items-center rounded-[var(--sf-r)] border-2 border-dashed px-6 py-12 text-center" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
+      <span className="grid h-20 w-20 place-items-center rounded-full text-sf-primary/70" style={{ background: "color-mix(in srgb, var(--sf-primary) 9%, white)" }}>
+        {quote ? (
+          <svg aria-hidden viewBox="0 0 32 32" className="h-9 w-9 fill-current">
+            <path d="M10 8C6 9.500 4 13 4 17v7h9v-9H8c0-3 1.500-5 4-6L10 8Zm14 0c-4 1.500-6 5-6 9v7h9v-9h-5c0-3 1.500-5 4-6L24 8Z" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M5 8h14l-1 12H6L5 8Z" />
+            <path d="M9 8V6a3 3 0 0 1 6 0v2" />
+          </svg>
+        )}
+      </span>
+      <p className="mt-4 max-w-sm text-sm font-semibold text-sf-text/70">{hint}</p>
+      {add && (
+        <a
+          href="/products"
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="mt-5 inline-flex items-center gap-2 rounded-full bg-[var(--sf-primary)] px-6 py-3 text-sm font-extrabold text-[var(--sf-on)] shadow-md transition hover:-translate-y-0.5"
+        >
+          {icons.plus}
+          {copy[ctx.lang].addHere}
+        </a>
+      )}
+    </div>
+  );
+}
+
+/* A previous or next button of the hero's backgrounds. Previous sits at the start of the reading direction, next at the end. */
+function HeroArrow({ dir, ctx, go }: { dir: 1 | -1; ctx: Ctx; go: (dir: 1 | -1) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        go(dir);
+      }}
+      aria-label={dir === -1 ? (ctx.lang === "ar" ? "السابق" : "Previous") : ctx.lang === "ar" ? "التالي" : "Next"}
+      className="grid h-9 w-9 place-items-center rounded-full bg-white/85 text-[#12262b] shadow-md backdrop-blur transition hover:scale-105 hover:bg-white"
+    >
+      <span className={dir === -1 ? "rotate-180" : ""}>{icons.arrow}</span>
+    </button>
+  );
+}
+
 /* ---------------- Sections ---------------- */
 
 function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "hero" }>["settings"]; ctx: Ctx }) {
-  const real = ctx.data.products.slice(0, 3);
+  /* the products he picked for the cards, in his order; without a pick, the first ones */
+  const picked = (s.cardIds ?? []).map((pid) => ctx.data.products.find((p) => p.id === pid)).filter((p): p is StoreProduct => !!p);
+  const real = (picked.length ? picked : ctx.data.products).slice(0, 3);
   /* With no products yet, neutral cards keep the banner from looking bare */
   const tiles: StoreProduct[] = real.length ? real : [0, 1, 2].map((i) => ({ id: -i - 1, name: "", category: "", price: null, sale: null, featured: false, quantity: 0, hue: 175 + i * 25 }));
   const primary = ctx.config.theme.primary || ctx.data.color;
@@ -617,14 +752,18 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
               </Pick>
             )}
             <Pick ctx={ctx} id={id} field="title" block>
-              <h1 className="font-extrabold tracking-[-0.01em]" style={{ fontFamily: s.titleFont ? heroTitleFamily(s.titleFont) : "var(--sf-heading)", fontSize: sz("title", 108), lineHeight: 1.02, color: s.colors?.title || "var(--sf-title)" }}>
+              <h1 className="[overflow-wrap:anywhere] font-extrabold tracking-[-0.01em]" style={{ fontFamily: s.titleFont ? heroTitleFamily(s.titleFont) : "var(--sf-heading)", fontSize: sz("title", 80), lineHeight: 1.02, color: s.colors?.title || "var(--sf-title)" , ...tx(s.styles?.title) }}>
+                {/* The words wrap like a sentence, so a short title takes two lines instead of one word per line */}
                 {words.map((w, i) => (
-                  <span key={i} className="block" style={accentWords.includes(w) ? { color: accentC } : undefined}>{w}</span>
+                  <Fragment key={i}>
+                    {i > 0 && " "}
+                    <span style={accentWords.includes(w) ? { color: accentC } : undefined}>{w}</span>
+                  </Fragment>
                 ))}
               </h1>
             </Pick>
             <Pick ctx={ctx} id={id} field="subtitle" block>
-              <p className="max-w-md font-medium leading-[1.7]" style={{ fontSize: sz("subtitle", 20), color: s.colors?.subtitle }}>{s.subtitle[l] || s.subtitle[other]}</p>
+              <p className="max-w-md font-medium leading-[1.7]" style={{ fontSize: sz("subtitle", 20), color: s.colors?.subtitle , ...tx(s.styles?.subtitle) }}>{s.subtitle[l] || s.subtitle[other]}</p>
             </Pick>
             <div className={`flex flex-wrap items-center gap-3 ${ctx.compact ? "justify-center" : ""}`}>
               <Pick ctx={ctx} id={id} field="button">
@@ -684,11 +823,11 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           <div className={`flex flex-col gap-6 ${ctx.compact ? "items-center text-center" : "items-start"}`}>
             {kicker && (
               <Pick ctx={ctx} id={id} field="eyebrow">
-                <p dir="auto" style={{ ...latinItalic, fontSize: sz("eyebrow", 22), color: s.colors?.eyebrow || "var(--sf-accent)" }}>{kicker}</p>
+                <p dir="auto" style={{ ...latinItalic, fontSize: sz("eyebrow", 22), color: s.colors?.eyebrow || "var(--sf-accent)" , ...tx(s.styles?.eyebrow) }}>{kicker}</p>
               </Pick>
             )}
             <Pick ctx={ctx} id={id} field="title" block>
-              <h1 className="font-semibold" style={{ fontFamily: s.titleFont ? heroTitleFamily(s.titleFont) : "var(--sf-heading)", fontSize: sz("title", 80), lineHeight: 1.15, color: s.colors?.title || "var(--sf-title)" }}>
+              <h1 className="[overflow-wrap:anywhere] font-semibold" style={{ fontFamily: s.titleFont ? heroTitleFamily(s.titleFont) : "var(--sf-heading)", fontSize: sz("title", 80), lineHeight: 1.15, color: s.colors?.title || "var(--sf-title)" , ...tx(s.styles?.title) }}>
                 {lines.map((line, i) => (
                   <span key={i} className="block">
                     {line.split(/\s+/).filter(Boolean).map((w, j) => (
@@ -702,7 +841,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
               </h1>
             </Pick>
             <Pick ctx={ctx} id={id} field="subtitle" block>
-              <p className="max-w-[420px] font-light" style={{ fontSize: sz("subtitle", 18), lineHeight: 2, color: s.colors?.subtitle || "color-mix(in srgb, var(--sf-text) 80%, var(--sf-bg))" }}>{s.subtitle[l] || s.subtitle[other]}</p>
+              <p className="max-w-[420px] font-light" style={{ fontSize: sz("subtitle", 18), lineHeight: 2, color: s.colors?.subtitle || "color-mix(in srgb, var(--sf-text) 80%, var(--sf-bg))" , ...tx(s.styles?.subtitle) }}>{s.subtitle[l] || s.subtitle[other]}</p>
             </Pick>
             <div className={`flex flex-wrap items-center gap-4 ${ctx.compact ? "justify-center" : ""}`}>
               <Pick ctx={ctx} id={id} field="button">
@@ -729,7 +868,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
               {(label || s.price) && (
                 <div onClick={open("price")} className={`absolute bottom-[4%] start-[-6%] px-5 py-3.5 ${ctx.design ? "cursor-pointer" : ""}`} style={{ background: pc.sticker || "#f2eee6", color: "var(--sf-bg)" }}>
                   {label && <p className="text-xs" style={{ color: "color-mix(in srgb, var(--sf-bg) 60%, #f2eee6)" }}>{label}</p>}
-                  {s.price && <p className="font-bold" style={{ fontFamily: "var(--sf-heading)", fontSize: sz("price", 20) }}>{s.price}</p>}
+                  {s.price && <p className="font-bold" style={{ fontFamily: "var(--sf-heading)", fontSize: sz("price", 20) }}><WrittenPrice text={s.price} ctx={ctx} /></p>}
                 </div>
               )}
             </div>
@@ -773,18 +912,18 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           <div className={`flex flex-col justify-center ${ctx.compact ? "items-center gap-4 px-6 py-10 text-center" : full ? "gap-7 px-16 py-20" : "gap-5 px-12 py-12"}`}>
             {eyebrow && (
               <Pick ctx={ctx} id={id} field="eyebrow" block>
-                <p className="font-bold leading-[1.2]" style={{ ...head, fontSize: sz("eyebrow", 34), color: s.colors?.eyebrow || (light ? "var(--sf-accent)" : "currentColor") }}>{eyebrow}</p>
+                <p className="font-bold leading-[1.2]" style={{ ...head, fontSize: sz("eyebrow", 34), color: s.colors?.eyebrow || (light ? "var(--sf-accent)" : "currentColor") , ...tx(s.styles?.eyebrow) }}>{eyebrow}</p>
               </Pick>
             )}
             <Pick ctx={ctx} id={id} field="title" block>
-              <h1 className="font-bold leading-none tracking-[-0.01em]" style={{ ...head, fontFamily: heroTitleFamily(s.titleFont), fontSize: sz("title", full ? 100 : 48), color: s.colors?.title }}>{s.title[l]}</h1>
+              <h1 className="[overflow-wrap:anywhere] font-bold leading-none tracking-[-0.01em]" style={{ ...head, fontFamily: heroTitleFamily(s.titleFont), fontSize: sz("title", full ? 100 : 48), color: s.colors?.title , ...tx(s.styles?.title) }}>{s.title[l]}</h1>
             </Pick>
             <Pick ctx={ctx} id={id} field="subtitle" block>
-              <p className="max-w-[460px] font-medium leading-[1.7] opacity-85" style={{ fontSize: sz("subtitle", full ? 24 : 15), color: s.colors?.subtitle }}>{s.subtitle[l]}</p>
+              <p className="max-w-[460px] font-medium leading-[1.7] opacity-85" style={{ fontSize: sz("subtitle", full ? 24 : 15), color: s.colors?.subtitle , ...tx(s.styles?.subtitle) }}>{s.subtitle[l]}</p>
             </Pick>
             {(s.price || size) && (
               <p className="flex items-baseline gap-2.5">
-                {s.price && <span className="font-bold" style={{ ...head, fontSize: sz("price", 26), color: s.colors?.price }}>{s.price}</span>}
+                {s.price && <span className="font-bold" style={{ ...head, fontSize: sz("price", 26), color: s.colors?.price }}><WrittenPrice text={s.price} ctx={ctx} /></span>}
                 {size && <span className="opacity-60" style={{ fontSize: sz("detail", 13), color: s.colors?.detail }}>{size}</span>}
               </p>
             )}
@@ -810,11 +949,25 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
 
   const current = bgs[idx];
   const heroOn = current.kind === "image" && current.image ? "#ffffff" : onColor(current.color || primary);
+  /* the words of the picture that shows now, or the cover's main words where it has none */
+  const own = (b: { en: string; ar: string } | undefined, main: { en: string; ar: string }) => b?.[ctx.lang]?.trim() || main[ctx.lang];
+  const words = { title: own(current.title, s.title), subtitle: own(current.subtitle, s.subtitle), button: own(current.button, s.button), link: current.link?.trim() || s.link };
+  const changes = bgs.some((b) => b.title?.[ctx.lang]?.trim() || b.subtitle?.[ctx.lang]?.trim() || b.button?.[ctx.lang]?.trim());
   const slideColor = (c: string) => c || primary;
+  /* where the words sit (the middle by default, or at the bottom), how tall the cover is, and whether it reaches the page edges */
+  const pos = s.textPos ?? "center";
+  const low = pos !== "center";
+  const mid = pos === "bottom-center";
+  const tall = s.height === "tall";
+  const full = !!s.fullWidth;
+  const l = ctx.lang;
+  const button2 = s.button2?.[l] || s.button2?.[l === "ar" ? "en" : "ar"] || "";
+  /* the small line above the title (empty: none); letter-spaced, but only lightly for Arabic so its letters stay joined */
+  const eyebrow = s.eyebrow?.[l]?.trim() || s.eyebrow?.[l === "ar" ? "en" : "ar"]?.trim() || "";
   return (
-    <section className={ctx.compact ? "px-4 pt-4" : "px-8 pt-6"}>
+    <section className={full ? "" : ctx.compact ? "px-4 pt-4" : "px-8 pt-6"}>
       <div
-        className={`relative isolate overflow-hidden rounded-[var(--sf-r)] transition-colors duration-700 ${ctx.compact ? "px-6 py-9" : "px-10 py-11"}`}
+        className={`relative isolate flex flex-col overflow-hidden transition-colors duration-700 ${full ? "" : "rounded-[var(--sf-r)]"} ${low ? "justify-end" : "justify-center"} ${tall ? (ctx.compact ? "min-h-[520px]" : "min-h-[720px]") : ""} ${ctx.compact ? "px-6 py-9" : tall || full ? "px-14 py-14" : "px-10 py-11"} ${bgs.length > 1 ? "pb-16" : ""}`}
         style={{ color: heroOn }}
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
@@ -827,80 +980,114 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
             className="absolute inset-0 -z-20 overflow-hidden transition-opacity duration-700"
             style={{
               opacity: i === idx ? 1 : 0,
-              background: b.kind === "image" && b.image ? undefined : `linear-gradient(120deg, ${slideColor(b.color)}, color-mix(in srgb, ${slideColor(b.color)} 62%, #6fe3cf))`,
+              background: b.kind === "image" && b.image ? undefined : b.color ? b.color : `linear-gradient(120deg, ${slideColor(b.color)}, color-mix(in srgb, ${slideColor(b.color)} 62%, #6fe3cf))`,
             }}
           >
             {b.kind === "image" && b.image && (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={b.image} alt="" className="h-full w-full object-cover" style={picFill(b.pos)} />
-                <span className="absolute inset-0" style={{ background: "linear-gradient(to top, rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.2))" }} />
+                {/* a dark fade keeps the words readable; it is deepest on the side where the words sit */}
+                <span className="absolute inset-0" style={{ background: low ? "linear-gradient(to top, rgb(0 0 0 / 0.65), rgb(0 0 0 / 0.25) 45%, rgb(0 0 0 / 0.05))" : "linear-gradient(to top, rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.2))" }} />
               </>
             )}
           </span>
         ))}
-        <span aria-hidden className="absolute -end-16 -top-20 -z-10 h-72 w-72 rounded-full bg-white/10" />
-        <span aria-hidden className="absolute -bottom-24 start-1/3 -z-10 h-64 w-64 rounded-full bg-white/10" />
+        {/* the two soft circles belong to the usual cover; a tall, edge-to-edge or bottom-text cover stays clean */}
+        {!tall && !full && !low && (
+          <>
+            <span aria-hidden className="absolute -end-16 -top-20 -z-10 h-72 w-72 rounded-full bg-white/10" />
+            <span aria-hidden className="absolute -bottom-24 start-1/3 -z-10 h-64 w-64 rounded-full bg-white/10" />
+          </>
+        )}
 
-        <div className={`flex items-center justify-between gap-8 ${ctx.compact ? "flex-col text-center" : ""}`}>
-          <div className={ctx.compact ? "" : "max-w-md"}>
-            <Pick ctx={ctx} id={id} field="title" block><h1 className="font-extrabold leading-[1.1] tracking-tight" style={{ ...(s.titleFont ? { fontFamily: heroTitleFamily(s.titleFont) } : {}), fontSize: sz("title", 36), color: s.colors?.title }}>{s.title[ctx.lang]}</h1></Pick>
-            <Pick ctx={ctx} id={id} field="subtitle" block><p className="mt-4 leading-relaxed opacity-85" style={{ fontSize: sz("subtitle", 15), color: s.colors?.subtitle }}>{s.subtitle[ctx.lang]}</p></Pick>
-            <div className="mt-7"><Pick ctx={ctx} id={id} field="button"><HeroBtn ctx={ctx} link={s.link} style={{ fontSize: sz("button", 14), color: s.colors?.button }} className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-extrabold text-[#12262b] shadow-lg transition hover:-translate-y-0.5">
-              {s.button[ctx.lang]}
-              {icons.arrow}
-            </HeroBtn></Pick></div>
+        <div className={`flex justify-between gap-8 ${low ? "items-end" : "items-center"} ${ctx.compact || mid ? "flex-col text-center" : ""}`}>
+          {/* when the pictures have words of their own, the words fade in again with each picture */}
+          <div key={changes ? idx : "same"} className={`${ctx.compact ? "" : mid ? "mx-auto max-w-2xl" : tall || full ? "max-w-xl" : "max-w-md"} ${changes ? "animate-[fadeIn_0.6s_ease]" : ""}`}>
+            {eyebrow && <Pick ctx={ctx} id={id} field="eyebrow" block><p className={`mb-3 font-bold opacity-90 ${/[؀-ۿ]/.test(eyebrow) ? "tracking-[0.04em]" : "uppercase tracking-[0.18em]"}`} style={{ fontSize: sz("eyebrow", 13), color: s.colors?.eyebrow , ...tx(s.styles?.eyebrow) }}>{eyebrow}</p></Pick>}
+            <Pick ctx={ctx} id={id} field="title" block><h1 className="[overflow-wrap:anywhere] font-extrabold leading-[1.1] tracking-tight" style={{ fontFamily: s.titleFont ? heroTitleFamily(s.titleFont) : "var(--sf-heading)", fontSize: sz("title", tall ? 56 : 36), color: s.colors?.title , ...tx(s.styles?.title) }}>{words.title}</h1></Pick>
+            <Pick ctx={ctx} id={id} field="subtitle" block><p className="mt-4 leading-relaxed opacity-85" style={{ fontSize: sz("subtitle", tall ? 17 : 15), color: s.colors?.subtitle , ...tx(s.styles?.subtitle) }}>{words.subtitle}</p></Pick>
+            <div className={`mt-7 flex flex-wrap items-center gap-3 ${ctx.compact || mid ? "justify-center" : ""}`}>
+              <Pick ctx={ctx} id={id} field="button"><HeroBtn ctx={ctx} link={words.link} style={{ fontSize: sz("button", 14), color: s.colors?.button, borderRadius: "var(--sf-pill)" }} className="inline-flex items-center gap-2 bg-white px-6 py-3 font-extrabold text-[#12262b] shadow-lg transition hover:-translate-y-0.5">
+                {words.button}
+                {icons.arrow}
+              </HeroBtn></Pick>
+              {/* a second button, outlined, next to the main one */}
+              {button2 && (
+                <Pick ctx={ctx} id={id} field="button2">
+                  <HeroBtn ctx={ctx} link={s.link2} style={{ fontSize: sz("button", 14), color: s.colors?.button, borderRadius: "var(--sf-pill)" }} className="inline-flex items-center gap-2 border-2 border-current px-6 py-[10px] font-extrabold transition hover:-translate-y-0.5 hover:bg-white/10">
+                    {button2}
+                  </HeroBtn>
+                </Pick>
+              )}
+            </div>
           </div>
 
-          {!ctx.compact && (s.showCards ?? true) && (
-            <div className="relative h-56 w-72 shrink-0" style={{ perspective: 900 }}>
-              {tiles.map((p, i) => (
-                <div
-                  key={p.id}
-                  className="absolute w-36 rounded-2xl bg-white p-2 shadow-2xl"
-                  style={{ insetInlineStart: `${i * 52}px`, top: `${i === 1 ? 0 : 36}px`, transform: `rotateY(${(i - 1) * -10}deg) rotate(${(i - 1) * 4}deg)`, zIndex: i === 1 ? 2 : 1 }}
-                >
-                  <ProductImage p={p} className="aspect-[4/5] w-full rounded-xl" />
-                  {p.name ? <p className="mt-2 line-clamp-1 px-1 text-[11px] font-bold text-[#12262b]">{p.name}</p> : <span className="mt-2 block h-2 w-16 rounded-full bg-black/10" />}
+          {/* the product cards stay beside the words, except when the words sit in the bottom middle */}
+          {!ctx.compact && !mid && (s.showCards ?? true) && (() => {
+            /* how the merchant styled these cards: fanned, in a row or one big picture; framed or not; the picture shape; the name under it */
+            const look = s.cardLook ?? {};
+            const arrange = look.arrange ?? "fan";
+            const bare = look.frame === "bare";
+            const round = look.shape === "round";
+            const named = look.showName ?? true;
+            const pic = `${look.shape === "square" || round ? "aspect-square" : "aspect-[4/5]"} w-full ${round ? "rounded-full" : bare ? "rounded-2xl" : "rounded-xl"} ${bare ? "shadow-2xl" : ""}`;
+            const shown = arrange === "single" ? tiles.slice(0, 1) : tiles;
+            /* fanned cards overlap, so only the front one carries a name, on a dark pill when unframed since it sits over the card behind */
+            const one = (p: StoreProduct, withName = named, pill = false) => (
+              <>
+                <ProductImage p={p} className={pic} />
+                {withName && (p.name ? <p className={`mt-2 line-clamp-1 px-1 text-[11px] font-bold ${bare ? "text-center" : "text-[#12262b]"}`}>{pill ? <span className="rounded-full bg-black/55 px-2 py-0.5 text-white">{p.name}</span> : p.name}</p> : <span className={`mt-2 block h-2 w-16 rounded-full ${bare ? "mx-auto bg-white/30" : "bg-black/10"}`} />)}
+              </>
+            );
+            const frame = bare ? "" : "rounded-2xl bg-white p-2 shadow-2xl";
+            if (arrange === "fan")
+              return (
+                <div className="relative h-56 w-72 shrink-0" style={{ perspective: 900 }}>
+                  {shown.map((p, i) => (
+                    <div
+                      key={p.id}
+                      className={`absolute w-36 ${frame}`}
+                      style={{ insetInlineStart: `${i * 52}px`, top: `${i === 1 ? 0 : 36}px`, transform: `rotateY(${(i - 1) * -10}deg) rotate(${(i - 1) * 4}deg)`, zIndex: i === 1 ? 2 : 1 }}
+                    >
+                      {one(p, named && i === Math.min(1, shown.length - 1), bare)}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            return (
+              <div className="flex shrink-0 items-end gap-3">
+                {shown.map((p) => (
+                  <div key={p.id} className={`${arrange === "single" ? "w-56" : "w-28"} ${frame}`}>
+                    {one(p)}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
 
-        {/* Previous and next: a visitor never has to wait for the next background */}
-        {bgs.length > 1 &&
-          ([-1, 1] as const).map((dir) => (
-            <button
-              key={dir}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                go(dir);
-              }}
-              aria-label={dir === -1 ? (ctx.lang === "ar" ? "السابق" : "Previous") : ctx.lang === "ar" ? "التالي" : "Next"}
-              className={`absolute top-1/2 z-10 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-[#12262b] shadow-md backdrop-blur transition hover:scale-105 hover:bg-white ${dir === -1 ? "start-3" : "end-3"}`}
-            >
-              {/* Previous sits at the start of the reading direction, next at the end */}
-              <span className={dir === -1 ? "rotate-180" : ""}>{icons.arrow}</span>
-            </button>
-          ))}
-
+        {/* Previous and next sit at the bottom on both sides of the dots, below the words, so they never cover them.
+            A visitor never has to wait for the next background. */}
         {bgs.length > 1 && (
-          <div className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5">
-            {bgs.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-label={`${i + 1} / ${bgs.length}`}
-                aria-current={i === idx}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShown(i);
-                }}
-                className={`h-2 rounded-full bg-current transition-all ${i === idx ? "w-6 opacity-90" : "w-2 opacity-40"}`}
-              />
-            ))}
+          <div className="absolute inset-x-0 bottom-3 z-10 flex items-center justify-center gap-3">
+            <HeroArrow dir={-1} ctx={ctx} go={go} />
+            <div className="flex items-center gap-1.5">
+              {bgs.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  aria-label={`${i + 1} / ${bgs.length}`}
+                  aria-current={i === idx}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShown(i);
+                  }}
+                  className={`h-2 rounded-full bg-current transition-all ${i === idx ? "w-6 opacity-90" : "w-2 opacity-40"}`}
+                />
+              ))}
+            </div>
+            <HeroArrow dir={1} ctx={ctx} go={go} />
           </div>
         )}
       </div>
@@ -927,7 +1114,7 @@ function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["setti
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-bold">{p.title[ctx.lang] || p.title[ctx.lang === "ar" ? "en" : "ar"]}</span>
-              <span className="block text-xs text-[var(--sf-text)]/55">{p.desc[ctx.lang] || p.desc[ctx.lang === "ar" ? "en" : "ar"]}</span>
+              <span className="block text-xs text-sf-text/55">{p.desc[ctx.lang] || p.desc[ctx.lang === "ar" ? "en" : "ar"]}</span>
             </span>
           </div>
         ))}
@@ -941,7 +1128,15 @@ function Collection({ s, ctx }: { s: Extract<SectionConfig, { type: "collection"
   const picked = (s.productIds ?? []).map((id) => ctx.data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
   /* While styling with sample products, an empty collection shows some samples */
   const items = (picked.length ? picked : ctx.data.isDemo ? ctx.data.products : []).slice(0, s.count);
-  if (!items.length) return null;
+  if (!items.length) {
+    if (!ctx.design) return null;
+    return (
+      <section className={section(ctx.compact)}>
+        <Heading title={s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]} ctx={ctx} />
+        <DesignEmpty ctx={ctx} hint={ctx.lang === "ar" ? "اختر منتجات هذا القسم من إعداداته" : "Pick products for this section in its settings"} />
+      </section>
+    );
+  }
   const inner = (
     <>
       <Heading title={s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]} ctx={ctx} more link={s.link || undefined} />
@@ -973,28 +1168,32 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-[var(--sf-primary)]/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
           {ctx.lang === "ar" ? "معرض صور: أضف صورك من القائمة الجانبية" : "Picture tiles: add your pictures from the side panel"}
         </div>
       </section>
     );
   }
-  const cols = ctx.compact ? Math.min(2, list.length) : Math.min(s.columns || 4, list.length);
+  /* On a phone the row keeps 2 to 4 pictures (more columns on the computer, more on the phone) so each stays easy to tap */
+  const want = s.columns || 4;
+  const cols = Math.min(ctx.compact ? (want >= 8 ? 4 : want >= 5 ? 3 : 2) : want, list.length);
+  /* many pictures in a row: tighter gaps and a smaller name */
+  const dense = ctx.compact ? cols >= 3 : cols >= 6;
   /* Circles: round pictures, each in a thin ring of the store color, with the name under it */
   if (s.style === "circles") {
     return (
       <section className={section(ctx.compact)}>
         {title && <Heading title={title} ctx={ctx} />}
-        <div className={`grid ${ctx.compact ? "gap-x-6 gap-y-8" : "gap-8"}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+        <div className={`grid ${dense ? "gap-x-3 gap-y-6" : ctx.compact ? "gap-x-6 gap-y-8" : "gap-8"}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
           {list.map((x, n) => {
             const label = x.label?.[ctx.lang] || x.label?.[other] || "";
             const body = (
-              <div className="group flex flex-col items-center px-3">
-                <div className="aspect-square w-full overflow-hidden rounded-full" style={{ outline: `1px solid ${ringColor}`, outlineOffset: 8 }}>
+              <div className={`group flex flex-col items-center ${dense ? "px-1" : "px-3"}`}>
+                <div className="aspect-square w-full overflow-hidden rounded-full" style={{ outline: `1px solid ${ringColor}`, outlineOffset: dense ? 4 : 8 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" style={picFill(x.pos)} />
                 </div>
-                {label && <span className="mt-5 text-center" style={{ fontFamily: "var(--sf-heading)", fontSize: ctx.compact ? 18 : 22 }}>{label}</span>}
+                {label && <span className={`${dense ? "mt-3" : "mt-5"} text-center`} style={{ fontFamily: "var(--sf-heading)", fontSize: dense ? (ctx.compact ? 13 : 16) : ctx.compact ? 18 : 22 }}>{label}</span>}
               </div>
             );
             return x.link && !ctx.design ? <a key={n} {...linkProps(x.link, ctx)} className="block">{body}</a> : <div key={n} onClick={designOpen(x.link, ctx)}>{body}</div>;
@@ -1006,7 +1205,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
   return (
     <section className={`relative isolate ${section(ctx.compact)}`}>
       {title && <Heading title={title} ctx={ctx} more={editorial} />}
-      <div className={`grid ${editorial ? "gap-5" : "gap-4"}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      <div className={`grid ${dense ? "gap-3" : editorial ? "gap-5" : "gap-4"}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
         {list.map((x, n) => {
           const label = x.label?.[ctx.lang] || x.label?.[other] || "";
           const dark = x.chip === "dark";
@@ -1020,7 +1219,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
                     className={`absolute start-3 top-3 rounded-[10px] px-3.5 py-1.5 backdrop-blur-[6px] ${dark ? "bg-[rgba(18,14,11,.55)] text-white" : "bg-[rgba(255,250,246,.7)] text-[#1c1a17]"}`}
                     style={{ fontFamily: "var(--sf-heading)" }}
                   >
-                    <span className={`font-light ${ctx.compact ? "text-lg" : "text-[22px]"}`}>{label}</span>
+                    <span className={`font-light ${dense ? "text-sm" : ctx.compact ? "text-lg" : "text-[22px]"}`}>{label}</span>
                   </span>
                 ) : (
                   <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-3 pt-10 text-sm font-bold text-white">{label}</span>
@@ -1049,7 +1248,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-[var(--sf-primary)]/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
           {ctx.lang === "ar" ? "بنرات ترويجية: أضف بنرًا من القائمة الجانبية" : "Promo banners: add a banner from the side panel"}
         </div>
       </section>
@@ -1061,7 +1260,8 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
   const ratio = list.length === 1 ? "aspect-[21/9]" : list.length === 2 ? "aspect-[4/3]" : "aspect-[4/5]";
   const tall = s.height === "tall";
   const primary = ctx.config.theme.primary || ctx.data.color;
-  const corner = { "top-start": "top-6 start-6", "top-end": "top-6 end-6", "bottom-start": "bottom-6 start-6", "bottom-end": "bottom-6 end-6" };
+  /* where the text panel of a photo banner sits: a corner, or the middle ("center" puts it in the middle, text centered) */
+  const corner = { "top-start": "top-6 start-6", "top-end": "top-6 end-6", "bottom-start": "bottom-6 start-6", "bottom-end": "bottom-6 end-6", center: "inset-x-0 top-1/2 mx-auto w-fit -translate-y-1/2 text-center" };
   return (
     <section className={section(ctx.compact)}>
       <div className="grid gap-5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
@@ -1102,12 +1302,12 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
                   const textBlock = (
                     <div className={`min-w-0 ${spread ? "text-center" : ""}`}>
                       {eyebrow && (
-                        <p className={`flex items-center gap-2 font-extrabold ${spread ? "justify-center" : ""}`} style={{ color: b.eyebrowColor || ink, fontSize: scaled(b.eyebrowSize ?? 24, ctx.compact), fontFamily: b.textFont && b.textFont !== "default" ? displayFamily[b.textFont] : undefined }}>
+                        <p className={`flex items-center gap-2 font-extrabold ${spread ? "justify-center" : ""}`} style={{ color: b.eyebrowColor || ink, fontSize: scaled(b.eyebrowSize ?? 24, ctx.compact), fontFamily: b.textFont && b.textFont !== "default" ? displayFamily[b.textFont] : undefined , ...tx(b.styles?.eyebrow) }}>
                           {eyebrow}
                         </p>
                       )}
-                      {title && <h3 className="mt-1 font-extrabold leading-none" style={{ fontFamily: b.font && b.font !== "default" ? displayFamily[b.font] : "var(--sf-heading)", color: b.titleColor || ink, fontSize: scaled(b.titleSize ?? 64, ctx.compact) }}>{title}</h3>}
-                      {text && <p className="mt-2 leading-relaxed" style={{ color: b.textColor || ink, fontSize: b.textSize ?? 15, fontFamily: b.textFont && b.textFont !== "default" ? displayFamily[b.textFont] : undefined }}>{text}</p>}
+                      {title && <h3 className="mt-1 font-extrabold leading-none" style={{ fontFamily: b.font && b.font !== "default" ? displayFamily[b.font] : "var(--sf-heading)", color: b.titleColor || ink, fontSize: scaled(b.titleSize ?? 64, ctx.compact) , ...tx(b.styles?.title) }}>{title}</h3>}
+                      {text && <p className="mt-2 leading-relaxed" style={{ color: b.textColor || ink, fontSize: b.textSize ?? 15, fontFamily: b.textFont && b.textFont !== "default" ? displayFamily[b.textFont] : undefined , ...tx(b.styles?.text) }}>{text}</p>}
                       {button &&
                         (go ? (
                           <a {...linkProps(b.link, ctx)} className={pill} style={pillStyle}>{button} {arrow}</a>
@@ -1182,13 +1382,13 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
                   className={`absolute max-w-[min(80%,24rem)] rounded-[22px] px-8 py-7 backdrop-blur-[8px] ${corner[b.position ?? "top-start"]} ${customPanel ? "" : dark ? "bg-[rgba(18,14,11,.55)] text-[#e9dfcf]" : "bg-[rgba(255,245,248,.72)] text-[#5a3a34]"}`}
                   style={panelStyle}
                 >
-                  {eyebrow && <p className="text-xs tracking-wide" style={{ fontFamily: small, color: b.eyebrowColor || accent, fontSize: b.textSize ? Math.round(b.textSize * 0.8) : b.textFont && b.textFont !== "default" ? 20 : undefined }}>{eyebrow}</p>}
+                  {eyebrow && <p className="text-xs tracking-wide" style={{ fontFamily: small, color: b.eyebrowColor || accent, fontSize: b.textSize ? Math.round(b.textSize * 0.8) : b.textFont && b.textFont !== "default" ? 20 : undefined , ...tx(b.styles?.eyebrow) }}>{eyebrow}</p>}
                   {title && (
-                    <h3 className="mt-1 leading-tight" style={{ fontFamily: family, fontWeight: 700, color: b.titleColor || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) }}>
+                    <h3 className="mt-1 leading-tight" style={{ fontFamily: family, fontWeight: 700, color: b.titleColor || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) , ...tx(b.styles?.title) }}>
                       {title}
                     </h3>
                   )}
-                  {text && <p className="mt-2 leading-relaxed" style={{ fontFamily: small, color: b.textColor, fontSize: b.textSize ?? (b.textFont && b.textFont !== "default" ? 20 : 15) }}>{text}</p>}
+                  {text && <p className="mt-2 leading-relaxed" style={{ fontFamily: small, color: b.textColor, fontSize: b.textSize ?? (b.textFont && b.textFont !== "default" ? 20 : 15) , ...tx(b.styles?.text) }}>{text}</p>}
                   {button &&
                     (go ? (
                       <a {...linkProps(b.link, ctx)} className={btn} style={btnStyle}>
@@ -1204,21 +1404,28 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
             );
           }
 
+          /* "center": the words sit in the middle of the picture, on an even dark fade, with the small line above the title and
+             the button in the banner's own color (white when none is set); its corners follow the store's corner setting */
+          const middle = b.position === "center";
+          const own = middle && !!b.accent;
+          const plainBtn = `mt-4 inline-flex w-fit items-center gap-2 px-5 py-2.5 text-sm font-extrabold shadow-lg ${middle ? "" : "rounded-full"} ${own && b.buttonStyle === "outline" ? "border-2" : own ? "" : "bg-white text-[#12262b]"}`;
+          const plainBtnStyle: React.CSSProperties | undefined = !middle ? undefined : !own ? { borderRadius: "var(--sf-pill)" } : b.buttonStyle === "outline" ? { borderRadius: "var(--sf-pill)", borderColor: b.accent, color: b.accent } : { borderRadius: "var(--sf-pill)", background: b.accent, color: onColor(b.accent!) };
           return (
             <div key={n} className={shell} style={bg}>
               {photo}
-              <span aria-hidden className="absolute inset-0 -z-10 bg-gradient-to-t from-black/65 via-black/15 to-transparent" />
-              <div className="flex h-full flex-col justify-end p-6 text-white">
-                {title && <h3 className="font-extrabold leading-tight drop-shadow" style={{ fontFamily: displayFamily[b.font ?? "default"], color: b.titleColor || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) }}>{title}</h3>}
-                {text && <p className="mt-1.5 max-w-[85%] text-sm leading-relaxed opacity-90">{text}</p>}
+              <span aria-hidden className={`absolute inset-0 -z-10 ${middle ? "bg-black/40" : "bg-gradient-to-t from-black/65 via-black/15 to-transparent"}`} />
+              <div className={`flex h-full flex-col p-6 text-white ${middle ? "items-center justify-center text-center" : "justify-end"}`}>
+                {middle && eyebrow && <p className={`mb-2 font-bold drop-shadow ${/[؀-ۿ]/.test(eyebrow) ? "" : "uppercase tracking-[0.18em]"}`} style={{ color: b.eyebrowColor || "inherit", fontSize: b.eyebrowSize ? scaled(b.eyebrowSize, ctx.compact) : 13, fontFamily: b.textFont && b.textFont !== "default" ? displayFamily[b.textFont] : undefined, ...tx(b.styles?.eyebrow) }}>{eyebrow}</p>}
+                {title && <h3 className="font-extrabold leading-tight drop-shadow" style={{ fontFamily: displayFamily[b.font ?? "default"], color: b.titleColor || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) , ...tx(b.styles?.title) }}>{title}</h3>}
+                {text && <p className={`mt-1.5 max-w-[85%] text-sm leading-relaxed opacity-90 ${middle ? "drop-shadow" : ""}`}>{text}</p>}
                 {button &&
                   (go ? (
-                    <a {...linkProps(b.link, ctx)} className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-extrabold text-[#12262b] shadow-lg transition hover:-translate-y-0.5">
+                    <a {...linkProps(b.link, ctx)} className={`${plainBtn} transition hover:-translate-y-0.5`} style={plainBtnStyle}>
                       {button}
                       {icons.arrow}
                     </a>
                   ) : (
-                    <span className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-extrabold text-[#12262b] shadow-lg">
+                    <span className={plainBtn} style={plainBtnStyle} onClick={dgo}>
                       {button}
                       {icons.arrow}
                     </span>
@@ -1253,7 +1460,7 @@ function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["set
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-[var(--sf-primary)]/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
           {ctx.lang === "ar" ? "صور متحركة: أضف صورك أو ملفات GIF من القائمة الجانبية" : "Animated pictures: add your pictures or GIFs from the side panel"}
         </div>
       </section>
@@ -1320,18 +1527,33 @@ function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["set
   );
 }
 
-/* Example reviews, shown only while styling the store in the designer or the demo store. Never saved. */
-const exampleReviews: { name: string; text: string; stars: 1 | 2 | 3 | 4 | 5 }[] = [
-  { name: "Khaled A.", text: "Fast delivery and the quality is exactly as described.", stars: 5 },
-  { name: "ندى ح.", text: "تجربة شراء سهلة، والمنتج وصل مغلّفًا بعناية.", stars: 5 },
-  { name: "Omar S.", text: "Good prices and friendly service. I will order again.", stars: 4 },
-];
+/* Example reviews, shown only while styling the store in the designer or the demo store. Never saved. One set per language, so the page never mixes them. */
+const exampleReviews: Record<Lang, { name: string; text: string; stars: 1 | 2 | 3 | 4 | 5 }[]> = {
+  ar: [
+    { name: "خالد ع.", text: "توصيل سريع والجودة تمامًا كما في الوصف.", stars: 5 },
+    { name: "ندى ح.", text: "تجربة شراء سهلة، والمنتج وصل مغلّفًا بعناية.", stars: 5 },
+    { name: "عمر س.", text: "أسعار جيدة وخدمة لطيفة. سأطلب مرة أخرى.", stars: 4 },
+  ],
+  en: [
+    { name: "Khaled A.", text: "Fast delivery and the quality is exactly as described.", stars: 5 },
+    { name: "Nada H.", text: "An easy order, and the product arrived carefully wrapped.", stars: 5 },
+    { name: "Omar S.", text: "Good prices and friendly service. I will order again.", stars: 4 },
+  ],
+};
 
 function Reviews({ s, ctx }: { s: Extract<SectionConfig, { type: "reviews" }>["settings"]; ctx: Ctx }) {
   const items = (s.items ?? []).filter((r) => r.text.trim());
-  const shown = items.length ? items : ctx.data.isDemo ? exampleReviews : [];
+  const shown = items.length ? items : ctx.data.isDemo ? exampleReviews[ctx.lang] : [];
   const rail = useRef<HTMLDivElement>(null);
-  if (!shown.length) return null;
+  if (!shown.length) {
+    if (!ctx.design) return null;
+    return (
+      <section className={section(ctx.compact)}>
+        <Heading title={s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]} ctx={ctx} />
+        <DesignEmpty ctx={ctx} quote hint={ctx.lang === "ar" ? "أضف آراء عملائك من إعدادات هذا القسم" : "Add your customers' reviews in this section's settings"} />
+      </section>
+    );
+  }
   const slide = (dir: 1 | -1) => {
     const el = rail.current;
     if (!el) return;
@@ -1341,26 +1563,27 @@ function Reviews({ s, ctx }: { s: Extract<SectionConfig, { type: "reviews" }>["s
   const arrow = "grid h-10 w-10 place-items-center rounded-full bg-white shadow-md ring-1 ring-black/[0.06] transition hover:scale-105";
   return (
     <section className={section(ctx.compact)}>
-      <div className="mb-5 flex items-end justify-between gap-4">
-        <h2 className={`font-extrabold tracking-tight text-[var(--sf-title)] ${ctx.compact ? "text-xl" : "text-2xl"}`}>{s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]}</h2>
-        {shown.length > (ctx.compact ? 1 : 3) && (
+      <Heading
+        title={s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]}
+        ctx={ctx}
+        right={shown.length > (ctx.compact ? 1 : 3) && (
           <div className="flex gap-2">
             <button type="button" onClick={() => slide(-1)} aria-label={ctx.lang === "ar" ? "السابق" : "Previous"} className={arrow}>
-              <span className="rtl:rotate-180">{icons.arrow}</span>
+              <span className="rotate-180">{icons.arrow}</span>
             </button>
             <button type="button" onClick={() => slide(1)} aria-label={ctx.lang === "ar" ? "التالي" : "Next"} className={arrow}>
-              <span className="rotate-180 rtl:rotate-0">{icons.arrow}</span>
+              <span>{icons.arrow}</span>
             </button>
           </div>
         )}
-      </div>
+      />
       <div ref={rail} className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {shown.map((r, i) => (
           <figure key={i} dir={/[؀-ۿ]/.test(r.text) ? "rtl" : "ltr"} className={`relative shrink-0 snap-start ${card} p-6 ${ctx.compact ? "w-[85%]" : "w-[calc((100%-2rem)/3)]"}`}>
             <svg aria-hidden viewBox="0 0 32 32" className="h-9 w-9 fill-current opacity-30" style={{ color: "var(--sf-primary)" }}>
               <path d="M10 8C6 9.500 4 13 4 17v7h9v-9H8c0-3 1.500-5 4-6L10 8Zm14 0c-4 1.500-6 5-6 9v7h9v-9h-5c0-3 1.500-5 4-6L24 8Z" />
             </svg>
-            <blockquote className="mt-3 text-sm leading-relaxed text-[var(--sf-text)]/80">{r.text}</blockquote>
+            <blockquote className="mt-3 text-sm leading-relaxed text-sf-text/80">{r.text}</blockquote>
             <div className="mt-4 flex gap-0.5" aria-label={`${r.stars} / 5`}>
               {[1, 2, 3, 4, 5].map((n) => (
                 <svg key={n} viewBox="0 0 24 24" className="h-4 w-4" fill={n <= r.stars ? "#f5b301" : "#e5e7eb"} aria-hidden>
@@ -1386,7 +1609,9 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
   const other = ctx.lang === "ar" ? "en" : "ar";
   const title = s.title[ctx.lang] || s.title[other];
   const body = s.body[ctx.lang] || s.body[other];
-  if (!title && !body) return null;
+  /* with no words at all the store skips it; the designer keeps both places, each with its faint hint, so it can still be clicked */
+  const empty = !title?.trim() && !body?.trim();
+  if (empty && !ctx.design) return null;
   const center = s.align === "center";
   /* a size or color the merchant chose for one part (otherwise the look's own) */
   const sz = (k: "title" | "body" | "eyebrow" | "button", def: number) => (s.sizes?.[k] ? scaled(s.sizes[k]!, ctx.compact) : def);
@@ -1402,9 +1627,9 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
     return (
       <section className={ctx.compact ? "px-4 pt-16" : "px-8 pt-28"}>
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-[22px] text-center">
-          {eyebrow && <Pick ctx={ctx} id={id} field="eyebrow"><p dir="auto" style={{ ...latinItalic, fontSize: sz("eyebrow", 22), color: col("eyebrow") || "var(--sf-accent)" }}>{eyebrow}</p></Pick>}
-          {title && <Pick ctx={ctx} id={id} field="title" block><h2 className="font-semibold leading-tight text-[var(--sf-title)]" style={{ fontFamily: "var(--sf-heading)", fontSize: sz("title", ctx.compact ? 34 : 56), color: col("title") }}>{title}</h2></Pick>}
-          {body && <Pick ctx={ctx} id={id} field="body" block><p className="mx-auto max-w-[560px] text-lg font-light leading-[2] text-[var(--sf-text)]/80" style={{ fontSize: s.sizes?.body || undefined, color: col("body") }}>{body}</p></Pick>}
+          {eyebrow && <Pick ctx={ctx} id={id} field="eyebrow"><p dir="auto" style={{ ...latinItalic, fontSize: sz("eyebrow", 22), color: col("eyebrow") || "var(--sf-accent)" , ...tx(s.styles?.eyebrow) }}>{eyebrow}</p></Pick>}
+          {(title || empty) && <Pick ctx={ctx} id={id} field="title" block><h2 className="font-semibold leading-tight text-[var(--sf-title)]" style={{ fontFamily: "var(--sf-heading)", fontSize: sz("title", ctx.compact ? 34 : 56), color: col("title") , ...tx(s.styles?.title) }}>{title}</h2></Pick>}
+          {(body || empty) && <Pick ctx={ctx} id={id} field="body" block><p className="mx-auto max-w-[560px] text-lg font-light leading-[2] text-sf-text/80" style={{ fontSize: s.sizes?.body || undefined, color: col("body") , ...tx(s.styles?.body) }}>{body}</p></Pick>}
           {button && (
             <Pick ctx={ctx} id={id} field="button">
               {s.link?.trim() && !ctx.design ? <a {...linkProps(s.link, ctx)} className={btn} style={btnStyle}>{button}</a> : <span className={btn} style={btnStyle} onClick={designOpen(s.link, ctx)}>{button}</span>}
@@ -1433,14 +1658,14 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
         style={s.tint ? { background: "color-mix(in srgb, var(--sf-primary) 8%, var(--sf-bg))" } : undefined}
       >
         <div className={center ? "mx-auto max-w-2xl" : "max-w-2xl"}>
-          {title && (
+          {(title || empty) && (
             <Pick ctx={ctx} id={id} field="title" block>
-              <h2 className={`font-extrabold tracking-tight text-[var(--sf-title)] ${ctx.compact ? "text-xl" : "text-2xl"}`} style={{ fontSize: s.sizes?.title ? sz("title", 24) : undefined, color: col("title") }}>{title}</h2>
+              <h2 className={`font-extrabold tracking-tight text-[var(--sf-title)] ${ctx.compact ? "text-xl" : "text-2xl"}`} style={{ fontSize: s.sizes?.title ? sz("title", 24) : undefined, color: col("title") , ...tx(s.styles?.title) }}>{title}</h2>
             </Pick>
           )}
-          {body && (
+          {(body || empty) && (
             <Pick ctx={ctx} id={id} field="body" block>
-              <div className={`${title ? "mt-3" : ""} space-y-3 text-[15px] leading-relaxed text-[var(--sf-text)]/75`} style={{ fontSize: s.sizes?.body || undefined, color: col("body") }}>
+              <div className={`${title ? "mt-3" : ""} space-y-3 text-[15px] leading-relaxed text-sf-text/75`} style={{ fontSize: s.sizes?.body || undefined, color: col("body") , ...tx(s.styles?.body) }}>
                 {body.split("\n").filter((l) => l.trim()).map((l, i) => (
                   <p key={i}>{l}</p>
                 ))}
@@ -1456,7 +1681,15 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
 function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>["settings"]; ctx: Ctx }) {
   const featured = ctx.data.products.filter((p) => p.featured);
   const items = (featured.length ? featured : ctx.data.products).slice(0, s.count);
-  if (!items.length) return null;
+  if (!items.length) {
+    if (!ctx.design) return null;
+    return (
+      <section className={section(ctx.compact)}>
+        <Heading title={s.title[ctx.lang]} ctx={ctx} />
+        <DesignEmpty ctx={ctx} add hint={ctx.lang === "ar" ? "علّم منتجاتك كمميزة لتظهر هنا" : "Mark products as featured to show them here"} />
+      </section>
+    );
+  }
   return (
     <section className={section(ctx.compact)}>
       <Heading title={s.title[ctx.lang]} ctx={ctx} more />
@@ -1467,7 +1700,15 @@ function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>[
 
 function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }>["settings"]; ctx: Ctx }) {
   const items = ctx.data.products.filter((p) => p.sale !== null).slice(0, s.count);
-  if (!items.length) return null;
+  if (!items.length) {
+    if (!ctx.design) return null;
+    return (
+      <section className={section(ctx.compact)}>
+        <Heading title={s.title[ctx.lang]} ctx={ctx} />
+        <DesignEmpty ctx={ctx} add hint={ctx.lang === "ar" ? "المنتجات التي لها سعر مخفّض تظهر هنا" : "Products with a discounted price show here"} />
+      </section>
+    );
+  }
   return (
     <section className={section(ctx.compact)}>
       <div className="rounded-[var(--sf-r)] p-5" style={{ background: "color-mix(in srgb, var(--sf-primary) 8%, var(--sf-bg))" }}>
@@ -1501,7 +1742,7 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
                 type="button"
                 onClick={() => ctx.interactive && setCat(name)}
                 aria-pressed={on}
-                className={`shrink-0 rounded-full px-5 py-2 text-sm font-semibold transition ${on ? "bg-[var(--sf-primary)] text-[var(--sf-on)] shadow-md" : "bg-white text-[var(--sf-text)]/75 ring-1 ring-black/[0.08] hover:ring-black/20"}`}
+                className={`shrink-0 rounded-full px-5 py-2 text-sm font-semibold transition ${on ? "bg-[var(--sf-primary)] text-[var(--sf-on)] shadow-md" : "bg-white text-sf-text/75 ring-1 ring-black/[0.08] hover:ring-black/20"}`}
               >
                 {name || ctx.config.texts.allFilter[ctx.lang] || c.all}
               </button>
@@ -1514,7 +1755,7 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
         <Grid items={items} ctx={ctx} columns={s.columns} rail={railCtl} />
       ) : (
         <div className="grid place-items-center py-16 text-center">
-          <span className="grid h-24 w-24 place-items-center rounded-full text-[var(--sf-primary)]/70" style={{ background: "color-mix(in srgb, var(--sf-primary) 9%, white)" }}>
+          <span className="grid h-24 w-24 place-items-center rounded-full text-sf-primary/70" style={{ background: "color-mix(in srgb, var(--sf-primary) 9%, white)" }}>
             <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M5 8h14l-1 12H6L5 8Z" />
               <path d="M9 8V6a3 3 0 0 1 6 0v2" />
@@ -1533,7 +1774,7 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
               {c.addHere}
             </a>
           ) : (
-            <p className="mt-4 text-sm font-semibold text-[var(--sf-text)]/60">{q ? c.noMatch : ctx.config.texts.noProducts[ctx.lang] || c.noProducts}</p>
+            <p className="mt-4 text-sm font-semibold text-sf-text/60">{q ? c.noMatch : ctx.config.texts.noProducts[ctx.lang] || c.noProducts}</p>
           )}
         </div>
       )}
@@ -1550,7 +1791,7 @@ function Ribbon({ s, ctx }: { s: Extract<SectionConfig, { type: "ribbon" }>["set
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-[var(--sf-primary)]/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
           {ctx.lang === "ar" ? "شريط النوتات: أضف كلمات من القائمة الجانبية" : "Notes ribbon: add words from the side panel"}
         </div>
       </section>
@@ -1586,7 +1827,7 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-[var(--sf-primary)]/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
           {ctx.lang === "ar" ? "أزرار ملوّنة: أضف أزرارًا من القائمة الجانبية" : "Colored chips: add chips from the side panel"}
         </div>
       </section>
@@ -1687,8 +1928,8 @@ const SUBSCRIBERS = "seen-subscribers";
 /** The emails people left in the newsletter block */
 export function readSubscribers(): { email: string; at: number }[] {
   try {
-    const list = JSON.parse(localStorage.getItem(SUBSCRIBERS) ?? "[]");
-    return Array.isArray(list) ? list : [];
+    const list: unknown = JSON.parse(localStorage.getItem(SUBSCRIBERS) ?? "[]");
+    return Array.isArray(list) ? list.filter((x): x is { email: string; at: number } => !!x && typeof x.email === "string" && !!visitorEmail(x.email)) : [];
   } catch {
     return [];
   }
@@ -1705,6 +1946,7 @@ function saveSubscriber(email: string) {
 
 function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "newsletter" }>["settings"]; ctx: Ctx }) {
   const [email, setEmail] = useState("");
+  const [bad, setBad] = useState(false);
   const [done, setDone] = useState(false);
   /* The pop-up after subscribing (when the merchant chose it): in the designer pressing the button shows it, to see and adjust it */
   const [pop, setPop] = useState(false);
@@ -1720,6 +1962,8 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
   /* The accent word is shown in the accent color wherever it appears in the title */
   const at = accent ? title.indexOf(accent) : -1;
   const on = onColor(s.background || "#2b1b47") === "#ffffff" ? "#ffffff" : "#1c1a17";
+  /* the text on a button: white on a dark button color, dark otherwise (and when the color is not one we can read) */
+  const textOn = (fill?: string) => (fill && /#[0-9a-f]{6}/i.test(fill) && onColor(fill) === "#ffffff" ? "#ffffff" : "#1c1a17");
   return (
     <section className={`relative ${section(ctx.compact)}`}>
       <div className={`flex gap-6 ${ctx.compact ? "flex-col p-6" : "items-center justify-between px-10 py-8"}`} style={{ background: s.background, color: on, borderRadius: "var(--sf-r2)" }}>
@@ -1745,15 +1989,19 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
           <p className="font-bold" style={{ color: s.accent }}>{pick(s.thanks)}</p>
         ) : (
           <form
-            className="flex w-full max-w-md items-center gap-2"
+            noValidate
+            className="flex w-full max-w-md flex-wrap items-center gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               if (ctx.design) {
                 if (s.after === "popup") setPop(true);
                 return;
               }
-              if (!ctx.interactive || !email.trim()) return;
-              saveSubscriber(email.trim());
+              if (!ctx.interactive) return;
+              const clean = visitorEmail(email);
+              setBad(!clean);
+              if (!clean) return;
+              saveSubscriber(clean);
               if (s.after === "popup") {
                 setPop(true);
                 setEmail("");
@@ -1771,14 +2019,21 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setBad(false);
+              }}
+              maxLength={120}
+              aria-invalid={bad}
               placeholder={pick(s.placeholder)}
               aria-label={pick(s.placeholder)}
               className="h-12 min-w-0 flex-1 rounded-full bg-white px-5 text-sm text-[#1c1a17] outline-none placeholder:text-[#1c1a17]/50"
             />
-            <button type="submit" className="h-12 shrink-0 rounded-full px-6 text-sm font-extrabold text-[#1c1a17] transition hover:-translate-y-0.5" style={{ background: s.buttonColor }}>
+            {/* the button text is dark or white, whichever reads on his button color (a gradient is judged by its first color) */}
+            <button type="submit" className="h-12 shrink-0 rounded-full px-6 text-sm font-extrabold transition hover:-translate-y-0.5" style={{ background: s.buttonColor, color: textOn(s.buttonColor) }}>
               {pick(s.button)}
             </button>
+            {bad && <p role="alert" className="w-full text-xs font-semibold">{l === "ar" ? "اكتب بريدًا إلكترونيًا صحيحًا، مثل name@example.com" : "Enter a valid email, like name@example.com"}</p>}
           </form>
         )}
       </div>
@@ -1796,7 +2051,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
             <div className="px-8 pb-8 pt-9">
               <h3 className="text-3xl font-extrabold leading-tight" style={{ fontFamily: "var(--sf-heading)" }}>{popTitle}</h3>
               <p className="mt-3 text-base leading-relaxed opacity-85">{popText}</p>
-              <button type="button" onClick={() => setPop(false)} className="mt-6 h-12 rounded-full px-8 text-sm font-extrabold text-[#1c1a17] transition hover:-translate-y-0.5" style={{ background: pp?.accent || s.buttonColor, border: "2px solid var(--sf-text)" }}>
+              <button type="button" onClick={() => setPop(false)} className="mt-6 h-12 rounded-full px-8 text-sm font-extrabold transition hover:-translate-y-0.5" style={{ background: pp?.accent || s.buttonColor, color: textOn(pp?.accent || s.buttonColor), border: "2px solid var(--sf-text)" }}>
                 {popButton}
               </button>
             </div>
@@ -1828,6 +2083,11 @@ const sectionNames = {
 
 export function renderSection(s: SectionConfig, ctx: Ctx) {
   if (!s.visible) return null;
+  return <SectionView key={s.id} s={s} ctx={ctx} />;
+}
+
+/* One section. It draws again only when its own settings or what all sections share (ctx) change, not when another section is edited. */
+const SectionView = memo(function SectionView({ s, ctx }: { s: SectionConfig; ctx: Ctx }) {
   const inner = (() => {
     switch (s.type) {
       case "hero":
@@ -1861,10 +2121,10 @@ export function renderSection(s: SectionConfig, ctx: Ctx) {
     }
   })();
   return (
-    <div key={s.id} data-sf={s.id} className="scroll-mt-20">
+    <div data-sf={s.id} className="scroll-mt-20">
       <Selectable id={s.id} name={sectionNames[ctx.lang][s.type]} ctx={ctx}>
         {inner}
       </Selectable>
     </div>
   );
-}
+});

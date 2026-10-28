@@ -8,10 +8,14 @@ import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { pushNotification } from "./notifications";
 import { SeenShipLogo, SeenShipMark } from "./SeenShip";
-import { loadSetup, saveSetup } from "./setup";
+import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
 import { Tilt } from "./ui";
 import { latin } from "./digits";
-import { toSavedLogo } from "./designer/image";
+import { isJordanMobile, jordanMobile, typedPhone } from "./phone";
+import { checkImage, cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, isPickupAddress, isSlug, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
+import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
+import { pickPicture, toSavedLogo } from "./designer/image";
+import { ImageCropper } from "./ImageCropper";
 
 /* ====================================================================
    Types and constants
@@ -33,7 +37,7 @@ type Store = {
   color: string;
   phone: string;
   slug: string;
-  product: { type: number; name: string; price: string; image: string | null } | null;
+  product: { type: number; name: string; price: string; quantity?: number; image: string | null; /* the product it became in the product list */ id?: number } | null;
   shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string } | null;
   pickup: boolean;
 };
@@ -124,20 +128,26 @@ function slugify(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 30);
+    .slice(0, 30)
+    .replace(/-+$/, "");
 }
-
-const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
 
 /* ====================================================================
    Small shared pieces
    ==================================================================== */
 
-function Label({ title, hint, optional, required }: { title: string; hint?: string; optional?: string; required?: boolean }) {
+/* A field he must fill gets a red border when he tries to go on without it (same as the product form) */
+const bad = "!border-rose-500 focus:!ring-rose-500/25";
+const badWithin = "!border-rose-500 focus-within:!ring-rose-500/25";
+
+function Label({ title, hint, optional, required, htmlFor }: { title: string; hint?: string; optional?: string; required?: boolean; htmlFor?: string }) {
   return (
     <div className="mb-3">
       <div className="flex items-center gap-2">
-        <span className="font-bold">{title}{required && <span className="text-rose-600"> *</span>}</span>
+        <label htmlFor={htmlFor} className="font-bold">
+          {title}
+          {required && <span className="ms-1 text-rose-600" aria-hidden>*</span>}
+        </label>
         {optional && <span className="rounded-full bg-fg/10 px-2.5 py-0.5 text-[11px] font-medium text-muted">{optional}</span>}
       </div>
       {hint && <p className="mt-1 text-sm text-muted">{hint}</p>}
@@ -145,7 +155,36 @@ function Label({ title, hint, optional, required }: { title: string; hint?: stri
   );
 }
 
-function SaveButton({ disabled, onClick, children }: { disabled: boolean; onClick: () => void; children: React.ReactNode }) {
+/** "Fields with * must be filled", shown once at the top of a step that has required fields. */
+function RequiredNote({ text }: { text: string }) {
+  const [before, after] = text.split("*");
+  return <p className="text-xs text-muted">{before}<span className="text-rose-600">*</span>{after}</p>;
+}
+
+/** Red message under a field he still has to fix. */
+function FieldError({ id, children }: { id: string; children: React.ReactNode }) {
+  return <p id={id} className="mt-2 text-xs text-rose-600">{children}</p>;
+}
+
+/** Brings the first field with a mistake into view with the cursor in it. */
+function focusFirst(ids: string[]) {
+  const el = ids.length ? document.getElementById(ids[0]) : null;
+  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  el?.focus({ preventScroll: true });
+}
+
+/** The tick on a chosen card, an empty ring on the others. */
+function ChoiceMark({ on }: { on: boolean }) {
+  return (
+    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 transition ${on ? "border-primary bg-primary text-white" : "border-fg/20 text-transparent"}`} aria-hidden>
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m5 12 5 5 9-10" />
+      </svg>
+    </span>
+  );
+}
+
+function SaveButton({ disabled = false, onClick, children }: { disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -158,17 +197,19 @@ function SaveButton({ disabled, onClick, children }: { disabled: boolean; onClic
   );
 }
 
-function PhoneField({ value, onChange, placeholder, label }: { value: string; onChange: (v: string) => void; placeholder: string; label: string }) {
+function PhoneField({ id, value, onChange, placeholder, label, invalid = false }: { id?: string; value: string; onChange: (v: string) => void; placeholder: string; label: string; invalid?: boolean }) {
   return (
-    <span dir="ltr" className="flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25">
+    <span dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${invalid ? badWithin : ""}`}>
       <span className="flex h-full items-center gap-2 border-e border-fg/15 bg-soft/60 px-3 font-semibold">
         <FlagJO />+962
       </span>
       <input
+        id={id}
+        aria-invalid={invalid}
         type="tel"
         inputMode="tel"
         value={value}
-        onChange={(e) => onChange(latin(e.target.value).replace(/[^\d\s]/g, "").replace(/^[\s0]+/, ""))}
+        onChange={(e) => onChange(typedPhone(e.target.value))}
         placeholder={placeholder}
         aria-label={label}
         className="h-full flex-1 bg-transparent px-3 outline-none placeholder:text-muted/70"
@@ -177,7 +218,6 @@ function PhoneField({ value, onChange, placeholder, label }: { value: string; on
   );
 }
 
-const phoneDigits = (v: string) => v.replace(/\D/g, "").length;
 
 const icon = {
   viewBox: "0 0 24 24",
@@ -200,12 +240,12 @@ const taskIcons = [
   <svg key="5" {...icon}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M9 9v11" /></svg>,
 ];
 
-/* Product-type icons (same ideas as the types, drawn for Dukkan) */
+/* Product-type icons: a parcel that ships, a file that downloads, a card with a code, a warm dish */
 const productIcons = [
-  <svg key="p0" {...icon}><path d="M9 3 3.5 6 5.5 10.5 8 9.5V20.5H16V9.5l2.5 1L20.5 6 15 3a3 3 0 0 1-6 0Z" /></svg>,
-  <svg key="p1" {...icon}><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v4h4M9 13h6M9 17h6" /></svg>,
-  <svg key="p2" {...icon}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18M7 15h4" /></svg>,
-  <svg key="p3" {...icon}><path d="M7 3v8a2 2 0 0 0 2 2v8M7 3v5M11 3v5M16 3c-2 1.5-3 4-3 7h3v11" /></svg>,
+  <svg key="p0" {...icon}><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z" /><path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.25l9 4.5" /></svg>,
+  <svg key="p1" {...icon}><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>,
+  <svg key="p2" {...icon}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18M7 14.5h2M11 14.5h2M15 14.5h2" /></svg>,
+  <svg key="p3" {...icon}><path d="M3 13h18a9 8 0 0 1-18 0Z" /><path d="M8 9.5c0-1.5 1-1.5 1-3M12 9.5c0-1.5 1-1.5 1-3M16 9.5c0-1.5 1-1.5 1-3" /></svg>,
 ];
 
 const chevron = (
@@ -290,9 +330,13 @@ function IdentityStep({ store, onSave }: StepProps) {
   const [name, setName] = useState(store.name);
   const [description, setDescription] = useState(store.description);
   const [logo, setLogo] = useState<LogoFile | null>(store.logo);
+  /* a chosen logo waiting to be cropped, and why the last file was refused */
+  const [logoPending, setLogoPending] = useState<{ url: string; name: string } | null>(null);
+  const [logoProblem, setLogoProblem] = useState<UploadProblem | null>(null);
   const [logoColor, setLogoColor] = useState<string | null>(null);
   const [color, setColor] = useState(store.color);
   const [hex, setHex] = useState(store.color.toUpperCase());
+  const [nameError, setNameError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const created = useRef<string[]>([]);
   const savedUrl = useRef<string | null>(store.logo?.url ?? null);
@@ -332,10 +376,11 @@ function IdentityStep({ store, onSave }: StepProps) {
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !file.type.startsWith("image/")) return;
-    const url = URL.createObjectURL(file);
-    created.current.push(url);
-    setLogo({ url, name: file.name, size: formatSize(file.size) });
+    if (!file) return;
+    void pickPicture(file, imageRules.logo, 1024, "image/png").then((picked) => {
+      setLogoProblem("problem" in picked ? picked.problem : null);
+      if ("url" in picked) setLogoPending({ url: picked.url, name: cleanFileName(file.name) });
+    });
   };
 
   const ink = textOn(color);
@@ -344,9 +389,21 @@ function IdentityStep({ store, onSave }: StepProps) {
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-8 lg:order-2">
-        <div>
-          <Label title={c.nameLabel} hint={c.nameHint} required />
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={c.namePh} maxLength={40} className={`${inputClass} h-12`} />
+        <RequiredNote text={c.requiredNote} />
+        <div className="!mt-4">
+          <Label title={c.nameLabel} hint={c.nameHint} required htmlFor="ob-name" />
+          <input
+            id="ob-name"
+            required
+            aria-invalid={!!nameError}
+            aria-describedby={nameError ? "ob-name-err" : undefined}
+            value={name}
+            onChange={(e) => { setName(e.target.value); if (nameError) setNameError(""); }}
+            placeholder={c.namePh}
+            maxLength={40}
+            className={`${inputClass} h-12 ${nameError ? bad : ""}`}
+          />
+          {nameError && <FieldError id="ob-name-err">{nameError}</FieldError>}
         </div>
 
         <div>
@@ -358,7 +415,9 @@ function IdentityStep({ store, onSave }: StepProps) {
         <div>
           <Label title={c.logoLabel} hint={c.logoHint} optional={c.optional} />
           <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
-          {logo ? (
+          {logoPending ? (
+            <ImageCropper lang={lang} src={logoPending.url} out={256} onCancel={() => setLogoPending(null)} onDone={(url) => { setLogo({ url, name: logoPending.name, size: formatSize(Math.round((url.length * 3) / 4)) }); setLogoPending(null); }} />
+          ) : logo ? (
             <div className="flex items-center gap-4 rounded-2xl border border-fg/15 p-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={logo.url} alt="" className="h-16 w-16 rounded-xl object-cover" />
@@ -375,6 +434,7 @@ function IdentityStep({ store, onSave }: StepProps) {
               {c.logoUpload}
             </button>
           )}
+          {logoProblem && <p role="alert" className="mt-2 text-xs text-rose-600">{uploadProblemText[logoProblem][lang]}</p>}
         </div>
 
         <div>
@@ -390,9 +450,16 @@ function IdentityStep({ store, onSave }: StepProps) {
                   aria-label={fromLogo ? c.fromLogo : s}
                   title={fromLogo ? c.fromLogo : s}
                   aria-pressed={color === s.toLowerCase()}
-                  className={`h-10 w-10 rounded-full transition hover:scale-110 ${color === s.toLowerCase() ? "ring-2 ring-fg ring-offset-2 ring-offset-card" : ""} ${fromLogo ? "outline outline-2 outline-offset-2 outline-dashed outline-primary/60" : ""}`}
+                  className={`grid h-10 w-10 place-items-center rounded-full transition hover:scale-110 ${color === s.toLowerCase() ? "ring-2 ring-fg ring-offset-2 ring-offset-card" : ""} ${fromLogo ? "outline outline-2 outline-offset-2 outline-dashed outline-primary/60" : ""}`}
                   style={{ backgroundColor: s }}
-                />
+                >
+                  {/* The chosen color carries a tick, so it reads as picked */}
+                  {color === s.toLowerCase() && (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke={textOn(s.toLowerCase())} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="m5 12 5 5 9-10" />
+                    </svg>
+                  )}
+                </button>
               );
             })}
           </div>
@@ -420,11 +487,16 @@ function IdentityStep({ store, onSave }: StepProps) {
         </div>
 
         <SaveButton
-          disabled={name.trim().length < 2}
           onClick={async () => {
+            /* The store name is the one thing he must fill here */
+            if (visibleLength(name) < 2) {
+              setNameError(c.errName);
+              focusFirst(["ob-name"]);
+              return;
+            }
             savedUrl.current = logo?.url ?? null;
             const logoData = logo ? await toSavedLogo(logo.url) : "";
-            onSave({ name: name.trim(), description, logo, logoData, color });
+            onSave({ name: cleanLine(name, ACCOUNT_LIMITS.storeName), description: cleanLines(description, ACCOUNT_LIMITS.description), logo, logoData, color });
           }}
         >
           {c.save}
@@ -493,11 +565,12 @@ function ServiceStep({ store, onSave }: StepProps) {
   const [account, setAccount] = useState("");
   const [useSame, setUseSame] = useState(true);
   const [phone, setPhone] = useState(store.phone);
+  const [tried, setTried] = useState(false);
 
   useEffect(() => {
     let registered = "";
     try {
-      registered = sessionStorage.getItem("seen-account-phone") ?? "";
+      registered = savedPhone(sessionStorage.getItem("seen-account-phone") ?? "");
     } catch {
       /* ignore */
     }
@@ -510,14 +583,25 @@ function ServiceStep({ store, onSave }: StepProps) {
   const hasAccount = account !== "";
   const usingAccount = hasAccount && useSame;
   const shown = usingAccount ? account : phone.trim();
-  const valid = phoneDigits(shown) >= 8;
-  const showError = !usingAccount && phone.trim() !== "" && phoneDigits(phone) < 8;
+  const valid = isJordanMobile(shown);
+  /* Wrong number while typing, or still empty after he pressed Save */
+  const showError = !usingAccount && !isJordanMobile(phone) && (phone.trim() !== "" || tried);
+
+  const save = () => {
+    if (!valid) {
+      setTried(true);
+      focusFirst(["ob-service-phone"]);
+      return;
+    }
+    onSave({ phone: jordanMobile(shown) });
+  };
 
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-6 lg:order-2">
-        <div>
-          <Label title={sv.phoneLabel} hint={sv.hint} />
+        <RequiredNote text={c.requiredNote} />
+        <div className="!mt-4">
+          <Label title={sv.phoneLabel} hint={sv.hint} required htmlFor={usingAccount ? undefined : "ob-service-phone"} />
 
           {hasAccount && (
             <label className="flex cursor-pointer items-start gap-3 text-sm">
@@ -538,12 +622,12 @@ function ServiceStep({ store, onSave }: StepProps) {
           {!usingAccount && (
             <div className={hasAccount ? "mt-5" : ""}>
               {hasAccount && <p className="mb-2 text-sm font-semibold">{sv.otherLabel}</p>}
-              <PhoneField value={phone} onChange={setPhone} placeholder={sv.phonePh} label={sv.otherLabel} />
-              {showError && <p className="mt-2 text-xs text-rose-600">{sv.invalid}</p>}
+              <PhoneField id="ob-service-phone" value={phone} onChange={(v) => { setPhone(v); setTried(false); }} placeholder={sv.phonePh} label={sv.otherLabel} invalid={showError} />
+              {showError && <FieldError id="ob-service-phone-err">{sv.invalid}</FieldError>}
             </div>
           )}
         </div>
-        <SaveButton disabled={!valid} onClick={() => onSave({ phone: shown })}>{c.save}</SaveButton>
+        <SaveButton onClick={save}>{c.save}</SaveButton>
       </div>
 
       <div className="lg:order-1">
@@ -595,33 +679,39 @@ function DomainStep({ store, onSave }: StepProps) {
   const c = content[lang].onboarding;
   const [slug, setSlug] = useState(store.slug);
   const [touched, setTouched] = useState(false);
-  const valid = SLUG_RULE.test(slug);
+  const [tried, setTried] = useState(false);
+  const valid = isSlug(slug);
+  /* Wrong after he leaves the field, or still empty after he pressed Save */
+  const showError = !valid && ((touched && slug !== "") || tried);
   const suggestion = slugify(store.name);
-  const canSuggest = SLUG_RULE.test(suggestion) && suggestion !== slug;
+  const canSuggest = isSlug(suggestion) && suggestion !== slug;
 
-  const clean = (v: string) => v.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
+  const clean = typedSlug;
 
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-6 lg:order-2">
-        <div>
-          <Label title={c.domain.label} hint={c.domain.hint} />
-          <div dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border bg-card text-sm transition focus-within:ring-2 ${touched && slug && !valid ? "border-rose-500 focus-within:ring-rose-500/25" : "border-fg/15 focus-within:border-primary focus-within:ring-primary/25"}`}>
+        <RequiredNote text={c.requiredNote} />
+        <div className="!mt-4">
+          <Label title={c.domain.label} hint={c.domain.hint} required htmlFor="ob-domain" />
+          <div dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border bg-card text-sm transition focus-within:ring-2 ${showError ? "border-rose-500 focus-within:ring-rose-500/25" : "border-fg/15 focus-within:border-primary focus-within:ring-primary/25"}`}>
             <span className="flex h-full items-center border-e border-fg/15 bg-soft/60 px-3 font-semibold">{c.domain.prefix}</span>
             <input
+              id="ob-domain"
+              required
               value={slug}
-              onChange={(e) => setSlug(clean(e.target.value))}
+              onChange={(e) => { setSlug(clean(e.target.value)); setTried(false); }}
               onBlur={() => setTouched(true)}
               placeholder={c.domain.ph}
               spellCheck={false}
               autoCapitalize="none"
               aria-label={c.domain.label}
-              aria-invalid={touched && !!slug && !valid}
+              aria-invalid={showError}
               className="h-full flex-1 bg-transparent px-3 outline-none placeholder:text-muted/70"
             />
           </div>
-          {touched && slug && !valid ? (
-            <p className="mt-2 text-xs text-rose-600">{c.domain.invalid}</p>
+          {showError ? (
+            <FieldError id="ob-domain-err">{!slug ? c.domain.errEmpty : SLUG_RULE.test(slug) ? reservedSlugError[lang] : c.domain.invalid}</FieldError>
           ) : (
             <p dir="ltr" className="mt-2 text-xs text-muted">{c.domain.examples}</p>
           )}
@@ -631,7 +721,18 @@ function DomainStep({ store, onSave }: StepProps) {
             </button>
           )}
         </div>
-        <SaveButton disabled={!valid} onClick={() => onSave({ slug })}>{c.save}</SaveButton>
+        <SaveButton
+          onClick={() => {
+            if (!valid) {
+              setTried(true);
+              focusFirst(["ob-domain"]);
+              return;
+            }
+            onSave({ slug });
+          }}
+        >
+          {c.save}
+        </SaveButton>
       </div>
 
       <div className="lg:order-1">
@@ -685,12 +786,14 @@ function ProductStep({ store, onSave }: StepProps) {
   const [name, setName] = useState(saved?.name ?? "");
   const [price, setPrice] = useState(saved?.price ?? "");
   const [image, setImage] = useState<string | null>(saved?.image ?? null);
+  /* a chosen picture waiting to be cropped */
+  const [imagePending, setImagePending] = useState("");
   const [imageError, setImageError] = useState("");
   const [needsShipping, setNeedsShipping] = useState(true);
-  const [weight, setWeight] = useState("");
-  const [unlimited, setUnlimited] = useState(true);
-  const [quantity, setQuantity] = useState("");
+  const [unlimited, setUnlimited] = useState(saved?.quantity === undefined);
+  const [quantity, setQuantity] = useState(saved?.quantity !== undefined ? String(saved.quantity) : "");
   const [device, setDevice] = useState<"mobile" | "desktop">("desktop");
+  const [errors, setErrors] = useState<{ name?: string; price?: string; quantity?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
   const created = useRef<string[]>([]);
   const savedUrl = useRef<string | null>(saved?.image ?? null);
@@ -700,7 +803,7 @@ function ProductStep({ store, onSave }: StepProps) {
     return () => urls.forEach((u) => u !== savedUrl.current && URL.revokeObjectURL(u));
   }, []);
 
-  /* Digital products and cards never ship, food and ready products usually do. */
+  /* Files and cards never ship, shipped products and food usually do. */
   const physical = type === 0 || type === 3;
   const chooseType = (i: number) => {
     setType(i);
@@ -711,22 +814,39 @@ function ProductStep({ store, onSave }: StepProps) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    if (!file.type.startsWith("image/")) return;
     if (file.size > 2 * 1024 * 1024) {
       setImageError(p.imageTooBig);
       return;
     }
-    setImageError("");
-    const url = URL.createObjectURL(file);
-    created.current.push(url);
-    setImage(url);
+    void pickPicture(file, imageRules.productPhoto, 1600, "image/jpeg", 0.85).then((picked) => {
+      setImageError("problem" in picked ? uploadProblemText[picked.problem][lang] : "");
+      if ("url" in picked) setImagePending(picked.url);
+    });
   };
 
-  const priceNumber = parseFloat(price);
-  const shippingOk = !physical || !needsShipping || parseFloat(weight) > 0;
-  const valid = name.trim().length >= 2 && priceNumber > 0 && shippingOk;
+  /* "1.2.3", more than 3 decimals or an amount over a million is not a price */
+  const priceNumber = Number(cleanMoney(price) || NaN);
   const shownName = name.trim() || p.productDefault;
   const hasData = name.trim() !== "" || price !== "" || image !== null;
+
+  /* The name and the price must be filled */
+  const save = () => {
+    const next: typeof errors = {};
+    if (visibleLength(name) < 2) next.name = p.errName;
+    if (!(priceNumber > 0)) next.price = p.errPrice;
+    if (!unlimited && quantity === "") next.quantity = p.errQuantity;
+    setErrors(next);
+    const wrong = (["name", "price", "quantity"] as const).filter((k) => next[k]);
+    if (wrong.length) {
+      focusFirst(wrong.map((k) => `ob-product-${k}`));
+      return;
+    }
+    savedUrl.current = image;
+    const product = { type, name: cleanLine(name, ACCOUNT_LIMITS.productName), price: cleanMoney(price), ...(unlimited ? {} : { quantity: Number(quantity) }), image };
+    /* it becomes a real product, with its cropped picture, so the store shows it */
+    const id = syncSetupProduct(product, saved?.id) ?? saved?.id;
+    onSave({ product: { ...product, ...(id ? { id } : {}) } });
+  };
 
   return (
     <div className="mt-6">
@@ -738,23 +858,28 @@ function ProductStep({ store, onSave }: StepProps) {
             type="button"
             onClick={() => chooseType(i)}
             aria-pressed={type === i}
-            className={`flex items-center gap-4 rounded-2xl border p-4 text-start transition ${type === i ? "border-primary bg-primary/10 shadow-md" : "border-fg/15 hover:-translate-y-0.5 hover:border-primary/60"}`}
+            className={`flex items-center gap-4 rounded-2xl border-2 bg-card p-4 text-start transition ${type === i ? "border-primary shadow-md" : "border-fg/10 hover:-translate-y-0.5 hover:border-primary/50"}`}
           >
-            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${type === i ? "bg-primary text-white" : "bg-soft text-primary"}`}>{productIcons[i]}</span>
-            <span className="min-w-0">
+            {/* The chosen type: solid icon tile, thick border and a tick */}
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl transition ${type === i ? "bg-primary text-white" : "bg-soft text-primary"}`}>{productIcons[i]}</span>
+            <span className="min-w-0 flex-1">
               <span className="block font-bold">{t.title}</span>
               <span className="mt-0.5 block text-sm text-muted">{t.desc}</span>
             </span>
+            <ChoiceMark on={type === i} />
           </button>
         ))}
       </div>
 
-      <h3 className="mb-4 mt-10 font-bold">{p.dataTitle}</h3>
+      <h3 className="mb-1 mt-10 font-bold">{p.dataTitle}</h3>
+      <div className="mb-4"><RequiredNote text={c.requiredNote} /></div>
       <div className="grid gap-8 rounded-2xl border border-fg/10 p-4 sm:p-5 lg:grid-cols-[1fr_1.1fr]">
         <div className="space-y-6 lg:order-2">
           <div>
             <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
-            {image ? (
+            {imagePending ? (
+              <ImageCropper lang={lang} src={imagePending} shapes={["square", "tall", "wide"]} out={1200} type="image/jpeg" onCancel={() => setImagePending("")} onDone={(url) => { setImage(url); setImagePending(""); }} />
+            ) : image ? (
               <div className="flex items-center gap-4 rounded-2xl border border-fg/15 p-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={image} alt="" className="h-20 w-20 rounded-xl object-cover" />
@@ -775,16 +900,38 @@ function ProductStep({ store, onSave }: StepProps) {
           </div>
 
           <div>
-            <Label title={p.nameLabel} />
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={p.namePh} maxLength={80} className={`${inputClass} h-12`} />
+            <Label title={p.nameLabel} required htmlFor="ob-product-name" />
+            <input
+              id="ob-product-name"
+              required
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? "ob-product-name-err" : undefined}
+              value={name}
+              onChange={(e) => { setName(e.target.value); if (errors.name) setErrors((x) => ({ ...x, name: undefined })); }}
+              placeholder={p.namePh}
+              maxLength={80}
+              className={`${inputClass} h-12 ${errors.name ? bad : ""}`}
+            />
+            {errors.name && <FieldError id="ob-product-name-err">{errors.name}</FieldError>}
           </div>
 
           <div>
-            <Label title={p.priceLabel} />
+            <Label title={p.priceLabel} required htmlFor="ob-product-price" />
             <div className="relative">
               <span className="pointer-events-none absolute start-4 top-1/2 -translate-y-1/2 text-xs font-bold text-muted">{p.currency}</span>
-              <input value={price} onChange={(e) => setPrice(latin(e.target.value).replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder={p.pricePh} className={`${inputClass} h-12 ps-14`} />
+              <input
+                id="ob-product-price"
+                required
+                aria-invalid={!!errors.price}
+                aria-describedby={errors.price ? "ob-product-price-err" : undefined}
+                value={price}
+                onChange={(e) => { setPrice(latin(e.target.value).replace(/[^\d.]/g, "").slice(0, 13)); if (errors.price) setErrors((x) => ({ ...x, price: undefined })); }}
+                inputMode="decimal"
+                placeholder={p.pricePh}
+                className={`${inputClass} h-12 ps-14 ${errors.price ? bad : ""}`}
+              />
             </div>
+            {errors.price && <FieldError id="ob-product-price-err">{errors.price}</FieldError>}
           </div>
 
           <div>
@@ -803,30 +950,19 @@ function ProductStep({ store, onSave }: StepProps) {
             )}
           </div>
 
-          {physical && needsShipping && (
-            <div>
-              <Label title={p.weightLabel} />
-              <div className="relative">
-                <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 rounded-md border border-fg/20 px-2 py-0.5 text-[11px] font-semibold">{p.kg}</span>
-                <input value={weight} onChange={(e) => setWeight(latin(e.target.value).replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder={p.weightPh} className={`${inputClass} h-12 ps-20`} />
-              </div>
-            </div>
-          )}
-
           <div>
             <Label title={p.quantityLabel} />
             <div className="flex gap-3">
-              <button type="button" onClick={() => setUnlimited((u) => !u)} aria-pressed={unlimited} className={`flex h-12 shrink-0 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${unlimited ? "border-primary bg-primary/10" : "border-fg/15"}`}>
+              <button type="button" onClick={() => setUnlimited((u) => !u)} aria-pressed={unlimited} className={`flex h-12 shrink-0 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${unlimited ? "border-ink bg-ink text-onink" : "border-fg/15 hover:border-primary/50"}`}>
                 <span aria-hidden>∞</span>
                 {unlimited ? p.unlimited : p.limited}
               </button>
-              <input value={quantity} onChange={(e) => setQuantity(latin(e.target.value).replace(/\D/g, ""))} disabled={unlimited} inputMode="numeric" placeholder={p.quantityPh} className={`${inputClass} h-12 disabled:opacity-50`} />
+              <input id="ob-product-quantity" value={quantity} onChange={(e) => { setQuantity(latin(e.target.value).replace(/\D/g, "").slice(0, 7)); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }} disabled={unlimited} inputMode="numeric" placeholder={p.quantityPh} aria-label={p.quantityLabel} aria-invalid={!!errors.quantity} className={`${inputClass} h-12 disabled:opacity-50 ${errors.quantity ? bad : ""}`} />
             </div>
+            {errors.quantity && <FieldError id="ob-product-quantity-err">{errors.quantity}</FieldError>}
           </div>
 
-          <SaveButton disabled={!valid} onClick={() => { savedUrl.current = image; onSave({ product: { type, name: name.trim(), price, image } }); }}>
-            {p.add}
-          </SaveButton>
+          <SaveButton onClick={save}>{p.add}</SaveButton>
         </div>
 
         {/* Live product preview */}
@@ -901,6 +1037,7 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [phone, setPhone] = useState(own?.phone ?? "");
   const [proofs, setProofs] = useState<ProofFile[]>(own?.proofs ?? []);
   const [error, setError] = useState("");
+  const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
   const created = useRef<string[]>([]);
   const savedUrls = useRef<Set<string>>(new Set((own?.proofs ?? []).flatMap((f) => (f.url ? [f.url] : []))));
@@ -911,7 +1048,7 @@ function ShippingStep({ store, onSave }: StepProps) {
   }, []);
 
   /* Images and PDFs only, up to 5 files of 5 MB. Files stay in the browser. */
-  const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = "";
     let message = "";
@@ -921,21 +1058,19 @@ function ShippingStep({ store, onSave }: StepProps) {
         message = s.proofMax;
         break;
       }
-      const isImage = file.type.startsWith("image/");
-      if (!isImage && file.type !== "application/pdf") {
-        message = s.proofType;
+      /* what the file really is, from its bytes (a renamed file is refused) */
+      const check = await checkImage(file, imageRules.proof);
+      if ("problem" in check) {
+        message = check.problem === "type" ? s.proofType : check.problem === "size" ? s.proofTooBig : uploadProblemText[check.problem][lang];
         continue;
       }
-      if (file.size > 5 * 1024 * 1024) {
-        message = s.proofTooBig;
-        continue;
-      }
+      const isImage = check.kind !== "pdf";
       let url: string | null = null;
       if (isImage) {
         url = URL.createObjectURL(file);
         created.current.push(url);
       }
-      next.push({ id: `${file.name}-${file.size}-${next.length}`, name: file.name, size: formatSize(file.size), url });
+      next.push({ id: `${file.name}-${file.size}-${next.length}`, name: cleanFileName(file.name), size: formatSize(file.size), url });
     }
     setProofs(next);
     setError(message);
@@ -994,11 +1129,25 @@ function ShippingStep({ store, onSave }: StepProps) {
 
   /* ---------- Dukkan Ship ---------- */
   if (mode === "seen") {
-    const ready = city !== "";
+    const saveSeen = () => {
+      /* A courier collects from the address, so Dukkan Ship needs both */
+      const next: typeof errors = {};
+      if (city === "") next.city = s.errCity;
+      if (!isPickupAddress(address)) next.address = s.errAddress;
+      if (next.city || next.address) {
+        setErrors(next);
+        focusFirst([next.city && "ob-ship-city", next.address && "ob-ship-address"].filter(Boolean) as string[]);
+        return;
+      }
+      onSave({ pickup, shipping: { mode: "seen", kind: 0, name: s.seenName, phone: "", proofs: [], city, address: cleanLine(address, ACCOUNT_LIMITS.address) } });
+    };
     return (
       <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
         <div className="space-y-8 lg:order-2">
-          {changeLink}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {changeLink}
+            <RequiredNote text={c.requiredNote} />
+          </div>
           {pickupBox}
 
           <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
@@ -1010,26 +1159,39 @@ function ShippingStep({ store, onSave }: StepProps) {
           </div>
 
           <div>
-            <Label title={s.cityLabel} />
-            <select value={city} onChange={(e) => setCity(e.target.value)} aria-label={s.cityLabel} className={`${inputClass} h-12`}>
+            <Label title={s.cityLabel} required htmlFor="ob-ship-city" />
+            <select
+              id="ob-ship-city"
+              required
+              aria-invalid={!!errors.city}
+              value={city}
+              onChange={(e) => { setCity(e.target.value); if (errors.city) setErrors((x) => ({ ...x, city: undefined })); }}
+              className={`${inputClass} h-12 ${errors.city ? bad : ""}`}
+            >
               <option value="">{s.cityPh}</option>
               {s.cities.map((name, i) => (
                 <option key={i} value={name}>{name}</option>
               ))}
             </select>
+            {errors.city && <FieldError id="ob-ship-city-err">{errors.city}</FieldError>}
           </div>
 
           <div>
-            <Label title={s.addressLabel} optional={c.optional} />
-            <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder={s.addressPh} maxLength={120} className={`${inputClass} h-12`} />
+            <Label title={s.addressLabel} required htmlFor="ob-ship-address" />
+            <input
+              id="ob-ship-address"
+              required
+              aria-invalid={!!errors.address}
+              value={address}
+              onChange={(e) => { setAddress(e.target.value); if (errors.address) setErrors((x) => ({ ...x, address: undefined })); }}
+              placeholder={s.addressPh}
+              maxLength={120}
+              className={`${inputClass} h-12 ${errors.address ? bad : ""}`}
+            />
+            {errors.address && <FieldError id="ob-ship-address-err">{errors.address}</FieldError>}
           </div>
 
-          <SaveButton
-            disabled={!ready}
-            onClick={() => onSave({ pickup, shipping: { mode: "seen", kind: 0, name: s.seenName, phone: "", proofs: [], city, address: address.trim() } })}
-          >
-            {c.save}
-          </SaveButton>
+          <SaveButton onClick={saveSeen}>{c.save}</SaveButton>
         </div>
 
         <div className="lg:order-1">
@@ -1063,14 +1225,33 @@ function ShippingStep({ store, onSave }: StepProps) {
   }
 
   /* ---------- His own shipping way ---------- */
-  const phoneOk = phoneDigits(phone) >= 8;
-  const valid = name.trim().length >= 2 && phoneOk;
+  const phoneOk = isJordanMobile(phone);
   const shownName = name.trim() || s.previewName;
+  /* Wrong number while typing, or a mistake found when he pressed Save */
+  const phoneError = errors.phone ?? (phone.trim() !== "" && !phoneOk ? s.phoneInvalid : "");
+
+  /* Who delivers: their name and a working number must be filled */
+  const saveOwn = () => {
+    const next: typeof errors = {};
+    if (visibleLength(name) < 2) next.name = s.errName;
+    if (!phoneOk) next.phone = s.phoneInvalid;
+    setErrors(next);
+    const wrong = (["name", "phone"] as const).filter((k) => next[k]);
+    if (wrong.length) {
+      focusFirst(wrong.map((k) => `ob-ship-${k}`));
+      return;
+    }
+    savedUrls.current = new Set(proofs.flatMap((f) => (f.url ? [f.url] : [])));
+    onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: jordanMobile(phone), proofs, city: "", address: "" } });
+  };
 
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-8 lg:order-2">
-        {changeLink}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {changeLink}
+          <RequiredNote text={c.requiredNote} />
+        </div>
         {pickupBox}
 
         <div>
@@ -1078,7 +1259,7 @@ function ShippingStep({ store, onSave }: StepProps) {
           <p className="mb-3 text-sm font-semibold">{s.whoLabel}</p>
           <div role="radiogroup" className="grid grid-cols-2 gap-3">
             {s.kinds.map((k, i) => (
-              <button key={k} type="button" role="radio" aria-checked={kind === i} onClick={() => setKind(i)} className={`h-12 rounded-xl border text-sm font-semibold transition ${kind === i ? "border-primary bg-primary/10" : "border-fg/15 hover:border-primary/50"}`}>
+              <button key={k} type="button" role="radio" aria-checked={kind === i} onClick={() => setKind(i)} className={`h-12 rounded-xl border text-sm font-semibold transition ${kind === i ? "border-ink bg-ink text-onink" : "border-fg/15 hover:border-primary/50"}`}>
                 {k}
               </button>
             ))}
@@ -1086,14 +1267,32 @@ function ShippingStep({ store, onSave }: StepProps) {
         </div>
 
         <div>
-          <Label title={s.nameLabels[kind]} />
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={s.namePhs[kind]} maxLength={60} className={`${inputClass} h-12`} />
+          <Label title={s.nameLabels[kind]} required htmlFor="ob-ship-name" />
+          <input
+            id="ob-ship-name"
+            required
+            aria-invalid={!!errors.name}
+            aria-describedby={errors.name ? "ob-ship-name-err" : undefined}
+            value={name}
+            onChange={(e) => { setName(e.target.value); if (errors.name) setErrors((x) => ({ ...x, name: undefined })); }}
+            placeholder={s.namePhs[kind]}
+            maxLength={60}
+            className={`${inputClass} h-12 ${errors.name ? bad : ""}`}
+          />
+          {errors.name && <FieldError id="ob-ship-name-err">{errors.name}</FieldError>}
         </div>
 
         <div>
-          <Label title={s.phoneLabel} hint={s.phoneHint} />
-          <PhoneField value={phone} onChange={setPhone} placeholder={c.service.phonePh} label={s.phoneLabel} />
-          {phone.trim() !== "" && !phoneOk && <p className="mt-2 text-xs text-rose-600">{s.phoneInvalid}</p>}
+          <Label title={s.phoneLabel} hint={s.phoneHint} required htmlFor="ob-ship-phone" />
+          <PhoneField
+            id="ob-ship-phone"
+            value={phone}
+            onChange={(v) => { setPhone(v); if (errors.phone) setErrors((x) => ({ ...x, phone: undefined })); }}
+            placeholder={c.service.phonePh}
+            label={s.phoneLabel}
+            invalid={!!phoneError}
+          />
+          {phoneError && <FieldError id="ob-ship-phone-err">{phoneError}</FieldError>}
         </div>
 
         <div>
@@ -1131,15 +1330,7 @@ function ShippingStep({ store, onSave }: StepProps) {
           <p className="mt-3 text-xs text-muted">{s.localNote}</p>
         </div>
 
-        <SaveButton
-          disabled={!valid}
-          onClick={() => {
-            savedUrls.current = new Set(proofs.flatMap((f) => (f.url ? [f.url] : [])));
-            onSave({ pickup, shipping: { mode: "own", kind, name: name.trim(), phone: phone.trim(), proofs, city: "", address: "" } });
-          }}
-        >
-          {c.save}
-        </SaveButton>
+        <SaveButton onClick={saveOwn}>{c.save}</SaveButton>
       </div>
 
       {/* Partner card */}
@@ -1215,7 +1406,7 @@ export function Onboarding() {
         color: s.color,
         phone: s.phone,
         slug: s.slug,
-        product: s.product ? { ...s.product, image: null } : null,
+        product: s.product ? { ...s.product, image: s.product.image ?? null } : null,
         pickup: s.pickup === true,
         logoData: s.logo ?? "",
         logo: s.logo ? { url: s.logo, name: "logo", size: "" } : null,
@@ -1239,7 +1430,7 @@ export function Onboarding() {
       done,
       pickup: store.pickup,
       logo: store.logoData,
-      product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price } : null,
+      product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.image?.startsWith("data:") ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
       shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address } : null,
     });
   }, [restored, store, done]);

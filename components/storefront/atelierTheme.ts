@@ -2,7 +2,7 @@ import type { Lang } from "../content";
 import type { Bi, SectionConfig, StorefrontConfig } from "./config";
 import { defaultConfig } from "./config";
 
-/* "Atelier": a luxury home page for any store, written only with what the store designer offers
+/* "Misk" (code name "atelier"): a luxury home page for any store, written only with what the store designer offers
    (split hero, notes ribbon, picture tiles, promo banners, product grid, fonts, texture, footer colors).
    The same design is used by the platform tour and by the theme store.
 

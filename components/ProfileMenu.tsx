@@ -1,5 +1,6 @@
 "use client";
 
+import { logOut } from "./accounts";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandName } from "./content";
@@ -28,10 +29,9 @@ const i = {
   headset: <svg {...ico}><path d="M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v5H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1ZM20 14h-3v5h3a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1Z" /></svg>,
   gear: <svg {...ico}><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3h-4.4l-.4 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.4 2.7h4.4l.4-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z" /></svg>,
   bell: <svg {...ico}><path d="M6 17V11a6 6 0 1 1 12 0v6l2 2H4l2-2ZM10 21a2 2 0 0 0 4 0" /></svg>,
+  globe: <svg {...ico}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18" /></svg>,
   home: <svg {...ico}><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1v-8Z" /></svg>,
   moon: <svg {...ico}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" /></svg>,
-  globe: <svg {...ico}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18" /></svg>,
-  edit: <svg {...ico}><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4ZM14 6l4 4" /></svg>,
   power: <svg {...ico}><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0" /></svg>,
 };
 
@@ -43,17 +43,15 @@ const text = {
     copied: "Link copied",
     soon: "Your storefront is not live yet",
     support: "Support",
-    customer: "Customer service",
+    customer: "Technical support",
     settings: "Settings",
     prefs: "Tools & preferences",
-    notif: "Notification preferences",
+    notif: "Customize notifications",
+    language: "Language",
     dashboard: "Back to dashboard",
     dark: "Dark mode",
     lang: "العربية",
-    profile: "Profile",
-    profileHint: "Email, password, phone number",
     logout: "Log out",
-    edit: "Edit profile",
     open: "Account menu",
   },
   ar: {
@@ -63,17 +61,15 @@ const text = {
     copied: "تم نسخ الرابط",
     soon: "متجرك غير منشور بعد",
     support: "الدعم",
-    customer: "خدمة العملاء",
+    customer: "الدعم الفني",
     settings: "الإعدادات",
     prefs: "الأدوات والتفضيلات",
-    notif: "تفضيلات الإشعارات",
+    notif: "تخصيص الإشعارات",
+    language: "اللغة",
     dashboard: "العودة للوحة التحكم",
     dark: "الوضع الليلي",
     lang: "English",
-    profile: "الملف الشخصي",
-    profileHint: "البريد الإلكتروني، كلمة المرور، رقم الجوال",
     logout: "تسجيل الخروج",
-    edit: "تعديل الملف الشخصي",
     open: "قائمة الحساب",
   },
 };
@@ -96,12 +92,11 @@ function Avatar({ logo, name, color, size }: { logo: LogoConfig; name: string; c
 }
 
 export function ProfileMenu() {
-  const { lang, theme, toggleTheme } = usePrefs();
+  const { lang, setLang, theme, toggleTheme } = usePrefs();
   const t = text[lang];
   const [open, setOpen] = useState(false);
   const [store, setStore] = useState<{ name: string; slug: string; color: string }>({ name: "", slug: "", color: "#004956" });
   const [logo, setLogo] = useState<LogoConfig>({ kind: "letter", sample: "shop", image: "" });
-  const [sections, setSections] = useState({ support: true, prefs: true });
   const [copied, setCopied] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
 
@@ -146,7 +141,6 @@ export function ProfileMenu() {
 
   const row = "flex w-full items-center gap-3 px-5 py-3.5 text-sm font-medium transition-colors hover:bg-fg/[0.05]";
   const head = "flex w-full items-center justify-between px-5 py-3.5 text-sm font-bold";
-  const toggleSection = (k: "support" | "prefs") => setSections((s) => ({ ...s, [k]: !s[k] }));
   const go = () => setOpen(false);
 
   return (
@@ -185,45 +179,28 @@ export function ProfileMenu() {
             </div>
           </div>
 
-          <div className="divide-y divide-fg/10">
-            <button type="button" onClick={() => toggleSection("support")} className={head} aria-expanded={sections.support}>
-              {t.support}
-              <span className={`transition-transform ${sections.support ? "" : "-rotate-90 rtl:rotate-90"}`}>{i.chevron}</span>
-            </button>
-            {sections.support && (
-              <>
-                <Link href="/support" onClick={go} className={row}>{i.headset}{t.customer}</Link>
-                <Link href="/settings" onClick={go} className={row}>{i.gear}{t.settings}</Link>
-              </>
+          {/* Notifications settings, technical support, and the language (as a full row, with the language it switches to) */}
+          <div className="divide-y divide-fg/10 border-t border-fg/10">
+            {tour ? (
+              <span aria-disabled="true" title={demoOffText(lang)} className={`${row} cursor-not-allowed opacity-40 hover:bg-transparent`}>{i.bell}{t.notif}</span>
+            ) : (
+              <Link href="/settings/notifications" onClick={go} className={row}>{i.bell}{t.notif}</Link>
             )}
-
-            <button type="button" onClick={() => toggleSection("prefs")} className={head} aria-expanded={sections.prefs}>
-              {t.prefs}
-              <span className={`transition-transform ${sections.prefs ? "" : "-rotate-90 rtl:rotate-90"}`}>{i.chevron}</span>
+            <Link href="/support" onClick={go} className={row}>{i.headset}{t.customer}</Link>
+            <button type="button" onClick={() => setLang(lang === "ar" ? "en" : "ar")} aria-label={lang === "ar" ? "Switch language to English" : "التبديل إلى اللغة العربية"} className={`${row} w-full justify-between`}>
+              <span className="flex items-center gap-3">{i.globe}{t.language}</span>
+              <span className="rounded-md border border-fg/15 px-2.5 py-0.5 text-xs font-semibold">{lang === "ar" ? "English" : "العربية"}</span>
             </button>
-            {sections.prefs && (
-              <>
-                {tour ? (
-                  <span aria-disabled="true" title={demoOffText(lang)} className={`${row} cursor-not-allowed opacity-40 hover:bg-transparent`}>{i.bell}{t.notif}</span>
-                ) : (
-                  <Link href="/settings/notifications" onClick={go} className={row}>{i.bell}{t.notif}</Link>
-                )}
-                <Link href="/dashboard" onClick={go} className={row}>{i.home}{t.dashboard}</Link>
-                <button type="button" role="menuitemcheckbox" aria-checked={theme === "dark"} onClick={toggleTheme} className={`${row} justify-between`}>
-                  <span className="flex items-center gap-3">{i.moon}{t.dark}</span>
-                  <Switch on={theme === "dark"} />
-                </button>
-              </>
-            )}
           </div>
 
-          <div className="flex items-center gap-3 border-t border-fg/10 bg-soft/60 px-5 py-4">
-            <Link href="/settings#account" onClick={go} className="min-w-0 flex-1">
-              <p className="text-sm font-bold">{t.profile}</p>
-              <p className="mt-0.5 truncate text-xs text-muted">{t.profileHint}</p>
-            </Link>
-            <Link href="/settings#account" onClick={go} aria-label={t.edit} title={t.edit} className="grid h-9 w-9 place-items-center rounded-lg text-muted transition hover:bg-fg/10 hover:text-fg">{i.edit}</Link>
-            <Link href="/" onClick={go} aria-label={t.logout} title={t.logout} className="grid h-9 w-9 place-items-center rounded-lg text-rose-500 transition hover:bg-rose-500/10">{i.power}</Link>
+          {/* The bottom row: night mode, and logging out */}
+          <div className="flex items-center gap-3 border-t border-fg/10 bg-soft/60 px-5 py-3">
+            <button type="button" role="menuitemcheckbox" aria-checked={theme === "dark"} onClick={toggleTheme} className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg py-1.5 text-sm font-bold">
+              <span className="flex items-center gap-2 whitespace-nowrap">{i.moon}{t.dark}</span>
+              <Switch on={theme === "dark"} />
+            </button>
+            <span aria-hidden className="h-6 w-px bg-fg/15" />
+            <Link href="/" onClick={() => { logOut(); try { sessionStorage.removeItem("seen-signed-in"); } catch { /* storage blocked */ } go(); }} aria-label={t.logout} title={t.logout} className="grid h-9 w-9 place-items-center rounded-lg text-rose-500 transition hover:bg-rose-500/10">{i.power}</Link>
           </div>
         </div>
       )}

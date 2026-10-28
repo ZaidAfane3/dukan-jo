@@ -6,31 +6,28 @@ import { DashboardBar } from "./DashboardBar";
 import { STATUS_DOT, STATUS_KEYS, ordersCopy, type StatusKey } from "./ordersContent";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
+import { isJordanMobile, phoneError, savedMobile, typedAnyPhone } from "./phone";
+import { ORDER_MAX, cleanOrder, money, parseList, typedMoney, type Order } from "./records";
+import { cleanLine, visibleLength } from "./safe";
+import { CITIES, ORDER_LIMITS, isCity, type Fulfil } from "./safeOrder";
+import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion } from "./orderDeletions";
 
-type Order = {
-  id: number;
-  customer: string;
-  phone: string;
-  total: number;
-  status: StatusKey;
-  channel: 0 | 1;
-  /* For orders added by hand: where the customer ordered (WhatsApp, Instagram, ...) */
-  source?: number;
-  /* What was ordered: the product name, how many, and the price of one */
-  items?: { name: string; qty: number; price: number; image?: string }[];
-  created: number;
-};
 
 /* Kept in this browser so orders are still there when he comes back. */
 const KEY = "seen-orders";
 const card = "rounded-2xl bg-card shadow-sm ring-1 ring-fg/10";
 const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
+/* a field with a mistake in it */
+const bad = "!border-rose-500 focus:!ring-rose-500/25";
+/* Changing to these statuses is asked first */
+const ASK_FIRST: StatusKey[] = ["cancelled", "refunded"];
 
+/* What is saved is checked again when it is read: storage can hold old, broken or hand-changed orders */
 function loadOrders(): Order[] {
   try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Order[]) : [];
+    return parseList(localStorage.getItem(KEY), cleanOrder);
   } catch {
     return [];
   }
@@ -48,13 +45,22 @@ export function Orders() {
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /* why the order is deleted: required, and sent to Dukkan with the deletion */
+  const [reason, setReason] = useState("");
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  /* one deletion per dialog, even on a double click */
+  const deleting = useRef(false);
+  const [askStatus, setAskStatus] = useState<StatusKey | null>(null);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [total, setTotal] = useState("");
   const [status, setStatus] = useState<StatusKey>("pending");
   const [source, setSource] = useState(0);
-  const [errors, setErrors] = useState<{ name?: string; total?: string }>({});
+  const [fulfil, setFulfil] = useState<Fulfil>("delivery");
+  const [city, setCity] = useState("");
+  const [address, setAddress] = useState("");
+  const [errors, setErrors] = useState<{ name?: string; phone?: string; city?: string; address?: string; total?: string }>({});
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -64,6 +70,10 @@ export function Orders() {
   useEffect(() => {
     setOrders(loadOrders());
     setReady(true);
+    /* A new order from the store, or a change in another tab: take that list, so this tab never writes back an old one */
+    const onStorage = (e: StorageEvent) => e.key === KEY && setOrders(loadOrders());
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   /* A search result links here with ?open=ID. */
@@ -91,7 +101,20 @@ export function Orders() {
     return () => document.removeEventListener("keydown", onKey);
   }, [creating]);
 
-  useEffect(() => setConfirmDelete(false), [selected]);
+  useEffect(() => {
+    setConfirmDelete(false);
+    setAskStatus(null);
+  }, [selected]);
+
+  useEffect(() => {
+    setReason("");
+    deleting.current = false;
+    if (!confirmDelete) return;
+    reasonRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setConfirmDelete(false);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmDelete]);
 
   const counts = useMemo(() => {
     const c = Object.fromEntries(STATUS_KEYS.map((k) => [k, 0])) as Record<StatusKey, number>;
@@ -101,9 +124,12 @@ export function Orders() {
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/^#/, "");
+    /* a phone is found however it is typed: 079…, 79… or +962 79… */
+    const digitsOf = (v: string) => latin(v).replace(/\D/g, "").replace(/^(00962|962|0)/, "");
+    const qd = digitsOf(q);
     return orders
       .filter((x) => (filter === "all" ? true : x.status === filter))
-      .filter((x) => !q || String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q))
+      .filter((x) => !q || String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q) || (qd.length >= 3 && digitsOf(x.phone).includes(qd)))
       .sort((a, b) => b.created - a.created);
   }, [orders, filter, query]);
 
@@ -119,28 +145,55 @@ export function Orders() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
-    const amount = Number(total);
-    if (name.trim().length < 2) next.name = o.errName;
+    const amount = money(total) ?? NaN;
+    if (visibleLength(cleanLine(name, ORDER_MAX.customer)) < 2) next.name = o.errName;
+    /* In Jordan the mobile is how an order is confirmed, delivered and paid in cash, so it is required */
+    if (!isJordanMobile(phone)) next.phone = phoneError[lang];
+    /* where to deliver, unless the customer collects it */
+    if (fulfil === "delivery" && !isCity(city)) next.city = o.errCity;
+    if (fulfil === "delivery" && visibleLength(address) < 3) next.address = o.errAddress;
     if (!(amount > 0)) next.total = o.errTotal;
     setErrors(next);
-    if (Object.keys(next).length) return;
+    /* the cursor goes to the first field with a mistake */
+    const first = (["name", "phone", "city", "address", "total"] as const).find((k) => next[k]);
+    if (first) {
+      document.getElementById(`n-${first}`)?.focus();
+      return;
+    }
 
     const id = 1001 + orders.reduce((m, x) => Math.max(m, x.id - 1000), 0);
-    setOrders((list) => [{ id, customer: name.trim(), phone: phone.trim(), total: amount, status, channel: 0, source, created: Date.now() }, ...list]);
+    setOrders((list) => [{ id, customer: cleanLine(name, ORDER_MAX.customer), phone: savedMobile(phone), total: amount, status, channel: 0, source, fulfil, ...(fulfil === "delivery" ? { city, address: cleanLine(address, ORDER_LIMITS.address) } : {}), created: Date.now() }, ...list]);
     setSelected(id);
     setName("");
     setPhone("");
     setTotal("");
+    setFulfil("delivery");
+    setCity("");
+    setAddress("");
     setStatus("pending");
     setSource(0);
     setCreating(false);
   };
 
   const setOrderStatus = (id: number, s: StatusKey) => setOrders((list) => list.map((x) => (x.id === id ? { ...x, status: s } : x)));
+  /* Cancelling or refunding is asked first, other statuses change right away */
+  const pickStatus = (id: number, s: StatusKey) => {
+    if (ASK_FIRST.includes(s)) setAskStatus(s);
+    else {
+      setAskStatus(null);
+      setOrderStatus(id, s);
+    }
+  };
+  /* Deleting needs a reason; the reason is kept with the deletion (orderDeletions.ts) */
   const remove = (id: number) => {
+    if (deleting.current || !deleteReasonOk(reason)) return;
+    deleting.current = true;
+    logDeletion(id, cleanDeleteReason(reason));
     setOrders((list) => list.filter((x) => x.id !== id));
     setSelected(null);
+    setConfirmDelete(false);
   };
+  const reasonOk = deleteReasonOk(reason);
 
   const statusList: { key: StatusKey | "all"; label: string; count: number; dot?: string }[] = [
     { key: "all", label: o.all, count: orders.length },
@@ -243,6 +296,7 @@ export function Orders() {
                     <h2 className="text-lg font-extrabold">{o.details}</h2>
                     <p className="mt-1 text-2xl font-extrabold">{current.customer}</p>
                     {current.phone && <p dir="ltr" className="mt-1 text-start text-sm text-muted">{current.phone}</p>}
+                    {current.fulfil === "pickup" ? <p className="mt-1 text-sm text-muted">{o.pickedUp}</p> : (current.city || current.address) && <p dir="auto" className="mt-1 text-sm text-muted">{[current.city, current.address].filter(Boolean).join(" · ")}</p>}
                   </div>
                   <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${current.status === "pending" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "bg-fg/10 text-fg"}`}>
                     <span className={`h-2 w-2 rounded-full ${STATUS_DOT[current.status]}`} />
@@ -289,7 +343,8 @@ export function Orders() {
 
                 <div className="mt-6 flex items-center justify-between gap-4 rounded-xl bg-soft/70 px-4 py-4">
                   <div>
-                    <p className="text-sm font-bold">{current.status === "pending" ? o.unpaid : o.paid}</p>
+                    {/* A cancelled order was never paid, a refunded one was paid back */}
+                    <p className="text-sm font-bold">{current.status === "pending" ? o.unpaid : current.status === "cancelled" ? o.cancelledPay : current.status === "refunded" ? o.refundedPay : o.paid}</p>
                     {current.status === "pending" && <p className="mt-0.5 text-xs text-muted">{o.paymentHint}</p>}
                   </div>
                   <p dir="ltr" className="text-xl font-extrabold">
@@ -298,22 +353,30 @@ export function Orders() {
                 </div>
 
                 <div className="mt-6 max-w-xs">
-                  <label htmlFor="o-status" className="mb-2 block text-sm font-semibold">{o.status}</label>
-                  <select id="o-status" value={current.status} onChange={(e) => setOrderStatus(current.id, e.target.value as StatusKey)} className={`${field} h-11`}>
+                  <label htmlFor="o-status" className="mb-2 block text-sm font-semibold">{o.changeStatus}</label>
+                  <select id="o-status" value={askStatus ?? current.status} onChange={(e) => pickStatus(current.id, e.target.value as StatusKey)} className={`${field} h-11`}>
                     {STATUS_KEYS.map((k) => <option key={k} value={k}>{o.statuses[k]}</option>)}
                   </select>
                 </div>
+                {askStatus && (
+                  <div role="alert" className="mt-3 flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-rose-600">{o.statusAsk.replace("{status}", o.statuses[askStatus])}</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrderStatus(current.id, askStatus);
+                        setAskStatus(null);
+                      }}
+                      className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+                    >
+                      {o.statusYes}
+                    </button>
+                    <button type="button" onClick={() => setAskStatus(null)} className="rounded-lg border border-fg/20 px-4 py-2 text-sm font-semibold transition hover:bg-soft">{o.statusNo}</button>
+                  </div>
+                )}
 
                 <div className="mt-8 border-t border-fg/10 pt-5">
-                  {confirmDelete ? (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <p className="text-sm text-rose-600">{o.deleteAsk}</p>
-                      <button type="button" onClick={() => remove(current.id)} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700">{o.deleteYes}</button>
-                      <button type="button" onClick={() => setConfirmDelete(false)} className="rounded-lg border border-fg/20 px-4 py-2 text-sm font-semibold transition hover:bg-soft">{o.cancel}</button>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-500/50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{o.delete}</button>
-                  )}
+                  <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-500/50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{o.delete}</button>
                 </div>
               </div>
             )}
@@ -321,24 +384,95 @@ export function Orders() {
         </div>
       </main>
 
+      {confirmDelete && current && (
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setConfirmDelete(false)}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              remove(current.id);
+            }}
+            noValidate
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="d-title"
+            aria-describedby="d-ask"
+            className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10"
+          >
+            <h2 id="d-title" className="text-lg font-bold">{o.delete} <span dir="ltr">#{current.id}</span></h2>
+            <p id="d-ask" className="mt-2 text-sm text-rose-600">{o.deleteAsk}</p>
+            <label htmlFor="d-reason" className="mb-2 mt-5 block text-sm font-semibold">{o.deleteReason}<RequiredMark /></label>
+            <textarea
+              id="d-reason"
+              ref={reasonRef}
+              rows={4}
+              dir="auto"
+              aria-required
+              aria-describedby="d-hint"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={o.deleteReasonPh}
+              maxLength={DELETE_REASON.max}
+              className={`${field} block resize-y py-3 leading-relaxed`}
+            />
+            <p id="d-hint" className="mt-1.5 flex justify-between gap-3 text-xs text-muted">
+              <span>{o.deleteReasonHint.replace("{min}", String(DELETE_REASON.min))}</span>
+              <span dir="ltr">{reason.length}/{DELETE_REASON.max}</span>
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button type="submit" disabled={!reasonOk} className="h-12 flex-1 rounded-xl bg-rose-600 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-rose-600">{o.deleteYes}</button>
+              <button type="button" onClick={() => setConfirmDelete(false)} className="h-12 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{o.cancel}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {creating && (
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setCreating(false)}>
           <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={o.formTitle} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
             <h2 className="text-lg font-bold">{o.formTitle}</h2>
+            <div className="mt-2"><RequiredNote text={requiredNote[lang]} /></div>
             <div className="mt-5 space-y-5">
               <div>
-                <label htmlFor="n-name" className="mb-2 block text-sm font-semibold">{o.customer}</label>
-                <input id="n-name" ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder={o.namePh} maxLength={60} className={`${field} h-11`} />
+                <label htmlFor="n-name" className="mb-2 block text-sm font-semibold">{o.customer}<RequiredMark /></label>
+                <input id="n-name" ref={nameRef} aria-required aria-invalid={!!errors.name} value={name} onChange={(e) => setName(e.target.value)} placeholder={o.namePh} maxLength={60} className={`${field} h-11 ${errors.name ? bad : ""}`} />
                 {errors.name && <p className="mt-1.5 text-xs text-rose-600">{errors.name}</p>}
               </div>
               <div>
-                <label htmlFor="n-phone" className="mb-2 block text-sm font-semibold">{o.phone}</label>
-                <input id="n-phone" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(latin(e.target.value).replace(/[^\d+ ]/g, ""))} placeholder="+962 7X XXX XXXX" maxLength={20} className={`${field} h-11 text-start`} />
+                <label htmlFor="n-phone" className="mb-2 block text-sm font-semibold">{o.phone}<RequiredMark /></label>
+                <input id="n-phone" dir="ltr" inputMode="tel" aria-required aria-invalid={!!errors.phone} value={phone} onChange={(e) => setPhone(typedAnyPhone(e.target.value))} placeholder="07X XXX XXXX" maxLength={20} className={`${field} h-11 text-start ${errors.phone ? bad : ""}`} />
+                {errors.phone && <p className="mt-1.5 text-xs text-rose-600">{errors.phone}</p>}
               </div>
+              <div role="radiogroup" aria-label={o.fulfil}>
+                <p className="mb-2 text-sm font-semibold">{o.fulfil}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["delivery", "pickup"] as const).map((k) => (
+                    <button key={k} type="button" role="radio" aria-checked={fulfil === k} onClick={() => { setFulfil(k); setErrors((x) => ({ ...x, city: undefined, address: undefined })); }} className={`min-h-11 rounded-xl border px-3 text-sm font-semibold transition ${fulfil === k ? "border-primary bg-primary/10 text-primary" : "border-fg/15 hover:bg-soft"}`}>
+                      {k === "delivery" ? o.fulfilDelivery : o.fulfilPickup}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {fulfil === "delivery" && (
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="n-city" className="mb-2 block text-sm font-semibold">{o.city}<RequiredMark /></label>
+                    <select id="n-city" aria-required aria-invalid={!!errors.city} value={city} onChange={(e) => { setCity(e.target.value); setErrors((x) => ({ ...x, city: undefined })); }} className={`${field} h-11 ${errors.city ? bad : ""}`}>
+                      <option value="">{o.cityPh}</option>
+                      {CITIES[lang].map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    {errors.city && <p className="mt-1.5 text-xs text-rose-600">{errors.city}</p>}
+                  </div>
+                  <div>
+                    <label htmlFor="n-address" className="mb-2 block text-sm font-semibold">{o.address}<RequiredMark /></label>
+                    <input id="n-address" aria-required aria-invalid={!!errors.address} value={address} onChange={(e) => { setAddress(e.target.value); setErrors((x) => ({ ...x, address: undefined })); }} placeholder={o.addressPh} maxLength={ORDER_LIMITS.address} className={`${field} h-11 ${errors.address ? bad : ""}`} />
+                    {errors.address && <p className="mt-1.5 text-xs text-rose-600">{errors.address}</p>}
+                  </div>
+                </div>
+              )}
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
-                  <label htmlFor="n-total" className="mb-2 block text-sm font-semibold">{o.total} ({o.currency})</label>
-                  <input id="n-total" dir="ltr" inputMode="decimal" value={total} onChange={(e) => setTotal(latin(e.target.value).replace(/[^\d.]/g, ""))} placeholder="0.00" maxLength={10} className={`${field} h-11 text-start`} />
+                  <label htmlFor="n-total" className="mb-2 block text-sm font-semibold">{o.total} ({o.currency})<RequiredMark /></label>
+                  <input id="n-total" dir="ltr" inputMode="decimal" aria-required aria-invalid={!!errors.total} value={total} onChange={(e) => setTotal(typedMoney(e.target.value, 3))} placeholder="0.00" maxLength={10} className={`${field} h-11 text-start ${errors.total ? bad : ""}`} />
                   {errors.total && <p className="mt-1.5 text-xs text-rose-600">{errors.total}</p>}
                 </div>
                 <div>

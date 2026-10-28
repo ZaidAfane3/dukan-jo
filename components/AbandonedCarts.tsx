@@ -6,6 +6,7 @@ import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { pushNotification } from "./notifications";
 import { usePrefs } from "./Prefs";
+import { cleanOrder, parseList } from "./records";
 import { AnimatedNumber, Money, mulberry32 } from "./Reports";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
@@ -52,7 +53,7 @@ export function AbandonedCarts() {
       setSample(true);
       setTour(true);
       try {
-        const orders = JSON.parse(localStorage.getItem("seen-orders") ?? "[]") as { customer: string }[];
+        const orders = parseList(localStorage.getItem("seen-orders"), cleanOrder);
         setTourNames(orders.map((o) => o.customer).slice(0, 9));
       } catch {
         /* the sample names stay */
@@ -203,21 +204,8 @@ export function AbandonedCarts() {
                 </div>
               )}
             </div>
-            {!tour && <label className="ms-auto flex cursor-pointer items-center gap-3 text-sm font-medium">
-              {r.sampleToggle}
-              <button
-                type="button"
-                role="switch"
-                aria-checked={sample}
-                onClick={() => setSample((s) => !s)}
-                className={`relative h-6 w-11 rounded-full transition-colors ${sample ? "bg-primary" : "bg-fg/20"}`}
-              >
-                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${sample ? "start-[1.375rem]" : "start-0.5"}`} />
-              </button>
-            </label>}
           </div>
 
-          {sample && !tour && <p className="mt-4 rounded-xl bg-primary/15 px-4 py-2 text-center text-sm font-medium text-deep dark:text-primary">{r.sampleNote}</p>}
 
           <div className="mt-5 overflow-x-auto rounded-xl border border-fg/10">
             <table className="w-full min-w-[40rem] border-collapse">

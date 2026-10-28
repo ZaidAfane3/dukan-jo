@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { brandName } from "./content";
 import type { SectionConfig } from "./storefront/config";
+import { sanitizePages } from "./safeDesign";
+import { cleanLine, cleanLines, visibleLength } from "./safe";
+import { RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 
@@ -144,7 +147,8 @@ export function load(): InfoPage[] {
   try {
     const raw = localStorage.getItem(scope);
     if (raw) {
-      const list = JSON.parse(raw) as InfoPage[];
+      /* Pages saved in this browser are checked before they are used (see safeDesign.ts) */
+      const list = (sanitizePages(JSON.parse(raw)) ?? []) as InfoPage[];
       if (scope !== KEY || !list.some((x) => themePage(x.id))) return list;
       const own = list.filter((x) => !themePage(x.id));
       localStorage.setItem(KEY, JSON.stringify(own));
@@ -297,22 +301,22 @@ export function InfoPages() {
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
-    if (title.trim().length < 2) next.title = c.errTitle;
-    if (content.trim().length < 5) next.content = c.errContent;
+    if (visibleLength(title) < 2) next.title = c.errTitle;
+    if (visibleLength(content) < 5) next.content = c.errContent;
     setErrors(next);
     if (Object.keys(next).length) return;
 
     /* Editing in one language only changes that language's text. */
     if (editing === "new") {
       const id = pages.reduce((m, p) => Math.max(m, p.id), 0) + 1;
-      const bi = (v: string): Bi => ({ en: lang === "en" ? v.trim() : "", ar: lang === "ar" ? v.trim() : "" });
-      setPages((l) => [{ id, type, published, footer, title: bi(title), content: bi(content), created: Date.now() }, ...l]);
+      const bi = (v: string): Bi => ({ en: lang === "en" ? v : "", ar: lang === "ar" ? v : "" });
+      setPages((l) => [{ id, type, published, footer, title: bi(cleanLine(title, 80)), content: bi(cleanLines(content, 10000)), created: Date.now() }, ...l]);
       setEditing(id);
     } else {
       setPages((l) =>
         l.map((p) =>
           p.id === editing
-            ? { ...p, type, published, footer, title: { ...p.title, [lang]: title.trim() }, content: { ...p.content, [lang]: content.trim() } }
+            ? { ...p, type, published, footer, title: { ...p.title, [lang]: cleanLine(title, 80) }, content: { ...p.content, [lang]: cleanLines(content, 10000) } }
             : p,
         ),
       );
@@ -409,10 +413,11 @@ export function InfoPages() {
                 </div>
 
                 <h2 className="text-lg font-extrabold">{c.info}</h2>
+                <RequiredNote text={requiredNote[lang]} />
 
                 <div>
-                  <label htmlFor="pg-title" className="mb-2 block text-sm font-semibold">{c.pageTitle}</label>
-                  <input id="pg-title" ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={c.titlePh} maxLength={80} className={`${field} h-12`} />
+                  <label htmlFor="pg-title" className="mb-2 block text-sm font-semibold">{c.pageTitle}<RequiredMark /></label>
+                  <input id="pg-title" ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={c.titlePh} maxLength={80} aria-required className={`${field} h-12`} />
                   {errors.title && <p className="mt-1.5 text-xs text-rose-600">{errors.title}</p>}
                 </div>
 
@@ -434,8 +439,8 @@ export function InfoPages() {
                 </div>
 
                 <div>
-                  <label htmlFor="pg-content" className="mb-2 block text-sm font-semibold">{c.content}</label>
-                  <textarea id="pg-content" value={content} onChange={(e) => setContent(e.target.value)} placeholder={c.contentPh} rows={14} maxLength={10000} className={`${field} resize-y py-3 leading-7`} />
+                  <label htmlFor="pg-content" className="mb-2 block text-sm font-semibold">{c.content}<RequiredMark /></label>
+                  <textarea id="pg-content" value={content} onChange={(e) => setContent(e.target.value)} placeholder={c.contentPh} rows={14} maxLength={10000} aria-required className={`${field} resize-y py-3 leading-7`} />
                   {errors.content && <p className="mt-1.5 text-xs text-rose-600">{errors.content}</p>}
                 </div>
 

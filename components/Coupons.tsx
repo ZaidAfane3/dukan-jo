@@ -7,35 +7,22 @@ import { pushNotification } from "./notifications";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
+import { COUPON_MAX, cleanCoupon, cleanCouponDescription, cleanCouponName, couponName, couponProblems, parseList, storeToday, typedMoney, type Coupon, type CouponKind, type CouponType } from "./records";
 
 /* ====================================================================
    Types
    ==================================================================== */
 
-/** Dukkan offers four kinds of coupon, in this order. */
-type CouponType = 0 | 1 | 2 | 3; /* discount, free shipping, custom, next order */
-type Kind = "percent" | "fixed" | "shipping";
-
-type Coupon = {
-  id: string;
-  type: CouponType;
-  name: string;
-  code: string;
-  kind: Kind;
-  value: number;
-  minOrder: number;
-  start: string; /* YYYY-MM-DD, or "" for "starts now" */
-  end: string; /* YYYY-MM-DD, or "" for "no end date" */
-  limit: number; /* 0 = unlimited */
-  validDays: number; /* only for next-order coupons */
-  used: number;
-  active: boolean;
-};
+/** Dukkan offers four kinds of coupon, in this order: discount, free shipping, custom, next order.
+    The coupon itself and its rules are in records.ts, shared with the server. */
+type Kind = CouponKind;
 
 const KEY = "seen-coupons";
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
 const field =
   "h-11 w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
+/* a field with a mistake in it */
+const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const icon = {
   viewBox: "0 0 24 24",
@@ -60,7 +47,8 @@ const typeIcons = [
    Helpers
    ==================================================================== */
 
-const isoToday = () => new Date().toISOString().slice(0, 10);
+/* Today in the store's time zone, so a coupon ends at midnight in Jordan and not at midnight in London */
+const isoToday = () => storeToday();
 
 /** Random code without look-alike characters (no 0/O, 1/I). */
 function randomCode(length = 6): string {
@@ -77,10 +65,13 @@ function statusOf(c: Coupon): 1 | 2 | 3 | 4 {
   return c.active ? 1 : 2;
 }
 
+/* The sample coupons an older version could load (s1 to s4): they are not his, so they are dropped */
+const OLD_SAMPLES = new Set(["s1", "s2", "s3", "s4"]);
+
 function loadCoupons(): Coupon[] {
   try {
-    const raw = sessionStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Coupon[]) : [];
+    /* What is saved is checked again when it is read: storage can hold old, broken or hand-changed coupons */
+    return parseList(sessionStorage.getItem(KEY), cleanCoupon).filter((c) => !OLD_SAMPLES.has(c.id));
   } catch {
     return [];
   }
@@ -93,11 +84,14 @@ function loadCoupons(): Coupon[] {
 function CouponDialog({
   type,
   initial,
+  taken,
   onSave,
   onClose,
 }: {
   type: CouponType;
   initial: Coupon | null;
+  /* the codes of his other coupons, so the same code isn't used twice */
+  taken: string[];
   onSave: (c: Coupon) => void;
   onClose: () => void;
 }) {
@@ -107,6 +101,7 @@ function CouponDialog({
   const currency = content[lang].reports.currency;
 
   const [name, setName] = useState(initial?.name ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
   const [code, setCode] = useState(initial?.code ?? (type === 3 ? "NEXT" : ""));
   const [kind, setKind] = useState<Kind>(type === 1 ? "shipping" : initial?.kind === "fixed" ? "fixed" : "percent");
   const [value, setValue] = useState(initial && initial.kind !== "shipping" ? String(initial.value) : "");
@@ -128,35 +123,38 @@ function CouponDialog({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
-    const cleanCode = code.trim().toUpperCase();
-    const amount = parseFloat(value);
-
-    if (name.trim().length < 2) next.name = f.errName;
-    if (!/^[A-Z0-9]{3,16}$/.test(cleanCode)) next.code = f.errCode;
-    if (kind !== "shipping") {
-      if (!(amount > 0)) next.value = f.errValue;
-      else if (kind === "percent" && amount > 100) next.value = f.errPercent;
-    }
-    if (start && end && end <= start) next.end = f.errDates;
-    if (type === 3) {
-      const d = parseInt(validDays, 10);
-      if (!(d >= 1 && d <= 365)) next.validDays = f.errDays;
-    }
+    const cleanCode = latin(code).trim().toUpperCase();
+    const amount = Number(value);
+    const min = Number(minOrder) > 0 ? Number(minOrder) : 0;
+    const days = parseInt(validDays, 10);
+    /* The same rules the server will use (records.ts) */
+    const bad = couponProblems({ type, name, code: cleanCode, kind, value: kind === "shipping" ? 0 : amount, minOrder: min, start, end, limit: 0, validDays: days }, taken, initial?.end, isoToday());
+    const say: Record<string, [string, string]> = { code: ["code", f.errCode], dup: ["code", f.errDup], value: ["value", f.errValue], percent: ["value", f.errPercent], overMin: ["value", f.errOverMin], past: ["end", f.errPast], dates: ["end", f.errDates], days: ["validDays", f.errDays] };
+    for (const b of bad) if (!next[say[b][0]]) next[say[b][0]] = say[b][1];
     setErrors(next);
-    if (Object.keys(next).length) return;
+    /* the first field with a mistake comes into view with the cursor in it */
+    const firstBad = (["code", "value", "validDays", "end"] as const).find((k) => next[k]);
+    if (firstBad) {
+      const el = document.getElementById({ code: "c-code", value: "c-value", validDays: "c-days", end: "c-end" }[firstBad]);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
+      return;
+    }
 
     onSave({
       id: initial?.id ?? `${Date.now()}-${cleanCode}`,
       type,
-      name: name.trim(),
+      /* optional: an empty name (or only spaces) shows the code instead */
+      name: cleanCouponName(name),
       code: cleanCode,
+      description: cleanCouponDescription(description),
       kind,
       value: kind === "shipping" ? 0 : amount,
-      minOrder: parseFloat(minOrder) > 0 ? parseFloat(minOrder) : 0,
+      minOrder: min,
       start,
       end,
       limit: parseInt(limit, 10) > 0 ? parseInt(limit, 10) : 0,
-      validDays: type === 3 ? parseInt(validDays, 10) : 0,
+      validDays: type === 3 ? days : 0,
       used: initial?.used ?? 0,
       active: initial?.active ?? true,
     });
@@ -164,6 +162,9 @@ function CouponDialog({
 
   const err = (key: string) => (errors[key] ? <p className="mt-1.5 text-xs text-rose-600">{errors[key]}</p> : null);
   const label = "mb-2 block text-sm font-semibold";
+  const req = <span className="ms-1 text-rose-600" aria-hidden>*</span>;
+  /* a field's mistake goes away as soon as he edits it */
+  const fix = (key: string) => errors[key] && setErrors((x) => ({ ...x, [key]: "" }));
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -179,15 +180,15 @@ function CouponDialog({
         <div className="mt-6 space-y-5">
           <div>
             <label className={label} htmlFor="c-name">{f.name}</label>
-            <input id="c-name" ref={first} value={name} onChange={(e) => setName(e.target.value)} placeholder={f.namePh} maxLength={50} className={field} />
-            {err("name")}
+            <input id="c-name" ref={first} value={name} onChange={(e) => setName(e.target.value)} placeholder={f.namePh} maxLength={COUPON_MAX.name} aria-describedby="c-name-hint" className={field} />
+            <p id="c-name-hint" className="mt-1.5 text-xs text-muted">{f.nameHint}</p>
           </div>
 
           <div>
-            <label className={label} htmlFor="c-code">{type === 3 ? f.prefix : f.code}</label>
+            <label className={label} htmlFor="c-code">{type === 3 ? f.prefix : f.code}{req}</label>
             <div dir="ltr" className="flex gap-2">
-              <input id="c-code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16))} placeholder="SUMMER10" spellCheck={false} className={`${field} font-semibold tracking-wider`} />
-              <button type="button" onClick={() => setCode(randomCode())} className="shrink-0 rounded-xl border border-primary/50 px-4 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">
+              <input id="c-code" aria-invalid={!!errors.code} value={code} onChange={(e) => { setCode(latin(e.target.value).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16)); fix("code"); }} placeholder={`${f.example} SUMMER10`} spellCheck={false} className={`${field} font-semibold tracking-wider placeholder:font-normal placeholder:tracking-normal ${errors.code ? bad : ""}`} />
+              <button type="button" onClick={() => { setCode(randomCode()); fix("code"); }} className="shrink-0 rounded-xl border border-primary/50 px-4 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">
                 {f.generate}
               </button>
             </div>
@@ -211,9 +212,9 @@ function CouponDialog({
                   </div>
                 </>
               )}
-              <label className={label} htmlFor="c-value">{f.value}</label>
+              <label className={label} htmlFor="c-value">{f.value}{req}</label>
               <div dir="ltr" className="relative">
-                <input id="c-value" value={value} onChange={(e) => setValue(latin(e.target.value).replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder="10" className={`${field} pe-16`} />
+                <input id="c-value" aria-invalid={!!errors.value} value={value} onChange={(e) => { setValue(typedMoney(e.target.value, 3)); fix("value"); }} inputMode="decimal" placeholder={`${f.example} 10`} className={`${field} pe-16 ${errors.value ? bad : ""}`} />
                 <span className="pointer-events-none absolute end-4 top-1/2 -translate-y-1/2 text-xs font-bold text-muted">{kind === "percent" ? "%" : currency}</span>
               </div>
               {err("value")}
@@ -222,15 +223,15 @@ function CouponDialog({
 
           {type === 3 && (
             <div>
-              <label className={label} htmlFor="c-days">{f.validDays}</label>
-              <input id="c-days" dir="ltr" value={validDays} onChange={(e) => setValidDays(latin(e.target.value).replace(/\D/g, "").slice(0, 3))} inputMode="numeric" className={field} />
+              <label className={label} htmlFor="c-days">{f.validDays}{req}</label>
+              <input id="c-days" dir="ltr" aria-invalid={!!errors.validDays} value={validDays} onChange={(e) => { setValidDays(latin(e.target.value).replace(/\D/g, "").slice(0, 3)); fix("validDays"); }} inputMode="numeric" className={`${field} ${errors.validDays ? bad : ""}`} />
               {err("validDays")}
             </div>
           )}
 
           <div>
             <label className={label} htmlFor="c-min">{f.min}</label>
-            <input id="c-min" dir="ltr" value={minOrder} onChange={(e) => setMinOrder(latin(e.target.value).replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder={currency} className={field} />
+            <input id="c-min" dir="ltr" value={minOrder} onChange={(e) => { setMinOrder(typedMoney(e.target.value, 3)); fix("value"); }} inputMode="decimal" placeholder={currency} className={field} />
             <p className="mt-1.5 text-xs text-muted">{f.minHint}</p>
           </div>
 
@@ -242,11 +243,17 @@ function CouponDialog({
               </div>
               <div>
                 <label className={label} htmlFor="c-end">{f.end}</label>
-                <input id="c-end" type="date" value={end} onChange={(e) => setEnd(e.target.value)} className={field} />
+                <input id="c-end" type="date" aria-invalid={!!errors.end} value={end} onChange={(e) => { setEnd(e.target.value); fix("end"); }} className={`${field} ${errors.end ? bad : ""}`} />
                 {err("end")}
               </div>
             </div>
           )}
+
+          <div>
+            <label className={label} htmlFor="c-desc">{f.description}</label>
+            <textarea id="c-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={f.descriptionPh} rows={3} maxLength={COUPON_MAX.description} aria-describedby="c-desc-hint" className={`${field} !h-auto resize-y py-3`} />
+            <p id="c-desc-hint" className="mt-1.5 text-xs text-muted">{f.descriptionHint}</p>
+          </div>
 
           <div>
             <label className={label} htmlFor="c-limit">{f.limit}</label>
@@ -322,7 +329,7 @@ export function Coupons() {
       coupons.filter((c) => {
         if (tab > 0 && statusOf(c) !== tab) return false;
         const q = query.trim().toLowerCase();
-        return q === "" || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
+        return q === "" || couponName(c).toLowerCase().includes(q) || c.code.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q);
       }),
     [coupons, tab, query],
   );
@@ -332,18 +339,6 @@ export function Coupons() {
     setCoupons((list) => (list.some((x) => x.id === c.id) ? list.map((x) => (x.id === c.id ? c : x)) : [c, ...list]));
     setDialog(null);
     flash(m.form.saved);
-  };
-
-  const loadSample = () => {
-    const today = new Date();
-    const plus = (days: number) => new Date(today.getTime() + days * 86400000).toISOString().slice(0, 10);
-    const samples: Coupon[] = [
-      { id: "s1", type: 0, name: m.sampleNames[0], code: "WELCOME10", kind: "percent", value: 10, minOrder: 0, start: "", end: "", limit: 0, validDays: 0, used: 24, active: true },
-      { id: "s2", type: 1, name: m.sampleNames[1], code: "SHIPFREE", kind: "shipping", value: 0, minOrder: 25, start: "", end: plus(14), limit: 200, validDays: 0, used: 61, active: true },
-      { id: "s3", type: 2, name: m.sampleNames[2], code: "SUMMER5", kind: "fixed", value: 5, minOrder: 40, start: "", end: plus(-10), limit: 0, validDays: 0, used: 37, active: true },
-      { id: "s4", type: 3, name: m.sampleNames[3], code: "NEXT", kind: "percent", value: 8, minOrder: 0, start: "", end: "", limit: 0, validDays: 30, used: 9, active: false },
-    ];
-    setCoupons(samples);
   };
 
   const copyCode = async (code: string) => {
@@ -359,7 +354,7 @@ export function Coupons() {
   const exportCsv = () => {
     const header = m.cols.slice(0, 5).join(",");
     const rows = shown.map((c) =>
-      [c.name, c.code, discountText(c), c.start || m.startsNow, c.end || m.noEnd, m.statuses[statusOf(c)]]
+      [couponName(c), c.code, discountText(c), c.start || m.startsNow, c.end || m.noEnd, m.statuses[statusOf(c)]]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(","),
     );
@@ -455,6 +450,7 @@ export function Coupons() {
               <tbody className="divide-y divide-fg/10">
                 {shown.map((c) => {
                   const st = statusOf(c);
+                  const on = c.active && st !== 3;
                   return (
                     <tr key={c.id} className="transition-colors hover:bg-soft/40">
                       <td className={td}>
@@ -465,7 +461,9 @@ export function Coupons() {
                               {c.code}
                               <svg {...icon} className="h-3.5 w-3.5 text-muted"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
                             </button>
-                            <p className="text-xs text-muted">{c.name}{c.used > 0 ? ` · ${m.used.replace("{n}", String(c.used))}` : ""}</p>
+                            {/* the name only when it says more than the code (an empty name means the code is the name) */}
+                            {(couponName(c) !== c.code || c.used > 0) && <p className="text-xs text-muted">{[couponName(c) !== c.code ? couponName(c) : "", c.used > 0 ? m.used.replace("{n}", String(c.used)) : ""].filter(Boolean).join(" · ")}</p>}
+                            {c.description && <p className="mt-0.5 max-w-xs whitespace-pre-line break-words text-xs text-muted/80 line-clamp-2" title={c.description}>{c.description}</p>}
                           </div>
                         </div>
                       </td>
@@ -480,15 +478,18 @@ export function Coupons() {
                       </td>
                       <td className={td}>
                         <div className="flex items-center gap-2">
+                          {/* An expired coupon can't run, so its switch shows off and can't be pressed */}
                           <button
                             type="button"
                             role="switch"
-                            aria-checked={c.active}
-                            aria-label={m.statuses[1]}
+                            aria-checked={on}
+                            aria-label={(on ? m.turnOff : m.turnOn).replace("{code}", c.code)}
+                            title={st === 3 ? m.expiredOff : undefined}
+                            disabled={st === 3}
                             onClick={() => setCoupons((list) => list.map((x) => (x.id === c.id ? { ...x, active: !x.active } : x)))}
-                            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${c.active ? "bg-primary" : "bg-fg/20"}`}
+                            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${on ? "bg-primary" : "bg-fg/20"}`}
                           >
-                            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${c.active ? "start-[1.375rem]" : "start-0.5"}`} />
+                            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? "start-[1.375rem]" : "start-0.5"}`} />
                           </button>
                           <button type="button" onClick={() => setDialog({ type: c.type, coupon: c })} aria-label={m.edit} title={m.edit} className="grid h-9 w-9 place-items-center rounded-lg border border-fg/15 text-fg transition hover:bg-soft">
                             <svg {...icon} className="h-4 w-4"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4" /></svg>
@@ -523,9 +524,6 @@ export function Coupons() {
               <div className="px-4 py-14 text-center">
                 <p className="font-bold">{m.empty}</p>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted">{m.emptyHint}</p>
-                <button type="button" onClick={loadSample} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">
-                  {m.loadSample}
-                </button>
               </div>
             )}
             {coupons.length > 0 && shown.length === 0 && <p className="px-4 py-10 text-center text-sm text-muted">{m.noMatch}</p>}
@@ -533,7 +531,7 @@ export function Coupons() {
         </section>
       </main>
 
-      {dialog && <CouponDialog type={dialog.type} initial={dialog.coupon} onSave={save} onClose={() => setDialog(null)} />}
+      {dialog && <CouponDialog type={dialog.type} initial={dialog.coupon} taken={coupons.filter((x) => x.id !== dialog.coupon?.id).map((x) => x.code)} onSave={save} onClose={() => setDialog(null)} />}
 
       {toast && (
         <div role="status" className="fixed bottom-6 start-1/2 z-[60] -translate-x-1/2 rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-onink shadow-2xl rtl:translate-x-1/2">

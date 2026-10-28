@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { demoActive, endDemo, installDemoIfActive, reseedDemo } from "./demoSandbox";
+import { demoActive, endDemo, installAccounts, installDemoIfActive, reseedDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
 
 const words = {
@@ -75,7 +75,11 @@ const end = "rounded-lg border border-white/30 px-3.5 py-1.5 text-xs font-semibo
    reads its data. It sits first in the layout. On pages without a dashboard header it also shows
    a small floating bar. */
 export function DemoBoot() {
-  if (typeof window !== "undefined") installDemoIfActive();
+  if (typeof window !== "undefined") {
+    installDemoIfActive();
+    /* each account's own store (not while the tour runs) */
+    installAccounts();
+  }
   const { on, lang, w } = useTour();
   useFormLock(on, lang);
   /* In the store designer the bar sits higher, so it does not cover the zoom controls at the bottom of the canvas */

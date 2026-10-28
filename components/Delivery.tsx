@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
-import { latin } from "./digits";
+import { isJordanMobile, savedMobile, typedAnyPhone } from "./phone";
+import { cleanLine, isPickupAddress, visibleLength } from "./safe";
+import { RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { usePrefs } from "./Prefs";
 import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 
@@ -12,13 +14,14 @@ import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 const card = "rounded-2xl bg-card shadow-sm ring-1 ring-fg/10";
 const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
+/* a field with a mistake in it */
+const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const words = {
   en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "You have not chosen a delivery option yet." },
   ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لم تختر خيار توصيل بعد." },
 };
 
-const digitCount = (v: string) => latin(v).replace(/\D/g, "").length;
 
 type Mode = "own" | "seen";
 
@@ -36,7 +39,8 @@ export function Delivery() {
   const [kind, setKind] = useState(0);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [error, setError] = useState("");
+  /* Each mistake shows under its own field */
+  const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string }>({});
   const [flash, setFlash] = useState(false);
 
   useEffect(() => {
@@ -63,15 +67,22 @@ export function Delivery() {
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     let shipping: SavedSetup["shipping"] = null;
+    const next: typeof errors = {};
     if (mode === "seen") {
-      if (!city) return setError(s.errCity);
-      shipping = { mode: "seen", kind: 0, name: s.seenName, phone: "", city, address: address.trim() };
+      if (!city) next.city = s.errCity;
+      if (!isPickupAddress(address)) next.address = s.errAddress;
+      shipping = { mode: "seen", kind: 0, name: s.seenName, phone: "", city, address: cleanLine(address, 120) };
     } else if (mode === "own") {
-      if (name.trim().length < 2) return setError(s.nameLabels[kind]);
-      if (digitCount(phone) < 8) return setError(s.phoneInvalid);
-      shipping = { mode: "own", kind, name: name.trim(), phone: phone.trim(), city: "", address: "" };
+      if (visibleLength(name) < 2) next.name = s.errName;
+      if (!isJordanMobile(phone)) next.phone = s.phoneInvalid;
+      shipping = { mode: "own", kind, name: cleanLine(name, 60), phone: savedMobile(phone), city: "", address: "" };
     }
-    setError("");
+    setErrors(next);
+    const first = (["city", "address", "name", "phone"] as const).find((k) => next[k]);
+    if (first) {
+      document.getElementById(`d-${first}`)?.focus();
+      return;
+    }
     const base: SavedSetup = setup ?? { name: "", description: "", color: "#004956", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
     saveSetup({ ...base, pickup, shipping });
     setSetup({ ...base, pickup, shipping });
@@ -90,6 +101,7 @@ export function Delivery() {
             <h1 className="text-lg font-extrabold">{w.title}</h1>
             <p className="mt-1 text-sm text-muted">{w.sub}</p>
             {ready && !setup?.shipping && <p className="mt-3 rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{w.notSet}</p>}
+            {mode && <div className="mt-3"><RequiredNote text={requiredNote[lang]} /></div>}
           </div>
 
           <fieldset className="space-y-3">
@@ -116,15 +128,17 @@ export function Delivery() {
           {mode === "seen" && (
             <div className="space-y-4">
               <div>
-                <label htmlFor="d-city" className="mb-2 block text-sm font-semibold">{s.cityLabel}</label>
-                <select id="d-city" value={city} onChange={(e) => setCity(e.target.value)} className={`${field} h-11`}>
+                <label htmlFor="d-city" className="mb-2 block text-sm font-semibold">{s.cityLabel}<RequiredMark /></label>
+                <select id="d-city" aria-required aria-invalid={!!errors.city} value={city} onChange={(e) => { setCity(e.target.value); setErrors((x) => ({ ...x, city: undefined })); }} className={`${field} h-11 ${errors.city ? bad : ""}`}>
                   <option value="">{s.cityPh}</option>
                   {s.cities.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
+                {errors.city && <p className="mt-1.5 text-xs text-rose-600">{errors.city}</p>}
               </div>
               <div>
-                <label htmlFor="d-address" className="mb-2 block text-sm font-semibold">{s.addressLabel}</label>
-                <input id="d-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder={s.addressPh} maxLength={120} className={`${field} h-11`} />
+                <label htmlFor="d-address" className="mb-2 block text-sm font-semibold">{s.addressLabel}<RequiredMark /></label>
+                <input id="d-address" aria-required aria-invalid={!!errors.address} value={address} onChange={(e) => { setAddress(e.target.value); setErrors((x) => ({ ...x, address: undefined })); }} placeholder={s.addressPh} maxLength={120} className={`${field} h-11 ${errors.address ? bad : ""}`} />
+                {errors.address && <p className="mt-1.5 text-xs text-rose-600">{errors.address}</p>}
               </div>
             </div>
           )}
@@ -142,13 +156,14 @@ export function Delivery() {
                 </div>
               </div>
               <div>
-                <label htmlFor="d-name" className="mb-2 block text-sm font-semibold">{s.nameLabels[kind]}</label>
-                <input id="d-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={s.namePhs[kind]} maxLength={60} className={`${field} h-11`} />
+                <label htmlFor="d-name" className="mb-2 block text-sm font-semibold">{s.nameLabels[kind]}<RequiredMark /></label>
+                <input id="d-name" aria-required aria-invalid={!!errors.name} value={name} onChange={(e) => { setName(e.target.value); setErrors((x) => ({ ...x, name: undefined })); }} placeholder={s.namePhs[kind]} maxLength={60} className={`${field} h-11 ${errors.name ? bad : ""}`} />
+                {errors.name && <p className="mt-1.5 text-xs text-rose-600">{errors.name}</p>}
               </div>
               <div>
-                <label htmlFor="d-phone" className="mb-2 block text-sm font-semibold">{s.phoneLabel}</label>
-                <input id="d-phone" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d+ ]/g, ""))} maxLength={20} placeholder="7X XXX XXXX" className={`${field} h-11 text-start`} />
-                <p className="mt-1.5 text-xs text-muted">{s.phoneHint}</p>
+                <label htmlFor="d-phone" className="mb-2 block text-sm font-semibold">{s.phoneLabel}<RequiredMark /></label>
+                <input id="d-phone" dir="ltr" inputMode="tel" aria-required aria-invalid={!!errors.phone} value={phone} onChange={(e) => { setPhone(typedAnyPhone(e.target.value)); setErrors((x) => ({ ...x, phone: undefined })); }} maxLength={20} placeholder="7X XXX XXXX" className={`${field} h-11 text-start ${errors.phone ? bad : ""}`} />
+                {errors.phone ? <p className="mt-1.5 text-xs text-rose-600">{errors.phone}</p> : <p className="mt-1.5 text-xs text-muted">{s.phoneHint}</p>}
               </div>
             </div>
           )}
@@ -160,8 +175,6 @@ export function Delivery() {
               <span className="mt-0.5 block text-xs text-muted">{s.pickupHint}</span>
             </span>
           </label>
-
-          {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
 
           <div className="flex items-center gap-3">
             <button type="submit" className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{w.save}</button>

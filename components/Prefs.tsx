@@ -51,6 +51,8 @@ export type IndustryDetail = {
   body: string;
   bullets: string[];
   shots: { src: string; y: number }[];
+  /* Several stores of this industry in one window, taking turns: one scrolls down its whole page, then the next appears (in place of the shots) */
+  stores?: { src: string; address: string; view: string }[];
 };
 
 /* Industries: name + one-line blurb per language (same order as the icons). */
@@ -64,6 +66,7 @@ export const industries: Record<Lang, { name: string; blurb: string; detail?: In
         body: "Hoodies, tees, caps or anything you can wear. Your store comes alive with bold colors, quick category buttons and a product page with sizes and reviews.",
         bullets: ["Colorful quick buttons for Men, Women and more", "Product pages with sizes, stars and customer opinions", "A page for every category, ready to fill"],
         shots: [{ src: "/themes/lamma.jpg?v=3", y: 0 }, { src: "/themes/lamma-product.jpg", y: 0 }],
+        stores: [{ src: "/themes/mada.jpg?v=4", address: "dukkan.store/your-store", view: "/store?theme=mada" }, { src: "/themes/lamma.jpg?v=3", address: "dukkan.store/your-store", view: "/store?theme=lamma" }],
       },
     },
     {
@@ -91,6 +94,7 @@ export const industries: Record<Lang, { name: string; blurb: string; detail?: In
         body: "هوديز وتيشيرتات وكابات وكل ما يُلبس. يصير متجرك مليان حياة بألوان جريئة، وأزرار تصنيفات سريعة، وصفحة منتج فيها مقاسات وتقييمات.",
         bullets: ["أزرار ملوّنة سريعة لرجالي ونسائي وغيرها", "صفحات منتجات بمقاسات ونجوم وآراء العملاء", "صفحة جاهزة لكل تصنيف وتنتظر منتجاتك"],
         shots: [{ src: "/themes/lamma.jpg?v=3", y: 0 }, { src: "/themes/lamma-product.jpg", y: 0 }],
+        stores: [{ src: "/themes/mada.jpg?v=4", address: "dukkan.store/your-store", view: "/store?theme=mada" }, { src: "/themes/lamma.jpg?v=3", address: "dukkan.store/your-store", view: "/store?theme=lamma" }],
       },
     },
     {
