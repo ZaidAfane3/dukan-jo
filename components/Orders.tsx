@@ -9,7 +9,7 @@ import { latin } from "./digits";
 import { isJordanMobile, phoneError, savedMobile, typedAnyPhone } from "./phone";
 import { ORDER_MAX, cleanOrder, money, parseList, typedMoney, type Order } from "./records";
 import { cleanLine, visibleLength } from "./safe";
-import { CITIES, ORDER_LIMITS, isCity, type Fulfil } from "./safeOrder";
+import { CITIES, KNOWN_CITIES, ORDER_LIMITS, inLang, isCity, type Fulfil } from "./safeOrder";
 import { RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion } from "./orderDeletions";
 
@@ -129,7 +129,7 @@ export function Orders() {
     const qd = digitsOf(q);
     return orders
       .filter((x) => (filter === "all" ? true : x.status === filter))
-      .filter((x) => !q || String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q) || (qd.length >= 3 && digitsOf(x.phone).includes(qd)))
+      .filter((x) => !q || String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q) || !!x.email?.includes(q) || (qd.length >= 3 && digitsOf(x.phone).includes(qd)))
       .sort((a, b) => b.created - a.created);
   }, [orders, filter, query]);
 
@@ -295,8 +295,8 @@ export function Orders() {
                   <div>
                     <h2 className="text-lg font-extrabold">{o.details}</h2>
                     <p className="mt-1 text-2xl font-extrabold">{current.customer}</p>
-                    {current.phone && <p dir="ltr" className="mt-1 text-start text-sm text-muted">{current.phone}</p>}
-                    {current.fulfil === "pickup" ? <p className="mt-1 text-sm text-muted">{o.pickedUp}</p> : (current.city || current.address) && <p dir="auto" className="mt-1 text-sm text-muted">{[current.city, current.address].filter(Boolean).join(" · ")}</p>}
+                    {(current.phone || current.email) && <p dir="ltr" className="mt-1 text-start text-sm text-muted">{current.phone || current.email}</p>}
+                    {current.fulfil === "pickup" ? <p className="mt-1 text-sm text-muted">{o.pickedUp}</p> : (current.city || current.address) && <p dir="auto" className="mt-1 text-sm text-muted">{[current.city && inLang(current.city, KNOWN_CITIES, lang), current.address].filter(Boolean).join(" · ")}</p>}
                   </div>
                   <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${current.status === "pending" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "bg-fg/10 text-fg"}`}>
                     <span className={`h-2 w-2 rounded-full ${STATUS_DOT[current.status]}`} />
@@ -337,6 +337,13 @@ export function Orders() {
                           </span>
                         </li>
                       ))}
+                      {/* the coupon the customer used at checkout (the total is already after it) */}
+                      {current.coupon && (
+                        <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+                          <span>{lang === "ar" ? "كود الخصم" : "Coupon"} <span dir="ltr" className="font-bold">{current.coupon.code}</span></span>
+                          <span dir="ltr" className="shrink-0 font-bold">−{fmt(current.coupon.discount)} <small className="text-xs opacity-70">{o.currency}</small></span>
+                        </li>
+                      )}
                     </ul>
                   </div>
                 )}

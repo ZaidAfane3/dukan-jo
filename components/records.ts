@@ -7,7 +7,7 @@
 import { STATUS_KEYS, defaultInvoice, type InvoiceSettings, type StatusKey } from "./ordersContent";
 import { latin } from "./digits";
 import { cleanCount, cleanDate, cleanLine, cleanLines, cleanMoney, safeColor, safeImage, visibleLength } from "./safe";
-import { isUnlimited } from "./safeOrder";
+import { isKnownCity, isUnlimited, visitorEmail } from "./safeOrder";
 
 /* ============================== shared ============================== */
 
@@ -186,6 +186,8 @@ export type Order = {
   id: number;
   customer: string;
   phone: string;
+  /* Orders from the store may give an email instead of a phone (the receipt goes there) */
+  email?: string;
   total: number;
   status: StatusKey;
   channel: 0 | 1;
@@ -200,6 +202,8 @@ export type Order = {
   address?: string;
   note?: string;
   pay?: "cliq" | "cash" | "card";
+  /* The coupon used at checkout: its code and what it took off (the total is already after it) */
+  coupon?: { code: string; discount: number };
   created: number;
 };
 
@@ -219,18 +223,30 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     id,
     customer: cleanLine(x.customer, ORDER_MAX.customer) || "—",
     phone: cleanLine(x.phone, 20).replace(/[^\d+ ]/g, ""),
+    ...(visitorEmail(x.email) ? { email: visitorEmail(x.email) } : {}),
     total: money(x.total) ?? 0,
     status: oneOf(x.status, STATUS_KEYS, "pending"),
     channel: x.channel === 1 ? 1 : 0,
     ...(x.source !== undefined ? { source: count(x.source, 0, 20) } : {}),
     ...(items.length ? { items } : {}),
     ...(x.fulfil === "pickup" || x.fulfil === "delivery" ? { fulfil: x.fulfil } : {}),
-    ...(typeof x.city === "string" ? { city: cleanLine(x.city, 60) } : {}),
+    /* only a city of the list (in either language): anything else was never offered */
+    ...(isKnownCity(x.city) ? { city: x.city } : {}),
     ...(typeof x.address === "string" ? { address: cleanLine(x.address, 200) } : {}),
     ...(typeof x.note === "string" ? { note: cleanLines(x.note, 500) } : {}),
     ...(x.pay !== undefined ? { pay: oneOf(x.pay, ["cliq", "cash", "card"] as const, "cash") } : {}),
+    ...(couponOf(x.coupon) ? { coupon: couponOf(x.coupon) } : {}),
     created: time(x.created, 0),
   };
+}
+
+/** An order's coupon as saved: a valid code and a discount, or nothing */
+function couponOf(v: unknown): Order["coupon"] {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  const code = typeof o.code === "string" ? o.code.toUpperCase() : "";
+  const discount = money(o.discount);
+  return COUPON_CODE.test(code) && discount !== null ? { code, discount } : undefined;
 }
 
 /* ============================== coupons ============================== */
@@ -299,6 +315,25 @@ export function couponProblems(c: Omit<Coupon, "id" | "used" | "active">, taken:
   else if (c.start && c.end && c.end < c.start) out.push("dates");
   if (c.type === 3 && !(c.validDays >= 1 && c.validDays <= 365)) out.push("days");
   return out;
+}
+
+/** Why a code typed at checkout is not taken */
+export type CouponRefusal = "unknown" | "off" | "soon" | "ended" | "usedUp" | "min";
+
+/** A coupon code typed at checkout, checked against the store's coupons. The server must do the same with its own list:
+    found whatever its case and spaces, switched on, inside its dates (Jordan time, both days count), not used up, and the
+    order reaching its minimum. The discount is worked out from the subtotal and never goes over it. */
+export function checkCoupon(code: unknown, coupons: Coupon[], subtotal: number, today = storeToday()): { ok: true; coupon: Coupon; discount: number; freeDelivery: boolean } | { ok: false; why: CouponRefusal } {
+  const typed = typeof code === "string" ? latin(code).replace(/\s+/g, "").toUpperCase() : "";
+  const c = COUPON_CODE.test(typed) ? coupons.find((x) => x.code.toUpperCase() === typed) : undefined;
+  if (!c) return { ok: false, why: "unknown" };
+  if (!c.active) return { ok: false, why: "off" };
+  if (c.start && today < c.start) return { ok: false, why: "soon" };
+  if (c.end && today > c.end) return { ok: false, why: "ended" };
+  if (c.limit > 0 && c.used >= c.limit) return { ok: false, why: "usedUp" };
+  if (c.minOrder > 0 && subtotal < c.minOrder) return { ok: false, why: "min" };
+  const off = c.kind === "percent" ? (subtotal * c.value) / 100 : c.kind === "fixed" ? c.value : 0;
+  return { ok: true, coupon: c, discount: Math.round(Math.min(subtotal, Math.max(0, off)) * 1000) / 1000, freeDelivery: c.kind === "shipping" };
 }
 
 const KINDS: readonly CouponKind[] = ["percent", "fixed", "shipping"];

@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { brandName, content } from "./content";
+import { inLang } from "./safeOrder";
 import { DashboardBar } from "./DashboardBar";
 import { FlagJO } from "./Flag";
 import { usePrefs } from "./Prefs";
-import { isJordanMobile, jordanMobile, phoneError, typedPhone } from "./phone";
+import { isJordanMobile, jordanMobile, phoneError, savedMobile, shownMobile, typedPhone } from "./phone";
 import { cleanDate, cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
 import { ACCOUNT_LIMITS, cleanProfile, DOB_MIN, dobError, passwordError, type Profile } from "./safeAccount";
 
@@ -62,6 +63,8 @@ export function Settings() {
   const [toast, setToast] = useState("");
   /* The profile as last loaded or saved, to know if there are unsaved changes */
   const [kept, setKept] = useState(JSON.stringify(EMPTY));
+  /* The profile as the fields show it: the 9 digits after the fixed +962, and the city in the language of the page */
+  const forFields = (x: Profile): Profile => ({ ...x, phone: shownMobile(x.phone), city: inLang(x.city, { en: content.en.onboarding.shipping.cities, ar: content.ar.onboarding.shipping.cities }, lang) });
   const today = new Date().toISOString().slice(0, 10);
   const dirty = JSON.stringify(p) !== kept || current !== "" || next !== "" || confirm !== "";
 
@@ -72,8 +75,9 @@ export function Settings() {
   /* What he typed at signup, plus anything saved here before. */
   useEffect(() => {
     const loaded = loadProfile();
-    setP(loaded);
-    setKept(JSON.stringify(loaded));
+    const shown = forFields(loaded);
+    setP(shown);
+    setKept(JSON.stringify(shown));
   }, []);
 
   /* Leaving the page with unsaved changes asks first */
@@ -115,16 +119,16 @@ export function Settings() {
       return;
     }
 
-    /* what is kept: the name cleaned, the email in lower case and the 9 digits of the mobile */
-    const clean: Profile = { ...cleanProfile(p), name: cleanLine(p.name, ACCOUNT_LIMITS.name), email: emailOf(p.email), phone: jordanMobile(p.phone) };
+    /* what is kept: the name cleaned, the email in lower case and the mobile as +9627XXXXXXXX */
+    const clean: Profile = { ...cleanProfile(p), name: cleanLine(p.name, ACCOUNT_LIMITS.name), email: emailOf(p.email), phone: savedMobile(p.phone) };
     try {
       sessionStorage.setItem(PROFILE_KEY, JSON.stringify(clean));
       sessionStorage.setItem("seen-account-phone", clean.phone);
     } catch {
       /* storage unavailable: the page still behaves, nothing is kept */
     }
-    setP(clean);
-    setKept(JSON.stringify(clean));
+    setP(forFields(clean));
+    setKept(JSON.stringify(forFields(clean)));
     setCurrent("");
     setNext("");
     setConfirm("");

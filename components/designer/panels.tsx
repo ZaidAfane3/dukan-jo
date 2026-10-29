@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { latin } from "../digits";
 import type { Lang } from "../content";
-import { defaultConfig, footerColumns, fontFamily, heroTitleFamily, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type Banner, type DisplayFont, type HeroBg, type FooterColumn, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type TextStyle, type StorefrontConfig } from "../storefront/config";
+import { cartStyles, defaultConfig, productPageStyles, type ProductPageStyle, footerColumns, fontFamily, type CartStyle, heroTitleFamily, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type Banner, type DisplayFont, type HeroBg, type FooterColumn, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type TextStyle, type StorefrontConfig } from "../storefront/config";
 import { copy as storeCopy, fillColors, flowingOf, gradientOf, icons as storeIcons, isFlowing, isGradient, LogoMark, markKeys, onColor, resolveLogo, sampleMarks } from "../storefront/parts";
 import { editLocked } from "../demoSandbox";
 import { findTheme, ownsLook, type ThemeInfo } from "../themes";
@@ -70,6 +70,34 @@ const ic = {
 };
 
 const noText = { en: "", ar: "" };
+
+/* The looks of the basket (see Cart.tsx): a name and a short line for each */
+const cartT: Record<"en" | "ar", { title: string; hint: string; kinds: Record<CartStyle, [string, string]> }> = {
+  en: {
+    title: "Cart design",
+    hint: "How the cart and checkout look when a customer opens them. It uses your colors and fonts.",
+    kinds: { drawer: ["Side panel", "Soft cards, two steps"], editorial: ["Fashion bag", "Sharp, small capitals"], luxe: ["Full page", "Summary beside items"], pop: ["Playful card", "Bold lines, hard shadow"] },
+  },
+  ar: {
+    title: "تصميم السلة",
+    hint: "شكل السلة وإتمام الطلب عندما يفتحها العميل. تستخدم ألوانك وخطوطك.",
+    kinds: { drawer: ["لوحة جانبية", "بطاقات ناعمة وخطوتان"], editorial: ["حقيبة أزياء", "حادة وبأحرف صغيرة"], luxe: ["صفحة كاملة", "الملخص بجانب المنتجات"], pop: ["بطاقة مرحة", "خطوط عريضة وظل صلب"] },
+  },
+};
+
+/* The looks of the product page (see ProductPage in sections.tsx): a name and a short line for each */
+const productPageT: Record<"en" | "ar", { title: string; hint: string; kinds: Record<ProductPageStyle, [string, string]> }> = {
+  en: {
+    title: "Product page design",
+    hint: "How a product's own page looks when a customer opens it. It uses your colors and fonts.",
+    kinds: { classic: ["Classic", "Soft panels, clean and modern"], editorial: ["Fashion", "Tall photo, small capitals"], luxe: ["Luxury", "Framed photo, centered, airy"], pop: ["Playful", "Bold lines, hard shadow"] },
+  },
+  ar: {
+    title: "تصميم صفحة المنتج",
+    hint: "شكل صفحة المنتج عندما يفتحها العميل. تستخدم ألوانك وخطوطك.",
+    kinds: { classic: ["كلاسيكي", "لوحات ناعمة، نظيف وعصري"], editorial: ["أزياء", "صورة طويلة وخطوط رفيعة"], luxe: ["فاخر", "صورة بإطار، في المنتصف، واسع"], pop: ["مرح", "خطوط عريضة وظل صلب"] },
+  },
+};
 
 /* The words of the playful ("pop") features: the hero layout, colored chips, the newsletter, round "+" cards, the pill header */
 const popT = {
@@ -1622,7 +1650,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
             <p className="mt-1 text-xs text-muted">{t.veilHint}</p>
           </div>
           {/* the part of the picture that stays in view on wide and narrow screens */}
-          {bg.kind === "image" && url && <PictureMover lang={lang} image={url} value={bg.pos} onChange={(pos) => set({ pos })} fill ratio="16 / 9" radius="10px" />}
+          {url && <PictureMover lang={lang} image={url} video={bg.kind === "video"} value={bg.pos} onChange={(pos) => set({ pos })} fill ratio="16 / 9" radius="10px" />}
         </div>
       )}
       {problem && <p className="text-xs text-rose-600">{problem}</p>}
@@ -1764,6 +1792,26 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
           {(["shadow", "outline", "flat", "pop"] as const).map((r) => (
             <button key={r} type="button" onClick={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, style: r } } }))} aria-pressed={draft.config.cards.style === r} className={`rounded-xl border px-3 py-3 text-xs font-semibold transition ${draft.config.cards.style === r ? "border-primary bg-primary text-white [&_.text-muted]:!text-white/80" : "border-fg/15 hover:bg-soft"}`}>
               {r === "pop" ? popT[lang].stylePop : t.styleKinds[r]}
+            </button>
+          ))}
+        </div>
+      </Part>
+      <Part lang={lang} label={cartT[lang].title} hint={cartT[lang].hint}>
+        <div className="grid grid-cols-2 gap-2">
+          {cartStyles.map((r) => (
+            <button key={r} type="button" onClick={() => update((d) => ({ ...d, config: { ...d.config, cart: { style: r } } }))} aria-pressed={(draft.config.cart?.style ?? "drawer") === r} className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-start text-xs font-semibold transition ${(draft.config.cart?.style ?? "drawer") === r ? "border-primary bg-primary text-white [&_.text-muted]:!text-white/80" : "border-fg/15 hover:bg-soft"}`}>
+              {cartT[lang].kinds[r][0]}
+              <span className="text-[11px] font-normal text-muted">{cartT[lang].kinds[r][1]}</span>
+            </button>
+          ))}
+        </div>
+      </Part>
+      <Part lang={lang} label={productPageT[lang].title} hint={productPageT[lang].hint}>
+        <div className="grid grid-cols-2 gap-2">
+          {productPageStyles.map((r) => (
+            <button key={r} type="button" onClick={() => update((d) => ({ ...d, config: { ...d.config, productPage: { style: r } } }))} aria-pressed={(draft.config.productPage?.style ?? "classic") === r} className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-start text-xs font-semibold transition ${(draft.config.productPage?.style ?? "classic") === r ? "border-primary bg-primary text-white [&_.text-muted]:!text-white/80" : "border-fg/15 hover:bg-soft"}`}>
+              {productPageT[lang].kinds[r][0]}
+              <span className="text-[11px] font-normal text-muted">{productPageT[lang].kinds[r][1]}</span>
             </button>
           ))}
         </div>

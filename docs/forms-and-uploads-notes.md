@@ -24,7 +24,9 @@ These files are plain TypeScript with no React or browser code. The backend shou
 
 - **Prices:** never trust a price, total or stock count from the client. Recompute every order with `priceCart` from the database catalog. A sale price counts only when it's below the normal price.
 - **Blank text:** for required text fields, use `isBlank`. Text made only of spaces or invisible characters counts as empty.
-- **Phones:** store all phones as `+9627XXXXXXXX` by running `savedMobile` on every phone received. Today the browser saves order, checkout and delivery phones that way. Account, setup and designer phones are still 9 digits, because those inputs have a fixed `+962` in front. `savedMobile` accepts both forms. Emails are stored trimmed and in lower case.
+- **Phones:** every phone is stored as `+9627XXXXXXXX` (`savedMobile`). The browser now saves order, checkout, delivery, account, profile, setup and designer phones that way. A field with a fixed `+962` in front shows the 9 digits with `shownMobile`, so wrap a saved phone in it before you put it in such a field or after a `+962 ` label. `savedPhone` (safeAccount.ts) runs on load too, so a phone saved as 9 digits before 2026-10-29 turns into the +962 form the next time it is read. Emails are stored trimmed and in lower case.
+- **Cities:** a city is saved in the language it was picked in. Check it with `isCity` (either language), and show it with `inLang(city, CITIES, lang)`. Orders read back keep a city only when it is on the list. The pickup and profile city (the governorates in `content.*.onboarding.shipping.cities`) are shown the same way.
+- **Checkout coupons:** check the code with `checkCoupon(code, coupons, subtotal)` from `components/records.ts`. It ignores case and spaces, and requires the coupon to be switched on, inside its dates (Jordan time, both days count), not used up, and the order to reach its minimum. The discount is worked out from the server's own subtotal and never goes over it, and a free-shipping coupon removes the delivery fee. The order saves `coupon: { code, discount }`, and the coupon's `used` goes up by one in the same step. The browser checks again when the order is placed. The server must check again with its own coupon list and count the use in the same transaction, so two customers can't both take the last use.
 - **Designs:** run `sanitizeDesign` on every design save, and limit the size of the design JSON.
 - **Uploads:** check by the file's bytes, not its name or type. Redraw on the server, store with random names on S3 or R2, and never store SVG.
 - **Edits on two devices:** the two-tab fix in Products and Orders only works inside one browser. Edits on several devices need a version number per record, or per-record updates instead of saving the whole list.
@@ -43,25 +45,41 @@ These files are plain TypeScript with no React or browser code. The backend shou
   - Old data used `quantity: 9999` with no `unlimited` key for "unlimited". `isUnlimited` (`components/safeOrder.ts`) reads that as unlimited, and the Products page rewrites it once as `unlimited: true, quantity: 0`. The migration should do the same: only rows with no `unlimited` key and exactly 9999. After that, 9999 is a real count.
   - At checkout an unlimited product is still capped at `ORDER_LIMITS.qty` (99) per order. Use `sellableStock(p)` instead of `p.quantity` wherever stock is checked.
 
-## Waiting on owner decisions
+## Owner decisions (settled 2026-10-28)
 
-- Required or optional:
-  - signup email
-  - the onboarding weight question
+- Signup email stays required. The onboarding weight question was removed on purpose.
+- Reserved store addresses and blocked domains: leave them as they are in `safeAccount.ts` (the owner said to ignore this).
 
-  Details are in `Downloads\mandatory-fields-audit.pdf` and `.md`.
-- Confirm the reserved store-address list and the blocked domains (`dukkan.store`, `dukkan.jo`, `seen.jo`) in `safeAccount.ts`.
+Details are in `Downloads\mandatory-fields-audit.pdf` and `.md`.
+
+## Fixed on 2026-10-29
+
+- Onboarding no longer creates a product without a photo. The product step asks for one, and `syncSetupProduct` refuses any product that fails `productProblems`.
+- Checkout has a coupon field (see "Checkout coupons" above), and the order details show the coupon.
+- A section title made only of spaces or invisible marks shows no heading in the store, and a faint "Add a title" in the designer preview so it can still be clicked. The designer's blank check (`blank` in sections.tsx) uses `isBlank`.
+- A background video can be moved and zoomed like a background picture (`PictureMover` with `video`).
+- Checkout runs on every theme, including Atelier (Misk), whose cards have no add button: products are added from the product page.
+- Cities: see "Cities" above.
+- Account, setup and designer phones are stored as +962 (see "Phones" above).
 
 ## Known open items
 
-- Onboarding can still create its one product without a photo (`components/Onboarding.tsx`, `save()` in the product step, about line 833). It goes through `syncSetupProduct` in `setup.ts`, which doesn't run `productProblems`. The Products page then asks for a photo the next time that product is edited.
-- Checkout has no coupon field yet. When one is added, check the code on the server.
-- A title made only of spaces leaves an empty heading in the designer preview with nothing to click. It can still be edited from the sidebar.
 - The designer preview shows unsaved direction-override characters. The saved design is clean.
-- A background video has no position control. Proof documents (ID, PDF) are not croppable on purpose.
-- Stores that saved an SVG logo before this round now fall back to the automatic logo.
-- Atelier's sample store has no add-to-cart button, so checkout wasn't run on that theme.
-- The delivery city isn't checked against `CITIES`, because it's saved in one language only.
+- Proof documents (ID, PDF) are not croppable on purpose.
+- Stores that saved an SVG logo before 2026-10-28 now fall back to the automatic logo.
+
+## The cart and checkout looks
+
+The basket (`components/storefront/Cart.tsx`) has four looks, chosen per design with `config.cart.style` and in the designer under "Cart design". They're kept in theme looks (`lookOf`/`composeDesign`) and checked by `safeDesign` (`cartStyles`). Each one only shapes the cart: the colors, fonts and corners come from the store's `--sf-*` values, so any merchant colors work.
+
+| Look | Used by | What it is |
+|---|---|---|
+| `drawer` | default (Seen) | A side panel with soft item cards, a two-step bar and an icon to remove |
+| `editorial` | Mada (Dukkan Founders) | A sharp fashion bag: black hairlines, small capitals, tall photos, words to remove |
+| `luxe` | Atelier (Misk) | A large centered sheet, the order summary in a framed card beside the products |
+| `pop` | Lamma | A floating card at the bottom corner with bold outlines and hard shadows |
+
+The sums and the checkout button follow the products, so a short cart has no empty gap. They stay pinned at the bottom when the list is long. A new look is one more entry in `skins` and in `cartStyles`.
 
 ## Testing
 
@@ -69,3 +87,4 @@ These files are plain TypeScript with no React or browser code. The backend shou
 - Test every theme in a loop, read from the theme list, never one theme by hand. Use both languages, desktop (1400) and phone (390) widths.
 - Never run a second `next dev` on the shared `.next` folder; use `NEXT_DIST_DIR=.next-xyz`.
 - Counts from this round: account forms 160, store admin 138, designer 1,762, checkout 294 runs, uploads and cropping 221, required fields 167 + 101 audited fields.
+- 2026-10-29: the cart looks were checked on every theme (16 runs: 4 themes × 2 languages × 2 widths, each with the cart, empty-checkout errors and a placed order), plus 88 cases for coupons, phones, cities and blank titles, and the onboarding photo check.

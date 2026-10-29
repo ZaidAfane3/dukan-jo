@@ -33,6 +33,15 @@ export type ThemeFont = "readex" | "plex" | "elegant" | "cairo" | "tajawal" | "b
 export type HeroFont = "" | ThemeFont | "ruqaa" | "lemonada" | "amiri";
 /* The faint pattern behind the page */
 export type PatternKey = "none" | "stars" | "dots" | "lines" | "diamonds" | "waves";
+
+/* The basket's look. "drawer": a panel at the side. "editorial": a sharp, all-caps bag like the big fashion stores.
+   "luxe": a whole page with the summary beside the products. "pop": a floating card with bold outlines and hard shadows. */
+export const cartStyles = ["drawer", "editorial", "luxe", "pop"] as const;
+export type CartStyle = (typeof cartStyles)[number];
+/* The product page's look. "classic": soft rounded panels, clean and modern. "editorial": a tall photo, small capitals and hairlines
+   like a fashion magazine. "luxe": a framed photo, centered titles and an ornament, airy. "pop": bold outlines, hard shadows and chunky round buttons. */
+export const productPageStyles = ["classic", "editorial", "luxe", "pop"] as const;
+export type ProductPageStyle = (typeof productPageStyles)[number];
 export type DisplayFont = "default" | "ruqaa" | "lemonada" | "amiri";
 
 /* One promo banner: a picture with a title, a line of text and a button laid over it. Without a `panel` the text sits
@@ -223,6 +232,10 @@ export type StorefrontConfig = {
     /* The color of the round + button */
     addColor?: string;
   };
+  /* How the basket looks (see Cart.tsx). A design saved before it was kept has none: the side panel. */
+  cart?: { style: CartStyle };
+  /* How the page of a product looks (see ProductPage in sections.tsx). A design saved before it was kept has none: the classic page. */
+  productPage?: { style: ProductPageStyle };
   /* Words the store uses in small places. An empty text falls back to the built-in wording. */
   texts: { search: Bi; viewAll: Bi; allFilter: Bi; noProducts: Bi };
   footer: {
@@ -308,6 +321,8 @@ export const defaultConfig: StorefrontConfig = {
     seconds: 4,
   },
   cards: { showName: true, showCategory: true, showPrice: true, showOldPrice: true, showBadge: true, showStock: false, showHeart: true, showAdd: true, openPage: true, showNotes: false, image: "portrait", style: "shadow", info: "stack", add: "wide", priceColor: "" },
+  cart: { style: "drawer" },
+  productPage: { style: "classic" },
   texts: { search: { ...none }, viewAll: { ...none }, allFilter: { ...none }, noProducts: { ...none } },
   footer: {
     showLogo: true,

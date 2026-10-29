@@ -7,7 +7,7 @@
    browser APIs in this file, so the server can import it as it is. */
 
 import type { Account } from "./accounts";
-import { jordanMobile, typedPhone } from "./phone";
+import { jordanMobile, savedMobile, typedPhone } from "./phone";
 import { cleanDate, cleanDomain, cleanLine, cleanLines, cleanMoney, emailOf, isSlug, safeColor, safeImage, safeStoredImage } from "./safe";
 import type { SavedSetup } from "./setup";
 
@@ -32,8 +32,9 @@ const whole = (v: unknown, min: number, max: number, fallback: number) =>
   typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : fallback;
 const time = (v: unknown) => whole(v, 0, 8.64e15, 0);
 
-/** A mobile number as it is saved: the 9 digits after +962 when it is a Jordan mobile, otherwise what he typed (cleaned). */
-export const savedPhone = (v: unknown) => (typeof v === "string" ? jordanMobile(v) || typedPhone(v) : "");
+/** A mobile number as it is saved: +9627XXXXXXXX when it is a Jordan mobile, otherwise what he typed (cleaned). A +962 field
+    shows it with shownMobile. */
+export const savedPhone = (v: unknown) => (typeof v === "string" ? savedMobile(v) || typedPhone(v) : "");
 
 /* ---------------- accounts ---------------- */
 

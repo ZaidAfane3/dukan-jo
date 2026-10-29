@@ -214,7 +214,7 @@ const moveWords = {
 };
 
 /** The frame a picture is shown in, drawn at a small size: he pulls the picture with the mouse (or a finger) to where it fits */
-export function PictureMover({ lang, image, value, onChange, ratio, radius, fill = false }: { lang: Lang; image: string; value?: { x: number; y: number; zoom: number }; /* the picture always fills its frame: it pans and zooms in, never leaving a gap */ fill?: boolean; onChange: (v: { x: number; y: number; zoom: number }) => void; ratio: string; radius: string }) {
+export function PictureMover({ lang, image, value, onChange, ratio, radius, fill = false, video = false }: { lang: Lang; image: string; /* `image` is a looping video (the page background): it is moved the same way */ video?: boolean; value?: { x: number; y: number; zoom: number }; /* the picture always fills its frame: it pans and zooms in, never leaving a gap */ fill?: boolean; onChange: (v: { x: number; y: number; zoom: number }) => void; ratio: string; radius: string }) {
   const w = moveWords[lang];
   const v = value ?? { x: 0, y: 0, zoom: 1 };
   const grab = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
@@ -240,8 +240,12 @@ export function PictureMover({ lang, image, value, onChange, ratio, radius, fill
         onPointerUp={() => (grab.current = null)}
         onPointerCancel={() => (grab.current = null)}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={image} alt="" draggable={false} className="h-full w-full object-cover" style={fill ? picFill(v) : { transform: `translate(${v.x}%, ${v.y}%) scale(${v.zoom})` }} />
+        {video ? (
+          <video src={image} muted loop autoPlay playsInline draggable={false} className="pointer-events-none h-full w-full object-cover" style={fill ? picFill(v) : { transform: `translate(${v.x}%, ${v.y}%) scale(${v.zoom})` }} />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={image} alt="" draggable={false} className="h-full w-full object-cover" style={fill ? picFill(v) : { transform: `translate(${v.x}%, ${v.y}%) scale(${v.zoom})` }} />
+        )}
       </div>
       <label className="flex items-center gap-3 text-xs font-semibold text-fg/80">
         {w.zoom}

@@ -50,6 +50,9 @@ export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string
   };
   /* Flat cards: the photo, the name, the price and a square add button. No hearts and no category line. */
   c.cards = { ...c.cards, style: "flat", image: "portrait", info: "stack", add: "wide", showName: true, showCategory: false, showPrice: true, showOldPrice: true, showBadge: true, showStock: false, showHeart: false, showAdd: true, showNotes: false, openPage: true, priceColor: "" };
+  /* The bag: sharp, all caps and black, like the cards */
+  c.cart = { style: "editorial" };
+  c.productPage = { style: "editorial" };
   c.footer = { ...c.footer, style: "full", background: MADA_INK, text: "#CFCFCF", showLogo: true, showLinks: true, showContact: true, showSocial: true };
   c.footer.about = S ? bi("Everyday clothes at fair prices.", "ملابس يومية بأسعار معقولة.") : bi("", "");
   c.footer.columns = [

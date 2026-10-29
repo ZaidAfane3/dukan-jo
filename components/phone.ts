@@ -14,6 +14,9 @@ export function jordanMobile(value: string): string {
 
 export const isJordanMobile = (value: string) => jordanMobile(value) !== "";
 
+/** A saved phone as a +962 field shows it: the 9 digits of a Jordan mobile, otherwise what was typed (cleaned). */
+export const shownMobile = (value: string) => jordanMobile(value) || typedPhone(value);
+
 /** A Jordan mobile in the one form it is saved in (+9627XXXXXXXX), or "" when it is not one. */
 export const savedMobile = (value: string) => {
   const d = jordanMobile(value);

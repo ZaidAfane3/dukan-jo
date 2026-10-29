@@ -8,7 +8,7 @@
 
    Plain TypeScript with no browser APIs, so the backend can run the very same rules on every design it receives. */
 
-import { defaultConfig, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type SectionConfig, type SectionType, type StorefrontConfig } from "./storefront/config";
+import { cartStyles, defaultConfig, productPageStyles, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type SectionConfig, type SectionType, type StorefrontConfig } from "./storefront/config";
 import { safeUrl } from "./safe";
 
 type Spec = (v: unknown, i: number) => unknown;
@@ -290,6 +290,8 @@ const top: Top = {
     showName: bool, showCategory: bool, showPrice: bool, showOldPrice: bool, showBadge: bool, showStock: bool, showHeart: bool, showAdd: bool, openPage: bool, showNotes: bool,
     image: oneOf("portrait", "square", "wide"), style: oneOf("shadow", "outline", "flat", "pop"), info: oneOf("stack", "row", "center"), add: oneOf("wide", "plus"), priceColor: color, addColor: color,
   }),
+  cart: obj({ style: oneOf(...cartStyles) }),
+  productPage: obj({ style: oneOf(...productPageStyles) }),
   texts: obj({ search: bi(80), viewAll: bi(80), allFilter: bi(80), noProducts: bi(200) }),
   footer: obj({
     showLogo: bool, showLinks: bool, showContact: bool, showSocial: bool, tabs: list(tab, 30), columns: list(column, 12), sizes: sizesOf("title", "text", "name"),

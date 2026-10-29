@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
+import { inLang } from "./safeOrder";
 import { FlagJO } from "./Flag";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
@@ -11,7 +12,7 @@ import { SeenShipLogo, SeenShipMark } from "./SeenShip";
 import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
 import { Tilt } from "./ui";
 import { latin } from "./digits";
-import { isJordanMobile, jordanMobile, typedPhone } from "./phone";
+import { isJordanMobile, jordanMobile, savedMobile, shownMobile, typedPhone } from "./phone";
 import { checkImage, cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, isPickupAddress, isSlug, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
 import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
 import { pickPicture, toSavedLogo } from "./designer/image";
@@ -564,19 +565,19 @@ function ServiceStep({ store, onSave }: StepProps) {
   /* The number he signed up with, if he created an account in this session. */
   const [account, setAccount] = useState("");
   const [useSame, setUseSame] = useState(true);
-  const [phone, setPhone] = useState(store.phone);
+  const [phone, setPhone] = useState(shownMobile(store.phone));
   const [tried, setTried] = useState(false);
 
   useEffect(() => {
     let registered = "";
     try {
-      registered = savedPhone(sessionStorage.getItem("seen-account-phone") ?? "");
+      registered = shownMobile(sessionStorage.getItem("seen-account-phone") ?? "");
     } catch {
       /* ignore */
     }
     setAccount(registered);
     /* Reopening a saved step: keep "same number" on only if it matches. */
-    if (registered) setUseSame(!store.phone || store.phone === registered);
+    if (registered) setUseSame(!store.phone || jordanMobile(store.phone) === registered);
     else setUseSame(false);
   }, [store.phone]);
 
@@ -593,7 +594,7 @@ function ServiceStep({ store, onSave }: StepProps) {
       focusFirst(["ob-service-phone"]);
       return;
     }
-    onSave({ phone: jordanMobile(shown) });
+    onSave({ phone: savedMobile(shown) });
   };
 
   return (
@@ -835,10 +836,13 @@ function ProductStep({ store, onSave }: StepProps) {
     if (visibleLength(name) < 2) next.name = p.errName;
     if (!(priceNumber > 0)) next.price = p.errPrice;
     if (!unlimited && quantity === "") next.quantity = p.errQuantity;
+    /* every product needs a photo (as on the Products page, see productProblems) */
+    const noPhoto = !image;
+    if (noPhoto) setImageError(p.errImage);
     setErrors(next);
     const wrong = (["name", "price", "quantity"] as const).filter((k) => next[k]);
-    if (wrong.length) {
-      focusFirst(wrong.map((k) => `ob-product-${k}`));
+    if (wrong.length || noPhoto) {
+      focusFirst([...(noPhoto ? ["ob-product-photo"] : []), ...wrong.map((k) => `ob-product-${k}`)]);
       return;
     }
     savedUrl.current = image;
@@ -889,14 +893,14 @@ function ProductStep({ store, onSave }: StepProps) {
               </div>
             ) : (
               <div className="rounded-2xl border-2 border-dashed border-fg/20 px-4 py-6 text-center">
-                <p className="text-sm font-semibold text-muted">{p.imageAdd}</p>
-                <button type="button" onClick={() => fileInput.current?.click()} className="mt-3 rounded-xl border border-fg/25 px-4 py-2 text-sm font-semibold transition hover:bg-soft">
+                <p className="text-sm font-semibold text-muted">{p.imageAdd}<span className="ms-1 text-rose-600" aria-hidden>*</span></p>
+                <button id="ob-product-photo" type="button" onClick={() => fileInput.current?.click()} aria-describedby={imageError ? "ob-product-photo-err" : undefined} className="mt-3 rounded-xl border border-fg/25 px-4 py-2 text-sm font-semibold transition hover:bg-soft">
                   {p.imageBrowse}
                 </button>
                 <p className="mx-auto mt-3 max-w-xs text-[11px] leading-relaxed text-muted">{p.imageHint}</p>
               </div>
             )}
-            {imageError && <p className="mt-2 text-xs text-rose-600">{imageError}</p>}
+            {imageError && <p id="ob-product-photo-err" role="alert" className="mt-2 text-xs text-rose-600">{imageError}</p>}
           </div>
 
           <div>
@@ -1027,14 +1031,14 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [pickup, setPickup] = useState(store.pickup);
 
   /* Dukkan Ship: only needs a pickup place */
-  const [city, setCity] = useState(saved?.city ?? "");
+  const [city, setCity] = useState(inLang(saved?.city ?? "", { en: content.en.onboarding.shipping.cities, ar: content.ar.onboarding.shipping.cities }, lang));
   const [address, setAddress] = useState(saved?.address ?? "");
 
   /* His own shipping way: who delivers, their number, and proof */
   const own = saved?.mode === "own" ? saved : null;
   const [kind, setKind] = useState(own?.kind ?? 0);
   const [name, setName] = useState(own?.name ?? "");
-  const [phone, setPhone] = useState(own?.phone ?? "");
+  const [phone, setPhone] = useState(shownMobile(own?.phone ?? ""));
   const [proofs, setProofs] = useState<ProofFile[]>(own?.proofs ?? []);
   const [error, setError] = useState("");
   const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string }>({});
@@ -1242,7 +1246,7 @@ function ShippingStep({ store, onSave }: StepProps) {
       return;
     }
     savedUrls.current = new Set(proofs.flatMap((f) => (f.url ? [f.url] : [])));
-    onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: jordanMobile(phone), proofs, city: "", address: "" } });
+    onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "" } });
   };
 
   return (

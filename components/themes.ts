@@ -28,6 +28,10 @@ export type ThemeLook = {
   texture: StorefrontConfig["texture"];
   sections: StorefrontConfig["sections"];
   cards: StorefrontConfig["cards"];
+  /* The basket's look. A look saved before it was kept has none: the store keeps its own. */
+  cart?: StorefrontConfig["cart"];
+  /* The product page's look. A look saved before it was kept has none: the store keeps its own. */
+  productPage?: StorefrontConfig["productPage"];
   /* style, columns, sizes, labels: the footer's layout. A look saved before they were kept has only the colors. */
   footer: { background: string; text: string } & Partial<Pick<Footer, "style" | "columns" | "sizes" | "labels">>;
   /* The header's switches, how the store name is drawn and the order of the side menu. A look saved before they were kept
@@ -257,7 +261,7 @@ export function buyTheme(t: ThemeInfo): ThemeState {
 export function lookOf(c: StorefrontConfig): ThemeLook {
   const f = c.footer;
   const identity = Object.fromEntries(lookIdentity.map((k) => [k, c.identity[k]]));
-  return JSON.parse(JSON.stringify({ theme: c.theme, nav: c.nav, texture: c.texture, sections: c.sections, cards: c.cards, footer: { background: f.background, text: f.text, style: f.style, columns: footerColumns(f), sizes: f.sizes, labels: f.labels }, header: c.header, identity, drawer: { items: c.drawer.items } })) as ThemeLook;
+  return JSON.parse(JSON.stringify({ theme: c.theme, nav: c.nav, texture: c.texture, sections: c.sections, cards: c.cards, cart: c.cart, productPage: c.productPage, footer: { background: f.background, text: f.text, style: f.style, columns: footerColumns(f), sizes: f.sizes, labels: f.labels }, header: c.header, identity, drawer: { items: c.drawer.items } })) as ThemeLook;
 }
 
 /* ---------------- Footer links on the buyer's store ---------------- */
@@ -354,7 +358,7 @@ export function composeDesign(cur: StorefrontConfig, look: ThemeLook, pages?: In
   const theirs = l.header && typeof l.header === "object" ? Object.fromEntries(Object.entries(l.header).filter(([k, v]) => k in cur.header && typeof v === "boolean")) : {};
   const header = { ...cur.header, ...theirs, showLanguage: cur.header.showLanguage };
   /* the theme's links to its sample pages lead to his own pages (or his products) */
-  return relinkPages({ ...cur, theme: l.theme, nav: l.nav, texture: l.texture, sections: l.sections, cards: l.cards, header, identity: mergeIdentity(cur.identity, l.identity), drawer: mergeDrawer(cur.drawer, l.drawer), footer: mergeFooter(cur.footer, l.footer, list) }, list, sampleWords);
+  return relinkPages({ ...cur, theme: l.theme, nav: l.nav, texture: l.texture, sections: l.sections, cards: l.cards, cart: l.cart ?? cur.cart, productPage: l.productPage ?? cur.productPage, header, identity: mergeIdentity(cur.identity, l.identity), drawer: mergeDrawer(cur.drawer, l.drawer), footer: mergeFooter(cur.footer, l.footer, list) }, list, sampleWords);
 }
 
 /** A whole theme design (as its build makes it) on his store: all of the theme, but who the store is stays his: the logo, the tab

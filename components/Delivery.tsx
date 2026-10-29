@@ -6,6 +6,7 @@ import { DashboardBar } from "./DashboardBar";
 import { isJordanMobile, savedMobile, typedAnyPhone } from "./phone";
 import { cleanLine, isPickupAddress, visibleLength } from "./safe";
 import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { inLang } from "./safeOrder";
 import { usePrefs } from "./Prefs";
 import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 
@@ -53,7 +54,7 @@ export function Delivery() {
     setPickup(v?.pickup ?? false);
     if (v?.shipping) {
       setMode(v.shipping.mode);
-      setCity(v.shipping.city);
+      setCity(inLang(v.shipping.city, { en: content.en.onboarding.shipping.cities, ar: content.ar.onboarding.shipping.cities }, lang));
       setAddress(v.shipping.address);
       if (v.shipping.mode === "own") {
         setKind(v.shipping.kind);

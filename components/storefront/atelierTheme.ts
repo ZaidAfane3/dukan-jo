@@ -36,6 +36,9 @@ export function atelierConfig(lang: Lang, o: { samples: boolean; storeName?: str
   c.texture = { pattern: "none", watermark: o.samples ? bi("Scent", "عِطر") : bi("", "") };
   c.announcement = { ...c.announcement, show: false };
   c.cards = { ...c.cards, showCategory: false, showHeart: false, showAdd: false, showNotes: true, showStock: false, style: "flat", info: "row", image: "portrait" };
+  /* The basket opens as a calm full page, the summary beside the products */
+  c.cart = { style: "luxe" };
+  c.productPage = { style: "luxe" };
   /* The sample footer has a column of the site's own categories, built with the footer's own links */
   if (o.samples) {
     c.footer.columns = [

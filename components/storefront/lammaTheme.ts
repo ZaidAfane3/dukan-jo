@@ -41,6 +41,9 @@ export function lammaConfig(lang: Lang, o: { samples: boolean; storeName?: strin
   c.texture = { pattern: "none", watermark: bi("", "") };
   c.announcement = { ...c.announcement, show: false };
   c.cards = { ...c.cards, showCategory: false, showHeart: false, showAdd: true, showNotes: false, showStock: false, showBadge: true, showOldPrice: true, style: "pop", info: "stack", image: "square", add: "plus", priceColor: "#7c5cff", addColor: "#b9f3d0" };
+  /* The basket floats with the same bold outline and hard shadow as the cards */
+  c.cart = { style: "pop" };
+  c.productPage = { style: "pop" };
   c.footer = { ...c.footer, style: "simple", background: "", text: "" };
   /* The sample footer has a column of the site's own categories, built with the footer's own links: Men, Women, Accessories */
   if (S) {

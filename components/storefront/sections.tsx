@@ -1,12 +1,14 @@
 "use client";
 
-import { visitorEmail } from "../safeOrder";
+import { UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
+import type { FreeDelivery } from "../freeDeliveryStore";
 import { cloneElement, Fragment, isValidElement, memo, useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
-import { displayFamily, heroTitleFamily, type SectionConfig, type TextStyle, type StorefrontConfig } from "./config";
+import { displayFamily, heroTitleFamily, type ProductPageStyle, type SectionConfig, type TextStyle, type StorefrontConfig } from "./config";
 import { copy, currency, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import type { StoreData, StoreProduct } from "./useStoreData";
+import { isBlank } from "../safe";
 
 /* Set only inside the store designer: clicking a part of the store selects it for editing. */
 export type Design = { selected: string | null; select: (id: string, field?: string) => void; /* clicking a product's picture opens its picture editor */ selectProduct?: (p: StoreProduct) => void; /* dragging a colored button in the page moves it to another place in its row */ reorderChips?: (sectionId: string, from: number, to: number) => void; /* a button that leads to a page of the store shows that page in the preview (null: back to the home page) */ openPage?: (id: number | null) => void };
@@ -120,7 +122,8 @@ const section = (compact: boolean) => (compact ? "px-4 pt-[var(--sf-syc,1.75rem)
 const media = new Set(["img", "svg", "video", "picture", "canvas", "iframe", "input", "textarea", "select"]);
 const blank = (n: React.ReactNode): boolean => {
   if (n === null || n === undefined || typeof n === "boolean") return true;
-  if (typeof n === "string") return !n.trim();
+  /* spaces, zero-width and direction marks alone are no text either */
+  if (typeof n === "string") return isBlank(n);
   if (typeof n === "number" || typeof n === "bigint") return false;
   if (Array.isArray(n)) return n.every(blank);
   if (!isValidElement(n)) return false;
@@ -179,10 +182,14 @@ function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; m
   const viewAll = ctx.config.texts.viewAll[ctx.lang] || c.viewAll;
   const light = ctx.config.theme.titleStyle === "light";
   const pop = ctx.config.theme.titleStyle === "pop";
+  /* A title of only spaces: the store shows no heading, the designer a faint hint in its place (something to click) */
+  const empty = isBlank(title);
+  if (empty && !ctx.design && !more && !link && !right) return null;
+  const words = empty ? ctx.design ? <span data-sf-empty className="opacity-40">{emptyHint.title[ctx.lang]}</span> : null : title;
   /* The ornament style: three small diamonds above a centered title; with "view all" the title sits at the start and the link at the end */
   if (ctx.config.theme.titleStyle === "ornament") {
     const size = scaled(ctx.config.theme.sectionTitleSize ?? 44, ctx.compact);
-    const h2 = <h2 className="font-semibold leading-tight text-[var(--sf-title)] [overflow-wrap:anywhere]" style={{ fontFamily: "var(--sf-heading)", fontSize: size }}>{title}</h2>;
+    const h2 = <h2 className="font-semibold leading-tight text-[var(--sf-title)] [overflow-wrap:anywhere]" style={{ fontFamily: "var(--sf-heading)", fontSize: size }}>{words}</h2>;
     if (more || link) {
       const cls = "inline-flex min-h-[44px] items-center text-sm underline underline-offset-[6px] transition hover:opacity-70";
       return (
@@ -208,7 +215,7 @@ function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; m
         className={`tracking-tight text-[var(--sf-title)] [overflow-wrap:anywhere] ${light ? "font-light leading-tight" : pop ? "font-extrabold leading-tight" : "font-extrabold"}`}
         style={{ fontFamily: "var(--sf-heading)", fontSize: scaled(ctx.config.theme.sectionTitleSize ?? (light ? 34 : pop ? 44 : 24), ctx.compact) }}
       >
-        {title}
+        {words}
       </h2>
       {more &&
         (() => {
@@ -379,165 +386,478 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
   );
 }
 
-/** The page of one product: the picture, the name, the price, how many are left, the way to buy it, and other products below */
-/* Stars: full, and one that is partly filled for a rating like 4.8 */
-function Stars({ value, size = 18 }: { value: number; size?: number }) {
-  return (
-    <span className="inline-flex items-center gap-0.5" dir="ltr" aria-label={`${value} / 5`}>
-      {[0, 1, 2, 3, 4].map((i) => {
-        const fill = Math.max(0, Math.min(1, value - i));
-        return (
-          <svg key={i} viewBox="0 0 24 24" width={size} height={size} aria-hidden>
-            <defs>
-              <linearGradient id={`st${i}-${Math.round(value * 10)}`}>
-                <stop offset={`${fill * 100}%`} stopColor="#f5b301" />
-                <stop offset={`${fill * 100}%`} stopColor="#f5b301" stopOpacity="0.25" />
-              </linearGradient>
-            </defs>
-            <path d="m12 2.6 2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.6l1.2-6.5L2.5 9.5l6.6-.9z" fill={`url(#st${i}-${Math.round(value * 10)})`} stroke="#f5b301" strokeWidth="1" strokeLinejoin="round" />
-          </svg>
-        );
-      })}
-    </span>
-  );
-}
+/* ---------------- Product page ---------------- */
 
-/* Made-up opinions of customers, shown only while a store is styled with sample products (a real store never shows invented ones) */
-const sampleOpinions = {
-  en: [
-    { name: "Lina", text: "Exactly like the pictures, and it arrived the next day. I already ordered another color!" },
-    { name: "Omar", text: "The fabric is soft and the size is right. Worth every dinar." },
-    { name: "Sara", text: "Lovely packaging and a friendly team. They answered all my questions fast." },
-  ],
-  ar: [
-    { name: "ليلى", text: "نفس الصور بالضبط ووصلتني تاني يوم. طلبت لون ثاني كمان!" },
-    { name: "عمر", text: "القماش ناعم والمقاس مضبوط. يستاهل كل دينار." },
-    { name: "سارة", text: "تغليف حلو وفريق لطيف. ردوا على كل أسئلتي بسرعة." },
-  ],
+/* The words of the product page */
+const pageWords = {
+  en: {
+    home: "Store", crumbs: "You are here", save: "You save", left: (n: number) => `Only ${n} left`, inStock: "In stock", always: "Always available", noPrice: "Price on request",
+    qty: "Quantity", less: "Remove one", more: "Add one more", inCart: (n: number) => `In your cart: ${n}`, total: "Total", about: "About this product", details: "Details",
+    category: "Category", brand: "Brand", availability: "Availability", delivery: "Delivery", notes: "Notes",
+    freeFrom: "Free delivery on orders above", freeLeft: "Add", freeLeftEnd: "more for free delivery", freeHere: "Your order gets free delivery", more2: "Read more", less2: "Show less",
+    pickup: "Pick it up yourself", pickupD: "Collect your order from the store", picture: (i: number, n: number) => `Picture ${i} of ${n}`, prev: "Previous picture", next: "Next picture", also: "You may also like",
+  },
+  ar: {
+    home: "المتجر", crumbs: "أنت هنا", save: "توفّر", left: (n: number) => `بقي ${n} فقط`, inStock: "متوفر", always: "متوفر دائمًا", noPrice: "السعر عند الطلب",
+    qty: "الكمية", less: "إنقاص", more: "زيادة", inCart: (n: number) => `في سلتك: ${n}`, total: "المجموع", about: "عن المنتج", details: "التفاصيل",
+    category: "التصنيف", brand: "العلامة", availability: "التوفر", delivery: "التوصيل", notes: "النوتات",
+    freeFrom: "توصيل مجاني للطلبات فوق", freeLeft: "أضف", freeLeftEnd: "بعد للحصول على توصيل مجاني", freeHere: "طلبك يحصل على توصيل مجاني", more2: "اقرأ المزيد", less2: "عرض أقل",
+    pickup: "استلمه بنفسك", pickupD: "استلم طلبك من المتجر", picture: (i: number, n: number) => `الصورة ${i} من ${n}`, prev: "الصورة السابقة", next: "الصورة التالية", also: "قد يعجبك أيضًا",
+  },
 };
 
-export function ProductPage({ p, ctx, onBack }: { p: StoreProduct; ctx: Ctx; onBack: () => void }) {
-  const c = copy[ctx.lang];
-  const off = p.sale !== null && p.price ? Math.round((1 - p.sale / p.price) * 100) : 0;
-  const out = p.quantity <= 0;
-  const inBasket = ctx.qty[p.id] ?? 0;
-  /* suggestions: the same category first, then featured products, then the rest */
-  const others = suggestFor(ctx.data.products, [p], 4);
-  const btn = "grid h-12 w-12 place-items-center text-xl font-bold transition hover:bg-black/[0.07] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40";
-  /* A rating and a number of reviews that stay the same for a product (sample stores only) */
-  /* Only sample products (the made-up store) show the sample rating, sizes, perks and opinions */
-  const sample = ctx.data.isDemo || p.id < 0;
-  const rating = 4.5 + (Math.abs(p.id) % 5) / 10;
-  const reviewsCount = 24 + ((Math.abs(p.id) * 37) % 180);
-  const [size, setSize] = useState("M");
-  const isClothes = /ملابس|clothes/i.test(p.category ?? "");
-  const perks = ctx.lang === "ar"
-    ? [{ icon: "🚚", title: "توصيل سريع", text: "خلال ١–٢ يوم", color: "#b9f3d0" }, { icon: "🔄", title: "تبديل مجاني", text: "خلال ١٤ يومًا", color: "#ffe36e" }, { icon: "🔒", title: "دفع آمن", text: "كاش أو بطاقة", color: "#c9b6ff" }]
-    : [{ icon: "🚚", title: "Fast delivery", text: "In 1–2 days", color: "#b9f3d0" }, { icon: "🔄", title: "Free exchange", text: "Within 14 days", color: "#ffe36e" }, { icon: "🔒", title: "Safe payment", text: "Cash or card", color: "#c9b6ff" }];
-  return (
-    <section className={ctx.compact ? "min-h-[420px] px-4 py-8" : "min-h-[640px] px-8 py-12"}>
-      <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--sf-accent)] hover:underline">
-        <span className="rotate-180">{icons.arrow}</span>
-        {ctx.lang === "ar" ? "العودة إلى المتجر" : "Back to the store"}
-      </button>
-      <div className={`mt-6 grid items-start gap-10 ${ctx.compact ? "" : "md:grid-cols-2"}`}>
-        <div className="overflow-hidden" style={{ borderRadius: "var(--sf-r)" }}>
-          <ProductImage p={p} flat={ctx.config.cards.style === "pop"} className="aspect-[4/5] w-full" />
-        </div>
-        <div>
-          {p.category && <p className="text-sm text-sf-text/60">{p.category}</p>}
-          <h1 className={`mt-1 font-extrabold leading-tight text-[var(--sf-title)] ${ctx.compact ? "text-3xl" : "text-5xl"}`} style={{ fontFamily: "var(--sf-heading)" }}>{p.name}</h1>
-          {p.badge && <span className="mt-3 inline-block rounded-full bg-[var(--sf-primary)] px-3 py-1 text-xs font-bold text-[var(--sf-on)]">{p.badge}</span>}
-          {sample && (
-            <p className="mt-3 flex items-center gap-2 text-sm font-semibold">
-              <Stars value={rating} />
-              <span>{rating.toFixed(1)}</span>
-              <span className="text-sf-text/55">· {ctx.lang === "ar" ? `${reviewsCount} تقييم` : `${reviewsCount} reviews`}</span>
-            </p>
-          )}
-          {p.price !== null && (
-            <p dir="ltr" className="mt-5 flex items-baseline gap-2.5 text-start" style={ctx.config.cards.priceColor ? { color: ctx.config.cards.priceColor } : undefined}>
-              <span className="text-4xl font-extrabold" style={saleTint(ctx, p)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-              <span className="text-sm font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-              {p.sale !== null && <s className="text-lg text-sf-text/50">{moneyIn(p.price, priceLang(ctx.config.theme.prices, ctx.lang))}</s>}
-              {off > 0 && <span className="rounded-full bg-[var(--sf-sale)] px-2.5 py-1 text-xs font-extrabold text-[var(--sf-onsale)]">-{off}%</span>}
-            </p>
-          )}
-          {p.notes && <p className="mt-4 text-lg leading-relaxed text-sf-text/75">{p.notes}</p>}
-          <p className={`mt-4 text-sm font-semibold ${out ? "text-rose-600" : p.quantity <= 5 ? "text-amber-600" : "text-emerald-700"}`}>
-            {out ? c.soldOut : p.quantity <= 5 ? (ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`) : ctx.lang === "ar" ? "متوفر" : "In stock"}
-          </p>
-          {sample && isClothes && (
-            <div className="mt-5">
-              <p className="mb-2 text-sm font-bold">{ctx.lang === "ar" ? "المقاس" : "Size"}</p>
-              <div className="flex flex-wrap gap-2">
-                {["S", "M", "L", "XL"].map((z) => (
-                  <button key={z} type="button" onClick={() => setSize(z)} aria-pressed={size === z} className={`grid h-11 min-w-[3rem] place-items-center border-2 px-3 text-sm font-extrabold transition hover:-translate-y-0.5 ${size === z ? "bg-[var(--sf-text)] text-[var(--sf-bg)]" : "bg-white text-[var(--sf-text)]"}`} style={{ borderColor: "var(--sf-text)", borderRadius: "var(--sf-pill)" }}>{z}</button>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="mt-6">
-            {inBasket > 0 && !out ? (
-              <div dir="ltr" className="inline-flex items-center overflow-hidden rounded-[min(var(--sf-r),12px)] border-2 border-[var(--sf-text)] bg-white text-[var(--sf-text)]">
-                <button type="button" className={btn} onClick={() => ctx.setQty(p, inBasket - 1)} aria-label={ctx.lang === "ar" ? "إنقاص" : "Remove one"}>−</button>
-                <span aria-live="polite" className="min-w-[3rem] text-center font-extrabold tabular-nums">{inBasket}</span>
-                <button type="button" className={btn} disabled={inBasket >= p.quantity} onClick={() => ctx.setQty(p, inBasket + 1)} aria-label={ctx.lang === "ar" ? "زيادة" : "Add one more"}>+</button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                disabled={out || p.price === null}
-                onClick={() => ctx.setQty(p, 1)}
-                className="inline-flex h-12 items-center gap-2 rounded-[min(var(--sf-r),12px)] bg-[var(--sf-primary)] px-8 text-base font-bold text-[var(--sf-on)] shadow-md transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {icons.bag}
-                {out ? c.soldOut : c.add}
-              </button>
-            )}
-          </div>
-          {sample && (
-            <ul className="mt-7 grid gap-3 sm:grid-cols-3">
-              {perks.map((x) => (
-                <li key={x.title} className="flex items-center gap-3 border-2 bg-white p-3 text-start" style={{ borderColor: "var(--sf-text)", borderRadius: "var(--sf-ri)" }}>
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-lg" style={{ background: x.color }}>{x.icon}</span>
-                  <span className="min-w-0 text-xs leading-snug"><b className="block text-sm">{x.title}</b>{x.text}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+/* The class names of each look of the product page (see ProductPageStyle in config.ts). Every look uses the store's own colors,
+   fonts and corners through its variables, so it works with any colors the merchant picks. */
+type PageSkin = {
+  grid: string;
+  /* around the main picture, and its shape */
+  frame: string;
+  ratio: string;
+  thumb: string;
+  thumbOn: string;
+  /* the info column, the category line and the name */
+  info: string;
+  eyebrow: string;
+  title: string;
+  /* the price line, the sale label, the "you save" line */
+  price: string;
+  off: string;
+  save: string;
+  /* the quantity stepper and the add button */
+  stepper: string;
+  step: string;
+  buy: string;
+  added: string;
+  /* the perks and details */
+  panel: string;
+  chip: string;
+};
+const tint = (v: string, pct: number) => `color-mix(in srgb, var(${v}) ${pct}%, transparent)`;
+const pageSkins: Record<ProductPageStyle, PageSkin> = {
+  classic: {
+    grid: "md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] gap-10 lg:gap-14",
+    frame: "overflow-hidden rounded-[var(--sf-r2)] ring-1 ring-sf-text/10",
+    ratio: "aspect-[4/5]",
+    thumb: "overflow-hidden rounded-[var(--sf-ri)] ring-1 ring-sf-text/10 opacity-70 hover:opacity-100",
+    thumbOn: "!opacity-100 ring-2 !ring-[var(--sf-primary)]",
+    info: "",
+    eyebrow: "inline-flex items-center rounded-[var(--sf-pill)] bg-sf-primary/10 px-3 py-1 text-xs font-bold",
+    title: "mt-3 font-extrabold leading-tight tracking-tight",
+    price: "text-[34px] font-extrabold leading-none",
+    off: "rounded-[var(--sf-pill)] bg-[var(--sf-sale)] px-2.5 py-1 text-xs font-extrabold text-[var(--sf-onsale)]",
+    save: "text-sm font-semibold",
+    stepper: "h-12 rounded-[var(--sf-pill)] ring-1 ring-sf-text/20",
+    step: "w-11 rounded-[var(--sf-pill)] text-xl hover:bg-sf-text/[0.07]",
+    buy: "h-12 rounded-[var(--sf-pill)] bg-[var(--sf-primary)] px-6 text-[15px] font-bold text-[var(--sf-on)] shadow-[0_12px_28px_-14px_var(--sf-primary)] hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-14px_var(--sf-primary)]",
+    added: "h-12 rounded-[var(--sf-pill)] bg-sf-primary/10 px-5 text-sm font-bold",
+    panel: "rounded-[var(--sf-r2)] bg-sf-text/[0.035] p-5 ring-1 ring-sf-text/[0.07]",
+    chip: "rounded-[var(--sf-pill)] bg-sf-text/[0.06] px-3 py-1 text-sm font-semibold",
+  },
+  editorial: {
+    grid: "md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-10 lg:gap-16",
+    frame: "overflow-hidden rounded-[var(--sf-ri)]",
+    ratio: "aspect-[3/4]",
+    thumb: "overflow-hidden rounded-[var(--sf-ri)] opacity-55 hover:opacity-100",
+    thumbOn: "!opacity-100 outline outline-1 outline-offset-2 outline-[var(--sf-text)]",
+    info: "",
+    eyebrow: "text-[11px] font-semibold uppercase tracking-[0.28em] text-sf-text/60",
+    title: "mt-3 font-semibold leading-snug ltr:uppercase ltr:tracking-[0.06em]",
+    price: "text-xl font-semibold",
+    off: "text-sm font-bold text-[var(--sf-sale)]",
+    save: "text-xs font-semibold uppercase tracking-[0.18em] text-sf-text/60",
+    stepper: "h-14 rounded-[var(--sf-ri)] border border-[var(--sf-text)]",
+    step: "w-12 text-lg hover:bg-sf-text/[0.06]",
+    buy: "h-14 rounded-[var(--sf-ri)] bg-[var(--sf-primary)] px-6 text-xs font-bold uppercase tracking-[0.24em] text-[var(--sf-on)] hover:opacity-85",
+    added: "h-14 rounded-[var(--sf-ri)] border border-sf-text/25 px-5 text-xs font-bold uppercase tracking-[0.18em]",
+    panel: "border-t border-sf-text/15",
+    chip: "border border-sf-text/25 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] rounded-[var(--sf-ri)]",
+  },
+  luxe: {
+    grid: "md:grid-cols-2 gap-12 lg:gap-20",
+    frame: "overflow-hidden rounded-[var(--sf-ri)]",
+    ratio: "aspect-[4/5]",
+    thumb: "overflow-hidden rounded-[var(--sf-ri)] opacity-60 hover:opacity-100",
+    thumbOn: "!opacity-100 ring-1 ring-[var(--sf-accent)] ring-offset-2 ring-offset-[var(--sf-bg)]",
+    info: "text-center",
+    eyebrow: "text-[17px] text-[var(--sf-accent)]",
+    title: "mt-2 font-light leading-[1.15]",
+    price: "text-[28px] font-light",
+    off: "rounded-[var(--sf-pill)] border border-[var(--sf-sale)] px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[var(--sf-sale)]",
+    save: "text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--sf-accent)]",
+    stepper: "h-[52px] rounded-[var(--sf-pill)] border border-sf-text/25",
+    step: "w-11 rounded-[var(--sf-pill)] text-lg font-light hover:bg-sf-text/[0.05]",
+    buy: "h-[52px] rounded-[var(--sf-pill)] bg-[var(--sf-primary)] px-8 text-[13px] font-semibold uppercase tracking-[0.22em] text-[var(--sf-on)] hover:opacity-90",
+    added: "h-[52px] rounded-[var(--sf-pill)] border border-[var(--sf-accent)] px-6 text-[13px] font-semibold tracking-[0.08em]",
+    panel: "rounded-[var(--sf-ri)] border p-1.5",
+    chip: "rounded-[var(--sf-pill)] border px-4 py-1.5 text-sm",
+  },
+  pop: {
+    grid: "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-10 lg:gap-14",
+    frame: "overflow-hidden rounded-[var(--sf-r2)] border-2 border-[var(--sf-text)] shadow-[6px_6px_0_var(--sf-text)]",
+    ratio: "aspect-square",
+    thumb: "overflow-hidden rounded-[var(--sf-ri)] border-2 border-[var(--sf-text)] hover:-translate-y-0.5",
+    thumbOn: "shadow-[3px_3px_0_var(--sf-text)] -translate-y-0.5",
+    info: "",
+    eyebrow: "inline-flex items-center rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-3 py-0.5 text-xs font-extrabold",
+    title: "mt-3 font-extrabold leading-[1.05]",
+    price: "text-[30px] font-extrabold leading-none",
+    off: "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] bg-[var(--sf-sale)] px-2.5 py-0.5 text-xs font-extrabold text-[var(--sf-onsale)] -rotate-3",
+    save: "text-sm font-bold",
+    stepper: "h-14 rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] bg-[var(--sf-bg)] shadow-[3px_3px_0_var(--sf-text)]",
+    step: "w-12 rounded-[var(--sf-pill)] text-2xl font-extrabold hover:bg-sf-text/10",
+    buy: "h-14 rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] bg-[var(--sf-primary)] px-6 text-base font-extrabold text-[var(--sf-on)] shadow-[4px_4px_0_var(--sf-text)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--sf-text)] active:translate-y-0.5 active:shadow-[1px_1px_0_var(--sf-text)]",
+    added: "h-14 rounded-[var(--sf-pill)] border-2 border-dashed border-[var(--sf-text)] px-5 text-sm font-extrabold",
+    panel: "rounded-[var(--sf-r2)] border-2 border-[var(--sf-text)] p-4",
+    chip: "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-3 py-1 text-sm font-bold",
+  },
+};
+
+/* The notes line ("rose · musk · incense", or one note on each line) as separate notes; null when it is a sentence */
+function notesList(notes?: string): string[] | null {
+  const parts = (notes ?? "").split(/\s*[·•|]\s*|\n+/).map((s) => s.trim()).filter(Boolean);
+  return parts.length >= 2 && parts.length <= 8 && parts.every((s) => s.length <= 28) ? parts : null;
+}
+
+/* An arrow that points the same way in both languages (the gallery's arrows sit at the left and the right whatever the language) */
+const chevron = (d: string) => <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={d} /></svg>;
+
+/* The pictures of a product: the big one, arrows and small pictures to switch when there are several, and a closer look under the mouse */
+function Gallery({ p, ctx, look }: { p: StoreProduct; ctx: Ctx; look: ProductPageStyle }) {
+  const s = pageSkins[look];
+  const w = pageWords[ctx.lang];
+  const pics = p.images ?? (p.image ? [p.image] : []);
+  const [at, setAt] = useState(0);
+  const [origin, setOrigin] = useState<string | null>(null);
+  useEffect(() => setAt(0), [p.id]);
+  const i = Math.min(at, Math.max(0, pics.length - 1));
+  /* the point the merchant chose to keep visible belongs to the main picture only */
+  const pic = (n: number): StoreProduct => (pics.length ? { ...p, image: pics[n], focus: pics[n] === p.image ? p.focus : undefined } : p);
+  const flat = look === "pop";
+  const many = pics.length > 1;
+  const go = (d: number) => setAt((i + d + pics.length) % pics.length);
+  const arrow = `absolute top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center bg-[var(--sf-bg)] text-[var(--sf-text)] shadow-md transition hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--sf-text)] ${look === "pop" ? "rounded-full border-2 border-[var(--sf-text)] shadow-[2px_2px_0_var(--sf-text)]" : look === "editorial" ? "rounded-[var(--sf-ri)]" : "rounded-full"}`;
+  /* the editorial look puts the small pictures in a column beside the big one on a wide screen */
+  const side = look === "editorial" && !ctx.compact && many;
+  const thumbs = many && (
+    <div role="group" aria-label={w.picture(i + 1, pics.length)} className={side ? "flex w-16 shrink-0 flex-col gap-2.5" : `mt-3 flex gap-2.5 overflow-x-auto pb-1 ${look === "luxe" ? "justify-center" : ""}`}>
+      {pics.map((src, n) => (
+        <button key={src + n} type="button" onClick={() => setAt(n)} aria-label={w.picture(n + 1, pics.length)} aria-pressed={n === i} className={`shrink-0 transition ${side ? "w-16" : "w-16 sm:w-[72px]"} ${s.thumb} ${n === i ? s.thumbOn : ""}`}>
+          <ProductImage p={{ ...pic(n), name: "" }} flat={flat} className={s.ratio} />
+        </button>
+      ))}
+    </div>
+  );
+  const main = (
+    <div className={`relative ${s.frame}`}>
+      <div
+        className="group/zoom relative overflow-hidden"
+        onMouseMove={(e) => {
+          if (!pics.length || ctx.compact) return;
+          const r = e.currentTarget.getBoundingClientRect();
+          setOrigin(`${((e.clientX - r.left) / r.width) * 100}% ${((e.clientY - r.top) / r.height) * 100}%`);
+        }}
+        onMouseLeave={() => setOrigin(null)}
+      >
+        <div className={`transition-transform duration-300 motion-reduce:!transform-none ${origin ? "scale-[1.6]" : ""}`} style={origin ? { transformOrigin: origin } : undefined}>
+          <ProductImage p={pic(i)} flat={flat} className={`${s.ratio} w-full`} />
         </div>
       </div>
-      {sample && (
-        <div className="mt-14">
-          <div className={ctx.config.theme.titleAlign === "center" ? "flex flex-col items-center" : "flex flex-wrap items-end justify-between gap-3"}>
-            <Heading title={ctx.lang === "ar" ? "آراء العملاء" : "What customers say"} ctx={ctx} />
-            <p className="mb-6 flex items-center gap-2 text-sm font-semibold">
-              <Stars value={rating} size={16} />
-              {rating.toFixed(1)} · {ctx.lang === "ar" ? `${reviewsCount} تقييم` : `${reviewsCount} reviews`}
-            </p>
-          </div>
-          <div className={`grid gap-4 ${ctx.compact ? "" : "md:grid-cols-3"}`}>
-            {sampleOpinions[ctx.lang].map((o, i) => (
-              <figure key={o.name} className="border-2 bg-white p-5" style={{ borderColor: "var(--sf-text)", borderRadius: "var(--sf-r2)", boxShadow: ctx.config.cards.style === "pop" ? "4px 4px 0 var(--sf-text)" : undefined }}>
-                <Stars value={i === 1 ? 4.5 : 5} size={16} />
-                <blockquote className="mt-3 text-sm leading-relaxed">{o.text}</blockquote>
-                <figcaption className="mt-4 flex items-center gap-2 text-sm font-bold">
-                  <span className="grid h-8 w-8 place-items-center rounded-full text-xs" style={{ background: ["#ffe36e", "#b9f3d0", "#ff8fb1"][i] }}>{o.name.slice(0, 1)}</span>
-                  {o.name}
-                  <span className="ms-auto text-xs font-semibold text-emerald-700">{ctx.lang === "ar" ? "✓ مشتري موثّق" : "✓ Verified buyer"}</span>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
+      {many && (
+        <>
+          <button type="button" onClick={() => go(ctx.lang === "ar" ? 1 : -1)} aria-label={ctx.lang === "ar" ? w.next : w.prev} className={`${arrow} left-3`}>{chevron("M15 6l-6 6 6 6")}</button>
+          <button type="button" onClick={() => go(ctx.lang === "ar" ? -1 : 1)} aria-label={ctx.lang === "ar" ? w.prev : w.next} className={`${arrow} right-3`}>{chevron("M9 6l6 6-6 6")}</button>
+          <span dir="ltr" className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-2.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">{i + 1} / {pics.length}</span>
+        </>
+      )}
+    </div>
+  );
+  return side ? <div className="flex items-start gap-3">{thumbs}<div className="min-w-0 flex-1">{main}</div></div> : <div>{main}{thumbs}</div>;
+}
+
+/** The page of one product: its pictures, name, price, stock and the way to buy it, then what the merchant wrote about it and other products.
+    It has four looks (classic, editorial, luxe, pop); a theme picks one and the merchant can switch it in the designer. */
+export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = false }: { p: StoreProduct; ctx: Ctx; onBack: () => void; look?: ProductPageStyle; fd?: FreeDelivery; pickup?: boolean }) {
+  const c = copy[ctx.lang];
+  const w = pageWords[ctx.lang];
+  const s = pageSkins[look] ?? pageSkins.classic;
+  const luxe = look === "luxe", pop = look === "pop", editorial = look === "editorial";
+  const pl = priceLang(ctx.config.theme.prices, ctx.lang);
+  const out = p.quantity <= 0;
+  const unlimited = !!p.unlimited || p.quantity >= UNLIMITED_STOCK;
+  const low = !out && !unlimited && p.quantity <= 5;
+  const inBasket = ctx.qty[p.id] ?? 0;
+  /* how many to add: chosen before adding; once it is in the basket the same buttons change the basket */
+  const [pick, setPick] = useState(1);
+  const [more, setMore] = useState(false);
+  useEffect(() => { setPick(1); setMore(false); }, [p.id]);
+  const count = inBasket > 0 ? inBasket : pick;
+  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n) : setPick(Math.max(1, Math.min(Math.max(1, p.quantity), n))));
+  const now = priceOf(p);
+  const off = p.sale !== null && p.price ? Math.round((1 - p.sale / p.price) * 100) : 0;
+  const saved = p.sale !== null && p.price ? p.price - p.sale : 0;
+  const amount = (n: number) => <bdi dir="ltr">{moneyIn(n, pl)} {currency(pl)}</bdi>;
+  /* suggestions: the same category first, then featured products, then the rest */
+  const others = suggestFor(ctx.data.products, [p], 4);
+  const notes = notesList(p.notes);
+  const lead = notes ? "" : p.notes ?? "";
+  const about = p.description ?? "";
+  const long = about.length > 360 || about.split("\n").length > 6;
+  /* the free delivery offer follows what is already in the basket */
+  const basket = ctx.data.products.reduce((t, x) => t + (ctx.qty[x.id] ?? 0) * priceOf(x), 0);
+  const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
+  if (fd?.on) {
+    perks.push(
+      basket >= fd.min
+        ? { icon: icons.truck, t: w.freeHere, bar: 1 }
+        : basket > 0
+          ? { icon: icons.truck, t: <>{w.freeLeft} {amount(fd.min - basket)} {w.freeLeftEnd}</>, d: <>{w.freeFrom} {amount(fd.min)}</>, bar: basket / fd.min }
+          : { icon: icons.truck, t: <>{w.freeFrom} {amount(fd.min)}</> },
+    );
+  }
+  if (pickup) perks.push({ icon: icons.pin, t: w.pickup, d: w.pickupD });
+  const details = [
+    p.brand ? [w.brand, p.brand] : null,
+    p.category ? [w.category, p.category] : null,
+    [w.availability, out ? c.soldOut : low ? w.left(p.quantity) : unlimited ? w.always : w.inStock],
+  ].filter(Boolean) as [string, string][];
+  const titleSize = { classic: [28, 40], editorial: [24, 32], luxe: [32, 50], pop: [32, 48] }[look][ctx.compact ? 0 : 1];
+  const chipTints = ["--sf-primary", "--sf-accent", "--sf-sale"];
+
+  const eyebrow = (p.category || p.brand || p.badge) && (
+    <div className={`flex flex-wrap items-center gap-2 ${luxe ? "justify-center" : ""}`}>
+      {(p.brand || p.category) && (
+        <span className={s.eyebrow} style={luxe ? latinItalic : pop ? { background: tint("--sf-accent", 22) } : undefined}>
+          {[p.brand, p.category].filter(Boolean).join(editorial ? " / " : " · ")}
+        </span>
+      )}
+      {p.badge && (
+        <span className={pop ? "rotate-2 rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] bg-[var(--sf-primary)] px-3 py-0.5 text-xs font-extrabold text-[var(--sf-on)] shadow-[2px_2px_0_var(--sf-text)]" : editorial ? "border border-[var(--sf-text)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em]" : luxe ? "text-[11px] font-semibold uppercase tracking-[0.24em] text-sf-text/60" : "rounded-[var(--sf-pill)] bg-[var(--sf-primary)] px-3 py-1 text-xs font-bold text-[var(--sf-on)]"}>
+          {luxe && (p.brand || p.category) ? <span aria-hidden className="me-2 text-[var(--sf-accent)]">·</span> : null}{p.badge}
+        </span>
+      )}
+    </div>
+  );
+
+  const price = p.price === null ? (
+    <p className="text-base font-semibold text-sf-text/65">{w.noPrice}</p>
+  ) : (
+    <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 ${luxe ? "justify-center" : ""}`}>
+      <span
+        dir="ltr"
+        className={`inline-flex items-baseline gap-1.5 ${pop ? "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-4 py-2 shadow-[3px_3px_0_var(--sf-text)]" : ""}`}
+        style={{ ...(ctx.config.cards.priceColor ? { color: ctx.config.cards.priceColor } : {}), ...(pop ? { background: tint("--sf-accent", 20) } : {}) }}
+      >
+        <span className={s.price} style={{ ...saleTint(ctx, p), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{moneyIn(now, pl)}</span>
+        <span className="text-sm font-semibold opacity-70">{currency(pl)}</span>
+      </span>
+      {p.sale !== null && <s dir="ltr" className="text-base text-sf-text/50">{moneyIn(p.price, pl)} {currency(pl)}</s>}
+      {off > 0 && <span dir="ltr" className={s.off}>-{off}%</span>}
+    </div>
+  );
+
+  const stock = (
+    <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm font-semibold ${luxe ? "justify-center" : ""} ${editorial ? "text-xs uppercase tracking-[0.16em]" : ""}`}>
+      <span className="inline-flex items-center gap-2">
+        <span aria-hidden className={`h-2 w-2 rounded-full ${out ? "bg-rose-500" : low ? "bg-amber-500" : "bg-emerald-500"} ${!out && !low ? "shadow-[0_0_0_4px_rgba(16,185,129,0.18)]" : ""}`} />
+        {out ? c.soldOut : low ? w.left(p.quantity) : unlimited ? w.always : w.inStock}
+      </span>
+      {/* a few left: five small bars, as many filled as there are pieces */}
+      {low && (
+        <span aria-hidden className="inline-flex gap-1">
+          {[1, 2, 3, 4, 5].map((n) => <span key={n} className={`h-1.5 w-4 rounded-full ${n <= p.quantity ? "bg-amber-500" : "bg-sf-text/15"}`} />)}
+        </span>
+      )}
+    </div>
+  );
+
+  const step = `grid h-full place-items-center leading-none transition active:scale-90 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--sf-text)] ${s.step}`;
+  const buy = (
+    <div className={`flex flex-wrap items-stretch gap-3 ${luxe ? "justify-center" : ""}`}>
+      {!out && p.price !== null && (
+        <div dir="ltr" role="group" aria-label={w.qty} className={`inline-flex shrink-0 items-center ${s.stepper}`}>
+          <button type="button" className={step} disabled={inBasket === 0 && pick <= 1} onClick={() => setCount(count - 1)} aria-label={`${w.less}: ${p.name}`}>−</button>
+          <span aria-live="polite" className="min-w-[2.5rem] text-center text-base font-extrabold tabular-nums">{count}</span>
+          <button type="button" className={step} disabled={count >= p.quantity} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
         </div>
       )}
-      {others.length > 0 && (
-        <div className="mt-14">
-          <Heading title={ctx.lang === "ar" ? "قد يعجبك أيضًا" : "You may also like"} ctx={ctx} />
-          <Grid items={others} ctx={ctx} columns={4} />
-        </div>
+      {inBasket > 0 && !out ? (
+        <p role="status" className={`flex min-w-[12rem] flex-1 flex-wrap items-center justify-center gap-x-2 text-center ${s.added}`}>
+          <span className="inline-flex items-center gap-1.5">{icons.check}{w.inCart(inBasket)}</span>
+          <span className="opacity-70">· {w.total} {amount(now * inBasket)}</span>
+        </p>
+      ) : (
+        <button
+          type="button"
+          disabled={out || p.price === null}
+          onClick={() => ctx.setQty(p, pick)}
+          className={`inline-flex min-w-[12rem] flex-1 items-center justify-center gap-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sf-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none ${s.buy}`}
+        >
+          {icons.bag}
+          {out ? c.soldOut : c.add}
+          {!out && p.price !== null && pick > 1 && <span className="opacity-80">· {amount(now * pick)}</span>}
+        </button>
       )}
+    </div>
+  );
+
+  const notesChips = notes && (
+    <div className={luxe ? "text-center" : ""}>
+      <p className={`mb-2 ${editorial || luxe ? "text-[11px] font-semibold uppercase tracking-[0.24em] text-sf-text/60" : "text-sm font-bold"}`}>{w.notes}</p>
+      <ul className={`flex flex-wrap gap-2 ${luxe ? "justify-center" : ""}`}>
+        {notes.map((n, i) => (
+          <li key={n + i} className={s.chip} style={luxe ? { borderColor: tint("--sf-accent", 45) } : pop ? { background: tint(chipTints[i % 3], 22) } : undefined}>{n}</li>
+        ))}
+      </ul>
+    </div>
+  );
+
+  const perkList = perks.length > 0 && (
+    <ul className={`grid gap-3 ${perks.length > 1 && !ctx.compact && !luxe ? "sm:grid-cols-2" : ""}`}>
+      {perks.map((x, i) => (
+        <li key={i} className={`flex items-start gap-3 text-start ${pop ? "rounded-[var(--sf-r2)] border-2 border-[var(--sf-text)] p-3" : luxe || editorial ? "" : "rounded-[var(--sf-r2)] bg-sf-text/[0.035] p-3.5 ring-1 ring-sf-text/[0.07]"}`}>
+          <span
+            aria-hidden
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${pop ? "border-2 border-[var(--sf-text)]" : ""} ${luxe ? "text-[var(--sf-accent)]" : ""}`}
+            style={pop ? { background: tint(chipTints[i % 3], 25) } : luxe ? { boxShadow: `inset 0 0 0 1px ${tint("--sf-accent", 45)}` } : { background: tint("--sf-primary", 12) }}
+          >
+            {x.icon}
+          </span>
+          <span className="min-w-0 flex-1 text-sm leading-snug">
+            <span className="block font-bold">{x.t}</span>
+            {x.d && <span className="mt-0.5 block text-[13px] text-sf-text/65">{x.d}</span>}
+            {x.bar !== undefined && (
+              <span aria-hidden className="mt-2 block h-1.5 overflow-hidden rounded-full bg-sf-text/10">
+                <span className="block h-full rounded-full bg-[var(--sf-primary)] transition-[width] duration-500" style={{ width: `${Math.round(Math.min(1, x.bar) * 100)}%` }} />
+              </span>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+
+  const aboutText = about && (
+    <div>
+      <p className={`whitespace-pre-line text-[15px] text-sf-text/80 [overflow-wrap:anywhere] ${luxe ? "leading-8" : "leading-relaxed"} ${long && !more ? "line-clamp-6" : ""}`}>{about}</p>
+      {long && (
+        <button type="button" onClick={() => setMore((v) => !v)} aria-expanded={more} className="mt-2 text-sm font-bold underline underline-offset-4 hover:opacity-70">
+          {more ? w.less2 : w.more2}
+        </button>
+      )}
+    </div>
+  );
+
+  const detailRows = (
+    <dl className={luxe ? "grid grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-4 text-center" : "divide-y divide-sf-text/10 text-sm"}>
+      {details.map(([k, v]) => (
+        <div key={k} className={luxe ? "min-w-0" : "flex items-baseline justify-between gap-4 py-2.5 first:pt-0 last:pb-0"}>
+          <dt className={luxe ? "text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--sf-accent)]" : "shrink-0 text-sf-text/60"}>{k}</dt>
+          <dd className={`min-w-0 font-semibold [overflow-wrap:anywhere] ${luxe ? "mt-1 text-sm" : "text-end"}`}>{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+
+  /* The editorial look folds the longer parts into rows with a thin line between them; the others show them as blocks */
+  const fold = (title: string, body: React.ReactNode, open = false) => (
+    <details open={open} className="group border-b border-sf-text/15">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-xs font-bold uppercase tracking-[0.22em] [&::-webkit-details-marker]:hidden">
+        {title}
+        <span aria-hidden className="text-lg font-light leading-none transition group-open:rotate-45">+</span>
+      </summary>
+      <div className="pb-5">{body}</div>
+    </details>
+  );
+
+  return (
+    <section className={ctx.compact ? "px-4 pb-10 pt-5" : "px-8 pb-16 pt-8"}>
+      <div className="mx-auto max-w-6xl">
+        <nav aria-label={w.crumbs} className={`flex min-w-0 items-center gap-2 text-sm ${luxe ? "justify-center" : ""} ${editorial ? "text-[11px] uppercase tracking-[0.2em]" : ""}`}>
+          <button
+            type="button"
+            onClick={onBack}
+            className={`inline-flex shrink-0 items-center gap-1.5 font-bold transition hover:opacity-70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sf-text)] ${pop ? "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-3 py-1" : ""}`}
+          >
+            <span className="rotate-180">{icons.arrow}</span>
+            {w.home}
+          </button>
+          {p.category && (
+            <>
+              <span aria-hidden className="text-sf-text/35">/</span>
+              <span className="max-w-[40%] shrink-0 truncate text-sf-text/60">{p.category}</span>
+            </>
+          )}
+          <span aria-hidden className="text-sf-text/35">/</span>
+          <span aria-current="page" className="min-w-0 truncate text-sf-text/60">{p.name}</span>
+        </nav>
+
+        <div className={`mt-5 grid items-start ${ctx.compact ? "gap-7" : s.grid}`}>
+          {luxe ? (
+            <div className="rounded-[var(--sf-r2)] border p-2.5 sm:p-3" style={{ borderColor: tint("--sf-accent", 40) }}>
+              <Gallery p={p} ctx={ctx} look={look} />
+            </div>
+          ) : (
+            <Gallery p={p} ctx={ctx} look={look} />
+          )}
+
+          <div className={`min-w-0 ${ctx.compact ? "" : "md:sticky md:top-6"} ${s.info}`}>
+            {eyebrow}
+            <h1 className={`${s.title} text-[var(--sf-title)] [overflow-wrap:anywhere]`} style={{ fontFamily: "var(--sf-heading)", fontSize: titleSize }}>
+              {p.name}
+            </h1>
+            {lead && <p className={`mt-2 text-sf-text/65 ${luxe ? "text-[15px]" : "text-base"} [overflow-wrap:anywhere]`} style={luxe ? latinItalic : undefined}>{lead}</p>}
+            {luxe && (
+              <div aria-hidden className="mt-5 flex items-center justify-center gap-3 text-[var(--sf-accent)]">
+                <span className="h-px w-12 bg-current opacity-50" />
+                <span className="text-xs">✦</span>
+                <span className="h-px w-12 bg-current opacity-50" />
+              </div>
+            )}
+
+            <div className={`mt-5 space-y-2 ${editorial ? "border-y border-sf-text/15 py-5" : ""}`}>
+              {price}
+              {saved > 0 && <p className={s.save} style={pop || look === "classic" ? { color: "var(--sf-sale)" } : undefined}>{w.save} {amount(saved)}</p>}
+            </div>
+
+            <div className="mt-4">{stock}</div>
+            {notesChips && <div className="mt-6">{notesChips}</div>}
+            <div className="mt-6">{buy}</div>
+            {perkList && !editorial && <div className={luxe ? "mx-auto mt-6 w-fit" : "mt-6"}>{perkList}</div>}
+
+            {editorial ? (
+              <div className="mt-8 border-t border-sf-text/15">
+                {aboutText && fold(w.about, aboutText, true)}
+                {fold(w.details, detailRows, !aboutText)}
+                {perkList && fold(w.delivery, perkList)}
+              </div>
+            ) : luxe ? (
+              <>
+                {aboutText && <div className="mx-auto mt-8 max-w-md">{aboutText}</div>}
+                <div className={`mt-8 ${s.panel}`} style={{ borderColor: tint("--sf-accent", 45) }}>
+                  <div className="rounded-[var(--sf-ri)] border px-5 py-5" style={{ borderColor: tint("--sf-accent", 25) }}>{detailRows}</div>
+                </div>
+              </>
+            ) : (
+              <>
+                {aboutText && (
+                  <div className="mt-8">
+                    <h2 className={`mb-2 ${pop ? "text-lg font-extrabold" : "text-base font-bold"}`} style={{ fontFamily: "var(--sf-heading)" }}>{w.about}</h2>
+                    {aboutText}
+                  </div>
+                )}
+                <div className={`mt-6 ${s.panel}`}>{detailRows}</div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {others.length > 0 && (
+          <div className={`${ctx.compact ? "mt-12" : "mt-20"} ${editorial ? "border-t border-sf-text/15 pt-10" : ""}`}>
+            <Heading title={w.also} ctx={ctx} />
+            <Grid items={others} ctx={ctx} columns={4} />
+          </div>
+        )}
+      </div>
     </section>
   );
 }

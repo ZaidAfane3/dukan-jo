@@ -3,7 +3,7 @@
    Nothing is sent anywhere, and uploaded files are never stored. */
 
 import { cleanProfile, cleanSetup, savedPhone } from "./safeAccount";
-import { cleanProduct, money, parseList, type Product } from "./records";
+import { cleanProduct, money, parseList, productProblems, type Product } from "./records";
 
 export type SavedSetup = {
   name: string;
@@ -71,7 +71,8 @@ export function syncSetupProduct(p: { name: string; price: string; quantity?: nu
       unlimited: p.quantity === undefined,
       images: p.image ? [p.image, ...(old?.images ?? []).slice(1)] : (old?.images ?? []).slice(1),
     });
-    if (!next) return null;
+    /* the same rules as the Products page: no product is made without a photo, a name or a price */
+    if (!next || productProblems(next).length) return null;
     const list: Product[] = old ? items.map((x) => (x.id === old.id ? next : x)) : [...items, next];
     localStorage.setItem(KEY_PRODUCTS, JSON.stringify(list));
     return next.id;

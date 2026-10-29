@@ -112,6 +112,7 @@ export type Content = {
       dataTitle: string;
       imageAdd: string;
       imageBrowse: string;
+      errImage: string;
       imageHint: string;
       imageTooBig: string;
       imageRemove: string;
@@ -580,6 +581,7 @@ export const content: Record<Lang, Content> = {
         dataTitle: "Add product details",
         imageAdd: "Add a new image",
         imageBrowse: "Or browse from your device",
+        errImage: "Add a photo of the product. Every product needs one.",
         imageHint: "Maximum file size is 2 MB. The image should be at least 250 × 100 px.",
         imageTooBig: "This file is larger than 2 MB.",
         imageRemove: "Remove image",
@@ -1186,6 +1188,7 @@ export const content: Record<Lang, Content> = {
         dataTitle: "أضف بيانات المنتج",
         imageAdd: "أضف صورة جديدة",
         imageBrowse: "أو تصفّح من جهازك",
+        errImage: "أضف صورة للمنتج، فكل منتج يحتاج صورة.",
         imageHint: "الحد الأقصى لحجم الملف 2 ميغابايت، ويفضّل ألا يقل مقاس الصورة عن 250 × 100 بكسل.",
         imageTooBig: "حجم هذا الملف أكبر من 2 ميغابايت.",
         imageRemove: "إزالة الصورة",

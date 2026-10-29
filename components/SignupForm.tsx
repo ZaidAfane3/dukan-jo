@@ -9,7 +9,7 @@ import { brandName, content } from "./content";
 import { FlagJO } from "./Flag";
 import { Logo } from "./Nav";
 import { LangSwitch, ThemeToggle, usePrefs } from "./Prefs";
-import { isJordanMobile, jordanMobile, phoneError, typedPhone } from "./phone";
+import { isJordanMobile, jordanMobile, phoneError, savedMobile, typedPhone } from "./phone";
 import { cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
 import { RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { ACCOUNT_LIMITS, passwordError } from "./safeAccount";
@@ -159,7 +159,7 @@ export function SignupForm() {
     /* what is kept: the name cleaned, the email in lower case and the 9 digits of the mobile */
     const name = cleanLine(form.name, ACCOUNT_LIMITS.name);
     const email = emailOf(form.email);
-    const phone = jordanMobile(form.phone);
+    const phone = savedMobile(form.phone);
     if (valid && tab === "create" && !tour && createAccount({ email, name, phone, password: form.password }) === "taken") {
       setErrors({ email: c.errTaken });
       document.getElementById("s-email")?.focus();

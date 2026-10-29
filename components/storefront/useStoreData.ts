@@ -8,6 +8,7 @@ import type { SectionConfig } from "./config";
 import { isUnlimited, money, productId, salePrice, sellableStock } from "../safeOrder";
 import { sanitizePages } from "../safeDesign";
 import { safeStoredImage } from "../safe";
+import { shownMobile } from "../phone";
 
 /* What the storefront shows comes from what the merchant has saved in this browser,
    so a product added in the dashboard appears in the store by itself. A new store has
@@ -28,9 +29,14 @@ export type StoreProduct = {
   hue?: number;
   /* A picture of the product (the platform tour uses real files in /public/demo) */
   image?: string;
+  /* Every picture of the product, the main one first (the product page shows them all); only there when it has more than one */
+  images?: string[];
   /* The notes line under the name ("rose · musk · incense") and a short label on the picture ("New") */
   notes?: string;
   badge?: string;
+  /* The longer text the merchant wrote about it and its brand, shown on its own page */
+  description?: string;
+  brand?: string;
   /* The part of the picture that must stay visible when it is cropped (percent from the left and from the top) */
   focus?: { x: number; y: number; zoom?: number };
 };
@@ -96,8 +102,14 @@ export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
     hue: (Number(p.id) * 47) % 360,
     /* a picture saved in this browser, never a link to another site (it could track the visitors) */
     image: Array.isArray(p.images) ? safeStoredImage(p.images[0]) || undefined : undefined,
+    ...(() => {
+      const all = Array.isArray(p.images) ? p.images.map((x) => safeStoredImage(x)).filter(Boolean).slice(0, 8) : [];
+      return all.length > 1 ? { images: all } : {};
+    })(),
     notes: typeof p.notes === "string" && p.notes ? p.notes : undefined,
     badge: typeof p.badge === "string" && p.badge ? p.badge : undefined,
+    ...(typeof p.description === "string" && p.description.trim() ? { description: p.description.trim().slice(0, 2000) } : {}),
+    ...(typeof p.brand === "string" && p.brand.trim() ? { brand: p.brand.trim().slice(0, 40) } : {}),
     focus: (() => {
       const f = p.focus as { x?: unknown; y?: unknown; zoom?: unknown } | undefined;
       /* the zoom (crop closer) comes along with the point that stays visible */
@@ -147,7 +159,7 @@ function build(lang: Lang, sample: boolean): StoreData {
     name: setup?.name?.trim() || accountName() || (lang === "ar" ? "متجرك" : "Your store"),
     description: setup?.description?.trim() || "",
     color: setup?.color || "#004956",
-    phone: setup?.phone || accountPhone() ? `+962 ${setup?.phone || accountPhone()}` : "",
+    phone: setup?.phone || accountPhone() ? `+962 ${shownMobile(setup?.phone || accountPhone())}` : "",
     slug: setup?.slug || "",
     /* read straight from storage: only picture data or the site's own files, never a link to another site */
     logo: safeStoredImage(setup?.logo),

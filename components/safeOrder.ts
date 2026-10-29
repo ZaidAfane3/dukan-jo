@@ -20,18 +20,34 @@ export const ORDER_LIMITS = {
   price: 100_000,
 };
 
-/** The cities a customer can choose. Anything else sent as a city is refused. */
+/** The cities orders are delivered to today. Anything else sent as a city for a new order is refused. */
 export const CITIES = {
+  ar: ["إربد", "عمّان", "السلط"],
+  en: ["Irbid", "Amman", "Salt"],
+};
+
+/** Every city an order may have been saved with (orders placed when more cities were offered keep theirs) */
+export const KNOWN_CITIES = {
   ar: ["عمّان", "الزرقاء", "إربد", "السلط", "مادبا", "العقبة", "جرش", "عجلون", "المفرق", "الكرك", "الطفيلة", "معان"],
   en: ["Amman", "Zarqa", "Irbid", "Salt", "Madaba", "Aqaba", "Jerash", "Ajloun", "Mafraq", "Karak", "Tafilah", "Ma'an"],
 };
+
+/** A city saved on an order (in either language) */
+export const isKnownCity = (s: unknown): s is string => typeof s === "string" && (KNOWN_CITIES.en.includes(s) || KNOWN_CITIES.ar.includes(s));
 
 /** How the order reaches the customer. Pickup is offered only when the store allows it. */
 export const FULFILS = ["delivery", "pickup"] as const;
 export type Fulfil = (typeof FULFILS)[number];
 
-/** A city from the list (in either language). */
+/** A city orders are delivered to now (in either language). */
 export const isCity = (s: unknown): s is string => typeof s === "string" && (CITIES.en.includes(s) || CITIES.ar.includes(s));
+
+/** A choice from a list kept in two languages (a city) in the language of the page. It is saved in the language it was chosen
+    in, so it is found in either; a value that is not on the list comes back as it was. */
+export function inLang(v: string, list: { en: readonly string[]; ar: readonly string[] }, lang: "en" | "ar"): string {
+  const i = list.en.includes(v) ? list.en.indexOf(v) : list.ar.indexOf(v);
+  return i < 0 ? v : list[lang][i] ?? v;
+}
 
 export const PAYMENTS = ["cliq", "cash", "card"] as const;
 export type Payment = (typeof PAYMENTS)[number];
@@ -137,7 +153,8 @@ const visible = (s: string) => s.replace(INVISIBLE, "").length;
 
 export type CheckoutField = "name" | "phone" | "city" | "address" | "note" | "pay";
 
-export type CheckoutValue = { customer: string; phone: string; fulfil: Fulfil; city: string; address: string; note: string; pay: Payment };
+/* `phone` or `email`: the customer gives one of them (the receipt goes there); the other is "" */
+export type CheckoutValue = { customer: string; phone: string; email: string; fulfil: Fulfil; city: string; address: string; note: string; pay: Payment };
 
 /** Checks the checkout form. Returns the cleaned order details, or the fields that are wrong. The city and the
     address are asked only for delivery; "pickup" counts only when the store allows it (`pickup`). */
@@ -145,8 +162,11 @@ export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boole
   const errors: CheckoutField[] = [];
   const name = cleanText(f.name, ORDER_LIMITS.name).replace(/\s+/g, " ").trim();
   if (visible(name) < 2) errors.push("name");
-  const mobile = typeof f.phone === "string" ? jordanMobile(f.phone) : "";
-  if (!mobile) errors.push("phone");
+  /* one contact field: a Jordan mobile or an email address, where the receipt is sent */
+  const contact = typeof f.phone === "string" ? f.phone.trim() : "";
+  const mobile = jordanMobile(contact);
+  const email = mobile ? "" : visitorEmail(contact);
+  if (!mobile && !email) errors.push("phone");
   const fulfil: Fulfil = opts.pickup && f.fulfil === "pickup" ? "pickup" : "delivery";
   const delivered = fulfil === "delivery";
   const city = delivered && typeof f.city === "string" ? f.city : "";
@@ -157,7 +177,7 @@ export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boole
   const pay = PAYMENTS.find((p) => p === f.pay);
   if (!pay) errors.push("pay");
   if (errors.length || !pay) return { ok: false, errors };
-  return { ok: true, value: { customer: name, phone: `+962${mobile}`, fulfil, city, address, note, pay } };
+  return { ok: true, value: { customer: name, phone: mobile ? `+962${mobile}` : "", email, fulfil, city, address, note, pay } };
 }
 
 /* ============================== newsletter ============================== */

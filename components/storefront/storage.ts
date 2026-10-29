@@ -68,6 +68,8 @@ function merge(s: Partial<StorefrontConfig>): StorefrontConfig {
     announcement: mergeAnnouncement(s.announcement),
     pageBackground: { ...defaultConfig.pageBackground, ...s.pageBackground },
     cards: { ...defaultConfig.cards, ...s.cards },
+    cart: { style: s.cart?.style ?? defaultConfig.cart?.style ?? "drawer" },
+    productPage: { style: s.productPage?.style ?? defaultConfig.productPage?.style ?? "classic" },
     texts: { ...defaultConfig.texts, ...s.texts },
     sections: Array.isArray(s.sections) && s.sections.length ? s.sections.map(upgrade) : defaultConfig.sections,
   };

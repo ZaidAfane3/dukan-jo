@@ -13,6 +13,7 @@ import { useStoreData, type StoreProduct } from "./useStoreData";
 import { cartQty } from "../safeOrder";
 import { CartPanel } from "./Cart";
 import { footerColors, footerDim, footerNameSize } from "./footerColors";
+import { shownMobile } from "../phone";
 
 type Props = {
   config?: StorefrontConfig;
@@ -34,9 +35,13 @@ type Props = {
   showPage?: number | null;
   /* Designer only: show the page of the first product (the "product page" of the page menu) */
   showProduct?: boolean;
+  /* In the designer: the store with its cart open, so the cart design can be seen (closing it goes back to the home page) */
+  showCart?: boolean;
+  onCartClose?: () => void;
+  onCartOpen?: () => void;
 };
 
-export function StorefrontTheme({ config = defaultConfig, device = "auto", interactive = true, store, design, sample = false, owner = false, products, showPage = null, showProduct = false }: Props) {
+export function StorefrontTheme({ config = defaultConfig, device = "auto", interactive = true, store, design, sample = false, owner = false, products, showPage = null, showProduct = false, showCart = false, onCartClose, onCartOpen }: Props) {
   const { lang, setLang } = usePrefs();
   const c = copy[lang];
   const saved = useStoreData(lang, sample);
@@ -48,7 +53,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     name: sName?.trim() || saved.name,
     description: sDescription ?? saved.description,
     color: sColor || saved.color,
-    phone: sPhone !== undefined ? (sPhone ? `+962 ${sPhone}` : "") : saved.phone,
+    phone: sPhone !== undefined ? (sPhone ? `+962 ${shownMobile(sPhone)}` : "") : saved.phone,
   }), [saved, products, sName, sDescription, sColor, sPhone]);
 
   const root = useRef<HTMLDivElement>(null);
@@ -88,8 +93,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     }), []);
   /* The basket panel: the cart button opens it (not in the designer, where a click edits the header) */
   const [cartOpen, setCartOpen] = useState(false);
-  const openCart = () => {
-    if (!design && interactive) setCartOpen(true);
+  const openCart = (e?: React.MouseEvent) => {
+    /* in the designer the cart button shows the cart page of the designer (instead of picking the header) */
+    if (design) {
+      if (onCartOpen) {
+        e?.stopPropagation();
+        onCartOpen();
+      }
+      return;
+    }
+    if (interactive) setCartOpen(true);
   };
   const cartLines = data.products.filter((p) => qty[p.id]).map((p) => ({ p, qty: qty[p.id] }));
   const cart = data.products.reduce((k, p) => ({ count: k.count + (qty[p.id] ?? 0), total: k.total + (qty[p.id] ?? 0) * priceOf(p) }), { count: 0, total: 0 });
@@ -484,10 +497,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         {design && <span aria-hidden className={`pointer-events-none absolute inset-1 rounded-xl ring-2 ring-[#14b8a6] transition ${design.selected === "header" ? "opacity-100" : "opacity-0 group-hover/sel:opacity-100"}`} />}
       </header>
 
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} />}
+      {design && showCart && (
+        /* the cart drawn inside the preview over its first screen, filled with the first products when nothing was added */
+        <div className="absolute inset-x-0 top-0 z-[60] h-[min(100%,880px)]">
+          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} />
+        </div>
+      )}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} />}
       <main>
         {shownProduct ? (
-          <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} />
+          <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} />
         ) : shownPage ? (
           <>
             <section className={`${compact ? "px-4 pt-8" : "px-8 pt-12"} ${shownPage.sections.length || design ? "pb-2" : compact ? "min-h-[420px] pb-10" : "min-h-[640px] pb-16"}`}>

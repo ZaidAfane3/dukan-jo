@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { brandName } from "../content";
 import { demoActive, setOwnCopy } from "../demoSandbox";
 import { adoptTheme, findTheme, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
@@ -28,6 +28,8 @@ const footerProblem = { email: "email", whatsapp: "whatsapp", contact: "phone" }
 import { saveProductFocus, type StoreProduct } from "../storefront/useStoreData";
 import type { StorefrontConfig } from "../storefront/config";
 import type { Lang } from "../content";
+import { shownMobile } from "../phone";
+import { savedPhone } from "../safeAccount";
 
 const ico = { viewBox: "0 0 24 24", className: "h-5 w-5", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 
@@ -81,7 +83,7 @@ function initial(): Draft {
   const s = loadSetup();
   return {
     config: loadConfig(),
-    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#004956", phone: s?.phone || accountPhone() },
+    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#004956", phone: shownMobile(s?.phone || accountPhone()) },
   };
 }
 
@@ -125,6 +127,9 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [pagesVersion, setPagesVersion] = useState(0);
   /* The product page is open in the preview (the page of the first product) */
   const [productView, setProductView] = useState(false);
+  /* The preview shows the store with its cart open (the cart design is seen there) */
+  const [cartView, setCartView] = useState(false);
+  const showCartPage = useCallback(() => { setOpenedPage(null); setProductView(false); setCartView(true); }, []);
   /* The page asked about in the trash question of the page menu */
   const [delAsk, setDelAsk] = useState<number | null>(null);
   const storePages = useStorePages(lang, pagesVersion);
@@ -542,7 +547,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       name: draft.identity.name.trim(),
       description: draft.identity.description.trim(),
       color: draft.identity.color,
-      phone: draft.identity.phone.trim(),
+      phone: savedPhone(draft.identity.phone),
       slug: prev?.slug ?? "",
       done: prev && prev.done.length === TASKS ? prev.done.map((v, i) => (i === TASKS - 1 ? true : v)) : Array.from({ length: TASKS }, (_, i) => i === TASKS - 1),
       pickup: prev?.pickup,
@@ -562,7 +567,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
 
   saveRef.current = save;
   /* What a click in the preview does. The preview keeps one set of these (see Preview), and they always call the latest ones. */
-  acts.current = { select, selectProduct, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); if (id !== null) setPanelOpen(true); } };
+  acts.current = { select, selectProduct, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); if (id !== null) setPanelOpen(true); } };
 
   const leave = () => router.push("/dashboard");
   const tryExit = () => (dirty ? setExiting(true) : leave());
@@ -638,7 +643,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
         {/* On the narrowest phones the page's name gives up room (it is cut short) so the bar's buttons still fit */}
         <div className="relative min-w-0">
           <button type="button" onClick={() => { setPagesMenu((o) => !o); setMoreMenu(false); }} aria-expanded={pagesMenu} className={`${pill} flex max-w-full items-center gap-2 whitespace-nowrap`}>
-            <span className="min-w-0 max-w-[4.5rem] truncate sm:max-w-none">{openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : t.pages[0]}</span>
+            <span className="min-w-0 max-w-[4.5rem] truncate sm:max-w-none">{openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : cartView ? t.cartPage : t.pages[0]}</span>
             <span className={`transition-transform ${pagesMenu ? "rotate-180" : ""}`}>{railIcons.chevron}</span>
           </button>
           {pagesMenu && (
@@ -648,14 +653,23 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
                   <button
                     type="button"
                     disabled={i > 1}
-                    onClick={() => { setPagesMenu(false); setOpenedPage(null); setProductView(i === 1); }}
-                    className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-medium transition ${(i === 0 && openedPage === null && !productView) || (i === 1 && productView) ? "bg-primary/15 font-bold text-primary" : i <= 1 ? "font-bold hover:bg-soft" : "text-muted/70"}`}
+                    onClick={() => { setPagesMenu(false); setOpenedPage(null); setProductView(i === 1); setCartView(false); }}
+                    className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-medium transition ${(i === 0 && openedPage === null && !productView && !cartView) || (i === 1 && productView) ? "bg-primary/15 font-bold text-primary" : i <= 1 ? "font-bold hover:bg-soft" : "text-muted/70"}`}
                   >
                     {p}
                     {i > 1 && <span className="text-[10px] font-semibold">{t.soon}</span>}
                   </button>
                 </li>
               ))}
+              <li>
+                <button
+                  type="button"
+                  onClick={() => { setPagesMenu(false); setOpenedPage(null); setProductView(false); setCartView(true); }}
+                  className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-bold transition ${cartView ? "bg-primary/15 text-primary" : "hover:bg-soft"}`}
+                >
+                  {t.cartPage}
+                </button>
+              </li>
               {storePages.map((p) => (
                 <li key={p.id}>
                   {delAsk === p.id ? (
@@ -666,7 +680,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
                     </div>
                   ) : (
                     <div className={`flex items-center rounded-xl transition hover:bg-soft ${openedPage === p.id ? "bg-primary/15" : ""}`}>
-                      <button type="button" onClick={() => { setPagesMenu(false); setOpenedPage(p.id); setProductView(false); setPanelOpen(true); }} className={`min-w-0 flex-1 truncate px-3 py-2.5 text-start text-sm font-medium ${openedPage === p.id ? "font-bold text-primary" : ""}`}>
+                      <button type="button" onClick={() => { setPagesMenu(false); setOpenedPage(p.id); setProductView(false); setCartView(false); setPanelOpen(true); }} className={`min-w-0 flex-1 truncate px-3 py-2.5 text-start text-sm font-medium ${openedPage === p.id ? "font-bold text-primary" : ""}`}>
                         {p.title}
                       </button>
                       <button type="button" disabled={readOnly} onClick={() => setDelAsk(p.id)} aria-label={lang === "ar" ? "حذف الصفحة" : "Delete the page"} title={lang === "ar" ? "حذف الصفحة" : "Delete the page"} className="me-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-30">
@@ -683,7 +697,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
               </li>
             </ul>
           )}
-          {makingPage && <NewPageDialog lang={lang} onClose={() => setMakingPage(false)} onCreated={(id) => { setMakingPage(false); setPagesVersion((v) => v + 1); setOpenedPage(id); setProductView(false); setPanelOpen(true); }} />}
+          {makingPage && <NewPageDialog lang={lang} onClose={() => setMakingPage(false)} onCreated={(id) => { setMakingPage(false); setPagesVersion((v) => v + 1); setOpenedPage(id); setProductView(false); setCartView(false); setPanelOpen(true); }} />}
         </div>
 
         <div className="flex-1" />
@@ -844,7 +858,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
         {/* Panel */}
         {panelOpen && (
           <TextColorNow.Provider value={draft.config.theme.text}>
-          <OpenPage.Provider value={(id) => { setOpenedPage(id); setProductView(false); setPanelOpen(true); }}>
+          <OpenPage.Provider value={(id) => { setOpenedPage(id); setProductView(false); setCartView(false); setPanelOpen(true); }}>
           <aside className="flex max-h-[45vh] shrink-0 flex-col border-b border-fg/10 bg-card lg:max-h-none lg:w-[20rem] lg:border-b-0 lg:border-e">
             <div ref={panelBox} className="min-h-0 flex-1 overflow-y-auto">
               {!pic && openedPage !== null && pagePanel && (
@@ -886,6 +900,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           products={tryProducts}
           showPage={openedPage}
           showProduct={productView}
+          showCart={cartView}
+          openCart={showCartPage}
           acts={acts}
         />
       </div>
@@ -914,7 +930,7 @@ type Acts = Required<Omit<Design, "selected">>;
  * (a menu, a message, a panel opening). While a text is being typed it follows a moment later: when typing pauses, and at
  * least every quarter of a second, so the side panel keeps up with the keys.
  */
-const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, name, description, color, phone, selected, sample, products, showPage, showProduct, acts }: {
+const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, name, description, color, phone, selected, sample, products, showPage, showProduct, showCart, openCart, acts }: {
   lang: Lang;
   reveal: { id: string; n: number } | null;
   frameOn: string | null;
@@ -929,6 +945,8 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
   products?: StoreProduct[];
   showPage: number | null;
   showProduct: boolean;
+  showCart: boolean;
+  openCart: () => void;
   acts: React.MutableRefObject<Acts>;
 }) {
   const live = useMemo(() => ({ config, store: { name, description, color, phone } }), [config, name, description, color, phone]);
@@ -952,9 +970,10 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
     () => ({ selected, select: (id, field) => acts.current.select(id, field), selectProduct: (p) => acts.current.selectProduct(p), reorderChips: (id, from, to) => acts.current.reorderChips(id, from, to), openPage: (id) => acts.current.openPage(id) }),
     [selected, acts],
   );
+  const closeCart = useCallback(() => acts.current.openPage(null), [acts]);
   const store = useMemo(
-    () => <StorefrontTheme config={now.config} device="auto" interactive={false} sample={sample} products={products} owner showPage={showPage} showProduct={showProduct} design={design} store={now.store} />,
-    [now, sample, products, showPage, showProduct, design],
+    () => <StorefrontTheme config={now.config} device="auto" interactive={false} sample={sample} products={products} owner showPage={showPage} showProduct={showProduct} showCart={showCart} onCartClose={closeCart} onCartOpen={openCart} design={design} store={now.store} />,
+    [now, sample, products, showPage, showProduct, showCart, closeCart, openCart, design],
   );
   return (
     <Canvas lang={lang} reveal={reveal} frameOn={frameOn}>
