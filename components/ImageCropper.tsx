@@ -62,7 +62,10 @@ export function ImageCropper({
   const src = before?.src ?? given;
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [shape, setShape] = useState<CropShape>(before && shapes.includes(before.shape) ? before.shape : shapes[0]);
-  const [crop, setCrop] = useState<Crop>(before?.crop ?? { x: 0, y: 0, zoom: 1 });
+  /* a photo (JPEG) always fills its frame: zoomed out, the empty room around it would be saved as white bars. A PNG (a logo)
+     may be smaller than its frame, the room around it stays see-through. */
+  const fills = type === "image/jpeg";
+  const [crop, setCrop] = useState<Crop>(() => (before ? { ...before.crop, zoom: fills ? Math.max(1, before.crop.zoom) : before.crop.zoom } : { x: 0, y: 0, zoom: 1 }));
   const [busy, setBusy] = useState(false);
   const grab = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   const live = useRef(onLive);
@@ -119,7 +122,7 @@ export function ImageCropper({
 
   if (!size) return null;
   const ratio = shape === "original" ? size.w / size.h : RATIO[shape];
-  const minZoom = Math.min(1, Math.round(fitZoom(size.w, size.h, ratio) * 100) / 100);
+  const minZoom = fills ? 1 : Math.min(1, Math.round(fitZoom(size.w, size.h, ratio) * 100) / 100);
   const box = cropBox(size.w, size.h, ratio, crop);
   const set = (c: Crop) => {
     const b = cropBox(size.w, size.h, ratio, c);
@@ -140,7 +143,7 @@ export function ImageCropper({
   };
 
   return (
-    <div className="space-y-3 rounded-xl border border-primary/40 bg-card p-3" data-cropper>
+    <div className="min-w-0 max-w-full space-y-3 rounded-xl border border-primary/40 bg-card p-3" data-cropper>
       <p className="text-xs leading-relaxed text-muted">{w.hint}</p>
       {shapes.length > 1 && (
         <div role="radiogroup" aria-label={w.shape} className="flex flex-wrap gap-1.5">
@@ -188,7 +191,7 @@ export function ImageCropper({
       </div>
       <label className="flex items-center gap-3 text-xs font-semibold text-fg/80">
         {w.zoom}
-        <input type="range" min={Math.round(minZoom * 100)} max={400} value={Math.round(crop.zoom * 100)} onChange={(e) => set({ ...crop, zoom: Number(e.target.value) / 100 })} aria-label={w.zoom} className="h-2 flex-1 accent-primary" />
+        <input type="range" min={Math.round(minZoom * 100)} max={400} value={Math.round(crop.zoom * 100)} onChange={(e) => set({ ...crop, zoom: Number(e.target.value) / 100 })} aria-label={w.zoom} className="h-2 min-w-0 flex-1 accent-primary" />
         <span className="w-10 text-end tabular-nums" dir="ltr">{Math.round(crop.zoom * 100)}%</span>
       </label>
       {/* the turn: a slider, the degrees to type, and a quarter turn at a press */}

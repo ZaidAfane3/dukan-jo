@@ -1142,7 +1142,8 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
       {/* it slides open and fades in, and slides closed again */}
       <div ref={box} onTransitionEnd={(e) => { if (e.target === e.currentTarget && open) setSettled(true); }} className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
         {/* cut only while it slides: once open, nothing inside is cut (an error under a field, a focus ring) */}
-        <div className={`min-h-0 ${open && settled ? "" : "overflow-hidden"}`}>
+        {/* min-w-0: never wider than the panel, whatever is inside (a cropper's controls pushed it out before) */}
+        <div className={`min-h-0 min-w-0 ${open && settled ? "" : "overflow-hidden"}`}>
           {made && (
             <div className="pt-3">
               <PartGroup.Provider value={{ open: inner, set: setInner }}>
