@@ -112,9 +112,10 @@ export function FoundersGift() {
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="gift-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-md overflow-hidden rounded-2xl bg-card text-fg shadow-2xl ring-1 ring-fg/10">
-        <div className="relative h-48 overflow-hidden bg-soft">
+        {/* the whole store page, scrolling slowly down and back up by itself (paused under the mouse), as on the landing page */}
+        <div className="group relative h-[var(--box)] overflow-hidden bg-soft [--box:12rem]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/themes/mada.jpg?v=4" alt="" className="h-full w-full object-cover object-top" />
+          <img src="/themes/mada.jpg?v=4" alt="" draggable={false} className="dk-shot block w-full select-none" />
           <span className="absolute start-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-bold text-white shadow">
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 12v9H4v-9M2 7h20v5H2zM12 21V7M12 7H7.500a2.500 2.500 0 1 1 0-5C11 2 12 7 12 7ZM12 7h4.500a2.500 2.500 0 1 0 0-5C13 2 12 7 12 7Z" /></svg>
             {w.badge}
