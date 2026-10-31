@@ -239,9 +239,10 @@ export function LogoMark({ logo, name, className = "h-10 w-10 rounded-2xl text-l
   const base = `grid shrink-0 place-items-center overflow-hidden font-extrabold shadow-sm ${className}`;
   if (logo.kind === "image" && logo.image) {
     return (
-      <span className={`${base} bg-white ring-1 ring-black/10`}>
+      /* his picture fills its place edge to edge: no white tile, line or padding around it (a dark logo got a white edge) */
+      <span className={base}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={logo.image} alt="" className="h-full w-full object-contain p-0.5" />
+        <img src={logo.image} alt="" className="h-full w-full object-contain" />
       </span>
     );
   }
