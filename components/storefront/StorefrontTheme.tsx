@@ -9,7 +9,7 @@ import { linkProps, ProductPage, renderSection, type Ctx, type Design } from "./
 import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
 import { fontFamily, headingFamily } from "./config";
-import { sampleProducts, useStoreData, type StoreProduct } from "./useStoreData";
+import { categoriesOf, sampleProducts, useStoreData, type StoreProduct } from "./useStoreData";
 import { cartQty } from "../safeOrder";
 import { CartPanel } from "./Cart";
 import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
@@ -50,7 +50,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const sName = store?.name, sDescription = store?.description, sColor = store?.color, sPhone = store?.phone;
   const data = useMemo(() => ({
     ...saved,
-    ...(products ? { products, categories: Array.from(new Set(products.map((p) => p.category).filter(Boolean))), isDemo: false } : {}),
+    ...(products ? { products, categories: Array.from(new Set(products.flatMap(categoriesOf).filter(Boolean))), isDemo: false } : {}),
     name: sName?.trim() || saved.name,
     description: sDescription ?? saved.description,
     color: sColor || saved.color,

@@ -10,7 +10,7 @@ import { readPhoto } from "./designer/image";
 import { demoActive } from "./demoSandbox";
 import { FocusPicker } from "./FocusPicker";
 import { ImageCropper } from "./ImageCropper";
-import { PRODUCT_MAX, cleanCategory, cleanProduct, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
+import { PRODUCT_MAX, cleanCategory, cleanProduct, productCategories, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
 import { cleanLine, cleanLines } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote } from "./Required";
 import { RudeNote } from "./RudeNote";
@@ -22,7 +22,7 @@ type Draft = {
   price: string;
   sale: string;
   cost: string;
-  category: string;
+  categories: string[];
   brand: string;
   description: string;
   notes: string;
@@ -52,7 +52,7 @@ const blank: Draft = {
   price: "",
   sale: "",
   cost: "",
-  category: "",
+  categories: [],
   brand: "",
   description: "",
   notes: "",
@@ -95,7 +95,7 @@ const matches: Record<FilterKey, (p: Product) => boolean> = {
   /* a product with unlimited stock never sells out and never runs low */
   soldOut: (p) => !p.unlimited && p.quantity <= 0,
   forSale: (p) => !p.hidden && (p.unlimited || p.quantity > 0) && p.price !== null,
-  uncategorized: (p) => !p.category.trim(),
+  uncategorized: (p) => p.categories.length === 0,
   shipping: (p) => p.shipping,
   nearSoldOut: (p) => !p.unlimited && p.quantity > 0 && p.quantity <= p.lowAt,
   noDescription: (p) => !p.description.trim(),
@@ -128,8 +128,8 @@ function Label({ id, children, hint, required = false }: { id: string; children:
   );
 }
 
-/* His own categories (بنطلون، جينز، تيشرت…): he makes them once and picks one for each product. Kept in this browser with the
-   categories his products already have. */
+/* His own categories (بنطلون، جينز، تيشرت…): he makes them once and picks one or more for each product. Kept in this browser
+   with the categories his products already have. */
 const CATS = "seen-categories";
 
 function loadCategories(products: Product[]): string[] {
@@ -140,12 +140,13 @@ function loadCategories(products: Product[]): string[] {
   } catch {
     /* none saved yet */
   }
-  const used = products.filter((x) => !x.deletedAt).map((x) => x.category.trim()).filter(Boolean);
+  const used = products.filter((x) => !x.deletedAt).flatMap((x) => x.categories);
   return Array.from(new Set([...saved, ...used]));
 }
 
-/** The category of a product: his categories as chips to pick from, a box to make a new one, and × on the ones no product uses */
-function CategoryPicker({ value, onChange, onTyped, products, words }: { value: string; onChange: (v: string) => void; onTyped: (v: string) => void; products: Product[]; words: { catNewPh: string; catAdd: string; catNone: string; catRemove: string; catEmpty: string } }) {
+/** The categories of a product: his categories as chips to pick (as many as he wants), a box to make a new one, and × only on
+    the ones no product uses and that are not picked here, so a category in use can't be deleted */
+function CategoryPicker({ value, onChange, onTyped, products, words }: { value: string[]; onChange: (v: string[]) => void; onTyped: (v: string) => void; products: Product[]; words: { catNewPh: string; catAdd: string; catNone: string; catRemove: string; catEmpty: string } }) {
   const [list, setList] = useState<string[]>([]);
   const [typed, setTyped] = useState("");
   useEffect(() => setList(loadCategories(products)), [products]);
@@ -161,25 +162,30 @@ function CategoryPicker({ value, onChange, onTyped, products, words }: { value: 
     const v = cleanCategory(typed);
     if (!v) return;
     if (!list.includes(v)) keep([...list, v]);
-    onChange(v);
+    /* a new category is picked for this product, with the ones already picked */
+    if (!value.includes(v) && value.length < PRODUCT_MAX.categories) onChange([...value, v]);
     setTyped("");
     onTyped("");
   };
-  const used = (c: string) => products.some((x) => !x.deletedAt && x.category.trim() === c);
+  const used = (c: string) => products.some((x) => !x.deletedAt && x.categories.includes(c));
+  const toggle = (c: string) => onChange(value.includes(c) ? value.filter((x) => x !== c) : value.length < PRODUCT_MAX.categories ? [...value, c] : value);
   return (
     <div className="space-y-3">
       {list.length === 0 ? (
         <p className="text-xs text-muted">{words.catNone}</p>
       ) : (
-        <div role="radiogroup" className="flex flex-wrap gap-2">
-          {/* the category is optional: "No category" puts the product under "Other" in the store */}
-          <span className={`inline-flex items-center rounded-full border border-dashed text-sm font-semibold transition ${!value ? "border-ink bg-ink text-onink" : "border-fg/25 text-muted hover:bg-soft"}`}>
-            <button type="button" role="radio" aria-checked={!value} onClick={() => onChange("")} className="px-4 py-1.5">{words.catEmpty}</button>
+        <div role="group" className="flex flex-wrap gap-2">
+          {/* the category is optional: "No category" (it clears the others) puts the product under "Other" in the store */}
+          <span className={`inline-flex items-center rounded-full border border-dashed text-sm font-semibold transition ${value.length === 0 ? "border-ink bg-ink text-onink" : "border-fg/25 text-muted hover:bg-soft"}`}>
+            <button type="button" aria-pressed={value.length === 0} onClick={() => onChange([])} className="px-4 py-1.5">{words.catEmpty}</button>
           </span>
           {list.map((c) => (
-            <span key={c} className={`inline-flex items-center rounded-full border text-sm font-semibold transition ${value === c ? "border-ink bg-ink text-onink" : "border-fg/15 hover:bg-soft"}`}>
-              <button type="button" role="radio" aria-checked={value === c} onClick={() => onChange(c)} className="px-4 py-1.5">{c}</button>
-              {!used(c) && value !== c && (
+            <span key={c} className={`inline-flex items-center rounded-full border text-sm font-semibold transition ${value.includes(c) ? "border-ink bg-ink text-onink" : "border-fg/15 hover:bg-soft"}`}>
+              <button type="button" aria-pressed={value.includes(c)} onClick={() => toggle(c)} className="inline-flex items-center gap-1.5 px-4 py-1.5">
+                {value.includes(c) && <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>}
+                {c}
+              </button>
+              {!used(c) && !value.includes(c) && (
                 <button type="button" onClick={() => keep(list.filter((x) => x !== c))} aria-label={`${words.catRemove}: ${c}`} title={words.catRemove} className="-ms-2 grid h-7 w-7 place-items-center rounded-full text-muted transition hover:text-rose-600">
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
                 </button>
@@ -307,7 +313,7 @@ export function Products() {
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = items.filter(test(filter)).filter((x) => !q || x.name.toLowerCase().includes(q) || x.category.toLowerCase().includes(q) || x.brand.toLowerCase().includes(q));
+    const list = items.filter(test(filter)).filter((x) => !q || x.name.toLowerCase().includes(q) || x.categories.some((c) => c.toLowerCase().includes(q)) || x.brand.toLowerCase().includes(q));
     const by = [
       (a: Product, b: Product) => b.created - a.created,
       (a: Product, b: Product) => a.name.localeCompare(b.name, lang),
@@ -329,7 +335,7 @@ export function Products() {
       price: x.price === null ? "" : String(x.price),
       sale: x.sale === null ? "" : String(x.sale),
       cost: x.cost === null ? "" : String(x.cost),
-      category: x.category,
+      categories: x.categories,
       brand: x.brand,
       description: x.description,
       notes: x.notes ?? "",
@@ -438,7 +444,10 @@ export function Products() {
       /* a cost that is not an amount is left out rather than saved wrong */
       cost: money(num(draft.cost)),
       /* a new category typed but not added with its button still counts; only spaces is no category */
-      category: cleanCategory(draft.category) || cleanCategory(typedCat.current),
+      ...(() => {
+        const categories = productCategories({ categories: [...draft.categories, typedCat.current] });
+        return { categories, category: categories[0] ?? "" };
+      })(),
       brand: cleanLine(draft.brand, PRODUCT_MAX.brand),
       description: cleanLines(draft.description, PRODUCT_MAX.description),
       notes: cleanLine(draft.notes, PRODUCT_MAX.notes),
@@ -599,7 +608,7 @@ export function Products() {
                           {x.hidden && <span className="shrink-0 rounded bg-fg/10 px-1.5 py-0.5 text-[10px] font-bold text-muted">{p.filters.hidden.split(" ").pop()}</span>}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted">
-                          {x.category || p.otherCategory} · {x.unlimited ? p.unlimitedShort : <><span dir="ltr">{x.quantity}</span> {p.piece}</>}
+                          {x.categories.join(lang === "ar" ? "، " : ", ") || p.otherCategory} · {x.unlimited ? p.unlimitedShort : <><span dir="ltr">{x.quantity}</span> {p.piece}</>}
                         </span>
                         <span dir="ltr" className="mt-0.5 block text-start text-sm font-bold">
                           {x.price === null ? (
@@ -736,8 +745,8 @@ export function Products() {
                     </div>
                     <div className="sm:col-span-2">
                       <Label id="p-category" hint={p.catHint}>{p.category}</Label>
-                      <CategoryPicker value={draft.category} products={items} words={p} onChange={(v) => set("category", v)} onTyped={(v) => { typedCat.current = v; }} />
-                      <RudeNote lang={lang} text={draft.category} />
+                      <CategoryPicker value={draft.categories} products={items} words={p} onChange={(v) => set("categories", v)} onTyped={(v) => { typedCat.current = v; }} />
+                      <RudeNote lang={lang} text={draft.categories.join(" ")} />
                     </div>
                     <div>
                       <Label id="p-brand">{p.brand}</Label>

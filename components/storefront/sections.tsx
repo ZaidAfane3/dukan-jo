@@ -8,7 +8,7 @@ import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
 import { copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
-import type { StoreData, StoreProduct } from "./useStoreData";
+import { categoriesOf, type StoreData, type StoreProduct } from "./useStoreData";
 import { bannerSurface, legibleOn, readsOn } from "./footerColors";
 import { onShowSlide } from "./slideSignal";
 import { initialOf, isBlank } from "../safe";
@@ -648,7 +648,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const askHref = ask ? (/wa\.me\//i.test(ask) ? `${ask}${ask.includes("?") ? "&" : "?"}text=${encodeURIComponent(w.askText(p.name))}` : ask) : "";
   const details = [
     p.brand ? [w.brand, p.brand] : null,
-    p.category ? [w.category, p.category] : null,
+    p.category ? [w.category, categoriesOf(p).join(ctx.lang === "ar" ? "، " : ", ")] : null,
     [w.availability, out ? c.soldOut : low ? w.left(p.quantity) : unlimited ? w.always : w.inStock],
   ].filter(Boolean) as [string, string][];
   /* a long name gets a smaller title, so it never fills the whole column */

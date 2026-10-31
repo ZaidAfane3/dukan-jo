@@ -93,7 +93,9 @@ export type Product = {
   price: number | null;
   sale: number | null;
   cost: number | null;
-  /* Optional: "" means no category, and the store shows the product under "Other" ("أخرى") */
+  /* Optional, and a product can be in several: none means the store shows it under "Other" ("أخرى") */
+  categories: string[];
+  /* The first of them ("" when none): kept for whatever reads one category (old saved products had only this) */
   category: string;
   brand: string;
   description: string;
@@ -118,7 +120,7 @@ export type Product = {
 };
 
 /** The limits of each product field, shared by the form and the checks. */
-export const PRODUCT_MAX = { name: 80, category: 40, brand: 40, notes: 60, badge: 20, description: 2000 };
+export const PRODUCT_MAX = { name: 80, category: 40, categories: 10, brand: 40, notes: 60, badge: 20, description: 2000 };
 
 export type ProductProblem = "name" | "price" | "sale" | "images" | "quantity";
 
@@ -145,6 +147,7 @@ export function cleanProduct(x: Record<string, unknown>): Product | null {
   const sale = money(x.sale);
   const f = record(x.focus);
   const images = Array.isArray(x.images) ? x.images.map(picture).filter(Boolean).slice(0, 6) : [];
+  const categories = productCategories(x);
   return {
     id,
     images,
@@ -154,7 +157,8 @@ export function cleanProduct(x: Record<string, unknown>): Product | null {
     /* a sale price that is not below the price is no sale */
     sale: sale !== null && price !== null && sale < price ? sale : null,
     cost: money(x.cost),
-    category: cleanLine(x.category, PRODUCT_MAX.category),
+    categories,
+    category: categories[0] ?? "",
     brand: cleanLine(x.brand, PRODUCT_MAX.brand),
     description: cleanLines(x.description, PRODUCT_MAX.description),
     notes: cleanLine(x.notes, PRODUCT_MAX.notes),
@@ -177,6 +181,13 @@ export function cleanProduct(x: Record<string, unknown>): Product | null {
 
 /** A category name as it is saved, or "" when nothing is left of it. */
 export const cleanCategory = (v: unknown) => cleanLine(v, PRODUCT_MAX.category);
+
+/** A product's categories as they are saved: each one cleaned, once, at most 10. A product saved before it could have
+    several has only `category`, which becomes a list of one. */
+export function productCategories(x: { categories?: unknown; category?: unknown }): string[] {
+  const raw = Array.isArray(x.categories) ? x.categories : [x.category];
+  return Array.from(new Set(raw.map(cleanCategory).filter(Boolean))).slice(0, PRODUCT_MAX.categories);
+}
 
 /* ============================== orders ============================== */
 

@@ -9,7 +9,7 @@ import { CITIES, checkCheckout, isUnlimited, ORDER_LIMITS, priceCart, sellableSt
 import { checkCoupon, cleanCoupon, parseList, type Coupon, type CouponRefusal } from "../records";
 import type { CartStyle } from "./config";
 import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
-import type { StoreProduct } from "./useStoreData";
+import { categoriesOf, type StoreProduct } from "./useStoreData";
 
 /* The customer's basket: what is in it, the free delivery progress and a few suggestions, then the checkout (who, where,
    how to pay) in the same place, and a thank-you. It has four looks a design picks (`look`, see the skins at the end). The order is saved with
@@ -148,9 +148,9 @@ const words = {
 /** Products to suggest: the same category as the ones given first, then featured ones, then the rest. Never ones already chosen. */
 export function suggestFor(all: StoreProduct[], base: StoreProduct[], n: number): StoreProduct[] {
   const taken = new Set(base.map((p) => p.id));
-  const cats = new Set(base.map((p) => p.category).filter(Boolean));
+  const cats = new Set(base.flatMap(categoriesOf).filter(Boolean));
   const left = all.filter((p) => !taken.has(p.id) && p.quantity > 0);
-  const rank = (p: StoreProduct) => (cats.has(p.category) ? 0 : p.featured ? 1 : 2);
+  const rank = (p: StoreProduct) => (categoriesOf(p).some((c) => cats.has(c)) ? 0 : p.featured ? 1 : 2);
   return [...left].sort((a, b) => rank(a) - rank(b)).slice(0, n);
 }
 

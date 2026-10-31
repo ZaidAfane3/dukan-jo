@@ -7,6 +7,7 @@ import { load as loadPages, pagesScope } from "../InfoPages";
 import type { SectionConfig } from "./config";
 import { isUnlimited, money, productId, salePrice, sellableStock } from "../safeOrder";
 import { safeStoredImage } from "../safe";
+import { productCategories } from "../records";
 import { shownMobile } from "../phone";
 
 /* What the storefront shows comes from what the merchant has saved in this browser,
@@ -17,7 +18,10 @@ import { shownMobile } from "../phone";
 export type StoreProduct = {
   id: number;
   name: string;
+  /* the first of its categories (the label on its card) */
   category: string;
+  /* every category it is in, when it is in more than one (the menu lists it under each, its page names them all) */
+  categories?: string[];
   price: number | null;
   sale: number | null;
   featured: boolean;
@@ -106,7 +110,10 @@ export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
   return {
     id: productId(p.id) ?? NaN,
     name: String(p.name ?? ""),
-    category: String(p.category ?? ""),
+    ...(() => {
+      const all = productCategories(p);
+      return { category: all[0] ?? "", ...(all.length > 1 ? { categories: all } : {}) };
+    })(),
     price,
     sale: salePrice(price, p.sale),
     featured: p.featured === true,
@@ -139,6 +146,9 @@ const isOther = (c: string) => {
   return !v || v === OTHER_CATEGORY.en.toLowerCase() || v === OTHER_CATEGORY.ar;
 };
 
+/** Every category a store product is in (one, or several) */
+export const categoriesOf = (p: { category: string; categories?: string[] }): string[] => (p.categories?.length ? p.categories : [p.category]);
+
 /** Every product with a category to show: no category (or "Other") becomes the "Other" group of this language. */
 export function withOtherCategory<T extends { category: string }>(products: T[], lang: Lang): T[] {
   return products.map((p) => (isOther(p.category) ? { ...p, category: OTHER_CATEGORY[lang] } : p));
@@ -146,8 +156,8 @@ export function withOtherCategory<T extends { category: string }>(products: T[],
 
 /** The categories the store shows, in the order the products have them, with "Other" always last and only when a
     product is in it. Used by every theme (filters, the menu, the footer column). */
-export function storeCategories(products: { category: string }[], lang: Lang): string[] {
-  const named = Array.from(new Set(products.map((p) => p.category).filter((c) => !isOther(c))));
+export function storeCategories(products: { category: string; categories?: string[] }[], lang: Lang): string[] {
+  const named = Array.from(new Set(products.flatMap(categoriesOf).filter((c) => !isOther(c))));
   return [...named, ...(products.some((p) => isOther(p.category)) ? [OTHER_CATEGORY[lang]] : [])];
 }
 

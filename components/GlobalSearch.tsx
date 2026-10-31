@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
-import { cleanOrder, cleanProduct, parseList } from "./records";
+import { cleanOrder, cleanProduct, parseList, productCategories } from "./records";
 
 type Result = { id: string; group: 0 | 1 | 2; label: string; sub?: string; href: string };
 
@@ -97,8 +97,9 @@ export function GlobalSearch() {
       .slice(0, 500)
       .forEach((p) => {
         const name = String(p.name ?? "");
-        if (norm(name).includes(t) || norm(String(p.category ?? "")).includes(t) || norm(String(p.brand ?? "")).includes(t)) {
-          out.push({ id: `p${p.id}`, group: 2, label: name, sub: String(p.category ?? ""), href: `/products?open=${p.id}` });
+        const cats = productCategories(p).join(", ");
+        if (norm(name).includes(t) || norm(cats).includes(t) || norm(String(p.brand ?? "")).includes(t)) {
+          out.push({ id: `p${p.id}`, group: 2, label: name, sub: cats, href: `/products?open=${p.id}` });
         }
       });
 
