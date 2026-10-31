@@ -6,7 +6,6 @@
    a backend, the server must run the same functions on every request before it saves anything. No React and no
    browser APIs in this file, so the server can import it as it is. */
 
-import type { Account } from "./accounts";
 import { jordanMobile, savedMobile, typedPhone } from "./phone";
 import { cleanDate, cleanDomain, cleanLine, cleanLines, cleanMoney, emailOf, isSlug, safeColor, safeImage, safeStoredImage } from "./safe";
 import type { SavedSetup } from "./setup";
@@ -43,18 +42,6 @@ export const passwordError = {
   long: { en: "Use 128 characters or fewer", ar: "استخدم 128 حرفًا أو أقل" },
   blank: { en: "The password can't be only spaces", ar: "لا يمكن أن تكون كلمة المرور مسافات فقط" },
 };
-
-export function cleanAccounts(v: unknown): Account[] {
-  if (!Array.isArray(v)) return [];
-  const out: Account[] = [];
-  for (const item of v) {
-    const a = obj(item);
-    const email = emailOf(a?.email);
-    if (!a || !email || typeof a.pw !== "string" || out.some((x) => x.email === email)) continue;
-    out.push({ email, name: cleanLine(a.name, ACCOUNT_LIMITS.name), phone: savedPhone(a.phone), pw: a.pw.slice(0, 64), created: time(a.created) });
-  }
-  return out;
-}
 
 /* ---------------- profile (the settings page) ---------------- */
 

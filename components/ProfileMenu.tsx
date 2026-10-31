@@ -210,7 +210,7 @@ export function ProfileMenu() {
               <Switch on={theme === "dark"} />
             </button>
             <span aria-hidden className="h-6 w-px bg-fg/15" />
-            <Link href="/" onClick={() => { logOut(); try { sessionStorage.removeItem("seen-signed-in"); } catch { /* storage blocked */ } go(); }} aria-label={t.logout} title={t.logout} className="grid h-9 w-9 place-items-center rounded-lg text-rose-500 transition hover:bg-rose-500/10">{i.power}</Link>
+            <Link href="/" onClick={() => { void logOut(); try { sessionStorage.removeItem("seen-signed-in"); } catch { /* storage blocked */ } go(); }} aria-label={t.logout} title={t.logout} className="grid h-9 w-9 place-items-center rounded-lg text-rose-500 transition hover:bg-rose-500/10">{i.power}</Link>
           </div>
         </div>
       )}

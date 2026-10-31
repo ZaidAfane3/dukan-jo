@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { Fragment, useEffect, useRef, useState } from "react";
+import { syncOnOpen } from "./accounts";
 import { demoActive, endDemo, installAccounts, installDemoIfActive, reseedDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
 
@@ -82,6 +83,8 @@ export function DemoBoot() {
   }
   const { on, lang, w } = useTour();
   useFormLock(on, lang);
+  /* a signed-in account: check its session and bring in its store from the server (accounts.ts) */
+  useEffect(() => void syncOnOpen(), []);
   /* In the store designer the bar sits higher, so it does not cover the zoom controls at the bottom of the canvas */
   const inDesigner = (usePathname() ?? "").startsWith("/design");
   if (!on) return null;

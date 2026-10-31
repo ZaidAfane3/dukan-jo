@@ -56,7 +56,7 @@ starts from it, and creating an account resets the store's design, so a new acco
 | `/design?theme=atelier` | The designer with a theme from the theme store loaded, free to edit. Nothing is kept until Save. |
 | `/store?starter=1` / `/store?original=1` | The template / the original design, with sample products. |
 
-In this prototype everything is kept in the browser (`localStorage`), so the template belongs to one browser. In production it has to live on the server, for all stores.
+The starter template is still kept in the browser (`localStorage`), so it belongs to one browser. In production it has to live on the server, for all stores.
 
 **Themes** are separate from the template. A theme is a function that builds a store design (the same JSON the designer edits).
 Using one replaces a store's own design and does not change the template.
@@ -66,6 +66,15 @@ Using one replaces a store's own design and does not change the template.
 - The Atelier theme: `components/storefront/atelierTheme.ts`. Its picture for the store is `public/themes/atelier.jpg`.
 
 **The demo (`/demo`)** is a tour with a made-up store, kept in the tab only (`components/demoSandbox.ts`, data in `components/demoData.ts`). The store designer opens in it but is view-only.
+
+## Accounts and the database
+
+Merchants' accounts and everything their store saves are kept in PostgreSQL, which `docker-compose.yml` starts next to
+the app. A merchant can sign up, set up their store, close the site and come back days later, or on another device, to carry on.
+See [docs/database.md](docs/database.md) for how it works and the one-time password setup on the server.
+
+For local development, run Postgres and set `DATABASE_URL` (for example `postgres://dukkan:pw@localhost:5432/dukkan`)
+before `npm run dev`. The tables are created on the first request.
 
 ## Status
 

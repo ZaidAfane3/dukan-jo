@@ -105,6 +105,8 @@ export function SignupForm() {
   const router = useRouter();
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", loginId: "" });
   const [errors, setErrors] = useState<Errors>({});
+  /* while the server answers, the button can't be pressed twice */
+  const [busy, setBusy] = useState(false);
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
     /* a field's mistake goes away as soon as he edits it */
@@ -140,12 +142,12 @@ export function SignupForm() {
     if (pw) e.password = pw === "short" ? c.errPassword : passwordError[pw][lang];
     return e;
   };
-  /* Prototype: there are no real accounts yet, so any sign-in works. */
   const loginValid = !isBlank(form.loginId) && !isBlank(form.password);
 
-  /* Prototype only: nothing is sent or stored anywhere. Go to first-time setup. */
-  const onSubmit = (e: React.FormEvent) => {
+  /* Creates the account (or signs in) on the server, then goes to first-time setup or the dashboard */
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     let valid = loginValid;
     if (tab === "create") {
       const found = check();
@@ -160,16 +162,24 @@ export function SignupForm() {
     const name = cleanLine(form.name, ACCOUNT_LIMITS.name);
     const email = emailOf(form.email);
     const phone = savedMobile(form.phone);
-    if (valid && tab === "create" && !tour && createAccount({ email, name, phone, password: form.password }) === "taken") {
-      setErrors({ email: c.errTaken });
-      document.getElementById("s-email")?.focus();
-      return;
+    if (valid && tab === "create" && !tour) {
+      setBusy(true);
+      const r = await createAccount({ email, name, phone, password: form.password });
+      setBusy(false);
+      if (r !== "ok") {
+        const field = r === "taken-phone" ? "phone" : r === "taken" ? "email" : "password";
+        setErrors({ [field]: r === "taken-phone" ? c.errPhoneTaken : r === "taken" ? c.errTaken : c.errServer });
+        document.getElementById(`s-${field}`)?.focus();
+        return;
+      }
     }
     let goTo = "/onboarding";
     if (valid && tab === "login" && !tour) {
-      const r = logIn(form.loginId, form.password);
+      setBusy(true);
+      const r = await logIn(form.loginId, form.password);
+      setBusy(false);
       if (r !== "ok") {
-        setErrors(r === "none" ? { loginId: c.errNoAccount } : { password: c.errWrongPassword });
+        setErrors(r === "none" ? { loginId: c.errNoAccount } : r === "wrong" ? { password: c.errWrongPassword } : { password: c.errServer });
         document.getElementById(r === "none" ? "s-loginId" : "s-password")?.focus();
         return;
       }
@@ -330,7 +340,7 @@ export function SignupForm() {
             {/* Always pressable when creating an account: pressing it shows what is missing */}
             <button
               type="submit"
-              disabled={tab === "login" && !loginValid}
+              disabled={busy || (tab === "login" && !loginValid)}
               className="h-12 w-full rounded-xl bg-ink text-sm font-semibold text-white transition enabled:hover:-translate-y-0.5 enabled:hover:bg-deep disabled:cursor-not-allowed disabled:bg-primary/20 disabled:text-muted"
             >
               {tab === "create" ? c.register : c.loginBtn}
@@ -349,7 +359,7 @@ export function SignupForm() {
             type="button"
             onClick={() => {
               try {
-                logOut();
+                void logOut();
                 sessionStorage.removeItem("seen-account-phone");
                 sessionStorage.setItem("seen-signed-in", "1");
               } catch {

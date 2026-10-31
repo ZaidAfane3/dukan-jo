@@ -1,6 +1,9 @@
 # Security checklist for the backend
 
-Today Dukkan is a prototype that runs only in the browser. Everything a merchant types or uploads is saved in their own browser (localStorage and IndexedDB). There is no server and no database, so nothing below exists yet. Build the backend with these rules from the start.
+Accounts and store data now live on the server, in PostgreSQL (see `database.md`). Already done for accounts:
+parameterized queries, scrypt password hashing, http-only session cookies, an Origin check on every change, rate limits on
+sign-up and log-in, and the sign-up rules checked again on the server. Uploaded media is still kept only in the browser
+(IndexedDB). Build the rest of the backend with these rules from the start.
 
 ## What the prototype already does
 

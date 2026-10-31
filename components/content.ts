@@ -69,6 +69,8 @@ export type Content = {
     or: string;
     guest: string;
     errTaken: string;
+    errPhoneTaken: string;
+    errServer: string;
     errNoAccount: string;
     errWrongPassword: string;
     terms: { before: string; terms: string; and: string; privacy: string };
@@ -517,6 +519,8 @@ export const content: Record<Lang, Content> = {
       or: "or",
       guest: "Continue without an account",
       errTaken: "This email already has an account. Log in instead.",
+      errPhoneTaken: "This mobile number already has an account. Log in instead.",
+      errServer: "We couldn't reach Dukkan right now. Check your connection and try again.",
       errNoAccount: "No account with this email or number. Create one first.",
       errWrongPassword: "The password is not right. Try again.",
       terms: {
@@ -1124,6 +1128,8 @@ export const content: Record<Lang, Content> = {
       or: "أو",
       guest: "المتابعة بدون حساب",
       errTaken: "يوجد حساب بهذا البريد. سجّل الدخول بدلًا من ذلك.",
+      errPhoneTaken: "يوجد حساب بهذا الرقم. سجّل الدخول بدلًا من ذلك.",
+      errServer: "تعذّر الاتصال بدكان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
       errNoAccount: "لا يوجد حساب بهذا البريد أو الرقم. أنشئ حسابًا أولًا.",
       errWrongPassword: "كلمة المرور غير صحيحة. حاول مرة أخرى.",
       terms: {

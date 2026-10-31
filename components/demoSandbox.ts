@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Lang } from "./content";
 import { demoSeed, DEMO_SEED_VERSION } from "./demoData";
+import { queueSave } from "./serverSync";
 
 /* The platform tour. While it runs, the dashboard reads and writes a separate copy of the browser's
    storage that starts filled with made-up data. A visitor's (or merchant's) real saved data is never
@@ -131,12 +132,46 @@ export function installAccounts() {
   proto.getItem = function (this: Storage, k: string) {
     return o.get.call(this, scoped(this, k));
   };
+  /* the account's own data also goes to the server (serverSync.ts), so it is kept when this browser forgets it */
+  const own = (s: Storage, k: string) => !!account && s === window.localStorage && !shared(k);
   proto.setItem = function (this: Storage, k: string, v: string) {
-    return o.set.call(this, scoped(this, k), v);
+    o.set.call(this, scoped(this, k), v);
+    if (own(this, k)) queueSave(k, String(v));
   };
   proto.removeItem = function (this: Storage, k: string) {
-    return o.remove.call(this, scoped(this, k));
+    o.remove.call(this, scoped(this, k));
+    if (own(this, k)) queueSave(k, null);
   };
+}
+
+/** The signed-in account's saved data in this browser, as { key: value } (keys without their acct: prefix) */
+export function accountData(): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!account || !orig) return out;
+  const prefix = `acct:${account}:`;
+  try {
+    const ls = window.localStorage;
+    for (let i = 0; i < ls.length; i++) {
+      const k = orig.key.call(ls, i);
+      if (k?.startsWith(prefix)) out[k.slice(prefix.length)] = orig.get.call(ls, k) ?? "";
+    }
+  } catch {
+    /* storage blocked */
+  }
+  return out;
+}
+
+/** Puts the account's data from the server into this browser, in place of what was there (nothing is sent back) */
+export function replaceAccountData(data: Record<string, string>) {
+  if (!account || !orig) return;
+  const prefix = `acct:${account}:`;
+  try {
+    const ls = window.localStorage;
+    Object.keys(accountData()).forEach((k) => orig.remove.call(ls, prefix + k));
+    Object.entries(data).forEach(([k, v]) => orig.set.call(ls, prefix + k, v));
+  } catch {
+    /* storage full or blocked: the pages read what fitted */
+  }
 }
 
 /** Signs in to an account (its store is used from now on), or out (null) */

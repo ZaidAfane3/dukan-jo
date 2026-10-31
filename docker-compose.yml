@@ -5,10 +5,39 @@ services:
     container_name: dukkan-jo
     ports:
       - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://dukkan:${POSTGRES_PASSWORD:-dukkan-local-only}@db:5432/dukkan
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - default
       - cloudflared_default
+
+  # Accounts and every store's saved data. Only the app can reach it (no ports are opened to the outside), and the
+  # data lives in the dukkan-db volume, so rebuilds and restarts never lose it. Set POSTGRES_PASSWORD in a .env file
+  # next to this one before the first start (see docs/database.md).
+  db:
+    image: postgres:16-alpine
+    container_name: dukkan-db
+    environment:
+      POSTGRES_USER: dukkan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dukkan-local-only}
+      POSTGRES_DB: dukkan
+    volumes:
+      - dukkan-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dukkan -d dukkan"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - default
+
+volumes:
+  dukkan-db:
 
 networks:
   cloudflared_default:
