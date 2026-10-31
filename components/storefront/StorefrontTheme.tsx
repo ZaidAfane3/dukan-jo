@@ -247,7 +247,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     </a>
   );
 
+  /* the search bar opened from its icon (declared before the buttons that use it) */
+  const [searchOpen, setSearchOpen] = useState(false);
   const iconBtn = "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white ring-1 ring-black/[0.08] transition hover:ring-black/25";
+  /* the search as an icon beside the basket (it opens the bar under the header), or as a full bar: his choice, and with
+     none an icon when the name is in the middle */
+  const searchIcon = (config.nav.searchLook ?? (centered ? "icon" : "bar")) === "icon";
 
   const search = h.showSearch && (
     <label className="relative block min-w-[11rem] flex-1">
@@ -271,6 +276,11 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
 
   const actions = (
     <div className="flex shrink-0 items-center gap-2">
+              {searchIcon && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={iconBtn}>
+                  {icons.search}
+                </button>
+              )}
               {h.showCart && (
                 <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-white ps-3 pe-3 text-sm font-bold ring-1 ring-black/[0.08] transition hover:ring-black/25">
                   <span className="relative">
@@ -326,7 +336,6 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     } else scroll();
   };
   latest.current.showSection = showSection;
-  const [searchOpen, setSearchOpen] = useState(false);
   /* The header rows in three columns. The buttons' columns keep their full width, so a long store name gives way (it ends
      with "…") instead of pushing the basket out or wrapping its price: the name in the middle, or the name at the start. */
   const nameMid = "grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)]";
@@ -554,13 +563,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             {menuBtn}
             <div className={`min-w-0 ${compact ? "flex-1" : "max-w-[40%] shrink"}`}>{brand}</div>
 
-            {!compact && <div className="mx-auto w-full min-w-0 max-w-xl">{search}</div>}
+            {!compact && !searchIcon && <div className="mx-auto w-full min-w-0 max-w-xl">{search}</div>}
+            {!compact && searchIcon && <div className="flex-1" />}
 
             {actions}
           </div>
         )}
         {linksHeader && searchOpen && h.showSearch && <div className={compact ? "px-4 pb-3" : "mx-auto max-w-xl px-8 pb-4"}>{search}</div>}
-        {!linksHeader && !pillHeader && (compact || centered) && h.showSearch && <div className={compact ? "px-4 pb-3" : "mx-auto max-w-xl px-8 pb-4"}>{search}</div>}
+        {!linksHeader && !pillHeader && (searchIcon ? searchOpen : compact || centered) && h.showSearch && <div className={compact ? "px-4 pb-3" : "mx-auto max-w-xl px-8 pb-4"}>{search}</div>}
         {design && <span aria-hidden className={`pointer-events-none absolute inset-1 rounded-xl ring-2 ring-[#14b8a6] transition ${design.selected === "header" ? "opacity-100" : "opacity-0 group-hover/sel:opacity-100"}`} />}
       </header>
 
@@ -881,8 +891,8 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
     f.email?.trim() && { key: "email", icon: icons.mail, text: f.email, ltr: true, href: mail?.kind === "url" && mail.href.startsWith("mailto:") ? mail.href : "" },
     address && { key: "address", icon: icons.pin, text: address, ltr: false, href: "" },
   ] as (Line | false | "" | undefined)[]).filter((x): x is Line => !!x);
-  /* The about text; the store's description only when the field was never set (a cleared text stays empty) */
-  const aboutText = f.about == null ? data.description : bi(f.about);
+  /* The about text: the footer's own words when it has some, otherwise the store's description (Store identity) */
+  const aboutText = (f.about == null ? "" : bi(f.about)) || data.description;
 
   const cert = f.certificate;
   const certOther = cert.kind === "other" ? cert.label.trim() : "";

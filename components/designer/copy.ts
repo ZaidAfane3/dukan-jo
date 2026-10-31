@@ -76,7 +76,7 @@ export const dc = {
     dashboard: "Back to dashboard",
     rail: { phoneSettings: "Settings", phonePreview: "Preview", phoneSwitch: "Show the settings or the preview", collapse: "Hide panel", expand: "Show panel", pages: "Store pages", identity: "Store identity", options: "Design options", texts: "Store wording" },
     sectionsTitle: { header: "Page header", elements: "Page elements", footer: "Page footer" },
-    rows: { nameLogo: "Store name and logo", sidebarSettings: "Sidebar settings", navigation: "Navigation design", announcement: "Announcement bar", footerSettings: "Footer settings", service: "Customer service channels", certificate: "Store licenses", social: "Social media accounts" },
+    rows: { nameLogo: "Store identity", sidebarSettings: "Sidebar settings", navigation: "Navigation design", announcement: "Announcement bar", footerSettings: "Footer settings", service: "Customer service channels", certificate: "Store licenses", social: "Social media accounts" },
     /* The footer's one screen: its parts open and close, several at a time */
     footBlocks: {
       hint: "Open a part to edit it. Inside each column, \"Edit what this column shows\" opens the part that fills it.",
@@ -149,7 +149,7 @@ export const dc = {
       },
       upload: "Upload your own picture", uploadHint: "PNG, JPG, WebP, GIF or SVG, up to 10 MB. You can also drop a file here.", changePicture: "Change the picture", uploadBad: "Use a PNG, JPG, WebP or SVG picture under 2 MB.", removeImage: "Remove picture",
     },
-    identity: { favicon: "Tab icon (favicon)", faviconHint: "The small icon in the browser tab and in bookmarks. A square picture of at least 32 × 32 works best.", tabPreview: "How the tab looks", logo: "Store logo", logoAuto: "My logo from store setup", logoLetter: "First letter", title: "Store identity", name: "Store name", nameHint: "Choose a name your customers will remember.", errName: "Enter at least 2 letters.", description: "Store description", descriptionPh: "Write a short description of your store", color: "Store color", hex: "Color code", hexBad: "This is not a color code. Write one like #1A6B5C or #abc.", phone: "Customer service number" },
+    identity: { favicon: "Tab icon (favicon)", faviconHint: "The small icon in the browser tab and in bookmarks. A square picture of at least 32 × 32 works best.", tabPreview: "How the tab looks", logo: "Store logo", logoAuto: "My logo from store setup", logoLetter: "First letter", title: "Store identity", name: "Store name", nameHint: "Choose a name your customers will remember.", errName: "Enter at least 2 letters.", description: "Store description", descriptionPh: "A short description of your store. It shows at the bottom of the page.", color: "Store color", hex: "Color code", hexBad: "This is not a color code. Write one like #1A6B5C or #abc.", phone: "Customer service number" },
     pageBg: {
       title: "Website background",
       hint: "A picture, a GIF or a short looping video behind the whole page: behind the products, banners and everything else.",
@@ -248,7 +248,7 @@ export const dc = {
     dashboard: "العودة للوحة التحكم",
     rail: { phoneSettings: "الإعدادات", phonePreview: "المعاينة", phoneSwitch: "اعرض الإعدادات أو المعاينة", collapse: "إخفاء القائمة الجانبية", expand: "إظهار القائمة الجانبية", pages: "صفحات المتجر", identity: "هوية المتجر", options: "خيارات التصميم", texts: "كلمات المتجر" },
     sectionsTitle: { header: "رأس الصفحة", elements: "عناصر الصفحة", footer: "تذييل الصفحة" },
-    rows: { nameLogo: "اسم المتجر والشعار", sidebarSettings: "إعدادات القائمة الجانبية", navigation: "تصميم التنقل", announcement: "الشريط الإعلاني", footerSettings: "إعدادات تذييل الصفحة", service: "قنوات خدمة العملاء", certificate: "رُخَص المتجر", social: "حسابات التواصل الاجتماعي" },
+    rows: { nameLogo: "هوية المتجر", sidebarSettings: "إعدادات القائمة الجانبية", navigation: "تصميم التنقل", announcement: "الشريط الإعلاني", footerSettings: "إعدادات تذييل الصفحة", service: "قنوات خدمة العملاء", certificate: "رُخَص المتجر", social: "حسابات التواصل الاجتماعي" },
     footBlocks: {
       hint: "افتح أي جزء لتعديله. داخل كل عمود، يفتح «تعديل ما يعرضه هذا العمود» الجزء الذي يملؤه.",
       layout: "الأعمدة والشكل", links: "روابط التذييل", look: "الألوان وأحجام النصوص",
@@ -319,7 +319,7 @@ export const dc = {
       },
       upload: "ارفع صورتك الخاصة", uploadHint: "PNG أو JPG أو WebP أو GIF أو SVG، حتى 10 ميجابايت. ويمكنك أيضًا سحب الملف وإفلاته هنا.", changePicture: "تغيير الصورة", uploadBad: "استخدم صورة PNG أو JPG أو WebP أو SVG أقل من 2 ميجابايت.", removeImage: "إزالة الصورة",
     },
-    identity: { favicon: "أيقونة تبويب المتصفح (Favicon)", faviconHint: "الأيقونة الصغيرة التي تظهر في تبويب المتصفح وفي المفضلة. الأفضل صورة مربعة بمقاس 32 × 32 أو أكبر.", tabPreview: "شكل التبويب", logo: "شعار المتجر", logoAuto: "شعاري من إعداد المتجر", logoLetter: "الحرف الأول", title: "هوية المتجر", name: "اسم المتجر", nameHint: "اختر اسمًا يتذكره عملاؤك.", errName: "أدخل حرفين على الأقل.", description: "وصف المتجر", descriptionPh: "اكتب وصفًا قصيرًا لمتجرك", color: "لون المتجر", hex: "رمز اللون", hexBad: "هذا ليس رمز لون. اكتبه مثل ‎#1A6B5C أو ‎#abc.", phone: "رقم خدمة العملاء" },
+    identity: { favicon: "أيقونة تبويب المتصفح (Favicon)", faviconHint: "الأيقونة الصغيرة التي تظهر في تبويب المتصفح وفي المفضلة. الأفضل صورة مربعة بمقاس 32 × 32 أو أكبر.", tabPreview: "شكل التبويب", logo: "شعار المتجر", logoAuto: "شعاري من إعداد المتجر", logoLetter: "الحرف الأول", title: "هوية المتجر", name: "اسم المتجر", nameHint: "اختر اسمًا يتذكره عملاؤك.", errName: "أدخل حرفين على الأقل.", description: "وصف المتجر", descriptionPh: "وصف قصير لمتجرك، يظهر في قاع الصفحة", color: "لون المتجر", hex: "رمز اللون", hexBad: "هذا ليس رمز لون. اكتبه مثل ‎#1A6B5C أو ‎#abc.", phone: "رقم خدمة العملاء" },
     pageBg: {
       title: "خلفية الموقع",
       hint: "صورة أو GIF أو فيديو قصير متكرر خلف الصفحة كلها: خلف المنتجات والبنرات وكل شيء.",

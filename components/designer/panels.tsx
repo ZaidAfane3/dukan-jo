@@ -284,7 +284,9 @@ const popT = {
     pickColor: "Choose a color",
     lowContrast: "Hard to read on this background. The store will use automatic text.",
     lowContrastText: "Your text color is hard to read on this background. The store will use automatic text.",
-    lowContrastFooter: "Hard to read in the footer. The store will use automatic text there.",
+    lowContrastIn: (places: string) => `Hard to read in these places: ${places}. The store will use automatic text there.`,
+    placeHeader: "the page header",
+    placeFooter: "the page footer",
     socialBad: "Paste the full link of your page, or write @name.",
     emailBad: "This email does not look right. Example: name@store.com",
     contactNeeded: "Add a valid phone or WhatsApp number. Customers need one of them to reach you, and the store can't be saved without it.",
@@ -551,7 +553,9 @@ const popT = {
     pickColor: "اختيار لون",
     lowContrast: "يصعب قراءته على هذه الخلفية. سيستخدم المتجر لون نص تلقائيًا.",
     lowContrastText: "يصعب قراءة لون النص على هذه الخلفية. سيستخدم المتجر لون نص تلقائيًا.",
-    lowContrastFooter: "يصعب قراءته في تذييل الصفحة. سيستخدم المتجر هناك لون نص تلقائيًا.",
+    lowContrastIn: (places: string) => `يصعب قراءته في الأماكن التالية: ${places}. سيستخدم المتجر هناك لون نص تلقائيًا.`,
+    placeHeader: "رأس الصفحة",
+    placeFooter: "تذييل الصفحة",
     socialBad: "الصق رابط صفحتك كاملًا، أو اكتب @الاسم.",
     emailBad: "يبدو أن البريد غير صحيح. مثال: name@store.com",
     contactNeeded: "أضف رقم هاتف أو واتساب صحيحًا. يحتاج العملاء أحدهما للتواصل معك، ولا يُحفظ المتجر بدونه.",
@@ -1350,6 +1354,10 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
       setOpen({ header: true, elements: false, footer: false });
       setSub("announcement");
     }
+    if (focus?.id === "identity") {
+      setOpen({ header: true, elements: false, footer: false });
+      setSub("nameLogo");
+    }
     if (focus?.id === "footer") {
       setOpen({ header: false, elements: false, footer: true });
       /* A text of the footer was clicked: the footer's screen opens on the part that owns it, its field's part opens (PartFocus)
@@ -2083,40 +2091,6 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
 /*  Store identity                                                     */
 /* ------------------------------------------------------------------ */
 
-export function IdentityPanel({ lang, draft, update, showErrors, attn }: { lang: Lang; draft: Draft; update: Update; showErrors: boolean; attn?: string | null }) {
-  const t = dc[lang].identity;
-  const id = draft.identity;
-  const set = (patch: Partial<Identity>) => update((d) => ({ ...d, identity: { ...d.identity, ...patch } }));
-  return (
-    <div className="divide-y divide-fg/10 px-4 [&>*]:py-5">
-      <h2 className="font-bold text-black dark:text-white">{t.title}</h2>
-      <div data-attn="name" className={attn === "name" ? "attention" : ""}>
-      <Part lang={lang} force={attn === "name"} label={`${t.name} *`} hint={t.nameHint} error={showErrors && visibleLength(id.name) < 2 ? t.errName : undefined}>
-        <input value={id.name} onChange={(e) => set({ name: e.target.value })} maxLength={40} className={`${input} h-11`} />
-        <CharCount value={id.name} max={40} />
-        <RudeNote lang={lang} text={id.name} />
-      </Part>
-      </div>
-      <Part lang={lang} label={t.logo}>
-        <LogoChoice lang={lang} draft={draft} update={update} />
-      </Part>
-      <Part lang={lang} label={t.favicon} hint={t.faviconHint}>
-        <FaviconChoice lang={lang} draft={draft} update={update} />
-      </Part>
-      <Part lang={lang} label={t.description}>
-        <textarea value={id.description} onChange={(e) => set({ description: e.target.value })} placeholder={t.descriptionPh} rows={4} maxLength={200} className={`${input} resize-none py-3`} />
-        <CharCount value={id.description} max={200} />
-        <RudeNote lang={lang} text={id.description} />
-      </Part>
-      <div data-attn="color" className={attn === "color" ? "attention" : ""}>
-      <Part lang={lang} force={attn === "color"} label={t.color}>
-        <ColorPicker value={id.color} onChange={(color) => set({ color })} label={t.hex} bad={t.hexBad} />
-      </Part>
-      </div>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /*  Design options                                                     */
 /* ------------------------------------------------------------------ */
@@ -2631,7 +2605,8 @@ function LogoChoice({ lang, draft, update }: { lang: Lang; draft: Draft; update:
   const color = HEXISH.test(draft.identity.color) ? draft.identity.color : "#004956";
   return (
     <div className="space-y-3" style={{ ["--sf-primary" as string]: color, ["--sf-on" as string]: onColor(color) }}>
-      <div className="flex flex-wrap items-center gap-2">
+      {/* with his own picture as the logo, the ready-made marks are hidden (removing the picture brings them back) */}
+      {logo.kind !== "image" && <div className="flex flex-wrap items-center gap-2">
         {/* "my logo from setup" only when setup has one: without it, it is the first letter, the same as the next tile */}
         {setupLogo && (
           <button type="button" onClick={() => set({ kind: "auto" })} aria-pressed={logo.kind === "auto"} title={t.identity.logoAuto} aria-label={t.identity.logoAuto} className={pick(logo.kind === "auto")}>
@@ -2648,7 +2623,7 @@ function LogoChoice({ lang, draft, update }: { lang: Lang; draft: Draft; update:
             </span>
           </button>
         ))}
-      </div>
+      </div>}
       <UploadBox lang={lang} current={logo.kind === "image" ? logo.image : undefined} onImage={(image) => set({ kind: "image", image })} onRemove={() => set({ kind: "auto", image: "" })} size={512} shapes={["square", "wide", "original"]} spec={t.form.sizes.logo} words={t.form.ups.logo} />
     </div>
   );
@@ -3122,26 +3097,29 @@ export function ProductPicturePanel({ lang, name, image, value, onChange, onBack
   );
 }
 
-/** One clear warning, on every screen that can cause it, when the header leaves customers no way to move around the store: no
-    sidebar button, no search and no links in the header (each switch alone has its own small tip) */
-/** The store name and logo at the top of the store: whether the logo shows, where the name sits, its font and color, and the
-    small line under it. Always a screen of its own. */
+/** The store's identity, all in one screen: its name and how it shows at the top of the store (logo, font, color, size, the
+    small line under it), the tab icon, the description the footer shows, and the store color. Always a screen of its own. */
 function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg; draft: Draft; update: Update }) {
   const t = dc[lang];
   const pt = popT[lang];
   const id = cfg.identity;
   const setId = (patch: Partial<StorefrontConfig["identity"]>) => setCfg((c) => ({ ...c, identity: { ...c.identity, ...patch } }));
+  /* the store's own details (its name, description and color, kept with the store, not the design) */
+  const setStore = (patch: Partial<Draft["identity"]>) => update((d) => ({ ...d, identity: { ...d.identity, ...patch } }));
   /* where the name sits: the header (the page's background), or in the pill style a pill of the text color; and the footer */
   const textNow = useContext(TextColorNow);
   const storeColor = useContext(StoreColorNow);
   const nameOn = cfg.nav.style === "pill" ? (cfg.nav.links.length ? [textNow] : [cfg.theme.background, textNow]) : [cfg.theme.background];
   const nameLostInFooter = !!id.nameColor && !footerColors(cfg, storeColor).name;
+  const nameHardIn = [
+    ...(id.nameColor && !nameOn.every((bg) => readsOn(id.nameColor!, bg)) ? [pt.placeHeader] : []),
+    ...(nameLostInFooter ? [pt.placeFooter] : []),
+  ];
   return (
     <>
-      {/* the same name and logo as in the Store identity tab: changing them here changes them there */}
-      <label className="block">
+      <label data-attn="name" className="block">
         <span className="mb-1.5 block text-sm font-semibold">{t.identity.name}</span>
-        <input value={draft.identity.name} onChange={(e) => update((d) => ({ ...d, identity: { ...d.identity, name: e.target.value } }))} maxLength={40} className={`${input} h-11`} />
+        <input value={draft.identity.name} onChange={(e) => setStore({ name: e.target.value })} maxLength={40} className={`${input} h-11`} />
         <CharCount value={draft.identity.name} max={40} />
         <RudeNote lang={lang} text={draft.identity.name} />
         {visibleLength(draft.identity.name) < 2 && <span className="mt-1 block text-xs font-semibold text-rose-600">{t.identity.errName}</span>}
@@ -3157,8 +3135,9 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
         <FontGrid lang={lang} value={id.nameFont} onChange={(nameFont) => setId({ nameFont })} first={pt.nameFontSame} />
       </Part>
       <div>
-        <ColorChip lang={lang} label={pt.nameColor} value={id.nameColor} onChange={(nameColor) => setId({ nameColor })} onReset={() => setId({ nameColor: undefined })} on={nameOn} />
-        <Bad show={nameLostInFooter} text={pt.lowContrastFooter} />
+        <ColorChip lang={lang} label={pt.nameColor} value={id.nameColor} onChange={(nameColor) => setId({ nameColor })} onReset={() => setId({ nameColor: undefined })} />
+        {/* one warning that names every place the color is hard to read (the header, the footer, or both) */}
+        <Bad show={nameHardIn.length > 0} text={pt.lowContrastIn(nameHardIn.join(lang === "ar" ? "، " : ", "))} />
       </div>
       <Stepper lang={lang} label={pt.nameSize} value={id.nameSize ?? (id.nameFont ? 40 : 20)} auto={id.nameSize === undefined} min={12} max={72} onChange={(nameSize) => setId({ nameSize })} onReset={() => setId({ nameSize: undefined })} />
       <Part lang={lang} label={pt.tagline} preview={id.tagline?.[lang]}>
@@ -3178,6 +3157,19 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
           <ColorChip lang={lang} label={pt.taglineColor} value={id.taglineColor} auto={cfg.theme.accent || cfg.theme.primary} onChange={(taglineColor) => setId({ taglineColor })} onReset={() => setId({ taglineColor: undefined })} on={cfg.theme.background} />
         </div>
       </Part>
+      <Part lang={lang} label={t.identity.description} preview={draft.identity.description}>
+        <textarea value={draft.identity.description} onChange={(e) => setStore({ description: e.target.value })} placeholder={t.identity.descriptionPh} rows={4} maxLength={200} className={`${input} resize-none py-3`} />
+        <CharCount value={draft.identity.description} max={200} />
+        <RudeNote lang={lang} text={draft.identity.description} />
+      </Part>
+      <Part lang={lang} label={t.identity.favicon} hint={t.identity.faviconHint}>
+        <FaviconChoice lang={lang} draft={draft} update={update} />
+      </Part>
+      <div data-attn="color">
+        <Part lang={lang} label={t.identity.color}>
+          <ColorPicker value={draft.identity.color} onChange={(color) => setStore({ color })} label={t.identity.hex} bad={t.identity.hexBad} />
+        </Part>
+      </div>
     </>
   );
 }
@@ -3225,6 +3217,12 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
       <Part lang={lang} label={lx.navStyle}>
         <Seg value={cfg.nav.style} onChange={(style) => setCfg((c) => ({ ...c, nav: { ...c.nav, style } }))} cols={3} options={[{ key: "button", label: lx.navButton }, { key: "links", label: lx.navLinks }, { key: "pill", label: popT[lang].navPill }]} />
       </Part>
+      {/* the search in this header: a full bar, or an icon beside the basket (the other styles always use an icon) */}
+      {cfg.nav.style === "button" && (
+        <Part lang={lang} label={lang === "ar" ? "شكل البحث" : "Search look"}>
+          <Seg value={cfg.nav.searchLook ?? (cfg.identity.align === "center" ? "icon" : "bar")} onChange={(searchLook) => setCfg((c) => ({ ...c, nav: { ...c.nav, searchLook } }))} options={[{ key: "bar", label: lang === "ar" ? "شريط كامل" : "Full bar" }, { key: "icon", label: lang === "ar" ? "أيقونة بجانب السلة" : "Icon beside the cart" }]} />
+        </Part>
+      )}
       {/* a style that would show nothing says why, instead of seeming to do nothing (outside the fold, so it shows while closed) */}
       {cfg.nav.style === "button" && !cfg.header.showMenu && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navSidebarOff}</p>}
       {cfg.nav.style !== "button" && !cfg.nav.links.some((l) => l.en.trim() || l.ar.trim()) && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navNoLinks}</p>}

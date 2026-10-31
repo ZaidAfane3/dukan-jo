@@ -21,7 +21,7 @@ import { HEX, input } from "./controls";
 import { dc } from "./copy";
 import { BugReport } from "./BugReport";
 import { legibleOn } from "../storefront/footerColors";
-import { IdentityPanel, OptionsPanel, PageLookNow, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus } from "./panels";
+import { OptionsPanel, PageLookNow, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus } from "./panels";
 import { hasStoreContact, visibleLength } from "../safe";
 import type { Design } from "../storefront/sections";
 
@@ -408,11 +408,6 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     setPanelOpen(true);
     setSelected(id);
     if (id === "identity" || id === "cards") setPagePanel(false);
-    if (id === "identity") {
-      setTab("identity");
-      scrollPanel("top");
-      return;
-    }
     if (id === "cards") {
       setTab("options");
       scrollPanel("cards");
@@ -601,8 +596,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
 
   /* The first thing that stops a save, and where it lives */
   const firstProblem = (d: Draft): { id: Problem; tab: Tab } | null => {
-    if (!templateMode && visibleLength(d.identity.name) < 2) return { id: "name", tab: "identity" };
-    if (!templateMode && !HEX.test(d.identity.color)) return { id: "color", tab: "identity" };
+    if (!templateMode && visibleLength(d.identity.name) < 2) return { id: "name", tab: "pages" };
+    if (!templateMode && !HEX.test(d.identity.color)) return { id: "color", tab: "pages" };
     if (!HEX.test(d.config.theme.background)) return { id: "background", tab: "options" };
     if (!HEX.test(d.config.theme.text)) return { id: "text", tab: "options" };
     /* The store's own contact details (a template or a theme copy has none) */
@@ -625,9 +620,13 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       setTimeout(() => setAttn((a) => (a && a.id === p.id ? null : a)), 6000);
       return;
     }
-    setTab(p.tab);
-    setPanelOpen(true);
-    setEditingRaw(null);
+    /* the name and the store color are in the header's Store identity screen */
+    if (p.id === "name" || p.id === "color") select("identity");
+    else {
+      setTab(p.tab);
+      setPanelOpen(true);
+      setEditingRaw(null);
+    }
     setAttn({ ...p, n: Date.now() });
     setTimeout(() => {
       const el = document.querySelector<HTMLElement>(`[data-attn="${p.id}"]`);
@@ -1056,7 +1055,6 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
             {railIcons.collapse}
           </button>
           {railBtn("pages", t.rail.pages, railIcons.pages)}
-          {!templateMode && railBtn("identity", t.rail.identity, railIcons.identity)}
           {railBtn("options", t.rail.options, railIcons.options)}
           {railBtn("texts", t.rail.texts, railIcons.texts)}
           {/* On a phone or a tablet: the settings or the store, each on the whole screen */}
@@ -1092,7 +1090,6 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
               )}
               {pic && <ProductPicturePanel lang={lang} name={pic.name} image={pic.image} value={pic.focus} onChange={setPicFocus} onBack={() => setPic(null)} blocked={readOnly} onBlocked={blockedNote} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditingView} focus={focus} />}
-              {!pic && (openedPage === null || !pagePanel) && tab === "identity" && <IdentityPanel lang={lang} draft={draft} update={update} showErrors={showErrors} attn={attnNow?.id} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attnNow?.id ?? (productView ? "productPage" : undefined)} />}
             </div>
