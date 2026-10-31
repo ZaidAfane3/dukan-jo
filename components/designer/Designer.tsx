@@ -93,6 +93,12 @@ const barText = {
 
 type Tab = "pages" | "identity" | "options" | "texts";
 
+/* the settings panel's width on a big screen (px): the usual one, and how narrow and wide he can drag it */
+const PANEL_W = 320;
+const PANEL_MIN = 288;
+const PANEL_MAX = 640;
+const PANEL_KEY = "dukkan-designer-panel";
+
 /** Where two designs differ, as paths ("config.footer.about"). `leaf` says what kind of value changed there:
     "text", "number", or null when it is not a single value (a toggle, a list that grew or shrank, a part added or removed). */
 function changedPaths(a: unknown, b: unknown, path = "", out: { path: string; leaf: "text" | "number" | null }[] = []) {
@@ -145,6 +151,43 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [saved, setSaved] = useState("");
   const [tab, setTab] = useState<Tab>("pages");
   const [panelOpen, setPanelOpenRaw] = useState(true);
+  /* the panel's width on a big screen: he can drag its edge; remembered on this computer */
+  const [panelW, setPanelW] = useState(PANEL_W);
+  useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem(PANEL_KEY));
+      if (saved) setPanelW(Math.min(PANEL_MAX, Math.max(PANEL_MIN, saved)));
+    } catch {
+      /* storage blocked: the usual width */
+    }
+  }, []);
+  const sizePanel = useCallback((w: number) => {
+    const next = Math.round(Math.min(PANEL_MAX, Math.max(PANEL_MIN, w)));
+    setPanelW(next);
+    try {
+      localStorage.setItem(PANEL_KEY, String(next));
+    } catch {
+      /* storage blocked: it lasts for this visit */
+    }
+  }, []);
+  /* dragging the edge: in Arabic the panel is on the right, so moving left makes it wider */
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const rtl = getComputedStyle(e.currentTarget).direction === "rtl";
+    const x0 = e.clientX, w0 = panelW;
+    const move = (ev: PointerEvent) => sizePanel(w0 + (rtl ? x0 - ev.clientX : ev.clientX - x0));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   /* On a phone or a tablet (under 1024px) the panel takes the whole height and the store is shown instead of it, by the Settings / Preview switch.
      Anything that opens the panel (a tap on the store, a rail button) brings the settings back. */
   const [phoneStore, setPhoneStore] = useState(false);
@@ -1085,7 +1128,31 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           <SampleProducts.Provider value={sampleChoice}>
           <OpenPage.Provider value={(id) => { setOpenedPage(id); setProductView(false); setCartView(false); setPanelOpen(true); }}>
           {/* --sf-heading: the store's titles font, so the font pickers' "like the titles" choice writes in it */}
-          <aside className={`flex min-h-0 flex-1 flex-col bg-card ${phoneStore ? "max-lg:hidden" : ""} lg:w-[20rem] lg:flex-none lg:shrink-0 lg:border-e lg:border-fg/10`} style={{ "--sf-heading": headingFamily(draft.config.theme) } as React.CSSProperties}>
+          <aside className={`relative flex min-h-0 flex-1 flex-col bg-card ${phoneStore ? "max-lg:hidden" : ""} lg:w-[var(--panel-w)] lg:flex-none lg:shrink-0 lg:border-e lg:border-fg/10`} style={{ "--sf-heading": headingFamily(draft.config.theme), "--panel-w": `${panelW}px` } as React.CSSProperties}>
+            {/* its edge: drag (or arrow keys) to make the panel wider or narrower, double-click for its usual size */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t.rail.resize}
+              title={t.rail.resize}
+              aria-valuemin={PANEL_MIN}
+              aria-valuemax={PANEL_MAX}
+              aria-valuenow={panelW}
+              tabIndex={0}
+              onPointerDown={startResize}
+              onDoubleClick={() => sizePanel(PANEL_W)}
+              onKeyDown={(e) => {
+                const rtl = getComputedStyle(e.currentTarget).direction === "rtl";
+                const step = e.shiftKey ? 64 : 16;
+                if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  sizePanel(panelW + ((e.key === "ArrowRight") !== rtl ? step : -step));
+                }
+              }}
+              className="group absolute inset-y-0 -end-1.5 z-30 hidden w-3 cursor-col-resize touch-none outline-none lg:block"
+            >
+              <span aria-hidden className="absolute inset-y-0 start-1/2 w-0.5 -translate-x-1/2 bg-primary opacity-0 transition group-hover:opacity-60 group-focus-visible:opacity-100 group-active:opacity-100" />
+            </div>
             <div ref={panelBox} className="min-h-0 flex-1 overflow-y-auto">
               {!pic && openedPage !== null && pagePanel && (
                 <>

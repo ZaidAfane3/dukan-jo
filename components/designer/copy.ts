@@ -74,7 +74,7 @@ export const dc = {
     restoreMain: "Restore the main design",
     restoreMainAsk: "Restore the original main design? Your template edits will be replaced.",
     dashboard: "Back to dashboard",
-    rail: { phoneSettings: "Settings", phonePreview: "Preview", phoneSwitch: "Show the settings or the preview", collapse: "Hide panel", expand: "Show panel", pages: "Store pages", identity: "Store identity", options: "Design options", texts: "Store wording" },
+    rail: { phoneSettings: "Settings", phonePreview: "Preview", phoneSwitch: "Show the settings or the preview", collapse: "Hide panel", expand: "Show panel", resize: "Drag to make the panel wider or narrower (double-click: back to its size)", pages: "Store pages", identity: "Store identity", options: "Design options", texts: "Store wording" },
     sectionsTitle: { header: "Page header", elements: "Page elements", footer: "Page footer" },
     rows: { nameLogo: "Store identity", sidebarSettings: "Sidebar settings", navigation: "Navigation design", announcement: "Announcement bar", footerSettings: "Footer settings", service: "Customer service channels", certificate: "Store licenses", social: "Social media accounts" },
     /* The footer's one screen: its parts open and close, several at a time */
@@ -246,7 +246,7 @@ export const dc = {
     restoreMain: "استعادة التصميم الأصلي",
     restoreMainAsk: "هل تريد استعادة التصميم الأصلي؟ سيتم استبدال تعديلات القالب.",
     dashboard: "العودة للوحة التحكم",
-    rail: { phoneSettings: "الإعدادات", phonePreview: "المعاينة", phoneSwitch: "اعرض الإعدادات أو المعاينة", collapse: "إخفاء القائمة الجانبية", expand: "إظهار القائمة الجانبية", pages: "صفحات المتجر", identity: "هوية المتجر", options: "خيارات التصميم", texts: "كلمات المتجر" },
+    rail: { phoneSettings: "الإعدادات", phonePreview: "المعاينة", phoneSwitch: "اعرض الإعدادات أو المعاينة", collapse: "إخفاء القائمة الجانبية", expand: "إظهار القائمة الجانبية", resize: "اسحب لتوسيع اللوحة أو تضييقها (نقرتان: حجمها الأصلي)", pages: "صفحات المتجر", identity: "هوية المتجر", options: "خيارات التصميم", texts: "كلمات المتجر" },
     sectionsTitle: { header: "رأس الصفحة", elements: "عناصر الصفحة", footer: "تذييل الصفحة" },
     rows: { nameLogo: "هوية المتجر", sidebarSettings: "إعدادات القائمة الجانبية", navigation: "تصميم التنقل", announcement: "الشريط الإعلاني", footerSettings: "إعدادات تذييل الصفحة", service: "قنوات خدمة العملاء", certificate: "رُخَص المتجر", social: "حسابات التواصل الاجتماعي" },
     footBlocks: {
