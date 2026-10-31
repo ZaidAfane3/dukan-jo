@@ -193,7 +193,7 @@ const shapes: Shapes = {
     sizes: obj({ title: num(HERO_TITLE_MIN, HERO_TITLE_MAX), subtitle: size, eyebrow: size, price: size, detail: size, button: size }),
   },
   perks: { items: list(obj({ title: bi(), desc: para, icon: oneOf("truck", "shield", "returns", "gift", "clock", "chat", "image"), image: pic }, () => ({ icon: "truck", title: E(), desc: E() })), 12), align: oneOf("start", "left", "center", "right"), cardBg: color, border: oneOf("none", "thin", "thick"), borderColor: color },
-  featured: { title: bi(), count: num(0, 48, true) },
+  featured: { title: bi(), count: num(0, 48, true), productIds: list(productId, 48) },
   discounts: { title: bi(), count: num(0, 48, true) },
   tiles: { title: bi(), items: list(obj({ key: itemKey, image: pic, label: bi(), link, chip: oneOf("light", "dark"), pos }, () => ({ image: "", label: E(), link: "" })), 24), columns: oneOf(3, 4, 5, 6, 8), style: oneOf("classic", "editorial", "circles") },
   banners: {

@@ -2196,14 +2196,16 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
 }
 
 function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>["settings"]; ctx: Ctx }) {
+  /* the products he picked for this section, in his order; none picked: the ones marked featured (or, with none, all) */
+  const picked = (s.productIds ?? []).map((id) => ctx.data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
   const featured = ctx.data.products.filter((p) => p.featured);
-  const items = (featured.length ? featured : ctx.data.products).slice(0, s.count);
+  const items = (picked.length ? picked : featured.length ? featured : ctx.data.products).slice(0, s.count);
   if (!items.length) {
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
         <Heading title={s.title[ctx.lang]} ctx={ctx} />
-        <DesignEmpty ctx={ctx} add hint={ctx.lang === "ar" ? "علّم منتجاتك كمميزة لتظهر هنا" : "Mark products as featured to show them here"} />
+        <DesignEmpty ctx={ctx} add hint={ctx.lang === "ar" ? "اختر منتجات هذا القسم من إعداداته، أو علّم منتجاتك كمميزة" : "Pick products in this section's settings, or mark products as featured"} />
       </section>
     );
   }

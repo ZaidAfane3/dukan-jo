@@ -1834,9 +1834,12 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       </>
     );
   } else if (s.type === "featured" || s.type === "discounts") {
-    /* only the title and how many: both shown open */
+    /* the title and how many, both shown open; Featured products also has its products to pick */
     body = (
       <PartFlat.Provider value={true}>
+        {s.type === "featured" && (
+          <ProductChecklist lang={lang} ids={s.settings.productIds ?? []} onChange={(productIds) => onChange({ ...s, settings: { ...s.settings, productIds } })} hint={t.form.featuredHint} empty={t.form.featuredEmpty} />
+        )}
         {text(s.settings.title, (title) => onChange({ ...s, settings: { ...s.settings, title } } as SectionConfig), t.form.title, false, "title", titleLook)}
         <Part lang={lang} label={t.form.count}>
           <div className="flex gap-2">
@@ -2941,6 +2944,56 @@ const nextColor = (list: HeroBg[]) => {
   return bgSwatches.find((c) => !used.includes(c)) ?? bgSwatches[list.length % bgSwatches.length];
 };
 
+/** The products of a section, picked from his own: a search box and a list to tick, numbered in the order he picks them.
+    Used by Pinned products and Featured products. `hint`/`empty` replace the usual words under the title and when none is picked. */
+function ProductChecklist({ lang, ids, onChange, hint, empty }: { lang: Lang; ids: number[]; onChange: (ids: number[]) => void; hint?: string; empty?: string }) {
+  const t = dc[lang].form;
+  const [q, setQ] = useState("");
+  const [products, setProducts] = useState<{ id: number; name: string; category: string }[]>([]);
+  useEffect(() => setProducts(readProducts()), []);
+  const toggle = (id: number) => onChange(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+  const shown = products.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()) || p.category.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+      <div>
+        <p className="text-sm font-bold text-black dark:text-white">{t.collection}</p>
+        <p className="mt-0.5 text-xs text-muted">{hint ?? t.collectionHint}</p>
+        {products.length === 0 ? (
+          <div className="mt-3 rounded-xl bg-soft px-4 py-4 text-sm text-muted">
+            <p>{t.collectionNone}</p>
+            <a href="/products" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-primary hover:underline">{t.addProducts}</a>
+          </div>
+        ) : (
+          <>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.collectionSearch} aria-label={t.collectionSearch} className={`${input} mt-3 h-10`} />
+            <p className="mt-2 text-xs font-semibold text-primary">
+              {ids.filter((id) => products.some((p) => p.id === id)).length} {t.collectionPicked}
+            </p>
+            <ul className="mt-2 max-h-64 divide-y divide-fg/10 overflow-y-auto rounded-xl border border-fg/10">
+              {shown.map((p) => {
+                const order = ids.indexOf(p.id);
+                return (
+                  <li key={p.id}>
+                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm transition hover:bg-fg/[0.04]">
+                      <input type="checkbox" checked={order >= 0} onChange={() => toggle(p.id)} className="peer sr-only" />
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-fg/25 bg-card text-xs font-bold text-transparent transition peer-checked:border-primary peer-checked:bg-primary peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40">
+                        {order >= 0 ? order + 1 : ""}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold">{p.name}</span>
+                        {p.category && <span className="block truncate text-xs text-muted">{p.category}</span>}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            {ids.length === 0 && <p className="mt-2 text-xs text-muted">{empty ?? t.collectionEmpty}</p>}
+          </>
+        )}
+      </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Pinned products: pick which products show, name it, set the count  */
 /* ------------------------------------------------------------------ */
@@ -2949,13 +3002,8 @@ type CollectionEl = Extract<SectionConfig, { type: "collection" }>;
 
 function CollectionForm({ lang, s, onChange, text }: { lang: Lang; s: CollectionEl; onChange: (s: SectionConfig) => void; text: (v: { en: string; ar: string }, set: (b: { en: string; ar: string }) => void, label: string, area?: boolean, field?: string, more?: React.ReactNode) => React.ReactNode }) {
   const t = dc[lang].form;
-  const [q, setQ] = useState("");
-  const [products, setProducts] = useState<{ id: number; name: string; category: string }[]>([]);
-  useEffect(() => setProducts(readProducts()), []);
   const ids = s.settings.productIds ?? [];
   const set = (patch: Partial<CollectionEl["settings"]>) => onChange({ ...s, settings: { ...s.settings, ...patch } });
-  const toggle = (id: number) => set({ productIds: ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id] });
-  const shown = products.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()) || p.category.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
     <>
@@ -2989,43 +3037,7 @@ function CollectionForm({ lang, s, onChange, text }: { lang: Lang; s: Collection
         </div>
       </Part>
 
-      <div>
-        <p className="text-sm font-bold text-black dark:text-white">{t.collection}</p>
-        <p className="mt-0.5 text-xs text-muted">{t.collectionHint}</p>
-        {products.length === 0 ? (
-          <div className="mt-3 rounded-xl bg-soft px-4 py-4 text-sm text-muted">
-            <p>{t.collectionNone}</p>
-            <a href="/products" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-primary hover:underline">{t.addProducts}</a>
-          </div>
-        ) : (
-          <>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.collectionSearch} aria-label={t.collectionSearch} className={`${input} mt-3 h-10`} />
-            <p className="mt-2 text-xs font-semibold text-primary">
-              {ids.filter((id) => products.some((p) => p.id === id)).length} {t.collectionPicked}
-            </p>
-            <ul className="mt-2 max-h-64 divide-y divide-fg/10 overflow-y-auto rounded-xl border border-fg/10">
-              {shown.map((p) => {
-                const order = ids.indexOf(p.id);
-                return (
-                  <li key={p.id}>
-                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm transition hover:bg-fg/[0.04]">
-                      <input type="checkbox" checked={order >= 0} onChange={() => toggle(p.id)} className="peer sr-only" />
-                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-fg/25 bg-card text-xs font-bold text-transparent transition peer-checked:border-primary peer-checked:bg-primary peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40">
-                        {order >= 0 ? order + 1 : ""}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-semibold">{p.name}</span>
-                        {p.category && <span className="block truncate text-xs text-muted">{p.category}</span>}
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-            {ids.length === 0 && <p className="mt-2 text-xs text-muted">{t.collectionEmpty}</p>}
-          </>
-        )}
-      </div>
+      <ProductChecklist lang={lang} ids={ids} onChange={(productIds) => set({ productIds })} />
     </>
   );
 }
