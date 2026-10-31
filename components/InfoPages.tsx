@@ -5,7 +5,7 @@ import { brandName } from "./content";
 import type { SectionConfig } from "./storefront/config";
 import { sanitizePages } from "./safeDesign";
 import { cleanLine, cleanLines, visibleLength } from "./safe";
-import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 
@@ -187,8 +187,8 @@ export const pageTemplates: { id: string; name: Bi; title: Bi; content: Bi }[] =
     name: { en: "Shipping information", ar: "معلومات الشحن" },
     title: { en: "Shipping information", ar: "معلومات الشحن" },
     content: {
-      en: "Shipping information\n\nWe deliver across Jordan. Orders are prepared within 1 to 2 working days, and delivery usually takes 1 to 3 days after that.\n\nYou will get a message when your order is on its way. Write your delivery prices and any free-delivery offer here.",
-      ar: "معلومات الشحن\n\nنوصّل إلى كل مناطق الأردن. نجهّز الطلبات خلال يوم إلى يومين عمل، ويستغرق التوصيل عادةً من يوم إلى 3 أيام بعد ذلك.\n\nستصلك رسالة عندما يكون طلبك في الطريق. اكتب هنا أسعار التوصيل وأي عرض توصيل مجاني.",
+      en: "Shipping information\n\nWe deliver to Irbid, Amman and Salt. Orders are prepared within 1 to 2 working days, and delivery usually takes 1 to 3 days after that.\n\nYou will get a message when your order is on its way. Write your delivery prices and any free-delivery offer here.",
+      ar: "معلومات الشحن\n\nنوصّل إلى إربد وعمّان والسلط. نجهّز الطلبات خلال يوم إلى يومين عمل، ويستغرق التوصيل عادةً من يوم إلى 3 أيام بعد ذلك.\n\nستصلك رسالة عندما يكون طلبك في الطريق. اكتب هنا أسعار التوصيل وأي عرض توصيل مجاني.",
     },
   },
   {
@@ -413,7 +413,7 @@ export function InfoPages() {
                 </div>
 
                 <h2 className="text-lg font-extrabold">{c.info}</h2>
-                <RequiredNote text={requiredNote[lang]} />
+                <RequiredNote text={requiredNote[lang]} show={hasErrors(errors)} />
 
                 <div>
                   <label htmlFor="pg-title" className="mb-2 block text-sm font-semibold">{c.pageTitle}<RequiredMark /></label>

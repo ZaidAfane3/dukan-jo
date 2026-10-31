@@ -160,9 +160,23 @@ export function MyThemes() {
           const base = t.from ? findTheme(t.from) : null;
           return (
             <section key={t.id} className={`${card} flex flex-col gap-5 ${active ? "ring-2 ring-primary/60" : ""}`}>
-              <button type="button" onClick={() => setPreviewing(t)} aria-label={`${lang === "ar" ? "معاينة" : "Preview"}: ${t.name[lang]}`} className="block w-full cursor-pointer rounded-2xl text-start outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+              {/* like the theme store: the picture is a store with buttons of its own, so it is not inside a real button (a button
+                  inside a button) but a box that acts as one, from the mouse and the keys */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setPreviewing(t)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setPreviewing(t);
+                  }
+                }}
+                aria-label={`${lang === "ar" ? "معاينة" : "Preview"}: ${t.name[lang]}`}
+                className="block w-full cursor-pointer rounded-2xl text-start outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+              >
                 <ThemePreview theme={t} height={260} />
-              </button>
+              </div>
               <div className="flex flex-1 flex-col">
                 <div className="flex flex-wrap items-center gap-3">
                   {renaming?.id === t.id ? (
@@ -201,6 +215,14 @@ export function MyThemes() {
                 {ask ? (
                   <div className={`mt-5 rounded-xl p-4 ${ask === "use" ? "bg-amber-500/12" : "bg-rose-500/10"}`}>
                     <p className="text-sm">{ask === "use" ? w.applyAsk : ask === "reset" ? w.resetAsk : w.deleteAsk}</p>
+                    {ask === "use" && (
+                      <>
+                        <p className="mt-2 text-sm font-semibold">{w.applyKeepsTitle}</p>
+                        <ul className="mt-1 list-disc space-y-0.5 ps-5 text-sm">
+                          {w.applyKeeps.map((k) => <li key={k}>{k}</li>)}
+                        </ul>
+                      </>
+                    )}
                     <div className="mt-3 flex gap-2">
                       <button
                         type="button"

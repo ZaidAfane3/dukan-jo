@@ -25,7 +25,7 @@ export type Slide = { image: string; link: string; /* where the picture sits in 
 
 /* One picture tile of the picture-tiles element: a picture, an optional name on it, and an optional link.
    `chip` is the color of the frosted label (editorial style). */
-export type Tile = { image: string; label: Bi; link: string; chip?: "light" | "dark"; /* where the picture sits in its frame */ pos?: PicPos };
+export type Tile = { /* its own name, so it keeps its place in the designer when the list is reordered */ key?: string; image: string; label: Bi; link: string; chip?: "light" | "dark"; /* where the picture sits in its frame */ pos?: PicPos };
 
 /* The fonts a merchant can pick, and the extra display fonts a banner title can use */
 export type ThemeFont = "readex" | "plex" | "elegant" | "cairo" | "tajawal" | "baloo" | "messiri" | "almarai" | "kufi";
@@ -36,6 +36,18 @@ export type PatternKey = "none" | "stars" | "dots" | "lines" | "diamonds" | "wav
 
 /* The basket's look. "drawer": a panel at the side. "editorial": a sharp, all-caps bag like the big fashion stores.
    "luxe": a whole page with the summary beside the products. "pop": a floating card with bold outlines and hard shadows. */
+/* The biggest the hero title can be set (px). Bigger titles broke words and overflowed the cover; the title also shrinks to fit (FitTitle in sections.tsx). */
+export const HERO_TITLE_MAX = 120;
+/* and never smaller than this, so the cover's main words stay readable */
+export const HERO_TITLE_MIN = 20;
+/* The footer's text sizes (px): [smallest, biggest]. Bigger looked oversized and broke column titles letter by letter. */
+export const FOOTER_SIZES = { title: [10, 24], text: [10, 20], name: [12, 40] } as const;
+/* The announcement bar: the longest a message can be (characters) and how many messages it can have. The designer shows both counts. */
+export const ANNOUNCE_TEXT_MAX = 90;
+export const ANNOUNCE_MESSAGES_MAX = 5;
+/* The small line under the store name: the longest it can be (characters); the designer shows the count */
+export const TAGLINE_MAX = 40;
+
 export const cartStyles = ["drawer", "editorial", "luxe", "pop"] as const;
 export type CartStyle = (typeof cartStyles)[number];
 /* The product page's look. "classic": soft rounded panels, clean and modern. "editorial": a tall photo, small capitals and hairlines
@@ -92,26 +104,43 @@ export type TextStyle = { align?: "right" | "center" | "left"; bold?: boolean; i
 /* Where a picture sits inside its frame: moved by x and y (percent of the frame) and zoomed. Set by dragging the picture in the designer. */
 export type PicPos = { x: number; y: number; zoom: number };
 
-export type SectionConfig =
-  | { id: string; type: "hero"; visible: boolean; settings: { title: Bi; subtitle: Bi; button: Bi; backgrounds: HeroBg[]; autoplay: boolean; seconds: number; showCards: boolean; layout?: "banner" | "split" | "pop" | "orbit"; photo?: string; photoSide?: "start" | "end"; photo2?: string; /* where the two buttons lead (see linkProps in sections.tsx) */ link?: string; link2?: string; photoPos?: PicPos; photo2Pos?: PicPos; sticker?: Bi; accentWord?: Bi; popColors?: { accent?: string; blob?: string; sticker?: string }; eyebrow?: Bi; price?: string; size?: Bi; button2?: Bi; panelColor?: string; fullWidth?: boolean; /* banner cover: where the words sit and how tall it is */ textPos?: "center" | "bottom-start" | "bottom-center"; height?: "normal" | "tall"; titleFont?: HeroFont; /* the products on the cards beside the text (empty: the first ones) */ cardIds?: number[]; /* how those cards look: fanned (default), in a row or one big picture; a white frame or the picture alone; the picture shape; the name under it */ cardLook?: { arrange?: "fan" | "row" | "single"; frame?: "card" | "bare"; shape?: "portrait" | "square" | "round"; showName?: boolean }; styles?: { title?: TextStyle; subtitle?: TextStyle; eyebrow?: TextStyle }; colors?: { title?: string; subtitle?: string; eyebrow?: string; price?: string; detail?: string; button?: string }; sizes?: { title?: number; subtitle?: number; eyebrow?: number; price?: number; detail?: number; button?: number } } }
-  | { id: string; type: "perks"; visible: boolean; settings: { items: Perk[] } }
+/* moves: the words and pictures he slid sideways in the designer, by their place in the section ("h:0" its first title,
+   "p:1" its second line of text, "img:0" its first picture, "btn:0" its first button, "box:0" its first picture made of several pieces), as a share of the section's width
+   (-100 to 100), so they keep their place on a phone and on a computer. Moved up or down too: { x, y } with x that share of the width and
+   y in pixels (-600 to 600, + is down). A bare number (saved before he could move up and down) is { x: that, y: 0 }. */
+export type SectionMove = { x: number; y: number };
+export type SectionMoves = Record<string, number | SectionMove>;
+/** a saved move as { x, y }, whichever way it was saved */
+export const moveXY = (m: number | SectionMove | undefined): SectionMove => (typeof m === "number" ? { x: m, y: 0 } : m ? { x: Number(m.x) || 0, y: Number(m.y) || 0 } : { x: 0, y: 0 });
+/* a picture he edited inside its frame (double-click it in the designer): moved by x and y (a share of its own width and
+   height), stretched by sx and sy, turned by r degrees; the frame around it stays where it is */
+export type PicEdit = { x: number; y: number; sx: number; sy: number; r: number };
+/* the section's own title look (none: the theme's): its size in px, its color and its font */
+export type TitleLook = { size?: number; color?: string; font?: HeroFont };
+
+export type SectionConfig = (
+  | { id: string; type: "hero"; visible: boolean; settings: { title: Bi; subtitle: Bi; button: Bi; backgrounds: HeroBg[]; autoplay: boolean; seconds: number; showCards: boolean; layout?: "banner" | "split" | "pop" | "orbit"; photo?: string; photoSide?: "start" | "end"; photo2?: string; /* where the two buttons lead (see linkProps in sections.tsx) */ link?: string; link2?: string; photoPos?: PicPos; photo2Pos?: PicPos; sticker?: Bi; accentWord?: Bi; popColors?: { accent?: string; blob?: string; sticker?: string }; eyebrow?: Bi; price?: string; size?: Bi; button2?: Bi; panelColor?: string; fullWidth?: boolean; /* banner cover: where the words sit and how tall it is */ textPos?: "center" | "bottom-start" | "bottom-center"; height?: "normal" | "tall"; /* the cover's own size in px (none: as wide as the page and as tall as its words); unlinked: width and height change on their own, not together */ box?: { width?: number; height?: number; unlinked?: boolean }; titleFont?: HeroFont; /* the products on the cards beside the text (empty: the first ones) */ cardIds?: number[]; /* how those cards look: fanned (default), in a row or one big picture; a white frame or the picture alone; the picture shape; the name under it */ cardLook?: { arrange?: "fan" | "row" | "single"; frame?: "card" | "bare"; shape?: "portrait" | "square" | "round"; showName?: boolean }; styles?: { title?: TextStyle; subtitle?: TextStyle; eyebrow?: TextStyle }; colors?: { title?: string; subtitle?: string; eyebrow?: string; price?: string; detail?: string; button?: string }; sizes?: { title?: number; subtitle?: number; eyebrow?: number; price?: number; detail?: number; button?: number } } }
+  | { id: string; type: "perks"; visible: boolean; settings: { items: Perk[]; /* where the icon and words sit in each box: in a row on the left or the right, or stacked in the middle ("start": the side the words begin on, the default) */ align?: "start" | "left" | "center" | "right"; /* the boxes' own background (a color or a gradient) and border (empty: the theme's white box with a faint line) */ cardBg?: string; border?: "none" | "thin" | "thick"; borderColor?: string } }
   | { id: string; type: "featured"; visible: boolean; settings: { title: Bi; count: number } }
   | { id: string; type: "discounts"; visible: boolean; settings: { title: Bi; count: number } }
   | { id: string; type: "tiles"; visible: boolean; settings: { title: Bi; items: Tile[]; columns: 3 | 4 | 5 | 6 | 8; /* "circles": round pictures in thin rings, the name under each */ style?: "classic" | "editorial" | "circles" } }
   | { id: string; type: "banners"; visible: boolean; settings: { items: Banner[]; height?: "normal" | "tall" } }
   | { id: string; type: "ribbon"; visible: boolean; settings: { items: Bi[]; background: string; color: string } }
-  | { id: string; type: "chips"; visible: boolean; settings: { items: { label: Bi; color: string; link: string }[]; /* how the row sits: where the buttons gather, whether they are tilted, how big */ align?: "start" | "center" | "end"; tilt?: boolean; size?: "sm" | "md" | "lg" } }
-  | { id: string; type: "newsletter"; visible: boolean; settings: { title: Bi; accentWord: Bi; text: Bi; button: Bi; placeholder: Bi; thanks: Bi; background: string; accent: string; buttonColor: string; /* after subscribing: the thank-you message (default) or go to a destination */ after?: "message" | "link" | "popup"; link?: string; /* the pop-up shown after subscribing */ popup?: { title: Bi; text: Bi; button: Bi; background: string; accent: string; image?: string; imagePos?: PicPos } } }
+  | { id: string; type: "chips"; visible: boolean; settings: { items: { /* its own name, so it keeps its place in the designer when reordered */ key?: string; label: Bi; color: string; link: string }[]; /* how the row sits: where the buttons gather, whether they are tilted, how big */ align?: "start" | "center" | "end"; tilt?: boolean; size?: "sm" | "md" | "lg" } }
+  | { id: string; type: "newsletter"; visible: boolean; settings: { title: Bi; accentWord: Bi; text: Bi; button: Bi; placeholder: Bi; thanks: Bi; background: string; accent: string; buttonColor: string; /* after subscribing: the thank-you message (default) or go to a destination */ after?: "message" | "link" | "popup"; link?: string; /* the pop-up shown after subscribing */ popup?: { title: Bi; text: Bi; button: Bi; background: string; accent: string; image?: string; imagePos?: PicPos; textFont?: HeroFont } } }
   | { id: string; type: "slides"; visible: boolean; settings: { slides: Slide[]; autoplay: boolean; seconds: number; ratio: "wide" | "standard" } }
   | { id: string; type: "collection"; visible: boolean; settings: { title: Bi; productIds: number[]; count: number; columns: 2 | 3 | 4; /* where "view all" leads ("" shows it without a link) */ link?: string; /* a band of its own color across the whole width ("" : none) */ background?: string; color?: string } }
   | { id: string; type: "reviews"; visible: boolean; settings: { title: Bi; items: Review[] } }
   | { id: string; type: "text"; visible: boolean; settings: { title: Bi; body: Bi; align: "start" | "center"; tint: boolean; /* "statement": a centered block with a small line above, a big title, a button and a row of short promises */ style?: "plain" | "statement"; eyebrow?: Bi; button?: Bi; link?: string; trust?: Bi[]; /* text sizes in pixels and colors of their own (empty: the theme's) */ sizes?: { title?: number; body?: number; eyebrow?: number; button?: number }; colors?: { title?: string; body?: string; eyebrow?: string; button?: string }; styles?: { title?: TextStyle; body?: TextStyle; eyebrow?: TextStyle } } }
-  | { id: string; type: "products"; visible: boolean; settings: { title: Bi; columns: 2 | 3 | 4; showFilters: boolean; limit?: number } };
+  | { id: string; type: "products"; visible: boolean; settings: { title: Bi; columns: 2 | 3 | 4; showFilters: boolean; limit?: number } }
+) & { moves?: SectionMoves; titleLook?: TitleLook; /* the subtitle's own font (empty: the theme's) */ subFont?: HeroFont; /* by the picture's place in the section ("img:0") */ pics?: Record<string, PicEdit> };
 
 export type SectionType = SectionConfig["type"];
 
 /* What the store menu (the burger button) shows, in this order: the categories, the pages of the store, the links of the header */
-export type DrawerItem = { kind: "categories" | "pages" | "links" | "custom"; visible: boolean };
+/* title: his own name for the group, shown as its heading in the sidebar (empty: the usual one).
+   hidden: the items of the group he left out (a category's name, a page's id, a header link's place). */
+export type DrawerItem = { kind: "categories" | "pages" | "links" | "custom"; visible: boolean; title?: Bi; hidden?: string[] };
 
 /* A footer link of the merchant's own ("Contact us"): its words, where it leads (see linkProps), and whether it shows */
 export type FooterTab = { id: string; label: Bi; link: string; visible: boolean };
@@ -169,7 +198,8 @@ export type StorefrontConfig = {
     radius: "none" | "md" | "xl";
     font: ThemeFont;
     /* The font of titles ("" means the same as the text) */
-    headingFont: ThemeFont | "";
+    /* any font of the list, the title-only ones too ("": the store font) */
+    headingFont: HeroFont;
     /* A second color for small accents: eyebrows, "view all" links, the pattern ("" means the store color) */
     accent: string;
     /* "pop": big heavy titles, and a colored line under "view all". "ornament": centered titles with three small diamonds above */
@@ -199,14 +229,16 @@ export type StorefrontConfig = {
      when he turns it on he must write his titles and texts in the other language too. */
   header: { showMenu: boolean; showSearch: boolean; showUser: boolean; showCart: boolean; showLanguage: boolean; sticky: boolean };
   /* favicon: the small icon in the browser tab, a small data URL kept in this browser */
-  /* nameFont, nameColor: the store name in a font and a color of its own (header and footer). tagline: a small line under the name */
-  identity: { showLogo: boolean; align: "start" | "center"; logo: LogoConfig; favicon: string; nameFont?: HeroFont; nameColor?: string; tagline?: Bi };
+  /* nameFont, nameColor: the store name in a font and a color of its own (header and footer). tagline: a small line under the name,
+     with its own font and color (none: thin and slanted, in the accent color) */
+  /* showName: the store name beside the logo (off: the logo stands alone; with no logo the name always shows) */
+  identity: { showLogo: boolean; showName?: boolean; align: "start" | "center"; logo: LogoConfig; favicon: string; nameFont?: HeroFont; nameColor?: string; /* the store name's size in the header, in px (none: the theme's) */ nameSize?: number; tagline?: Bi; taglineFont?: HeroFont; taglineColor?: string };
   sections: SectionConfig[];
   /* A picture, GIF or looping video behind the whole page. The file itself is kept in the browser's
      media storage under `media`. `veil` is how much of the page color covers it, so text stays readable. */
   pageBackground: { kind: "none" | "image" | "video"; media: string; name: string; size: number; veil: number; /* the part of the picture or video that stays in view */ pos?: PicPos };
   /* A thin bar above the header with a short message */
-  announcement: { show: boolean; messages: AnnouncementMessage[]; motion: "fade" | "ticker"; seconds: number };
+  announcement: { show: boolean; messages: AnnouncementMessage[]; motion: "fade" | "ticker"; seconds: number; /* how fast the ticker slides (none: normal) */ speed?: "slow" | "normal" | "fast" };
   /* What each product card shows */
   cards: {
     showName: boolean;
@@ -301,7 +333,7 @@ export const defaultConfig: StorefrontConfig = {
       visible: true,
       settings: {
         items: [
-          { icon: "truck", title: { en: "Fast delivery", ar: "توصيل سريع" }, desc: { en: "Across Jordan", ar: "لكل مناطق الأردن" } },
+          { icon: "truck", title: { en: "Fast delivery", ar: "توصيل سريع" }, desc: { en: "Irbid, Amman and Salt", ar: "إربد وعمّان والسلط" } },
           { icon: "shield", title: { en: "Secure payment", ar: "دفع آمن" }, desc: { en: "Cards, CliQ or cash", ar: "بطاقة أو كليك أو نقدًا" } },
           { icon: "returns", title: { en: "Easy returns", ar: "إرجاع سهل" }, desc: { en: "Within 7 days", ar: "خلال 7 أيام" } },
         ],
@@ -316,7 +348,7 @@ export const defaultConfig: StorefrontConfig = {
   pageBackground: { kind: "none", media: "", name: "", size: 0, veil: 60 },
   announcement: {
     show: false,
-    messages: [{ text: { en: "Write a short message for your visitors here", ar: "اكتب هنا رسالة قصيرة لزوّار متجرك" }, link: "", color: "#004956", textColor: "" }],
+    messages: [{ text: { en: "", ar: "" }, link: "", color: "#004956", textColor: "" }],
     motion: "fade",
     seconds: 4,
   },
@@ -411,13 +443,13 @@ export const displayFamily: Record<DisplayFont, string> = {
   amiri: "var(--font-elegant-ar), serif",
 };
 
-/* A new notes ribbon: a dark strip of short words (the notes of the perfumes, the materials, the sizes ...) */
+/* A new words ribbon: a dark strip of short words about the store; starts with words that fit any kind of store */
 export function newRibbon(id: string): SectionConfig {
   return {
     id,
     type: "ribbon",
     visible: true,
-    settings: { items: [{ en: "Oud", ar: "عود" }, { en: "Amber", ar: "عنبر" }, { en: "Rose", ar: "ورد" }, { en: "Musk", ar: "مسك" }], background: "#16120f", color: "#c9a46a" },
+    settings: { items: [{ en: "New arrivals", ar: "وصل حديثًا" }, { en: "Best sellers", ar: "الأكثر مبيعًا" }, { en: "Fast delivery", ar: "توصيل سريع" }, { en: "Easy returns", ar: "إرجاع سهل" }], background: "#16120f", color: "#c9a46a" },
   };
 }
 
@@ -428,8 +460,42 @@ export function heroTitleFamily(key?: HeroFont): string {
   return fontFamily[key];
 }
 
+/* The font of the store's titles: the titles font he picked, or else the store font */
+export function headingFamily(theme: Pick<StorefrontConfig["theme"], "font" | "headingFont">): string {
+  return theme.headingFont ? heroTitleFamily(theme.headingFont) : fontFamily[theme.font] ?? fontFamily.readex;
+}
+
+/* Every font a merchant can pick, in one list that every font picker of the designer shows (store font, titles, the cover's
+   title, the store name, the small line under it, a section's title).
+   latin: it also writes English letters. The English pickers leave out the fonts that write Arabic only, since English text
+   would fall back to another font. noAr: in Arabic it writes exactly like another font of the list, so the Arabic pickers
+   leave it out. titles: a display font, for titles only (never the store's body text).
+   A font already picked always shows, so it can be seen and changed. */
+export type FontKey = Exclude<HeroFont, "">;
+export type FontChoice = { key: FontKey; name: Bi; latin: boolean; noAr?: boolean; titles?: boolean };
+export const storeFonts: FontChoice[] = [
+  { key: "readex", name: { en: "Readex (default)", ar: "ريديكس (الافتراضي)" }, latin: true },
+  { key: "plex", name: { en: "IBM Plex Arabic", ar: "آي بي إم بلكس" }, latin: true },
+  { key: "cairo", name: { en: "Cairo", ar: "القاهرة" }, latin: true },
+  { key: "tajawal", name: { en: "Tajawal", ar: "تجوال" }, latin: true },
+  { key: "kufi", name: { en: "Noto Kufi", ar: "نوتو كوفي" }, latin: true },
+  { key: "baloo", name: { en: "Baloo (playful)", ar: "بالو (مرح)" }, latin: true },
+  { key: "messiri", name: { en: "El Messiri (elegant)", ar: "المسيري (أنيق)" }, latin: true },
+  /* English letters in Cormorant Garamond, Arabic letters in Amiri */
+  { key: "elegant", name: { en: "Cormorant (elegant)", ar: "أميري (أنيق)" }, latin: true },
+  { key: "almarai", name: { en: "Almarai (light)", ar: "المراعي (خفيف)" }, latin: false },
+  { key: "amiri", name: { en: "Amiri (classic)", ar: "أميري (كلاسيكي)" }, latin: true, noAr: true, titles: true },
+  { key: "ruqaa", name: { en: "Aref Ruqaa (royal)", ar: "رقعة (ملكي)" }, latin: true, titles: true },
+  { key: "lemonada", name: { en: "Lemonada (round)", ar: "ليمونادا (مستدير)" }, latin: true, titles: true },
+];
+
+/* The fonts a picker offers in a language. text: a picker for the store's body text, so no title-only fonts. */
+export function fontChoices(lang: "en" | "ar", picked?: string, text = false): FontChoice[] {
+  return storeFonts.filter((f) => f.key === picked || (!(text && f.titles) && (lang === "en" ? f.latin : !f.noAr)));
+}
+
 /* A new row of colored chips (quick categories). Each chip has its own color and sits a little tilted. */
-export function newChips(id: string): SectionConfig {
+export function newChips(id: string, /* where every chip leads at first: the store's products (see shopTarget), never nowhere */ to = ""): SectionConfig {
   const bi = (en: string, ar: string): Bi => ({ en, ar });
   return {
     id,
@@ -437,10 +503,10 @@ export function newChips(id: string): SectionConfig {
     visible: true,
     settings: {
       items: [
-        { label: bi("New", "جديد"), color: "#ff8fb1", link: "" },
-        { label: bi("Best sellers", "الأكثر طلبًا"), color: "#c9b6ff", link: "" },
-        { label: bi("Offers", "عروض"), color: "#ffe36e", link: "" },
-        { label: bi("Gifts", "هدايا"), color: "#b9f3d0", link: "" },
+        { key: "c1", label: bi("New", "جديد"), color: "#ff8fb1", link: to },
+        { key: "c2", label: bi("Best sellers", "الأكثر طلبًا"), color: "#c9b6ff", link: to },
+        { key: "c3", label: bi("Offers", "عروض"), color: "#ffe36e", link: to },
+        { key: "c4", label: bi("Gifts", "هدايا"), color: "#b9f3d0", link: to },
       ],
     },
   };

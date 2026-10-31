@@ -9,7 +9,7 @@ import { usePrefs } from "./Prefs";
 import { accountName, loadSetup } from "./setup";
 import type { LogoConfig } from "./storefront/config";
 import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
-import { loadConfig } from "./storefront/storage";
+import { loadConfig, storeIsLive } from "./storefront/storage";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -98,10 +98,13 @@ export function ProfileMenu() {
   const [store, setStore] = useState<{ name: string; slug: string; color: string }>({ name: "", slug: "", color: "#004956" });
   const [logo, setLogo] = useState<LogoConfig>({ kind: "letter", sample: "shop", image: "" });
   const [copied, setCopied] = useState(false);
+  /* the same answer as the designer's badge: the store opens to customers with its first save */
+  const [live, setLive] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const read = () => {
+      setLive(storeIsLive());
       const s = loadSetup();
       setStore({ name: s?.name || accountName(), slug: s?.slug ?? "", color: s && /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : "#004956" });
       setLogo(resolveLogo(loadConfig().identity.logo, s?.logo ?? ""));
@@ -165,10 +168,17 @@ export function ProfileMenu() {
             <div className="min-w-0">
               <p className="truncate text-base font-bold">{name}</p>
               <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium text-primary">
-                <span title={t.soon} className="inline-flex cursor-not-allowed items-center gap-1.5 opacity-70">
-                  {t.visit}
-                  {i.link}
-                </span>
+                {live ? (
+                  <Link href="/store" target="_blank" onClick={go} className="inline-flex items-center gap-1.5 hover:underline">
+                    {t.visit}
+                    {i.link}
+                  </Link>
+                ) : (
+                  <span title={t.soon} className="inline-flex cursor-not-allowed items-center gap-1.5 opacity-70">
+                    {t.visit}
+                    {i.link}
+                  </span>
+                )}
                 {link && (
                   <button type="button" onClick={copy} className="inline-flex items-center gap-1.5 hover:underline">
                     {copied ? t.copied : t.copy}

@@ -64,7 +64,7 @@ export function Settings() {
   /* The profile as last loaded or saved, to know if there are unsaved changes */
   const [kept, setKept] = useState(JSON.stringify(EMPTY));
   /* The profile as the fields show it: the 9 digits after the fixed +962, and the city in the language of the page */
-  const forFields = (x: Profile): Profile => ({ ...x, phone: shownMobile(x.phone), city: inLang(x.city, { en: content.en.onboarding.shipping.cities, ar: content.ar.onboarding.shipping.cities }, lang) });
+  const forFields = (x: Profile): Profile => ({ ...x, phone: shownMobile(x.phone), city: inLang(x.city, { en: content.en.onboarding.shipping.allCities, ar: content.ar.onboarding.shipping.allCities }, lang) });
   const today = new Date().toISOString().slice(0, 10);
   const dirty = JSON.stringify(p) !== kept || current !== "" || next !== "" || confirm !== "";
 
@@ -79,6 +79,13 @@ export function Settings() {
     setP(shown);
     setKept(JSON.stringify(shown));
   }, []);
+
+  /* the page language can arrive after the profile is loaded: the city follows it, saved or not */
+  useEffect(() => {
+    const follow = (x: Profile): Profile => ({ ...x, city: inLang(x.city, { en: content.en.onboarding.shipping.allCities, ar: content.ar.onboarding.shipping.allCities }, lang) });
+    setP(follow);
+    setKept((k) => JSON.stringify(follow(JSON.parse(k) as Profile)));
+  }, [lang]);
 
   /* Leaving the page with unsaved changes asks first */
   useEffect(() => {
@@ -202,6 +209,8 @@ export function Settings() {
                   {cities.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
+                  {/* a city saved before the list was cut stays shown, so the profile is not changed by itself */}
+                  {p.city && !cities.includes(p.city) && <option value={p.city}>{p.city}</option>}
                 </select>
               </Field>
             </div>

@@ -11,7 +11,7 @@ import { Logo } from "./Nav";
 import { LangSwitch, ThemeToggle, usePrefs } from "./Prefs";
 import { isJordanMobile, jordanMobile, phoneError, savedMobile, typedPhone } from "./phone";
 import { cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
-import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { ACCOUNT_LIMITS, passwordError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { resetToStarterDesign } from "./storefront/storage";
@@ -277,7 +277,7 @@ export function SignupForm() {
           </div>
 
           <form onSubmit={onSubmit} className="mt-8 space-y-5" noValidate>
-            <RequiredNote text={requiredNote[lang]} />
+            <RequiredNote text={requiredNote[lang]} show={hasErrors(errors)} />
             {tab === "create" ? (
               <>
                 <Field label={c.fullName} icon={icons.user} error={errors.name}>

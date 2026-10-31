@@ -47,7 +47,7 @@ const words = {
     errContact: "Enter a Jordan mobile number (07X XXX XXXX) or an email address.",
     city: "City",
     address: "Area, street and building",
-    note: "Note for the store (optional)",
+    note: "Note for the store (Optional)",
     fulfil: "How do you want your order?",
     fulfilDelivery: "Delivery",
     fulfilPickup: "I'll pick it up",
@@ -360,7 +360,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       <ProductImage p={p} className={`shrink-0 ${s.img}`} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-start justify-between gap-2">
-          <p className={s.name} style={luxe ? heading : undefined}>{p.name}</p>
+          <p className={s.name} style={luxe ? heading : undefined}><bdi>{p.name}</bdi></p>
           {iconRemove && (
             <button type="button" onClick={() => setQty(p, 0)} aria-label={`${w.remove}: ${p.name}`} title={w.remove} className={s.remove}>
               {look === "pop" ? cross : trash}
@@ -391,7 +391,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
                 <button type="button" onClick={() => setQty(p, 1)} aria-label={`${w.add}: ${p.name}`} className={s.sPlus}>+</button>
               )}
             </div>
-            <p className={s.sName}>{p.name}</p>
+            <p className={s.sName}><bdi>{p.name}</bdi></p>
             <p className={s.sPrice} dir="auto">{amount(priceOf(p))}</p>
             {!iconRemove && <button type="button" onClick={() => setQty(p, 1)} className={s.sAdd}>+ {w.add}</button>}
           </div>
@@ -611,7 +611,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
                     {lines.map(({ p, qty }) => (
                       <li key={p.id} className="flex items-center gap-2.5 text-sm">
                         <ProductImage p={p} className="h-11 w-11 shrink-0 rounded-[var(--sf-ri,8px)]" />
-                        <span className="min-w-0 flex-1 truncate">{p.name} <span className="opacity-60">× {qty}</span></span>
+                        <span className="min-w-0 flex-1 truncate"><bdi>{p.name}</bdi> <span className="opacity-60">× {qty}</span></span>
                         <span dir="auto" className="shrink-0 font-semibold">{amount(qty * priceOf(p))}</span>
                       </li>
                     ))}

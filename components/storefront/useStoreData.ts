@@ -3,10 +3,9 @@
 import { useEffect, useState } from "react";
 import type { Lang } from "../content";
 import { accountName, accountPhone } from "../setup";
-import { pagesScope } from "../InfoPages";
+import { load as loadPages, pagesScope } from "../InfoPages";
 import type { SectionConfig } from "./config";
 import { isUnlimited, money, productId, salePrice, sellableStock } from "../safeOrder";
-import { sanitizePages } from "../safeDesign";
 import { safeStoredImage } from "../safe";
 import { shownMobile } from "../phone";
 
@@ -69,7 +68,21 @@ const demo: { name: Bi; category: Bi; price: number; sale: number | null; featur
   { name: { en: "Leather wallet", ar: "محفظة جلدية" }, category: { en: "Bags", ar: "حقائب" }, price: 39, sale: 31, featured: false, hue: 330 },
   { name: { en: "Wireless earbuds", ar: "سماعات لاسلكية" }, category: { en: "Electronics", ar: "إلكترونيات" }, price: 58, sale: null, featured: true, hue: 262 },
   { name: { en: "Scented candle", ar: "شمعة عطرية" }, category: { en: "Home", ar: "المنزل" }, price: 16, sale: 12, featured: false, hue: 95, qty: 0 },
+  /* more, so every products block can be seen at the most it can hold (12 in the grid, 8 featured, 8 on sale) */
+  { name: { en: "Cotton tote bag", ar: "حقيبة قماش قطنية" }, category: { en: "Bags", ar: "حقائب" }, price: 12, sale: 9, featured: true, hue: 40 },
+  { name: { en: "Desk lamp", ar: "مصباح مكتب" }, category: { en: "Home", ar: "المنزل" }, price: 29, sale: 24, featured: true, hue: 205 },
+  { name: { en: "Wool scarf", ar: "وشاح صوف" }, category: { en: "Clothing", ar: "ملابس" }, price: 21, sale: 17, featured: true, hue: 350 },
+  { name: { en: "Phone stand", ar: "حامل هاتف" }, category: { en: "Electronics", ar: "إلكترونيات" }, price: 9, sale: null, featured: true, hue: 230 },
+  { name: { en: "Notebook set", ar: "طقم دفاتر" }, category: { en: "Stationery", ar: "قرطاسية" }, price: 8, sale: 6, featured: false, hue: 75 },
+  { name: { en: "Glass vase", ar: "مزهرية زجاجية" }, category: { en: "Home", ar: "المنزل" }, price: 19, sale: null, featured: false, hue: 170 },
+  { name: { en: "Running socks", ar: "جوارب رياضية" }, category: { en: "Clothing", ar: "ملابس" }, price: 6, sale: 4.5, featured: false, hue: 300 },
+  { name: { en: "Portable charger", ar: "شاحن متنقل" }, category: { en: "Electronics", ar: "إلكترونيات" }, price: 25, sale: 20, featured: false, hue: 250 },
 ];
+
+/** The sample products the designer can show (a preview only: never saved, never in the store) */
+export function sampleProducts(lang: Lang): StoreProduct[] {
+  return withOtherCategory(demo.map((d, i) => ({ id: -(i + 1), name: d.name[lang], category: d.category[lang], price: d.price, sale: d.sale, featured: d.featured, quantity: d.qty ?? 10, hue: d.hue })), lang);
+}
 
 /** A saved list of records; anything else saved under the key gives an empty list */
 function savedList(key: string): Record<string, unknown>[] {
@@ -146,12 +159,11 @@ function build(lang: Lang, sample: boolean): StoreData {
 
   const isDemo = sample;
   /* a product with no category shows under "Other", in every theme */
-  const products: StoreProduct[] = withOtherCategory(isDemo
-    ? demo.map((d, i) => ({ id: -(i + 1), name: d.name[lang], category: d.category[lang], price: d.price, sale: d.sale, featured: d.featured, quantity: d.qty ?? 10, hue: d.hue }))
-    : saved, lang);
+  const products: StoreProduct[] = isDemo ? sampleProducts(lang) : withOtherCategory(saved, lang);
 
   const other = lang === "ar" ? "en" : "ar";
-  const allPages = ((sanitizePages(read<unknown>(pagesScope())) ?? []) as { id: number; published: boolean; footer: boolean; title: Bi; content?: Bi; sections?: SectionConfig[] }[]).filter((p) => p.published && (pagesScope() !== "seen-pages" || p.id < 9100 || p.id >= 9300));
+  /* the same list the Info pages dashboard and the designer's page menu show: a store that never saved its pages has the starting ones */
+  const allPages = (loadPages() as { id: number; published: boolean; footer: boolean; title: Bi; content?: Bi; sections?: SectionConfig[] }[]).filter((p) => p.published && (pagesScope() !== "seen-pages" || p.id < 9100 || p.id >= 9300));
   const pages = allPages.filter((p) => p.footer).map((p) => ({ id: p.id, title: p.title[lang] || p.title[other] }));
   const pageList = allPages.map((p) => ({ id: p.id, title: p.title[lang] || p.title[other], content: p.content?.[lang] || p.content?.[other] || "", sections: Array.isArray(p.sections) ? p.sections : [] }));
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { focusStyle } from "../FocusPicker";
+import { initialOf } from "../safe";
 import { unitPrice } from "../safeOrder";
 import type { Lang } from "../content";
 import type { LogoConfig, MarkKey } from "./config";
@@ -8,10 +9,18 @@ import type { StoreProduct } from "./useStoreData";
 
 /* Small pieces shared by the storefront sections: icons, product picture, copy. */
 
+/** The usual heading of a group in the sidebar (he can give it his own name in the designer) */
+export function drawerHeading(kind: "categories" | "pages" | "links" | "custom", lang: Lang): string {
+  if (kind === "categories") return copy[lang].categories;
+  if (kind === "pages") return copy[lang].pages;
+  if (kind === "custom") return lang === "ar" ? "روابط" : "Links";
+  return lang === "ar" ? "روابط المتجر" : "Store links";
+}
+
 export const copy = {
   en: {
     search: "Search products",
-    menu: "Menu",
+    menu: "Sidebar",
     close: "Close",
     account: "Account",
     cart: "Cart",
@@ -30,7 +39,7 @@ export const copy = {
     noMatch: "No products match your search",
     sample: "Sample products. Yours appear here once you add them.",
     perks: [
-      { t: "Fast delivery", d: "Across Jordan" },
+      { t: "Fast delivery", d: "Irbid, Amman and Salt" },
       { t: "Secure payment", d: "Cards, CliQ or cash" },
       { t: "Easy returns", d: "Within 7 days" },
     ],
@@ -46,7 +55,7 @@ export const copy = {
   },
   ar: {
     search: "ابحث عن منتج",
-    menu: "القائمة",
+    menu: "القائمة الجانبية",
     close: "إغلاق",
     account: "حسابي",
     cart: "السلة",
@@ -125,12 +134,13 @@ export const icons = {
 /** The picture of a product. Without a real photo it is a soft color wash with a bag. */
 export function ProductImage({ p, className = "", flat = false }: { p: StoreProduct; className?: string; flat?: boolean }) {
   const h = p.hue ?? 190;
-  /* flat: one soft color and a garment, no circles and no gradient (the playful stores) */
+  /* flat: one soft color and a bag, no circles and no gradient (the playful stores). A bag, not a garment: any store can use it. */
   if (flat) {
     return (
       <div className={`relative grid place-items-center overflow-hidden ${className}`} style={{ background: `hsl(${h} 75% 86%)` }}>
         <svg viewBox="0 0 24 24" className="relative h-1/2 w-1/2" fill={`hsl(${h} 70% 96%)`} stroke={`hsl(${h} 40% 30%)`} strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M8.5 3 3 6l1.8 4.2L7 9.200V20h10V9.200l2.200.9L21 6l-5.500-3a3.500 3.500 0 0 1-7 0Z" />
+          <path d="M5 8h14l-1 12H6L5 8Z" />
+          <path d="M9 8V6a3 3 0 0 1 6 0v2" fill="none" />
         </svg>
         {p.image && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -184,16 +194,33 @@ export const gradientOf = (a: string, b: string) => `linear-gradient(135deg, ${a
 export const flowingOf = (a: string, b: string) => `linear-gradient(-45deg, ${a}, ${b}, ${a}, ${b})`;
 export const isFlowing = (v?: string) => !!v && v.trim().startsWith("linear-gradient(-45deg");
 
-export function onColor(hex: string): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec((fillColors(hex)[0] ?? hex).trim());
-  if (!m) return "#ffffff";
+/* How light a color is (0 black … 1 white); null when it is not a six-digit hex code */
+function lightness(hex: string): number | null {
+  const v = (fillColors(hex)[0] ?? hex).trim().replace(/^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i, "#$1$1$2$2$3$3");
+  const m = /^#?([0-9a-f]{6})$/i.exec(v);
+  if (!m) return null;
   const n = parseInt(m[1], 16);
   const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
     const c = v / 255;
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   });
-  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return lum > 0.45 ? "#10242a" : "#ffffff";
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/* White or dark text, whichever reads better on the color (mid greens and oranges get dark text) */
+export function onColor(hex: string): string {
+  const lum = lightness(hex);
+  if (lum === null) return "#ffffff";
+  return 1.05 / (lum + 0.05) >= (lum + 0.05) / 0.066 ? "#ffffff" : "#10242a";
+}
+
+/** A color used for words (a sale price, a small label) that stays readable on the page: a color too close to the background
+    (a bright yellow sale color on white) is mixed with the text color, the more the closer it is. */
+export function readableOn(color: string, bg: string, text: string): string {
+  const a = lightness(color), b = lightness(bg);
+  if (a === null || b === null) return color;
+  const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  return ratio >= 4.5 ? color : `color-mix(in srgb, ${color} ${ratio >= 3 ? 55 : ratio >= 2 ? 40 : 25}%, ${text})`;
 }
 
 /** Sample logo marks the merchant can pick from. */
@@ -229,7 +256,7 @@ export function LogoMark({ logo, name, className = "h-10 w-10 rounded-2xl text-l
   }
   return (
     <span className={base} style={{ background: "var(--sf-primary)", color: "var(--sf-on)" }}>
-      {name.trim().charAt(0).toUpperCase()}
+      {initialOf(name)}
     </span>
   );
 }

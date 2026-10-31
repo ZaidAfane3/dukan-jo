@@ -231,6 +231,10 @@ function saveThemeState(s: ThemeState): boolean {
 
 /* Looks that come with a theme: in the designer anyone can try them in the preview, but they are kept in the store only for a
    merchant who bought that theme. Saad's own copies (/saad) have everything. */
+/** The theme a design is: the theme itself, or for his copy of a bought theme or a design built over one, that theme */
+export function baseTheme(id: string): string {
+  return loadThemeState().custom.find((c) => c.id === id)?.from ?? id;
+}
 export const ownsLook = (themeId: string) => isOwnCopy() || isFreeTheme(themeId) || findTheme(themeId)?.inStore === false || loadThemeState().owned.some((o) => o.id === themeId);
 
 /** The store design with every look of a theme he has not bought put back to the plain one. */
@@ -272,6 +276,32 @@ const sampleOf = (id: number) => (samples ??= new Map(themes.flatMap((t) => t.pa
 /** The title of a theme's sample page, to find his page of the same kind */
 const sampleWords = (id: number) => { const p = sampleOf(id); return p ? [p.title.en, p.title.ar] : []; };
 
+/* The footer columns of their own that Dukkan's themes come with, by id */
+let themeCols: Map<string, FooterColumn[]> | null = null;
+const sameBi = (a?: Bi, b?: Bi) => (a?.en ?? "") === (b?.en ?? "") && (a?.ar ?? "") === (b?.ar ?? "");
+/** A footer column a theme put there and he never changed: its title and every link's words are the theme's (its links may have
+    been pointed at his pages, or dropped). Such a column goes when another design is put on. */
+function fromATheme(col: FooterColumn): boolean {
+  if (!themeCols) {
+    themeCols = new Map();
+    for (const t of [defaultTheme, ...themes]) {
+      for (const c of footerColumns(t.build("en", { samples: false }).footer)) if (c.kind === "custom") themeCols.set(c.id, [...(themeCols.get(c.id) ?? []), c]);
+    }
+  }
+  return (themeCols.get(col.id) ?? []).some((t) => sameBi(t.title, col.title) && (col.links ?? []).every((l) => (t.links ?? []).some((x) => x.id === l.id && sameBi(x.label, l.label))));
+}
+
+/* The words of the menu links Dukkan's themes come with */
+let themeNav: Bi[] | null = null;
+type NavLink = StorefrontConfig["nav"]["links"][number];
+/** The menu links of a store with a new design put on: the links he wrote himself stay; links a theme brought (as it wrote them)
+    go, and the new design's links fill a menu that has none of his. */
+function mergeNavLinks(cur: NavLink[] | undefined, theirs: NavLink[]): NavLink[] {
+  themeNav ??= [defaultTheme, ...themes].flatMap((t) => t.build("en", { samples: false }).nav.links);
+  const mine = (cur ?? []).filter((l) => !themeNav!.some((x) => sameBi(x, l)));
+  return mine.length ? mine : theirs;
+}
+
 /** Fixes a footer link for the pages this store really has: links to his pages stay, a theme's sample page (or a theme link left
     empty) goes to his page of the same title or kind, a link to a page he does not have is dropped (null). */
 function pageLinker(pages: InfoPage[]) {
@@ -310,10 +340,11 @@ export function mergeFooter(cur: Footer, look: ThemeLook["footer"] & Partial<Foo
     /* a column whose every link led to a missing page goes with them */
     return links.length || !col.links?.length ? [{ ...col, visible: col.visible !== false, links }] : [];
   });
-  /* His own columns that the theme does not have stay at the end, with the links that still lead somewhere */
+  /* His own columns that the theme does not have stay at the end, with the links that still lead somewhere. A column another
+     theme brought, as that theme wrote it, is not his: it goes with that theme. */
   const ids = new Set(look.columns.map((c) => c.id));
   const mine = footerColumns(cur)
-    .filter((col) => col.kind === "custom" && !ids.has(col.id))
+    .filter((col) => col.kind === "custom" && !ids.has(col.id) && !fromATheme(col))
     .map((col) => ({ ...col, links: fixLinks(col.links, fix) }))
     .filter((col) => col.links.length);
   f.columns = [...theirs, ...mine];
@@ -349,7 +380,7 @@ function mergeIdentity(cur: StorefrontConfig["identity"], look?: ThemeLook["iden
 }
 
 /** A store design with a look put on it. His logo, store name, the line under it, his menu links, contact details and announcement
-    bar stay as they are. The header's switches come from the look, except the language button, which is his choice (it needs
+    bar stay as they are (the list he is shown before: applyKeeps in themesContent.ts, keep it in step). The header's switches come from the look, except the language button, which is his choice (it needs
     his words in both languages). */
 export function composeDesign(cur: StorefrontConfig, look: ThemeLook, pages?: InfoPage[]): StorefrontConfig {
   const l = JSON.parse(JSON.stringify(look)) as ThemeLook;
@@ -358,7 +389,7 @@ export function composeDesign(cur: StorefrontConfig, look: ThemeLook, pages?: In
   const theirs = l.header && typeof l.header === "object" ? Object.fromEntries(Object.entries(l.header).filter(([k, v]) => k in cur.header && typeof v === "boolean")) : {};
   const header = { ...cur.header, ...theirs, showLanguage: cur.header.showLanguage };
   /* the theme's links to its sample pages lead to his own pages (or his products) */
-  return relinkPages({ ...cur, theme: l.theme, nav: l.nav, texture: l.texture, sections: l.sections, cards: l.cards, cart: l.cart ?? cur.cart, productPage: l.productPage ?? cur.productPage, header, identity: mergeIdentity(cur.identity, l.identity), drawer: mergeDrawer(cur.drawer, l.drawer), footer: mergeFooter(cur.footer, l.footer, list) }, list, sampleWords);
+  return relinkPages({ ...cur, theme: l.theme, nav: { ...l.nav, links: mergeNavLinks(cur.nav?.links, l.nav?.links ?? []) }, texture: l.texture, sections: l.sections, cards: l.cards, cart: l.cart ?? cur.cart, productPage: l.productPage ?? cur.productPage, header, identity: mergeIdentity(cur.identity, l.identity), drawer: mergeDrawer(cur.drawer, l.drawer), footer: mergeFooter(cur.footer, l.footer, list) }, list, sampleWords);
 }
 
 /** A whole theme design (as its build makes it) on his store: all of the theme, but who the store is stays his: the logo, the tab
@@ -368,6 +399,7 @@ export function adoptTheme(cur: StorefrontConfig, built: StorefrontConfig, pages
   const list = pages ?? loadPages();
   return relinkPages({
     ...b,
+    nav: { ...b.nav, links: mergeNavLinks(cur.nav?.links, b.nav.links) },
     identity: { ...b.identity, logo: cur.identity.logo, favicon: cur.identity.favicon },
     announcement: cur.announcement,
     pageBackground: cur.pageBackground,

@@ -1,4 +1,4 @@
-import type { StorefrontConfig } from "./config";
+import type { Banner, StorefrontConfig } from "./config";
 import { fillColors, isGradient } from "./parts";
 
 /* The colors the footer really paints, worked out once so the store and the designer's color pickers agree */
@@ -37,6 +37,38 @@ export const mix = (a: string, b: string, t: number) => {
   const [p, q] = [rgb(a), rgb(b)];
   return `#${p.map((v, i) => Math.round(v * t + q[i] * (1 - t)).toString(16).padStart(2, "0")).join("")}`;
 };
+
+/* Words in a color he picked, on a background (the page, the header, a cover, a bar): the footer's bar for his text color, 3:1.
+   The store draws an automatic color in place of one that does not read, and the designer says so beside the color. */
+
+/** The plain colors of a background (the stops of a gradient); none for anything else (a picture) */
+export const stopsOf = (bg?: string): string[] => (bg ? (isGradient(bg) ? fillColors(bg) : [bg]).map(hex).filter(Boolean) : []);
+
+/** Whether words in `color` read on `bg` (on every color of a gradient). No color, or a background that is not a color, counts as readable. */
+export function readsOn(color: string | undefined, bg: string | undefined, min = 3): boolean {
+  const c = hex(color);
+  const stops = stopsOf(bg);
+  return !c || !stops.length || Math.min(...stops.map((s) => contrast(c, s))) >= min;
+}
+
+/** `color` where it reads on `bg`; otherwise `fallback` where that reads; otherwise the soft light or soft dark, whichever reads best */
+export function legibleOn(color: string, bg: string, fallback?: string): string {
+  if (readsOn(color, bg)) return color;
+  if (fallback && readsOn(fallback, bg)) return fallback;
+  const stops = stopsOf(bg);
+  const worst = (c: string) => Math.min(...stops.map((s) => contrast(c, s)));
+  return worst(SOFT_LIGHT) >= worst(SOFT_DARK) ? SOFT_LIGHT : SOFT_DARK;
+}
+
+/** What the words of a promo banner sit on: its card color, its frosted panel (his color, or the dark or light one), or, with no
+    picture, the fill in the store color; "" on a picture (it has its own dark fade). `primary`: the theme's store color, `storeColor`: setup's. */
+export function bannerSurface(b: Banner, primary: string, storeColor: string): string {
+  if (b.variant === "card") return b.bg || primary;
+  if (b.panel === "light" || b.panel === "dark") return hex(b.panelColor) || (b.panel === "dark" ? "#12100d" : "#fff5f8");
+  if (b.image) return "";
+  const plain = hex(storeColor) || DEFAULT_PRIMARY;
+  return `linear-gradient(135deg, ${plain}, ${mix(plain, "#6fe3cf", 0.6)})`;
+}
 
 export type FooterColors = {
   /* the background drawn (a color or a gradient, with a veil over a gradient that needs one) and the text color drawn on it */

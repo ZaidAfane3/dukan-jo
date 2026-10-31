@@ -177,7 +177,9 @@ export type Content = {
       change: string;
       cityLabel: string;
       cityPh: string;
+      /* the cities offered; allCities: every governorate a city may have been saved as before */
       cities: string[];
+      allCities: string[];
       addressLabel: string;
       addressPh: string;
       features: string[];
@@ -576,7 +578,6 @@ export const content: Record<Lang, Content> = {
           { title: "A product you ship", desc: "Clothes, perfumes, devices… needs delivery" },
           { title: "A file to download", desc: "E-books, courses, designs… delivered instantly" },
           { title: "A card or code", desc: "Gift cards, subscriptions, activation codes" },
-          { title: "Food & same-day orders", desc: "Meals and sweets delivered within hours" },
         ],
         dataTitle: "Add product details",
         imageAdd: "Add a new image",
@@ -649,7 +650,8 @@ export const content: Record<Lang, Content> = {
         change: "Change delivery option",
         cityLabel: "Pickup city",
         cityPh: "Choose a city",
-        cities: ["Amman", "Irbid", "Zarqa", "Balqa", "Madaba", "Karak", "Tafilah", "Ma'an", "Aqaba", "Jerash", "Ajloun", "Mafraq"],
+        cities: ["Irbid", "Amman", "Salt"],
+        allCities: ["Amman", "Irbid", "Zarqa", "Balqa", "Madaba", "Karak", "Tafilah", "Ma'an", "Aqaba", "Jerash", "Ajloun", "Mafraq", "Salt"],
         addressLabel: "Pickup address",
         addressPh: "Street, building number, landmark",
         features: ["Pickup from your address", "Tracking for every order", "Flat price, no contracts"],
@@ -1183,7 +1185,6 @@ export const content: Record<Lang, Content> = {
           { title: "منتج يُشحن", desc: "ملابس، عطور، أجهزة… يحتاج توصيلًا" },
           { title: "ملف للتحميل", desc: "كتب إلكترونية، دورات، تصاميم… يصل للعميل فورًا" },
           { title: "بطاقة أو رمز", desc: "بطاقات هدايا، اشتراكات، أكواد تفعيل" },
-          { title: "طعام وطلبات اليوم", desc: "أكل وحلويات تُوصَّل خلال ساعات" },
         ],
         dataTitle: "أضف بيانات المنتج",
         imageAdd: "أضف صورة جديدة",
@@ -1256,7 +1257,8 @@ export const content: Record<Lang, Content> = {
         change: "تغيير خيار التوصيل",
         cityLabel: "مدينة الاستلام",
         cityPh: "اختر المدينة",
-        cities: ["عمّان", "إربد", "الزرقاء", "البلقاء", "مأدبا", "الكرك", "الطفيلة", "معان", "العقبة", "جرش", "عجلون", "المفرق"],
+        cities: ["إربد", "عمّان", "السلط"],
+        allCities: ["عمّان", "إربد", "الزرقاء", "البلقاء", "مأدبا", "الكرك", "الطفيلة", "معان", "العقبة", "جرش", "عجلون", "المفرق", "السلط"],
         addressLabel: "عنوان الاستلام",
         addressPh: "الشارع، رقم المبنى، أقرب معلم",
         features: ["استلام من عنوانك", "تتبّع لكل طلب", "سعر ثابت بلا عقود"],

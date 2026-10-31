@@ -27,8 +27,9 @@ const lemonada = Lemonada({ subsets: ["arabic", "latin"], variable: "--font-lemo
 /* An elegant display Arabic for titles and prices, and a light, clean Arabic for text */
 const messiri = El_Messiri({ subsets: ["arabic", "latin"], weight: ["400", "600", "700"], variable: "--font-messiri", preload: false });
 const almarai = Almarai({ subsets: ["arabic"], weight: ["300", "400", "700"], variable: "--font-almarai", preload: false });
-/* A clean, modern Kufi Arabic for fashion stores */
-const kufi = Noto_Kufi_Arabic({ subsets: ["arabic"], weight: ["300", "400", "500", "600", "800"], variable: "--font-kufi", preload: false });
+/* A clean, modern Kufi Arabic for fashion stores (with its English letters, so English stores can use it too).
+   Almarai writes Arabic only: the English font pickers leave it out (fontChoices in storefront/config.ts). */
+const kufi = Noto_Kufi_Arabic({ subsets: ["arabic", "latin"], weight: ["300", "400", "500", "600", "800"], variable: "--font-kufi", preload: false });
 
 export const metadata: Metadata = {
   title: "Dukkan | Launch your online store in minutes",

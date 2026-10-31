@@ -12,7 +12,9 @@ import { FocusPicker } from "./FocusPicker";
 import { ImageCropper } from "./ImageCropper";
 import { PRODUCT_MAX, cleanCategory, cleanProduct, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
 import { cleanLine, cleanLines } from "./safe";
-import { RequiredMark, RequiredNote } from "./Required";
+import { hasErrors, RequiredMark, RequiredNote } from "./Required";
+import { RudeNote } from "./RudeNote";
+import { StockChoice, stockNeedsAnswer } from "./StockChoice";
 
 
 type Draft = {
@@ -235,12 +237,21 @@ export function Products() {
   const [sort, setSort] = useState(0);
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(blank);
-  /* he typed a share above 100%: it stopped at 100, and a short note says why */
-  const [pctCapped, setPctCapped] = useState(false);
+  /* a big quantity (999 or more) he said is right */
+  const [stockOk, setStockOk] = useState("");
   const [errors, setErrors] = useState<{ name?: string; price?: string; sale?: string; images?: string; quantity?: string }>({});
   const [picked, setPicked] = useState<number[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [flash, setFlash] = useState(false);
+  /* the "saved" card at the top: the product's name (empty: a product brought back from the bin) */
+  const [flash, setFlash] = useState<{ name: string; n: number } | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>();
+  const showSaved = (name: string) => {
+    clearTimeout(flashTimer.current);
+    setFlash((f) => ({ name, n: (f?.n ?? 0) + 1 }));
+    flashTimer.current = setTimeout(() => setFlash(null), 4000);
+  };
+  /* the editor scrolls on its own on a wide screen; after saving it goes back to its top */
+  const editorBox = useRef<HTMLElement>(null);
   /* The product's photos: shrunk and saved with the product, so the store shows them */
   const [photos, setPhotos] = useState<string[]>([]);
   const [photoBad, setPhotoBad] = useState(false);
@@ -251,6 +262,8 @@ export function Products() {
   const typedCat = useRef("");
   /* the photo being cropped (the first photo has its own focus picker below) */
   const [cropAt, setCropAt] = useState<number | null>(null);
+  /* the photo as it is being cropped, shown in its place right away (back to the old one on Cancel) */
+  const [photoLive, setPhotoLive] = useState<string | null>(null);
   const [focus, setFocus] = useState({ x: 50, y: 50 });
   const fileInput = useRef<HTMLInputElement>(null);
   /* The editor as it was when opened or last saved, to know if there are unsaved changes */
@@ -334,6 +347,8 @@ export function Products() {
     };
     setEditing(x.id);
     setDraft(d);
+    /* a quantity he saved before was already right */
+    setStockOk(d.quantity);
     setErrors({});
     setConfirmDelete(false);
     setPhotos(x.images ?? []);
@@ -348,6 +363,7 @@ export function Products() {
   const openNew = () => {
     setEditing("new");
     setDraft(blank);
+    setStockOk("");
     setErrors({});
     setConfirmDelete(false);
     setPhotos([]);
@@ -404,6 +420,7 @@ export function Products() {
     if (bad.includes("price")) next.price = p.errPrice;
     if (bad.includes("sale")) next.sale = p.errSale;
     if (bad.includes("quantity")) next.quantity = p.errQuantity;
+    else if (stockNeedsAnswer(draft.unlimited, draft.quantity, stockOk)) next.quantity = p.errStockAsk;
     setErrors(next);
     /* the first field with a mistake comes into view with the cursor in it */
     const first = (["name", "images", "price", "sale", "quantity"] as const).find((k) => next[k]);
@@ -435,7 +452,8 @@ export function Products() {
       lowBy: draft.lowBy,
       restockBy: draft.restockBy,
       restockMin: Math.max(0, Math.floor(Number(draft.restockMin) || 0)),
-      restockPct: Math.min(100, Math.max(0, Math.floor(Number(draft.restockPct) || 0))),
+      /* everyone who asked is told (the share was taken out of the form; kept in the record for the backend) */
+      restockPct: 100,
       images: shownPhotos,
       focus,
     };
@@ -449,8 +467,9 @@ export function Products() {
       setItems((list) => (list.some((x) => x.id === editing) ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list]));
     }
     setClean(snapshot(draft, photos, focus));
-    setFlash(true);
-    setTimeout(() => setFlash(false), 1800);
+    showSaved(base.name);
+    editorBox.current?.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const trash = (ids: number[]) => {
@@ -464,8 +483,7 @@ export function Products() {
     setItems((list) => list.map((x) => (ids.includes(x.id) ? { ...x, deletedAt: undefined } : x)));
     setPicked((cur) => cur.filter((id) => !ids.includes(id)));
     if (typeof editing === "number" && ids.includes(editing)) setEditing(null);
-    setFlash(true);
-    setTimeout(() => setFlash(false), 1800);
+    showSaved("");
   };
 
   const remove = (ids: number[]) => {
@@ -603,8 +621,8 @@ export function Products() {
             )}
           </section>
 
-          {/* Editor */}
-          <section className={`${card} p-5 sm:p-7`}>
+          {/* Editor: on a wide screen it stays in view under the top bar and scrolls by itself, not the whole page */}
+          <section ref={editorBox} className={`${card} p-5 sm:p-7 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain`}>
             {editing === null ? (
               <div className="grid min-h-[16rem] place-items-center text-center">
                 <div>
@@ -623,12 +641,13 @@ export function Products() {
                 <div className="space-y-5 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="font-bold">{p.basic}</h3>
-                    <RequiredNote text={p.requiredNote} />
+                    <RequiredNote text={p.requiredNote} show={hasErrors(errors)} />
                   </div>
                   <div>
                     <Label id="p-name" required>{p.name}</Label>
                     <input id="p-name" required aria-invalid={!!errors.name} value={draft.name} onChange={(e) => { set("name", e.target.value); if (errors.name) setErrors((x) => ({ ...x, name: undefined })); }} placeholder={p.namePh} maxLength={80} className={`${field} h-12 ${errors.name ? bad : ""}`} />
                     {errors.name && <p className="mt-1.5 text-xs text-rose-600">{errors.name}</p>}
+                    <RudeNote lang={lang} text={draft.name} />
                   </div>
 
                   <div>
@@ -637,7 +656,7 @@ export function Products() {
                       {photos.map((u, i) => (
                         <div key={u} className="group relative aspect-square overflow-hidden rounded-xl bg-soft ring-1 ring-fg/10">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={u} alt="" onError={() => setBroken((b) => (b.includes(u) ? b : [...b, u]))} onLoad={() => setBroken((b) => b.filter((x) => x !== u))} className="h-full w-full object-cover" />
+                          <img src={i === cropAt && photoLive ? photoLive : u} alt="" onError={() => setBroken((b) => (b.includes(u) ? b : [...b, u]))} onLoad={() => setBroken((b) => b.filter((x) => x !== u))} className="h-full w-full object-cover" />
                           {broken.includes(u) && <span className="absolute inset-0 grid place-items-center bg-rose-600/80 p-1 text-center text-[10px] font-bold leading-tight text-white">{p.imageBroken}</span>}
                           {i === 0 && <span className="absolute start-1.5 top-1.5 rounded-md bg-primary px-2 py-0.5 text-[10px] font-bold text-white">{p.primary}</span>}
                           {i > 0 && !demoActive() && (
@@ -675,7 +694,7 @@ export function Products() {
                     </div>
                     {cropAt !== null && photos[cropAt] && (
                       <div className="mt-3">
-                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onCancel={() => setCropAt(null)} onDone={(url) => { const at = cropAt; setPhotos((cur) => cur.map((x, j) => (j === at ? url : x))); setCropAt(null); }} />
+                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onLive={setPhotoLive} onCancel={() => { setCropAt(null); setPhotoLive(null); }} onDone={(url) => { const at = cropAt; setPhotos((cur) => cur.map((x, j) => (j === at ? url : x))); setCropAt(null); setPhotoLive(null); }} />
                       </div>
                     )}
                     <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
@@ -688,7 +707,7 @@ export function Products() {
                         <p className="text-sm font-bold">{p.focusTitle}</p>
                         <p className="mt-1 text-xs leading-relaxed text-muted">{p.focusNote}</p>
                         <div className="mt-3">
-                          <FocusPicker image={photos[0]} value={focus} onChange={setFocus} disabled={demoActive()} labels={{ tall: p.shapeTall, square: p.shapeSquare, wide: p.shapeWide, center: p.focusCenter, zoom: lang === "ar" ? "تكبير (قصّ أقرب)" : "Zoom (crop closer)" }} />
+                          <FocusPicker image={cropAt === 0 && photoLive ? photoLive : photos[0]} value={focus} onChange={setFocus} disabled={demoActive()} labels={{ tall: p.shapeTall, square: p.shapeSquare, wide: p.shapeWide, center: p.focusCenter, zoom: lang === "ar" ? "تكبير (قصّ أقرب)" : "Zoom (crop closer)" }} />
                         </div>
                       </div>
                     )}
@@ -716,10 +735,12 @@ export function Products() {
                     <div className="sm:col-span-2">
                       <Label id="p-category" hint={p.catHint}>{p.category}</Label>
                       <CategoryPicker value={draft.category} products={items} words={p} onChange={(v) => set("category", v)} onTyped={(v) => { typedCat.current = v; }} />
+                      <RudeNote lang={lang} text={draft.category} />
                     </div>
                     <div>
                       <Label id="p-brand">{p.brand}</Label>
                       <input id="p-brand" value={draft.brand} onChange={(e) => set("brand", e.target.value)} placeholder={p.brandPh} maxLength={40} className={`${field} h-12`} />
+                      <RudeNote lang={lang} text={draft.brand} />
                     </div>
                   </div>
 
@@ -727,16 +748,19 @@ export function Products() {
                     <div>
                       <Label id="p-notes" hint={p.notesHint}>{p.notes}</Label>
                       <input id="p-notes" value={draft.notes} onChange={(e) => set("notes", e.target.value)} placeholder={p.notesPh} maxLength={60} className={`${field} h-12`} />
+                      <RudeNote lang={lang} text={draft.notes} />
                     </div>
                     <div>
                       <Label id="p-badge" hint={p.badgeHint}>{p.badge}</Label>
                       <input id="p-badge" value={draft.badge} onChange={(e) => set("badge", e.target.value)} placeholder={p.badgePh} maxLength={20} className={`${field} h-12`} />
+                      <RudeNote lang={lang} text={draft.badge} />
                     </div>
                   </div>
 
                   <div>
                     <Label id="p-desc">{p.description}</Label>
                     <textarea id="p-desc" value={draft.description} onChange={(e) => set("description", e.target.value)} placeholder={p.descriptionPh} rows={5} maxLength={2000} className={`${field} resize-y py-3`} />
+                    <RudeNote lang={lang} text={draft.description} />
                   </div>
                 </div>
 
@@ -750,15 +774,20 @@ export function Products() {
                 <div className="space-y-5 border-t border-fg/10 pt-6 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
                   <h3 className="font-bold">{p.stock}</h3>
                   <div>
-                    <Toggle on={draft.unlimited} onChange={(v) => { set("unlimited", v); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }} label={p.unlimited} hint={p.unlimitedHint} />
+                    <StockChoice
+                      lang={lang}
+                      unlimited={draft.unlimited}
+                      quantity={draft.quantity}
+                      okFor={stockOk}
+                      onUnlimited={(v) => { set("unlimited", v); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
+                      onQuantity={(v) => { set("quantity", whole(v)); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
+                      onConfirm={(q) => { setStockOk(q); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
+                      inputId="p-qty"
+                      inputClass={`${field} ${errors.quantity ? bad : ""}`}
+                      error={errors.quantity}
+                      required
+                    />
                   </div>
-                  {!draft.unlimited && (
-                    <div className="max-w-xs">
-                      <Label id="p-qty" hint={p.quantityHint} required>{p.quantity}</Label>
-                      <input id="p-qty" required aria-invalid={!!errors.quantity} dir="ltr" inputMode="numeric" value={draft.quantity} onChange={(e) => { set("quantity", whole(e.target.value)); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }} maxLength={7} className={`${field} h-12 text-start ${errors.quantity ? bad : ""}`} />
-                      {errors.quantity && <p className="mt-1.5 text-xs text-rose-600">{errors.quantity}</p>}
-                    </div>
-                  )}
                 </div>
 
                 <div className="space-y-5 border-t border-fg/10 pt-6 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
@@ -774,12 +803,7 @@ export function Products() {
                   <div>
                     <Label id="p-min" hint={p.restockMinHint}>{p.restockMin}</Label>
                     <input id="p-min" dir="ltr" inputMode="numeric" value={draft.restockMin} onChange={(e) => set("restockMin", whole(e.target.value))} maxLength={5} className={`${field} h-12 text-start`} />
-                  </div>
-                  <div>
-                    <Label id="p-pct" hint={p.restockPctHint}>{p.restockPct} (%)</Label>
-                    <input id="p-pct" dir="ltr" inputMode="numeric" value={draft.restockPct} onChange={(e) => { const typed = latin(e.target.value).replace(/\D/g, ""); setPctCapped(Number(typed) > 100); set("restockPct", whole(typed, 100)); }} maxLength={3} className={`${field} h-12 text-start`} />
-                    {/* a share above 100% is not possible: it stops at 100 and says why */}
-                    {pctCapped && <p role="status" className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">{p.pctMax}</p>}
+                    {/* every customer who asked is told when it is back (the share to notify was taken out) */}
                     <SendByPick label={p.sendByCustomers} value={draft.restockBy} onChange={(v) => set("restockBy", v)} words={p} />
                   </div>
                 </div>
@@ -818,12 +842,23 @@ export function Products() {
         </div>
       </main>
 
-      {/* The save message floats at the bottom of the screen, so it shows wherever he scrolled to */}
-      {flash && (
-        <div role="status" className="fixed bottom-6 start-1/2 z-[60] -translate-x-1/2 rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-onink shadow-2xl rtl:translate-x-1/2">
-          {p.saved}
-        </div>
-      )}
+      {/* The "saved" card drops in at the top of the screen, where the page goes back to after saving */}
+      <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 top-20 z-[60] flex justify-center px-4">
+        {flash && (
+          <div key={flash.n} className="pointer-events-auto flex w-full max-w-sm animate-[savedIn_.35s_ease-out] items-center gap-3 rounded-2xl border border-emerald-500/30 bg-card px-4 py-3 shadow-2xl ring-1 ring-black/5">
+            <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-500 text-white">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-bold text-emerald-700 dark:text-emerald-400">{p.saved}</span>
+              {flash.name && <span className="block truncate text-xs text-muted">{flash.name}</span>}
+            </span>
+            <button type="button" onClick={() => setFlash(null)} aria-label={p.cancel} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-soft hover:text-fg">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { DashboardBar } from "./DashboardBar";
 import { pushNotification } from "./notifications";
 import { usePrefs } from "./Prefs";
 import { cleanLine, cleanLines, visibleLength } from "./safe";
-import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { ACCOUNT_LIMITS, cleanTickets, TICKET_MIN, TICKET_PICTURES, type Ticket } from "./safeAccount";
 import { readPhoto } from "./designer/image";
 
@@ -169,7 +169,7 @@ export function Support() {
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setCreating(false)}>
           <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={s.newTicket} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
             <h2 className="text-lg font-bold">{s.newTicket}</h2>
-            <div className="mt-2"><RequiredNote text={requiredNote[lang]} /></div>
+            {hasErrors(errors) && <div className="mt-2"><RequiredNote text={requiredNote[lang]} show /></div>}
             <div className="mt-5 space-y-5">
               <div>
                 <label htmlFor="t-subject" className="mb-2 block text-sm font-semibold">{s.subject}<RequiredMark /></label>

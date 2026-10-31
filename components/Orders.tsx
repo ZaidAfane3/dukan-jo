@@ -10,7 +10,7 @@ import { isJordanMobile, phoneError, savedMobile, typedAnyPhone } from "./phone"
 import { ORDER_MAX, cleanOrder, money, parseList, typedMoney, type Order } from "./records";
 import { cleanLine, visibleLength } from "./safe";
 import { CITIES, KNOWN_CITIES, ORDER_LIMITS, inLang, isCity, type Fulfil } from "./safeOrder";
-import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion } from "./orderDeletions";
 
 
@@ -437,7 +437,7 @@ export function Orders() {
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setCreating(false)}>
           <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={o.formTitle} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
             <h2 className="text-lg font-bold">{o.formTitle}</h2>
-            <div className="mt-2"><RequiredNote text={requiredNote[lang]} /></div>
+            {hasErrors(errors) && <div className="mt-2"><RequiredNote text={requiredNote[lang]} show /></div>}
             <div className="mt-5 space-y-5">
               <div>
                 <label htmlFor="n-name" className="mb-2 block text-sm font-semibold">{o.customer}<RequiredMark /></label>

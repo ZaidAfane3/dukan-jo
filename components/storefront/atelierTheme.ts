@@ -16,7 +16,6 @@ export function atelierConfig(lang: Lang, o: { samples: boolean; storeName?: str
   const L = (en: string, ar: string) => (lang === "ar" ? ar : en);
   const photo = (n: number) => (o.samples ? `/demo/perfume/p${n}.jpg` : "");
   const tile = (n: number, en: string, ar: string, chip: "light" | "dark" = "light") => ({ image: photo(n), label: bi(en, ar), link: "", chip });
-  const name = o.storeName?.trim() || L("Your store", "متجرك");
 
   /* primary is left empty on purpose: the theme follows the store color (the demo store's color is the same dark ink, so it looks the same) */
   c.theme = { ...c.theme, primary: "", background: "#f7f2ea", text: "#1c1a17", radius: "md", font: "plex", headingFont: "readex", accent: "#8a6a3a", titleStyle: "light", spacing: "airy" };
@@ -55,6 +54,8 @@ export function atelierConfig(lang: Lang, o: { samples: boolean; storeName?: str
       { id: "licenses", kind: "licenses", visible: true },
     ];
   }
+  /* the store's name stands in the header (the hero's title is his own words, not a copy of the name); he can turn the logo on instead */
+  if (!o.samples) c.identity = { ...c.identity, showLogo: false };
   c.footer.background = "#16120f";
   c.footer.text = "#e9e1d3";
 
@@ -63,7 +64,8 @@ export function atelierConfig(lang: Lang, o: { samples: boolean; storeName?: str
     type: "hero",
     visible: true,
     settings: {
-      title: o.samples ? bi("Noir Blanc", "Noir Blanc") : bi(name, name),
+      /* a title in both languages, never a copy of the store name (that would stay behind when he renames the store) */
+      title: o.samples ? bi("Noir Blanc", "Noir Blanc") : bi("Made to last", "صُنع ليدوم"),
       subtitle: o.samples ? bi("A soft, sweet scent for every hour", "عطرٌ حلوٌ ناعم لكل الأوقات") : bi("A short line about your best product", "سطر قصير عن أفضل منتج لديك"),
       button: bi("Shop now", "تسوّق الآن"),
       backgrounds: [{ kind: "color", color: "#f8f6f2", image: "" }],

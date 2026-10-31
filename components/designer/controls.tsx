@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { normalizeHex } from "../safe";
 
 /* Form controls used by the designer's panels. */
 
@@ -79,17 +80,24 @@ export function ColorPicker({ value: given, onChange, label, bad, list = swatche
   /* what is written in the hex box: a color that is not finished or not right stays here, with the red note under it,
      and the store keeps its last good color until it is fixed */
   const [typed, setTyped] = useState(value);
-  useEffect(() => setTyped(value), [value]);
+  /* a code that was not a color was taken back when he left the box: the note stays until he writes or picks again */
+  const [undone, setUndone] = useState(false);
+  /* a new color from outside (a swatch, undo) is shown; the same color he is typing ("#abc" for #aabbcc) keeps his letters */
+  useEffect(() => setTyped((t) => (normalizeHex(t) && normalizeHex(t) === normalizeHex(value) ? t : value)), [value]);
   const latest = useRef(value);
   latest.current = value;
-  const ok = HEX.test(typed);
+  /* "#abc" and codes without "#" count too: the store gets the full code (#aabbcc) */
+  const good = normalizeHex(typed);
+  const ok = !!good;
   const pick = (v: string) => {
     setTyped(v);
+    setUndone(false);
     onChange(v);
   };
   return (
     <div data-color-picker>
-      <div className="flex flex-wrap gap-2.5">
+      {/* a little room around the row, so the ring of the picked color is never cut by the panel's edge */}
+      <div className="flex flex-wrap gap-2.5 p-1">
         {list.map((c) => (
           <button
             key={c}
@@ -103,10 +111,10 @@ export function ColorPicker({ value: given, onChange, label, bad, list = swatche
         ))}
       </div>
       <label className="mt-3 flex items-center gap-3">
-        <span dir="ltr" className={`flex h-11 flex-1 items-center gap-3 rounded-xl border bg-card px-3 text-sm ${ok ? "border-fg/15" : "border-rose-500"}`}>
+        <span dir="ltr" className={`flex h-11 flex-1 items-center gap-3 rounded-xl border bg-card px-3 text-sm ${ok && !undone ? "border-fg/15" : "border-rose-500"}`}>
           <input
             type="color"
-            value={ok ? typed : HEX.test(value) ? value : "#000000"}
+            value={good ?? normalizeHex(value) ?? "#000000"}
             onChange={(e) => pick(e.target.value)}
             aria-label={label}
             className="h-6 w-6 cursor-pointer rounded-full border-0 bg-transparent p-0"
@@ -114,19 +122,28 @@ export function ColorPicker({ value: given, onChange, label, bad, list = swatche
           <input
             value={typed}
             onChange={(e) => {
-              const v = (e.target.value.startsWith("#") ? e.target.value : `#${e.target.value}`).slice(0, 7);
+              /* one "#" in front, however it was typed or pasted ("##abc", "abc", " #ABC ") */
+              const v = `#${e.target.value.replace(/\s/g, "").replace(/^#+/, "")}`.slice(0, 7);
               setTyped(v);
-              if (HEX.test(v)) onChange(v);
+              setUndone(false);
+              const full = normalizeHex(v);
+              if (full) onChange(full);
             }}
-            /* leaving the box with a code that is not right puts the last good color back, so what shows is what gets saved */
-            onBlur={() => { if (!HEX.test(typed)) afterPress(() => setTyped(latest.current)); }}
+            /* leaving the box: "#abc" is written out in full; a code that is not a color puts the last good color back (what shows
+               is what gets saved) and the note stays, so the change back is never silent */
+            onBlur={() => {
+              if (good) { if (good !== typed.toLowerCase()) setTyped(good); return; }
+              /* (leaving it by picking a swatch is not a change back: that new color is shown, with no note) */
+              const before = latest.current;
+              afterPress(() => { setTyped(latest.current); setUndone(latest.current === before); });
+            }}
             spellCheck={false}
             aria-label={label}
             className="w-full bg-transparent font-mono uppercase outline-none"
           />
         </span>
       </label>
-      {!ok && <p className="mt-1.5 text-xs text-rose-600">{bad}</p>}
+      {(!ok || undone) && <p role="alert" className="mt-1.5 text-xs text-rose-600">{bad}</p>}
     </div>
   );
 }

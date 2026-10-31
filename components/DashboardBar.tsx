@@ -61,6 +61,16 @@ const icons = {
    Notifications: the bell and its panel
    ==================================================================== */
 
+/** The dark name tip under a round button of the top bar (support tickets, notifications): the same for each, shown on hover
+    and keyboard focus. Its button needs the "group" class. */
+function TopTip({ children, hide = false }: { children: React.ReactNode; /* while its panel is open */ hide?: boolean }) {
+  return (
+    <span role="tooltip" className={`pointer-events-none absolute end-0 top-full z-50 mt-2 whitespace-nowrap rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-onink opacity-0 shadow-lg transition-opacity ${hide ? "" : "group-hover:opacity-100 group-focus-visible:opacity-100"}`}>
+      {children}
+    </span>
+  );
+}
+
 function NotificationBell() {
   const { lang } = usePrefs();
   const n = content[lang].notifications;
@@ -128,11 +138,11 @@ function NotificationBell() {
         data-nav-item
         aria-label={n.title}
         aria-expanded={open}
-        title={n.title}
         onClick={() => setOpen((o) => !o)}
-        className="relative grid h-9 w-9 place-items-center rounded-lg border border-fg/15 text-fg transition hover:bg-soft"
+        className={`group relative grid h-9 w-9 place-items-center rounded-lg border text-fg transition hover:bg-soft ${open ? "border-primary bg-soft" : "border-fg/15"}`}
       >
         {icons.bell}
+        <TopTip hide={open}>{n.title}</TopTip>
         {unread > 0 && (
           <span className="absolute -end-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[11px] font-bold leading-none text-white">
             {unread > 9 ? "9+" : unread}
@@ -489,9 +499,7 @@ export function DashboardBar({
               className={`group relative grid h-9 w-9 place-items-center rounded-lg border text-fg transition hover:bg-soft ${active === "support" ? "border-primary bg-soft" : "border-fg/15"}`}
             >
               {icons.ticket}
-              <span role="tooltip" className="pointer-events-none absolute end-0 top-full z-50 mt-2 whitespace-nowrap rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-onink opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-                {support.title}
-              </span>
+              <TopTip>{support.title}</TopTip>
             </Link>
             <NotificationBell />
             <ProfileMenu />

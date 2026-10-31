@@ -5,8 +5,13 @@ export const RequiredMark = () => <span className="ms-1 text-rose-600" aria-hidd
 
 export const requiredNote = { en: "Fields with * are required", ar: "الحقول التي عليها * مطلوبة" };
 
-/** The note above a form. `text` holds one *, which is shown in red. */
-export function RequiredNote({ text, className = "text-xs text-muted" }: { text: string; className?: string }) {
+/** True when a form has a mistake to show (any error message set) */
+export const hasErrors = (errors: object) => Object.values(errors).some(Boolean);
+
+/** The note above a form. `text` holds one *, which is shown in red. It shows only after he pressed save with a required
+    field left empty (`show`), so a fresh form is not cluttered with it. */
+export function RequiredNote({ text, show, className = "text-xs text-muted" }: { text: string; show: boolean; className?: string }) {
+  if (!show) return null;
   const [before, after] = text.split("*");
   return <p className={className}>{before}<span className="text-rose-600">*</span>{after}</p>;
 }

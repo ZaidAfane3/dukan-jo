@@ -10,7 +10,7 @@ import { Field, input, Toggle } from "./controls";
    dashboard uses, and the preview shows the page as he writes it. */
 
 const words = {
-  en: { back: "Back to the home page", editing: "Editing the page", title: "Page title", content: "Text under the title (optional)", published: "Published", footer: "Show the page link in the footer", delete: "Delete this page", ask: "Delete this page? This cannot be undone.", yes: "Yes, delete", cancel: "Cancel", demo: "Pages cannot be changed in the demo", missing: "This page was deleted" },
+  en: { back: "Back to the home page", editing: "Editing the page", title: "Page title", content: "Text under the title (Optional)", published: "Published", footer: "Show the page link in the footer", delete: "Delete this page", ask: "Delete this page? This cannot be undone.", yes: "Yes, delete", cancel: "Cancel", demo: "Pages cannot be changed in the demo", missing: "This page was deleted" },
   ar: { back: "العودة إلى الصفحة الرئيسية", editing: "تعديل الصفحة", title: "عنوان الصفحة", content: "نص تحت العنوان (اختياري)", published: "منشورة", footer: "عرض رابط الصفحة في التذييل", delete: "حذف هذه الصفحة", ask: "هل تريد حذف هذه الصفحة؟ لا يمكن التراجع عن ذلك.", yes: "نعم، احذف", cancel: "إلغاء", demo: "لا يمكن تغيير الصفحات في النسخة التجريبية", missing: "تم حذف هذه الصفحة" },
 };
 

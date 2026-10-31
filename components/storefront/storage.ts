@@ -1,5 +1,7 @@
 import { sanitizeDesign, sanitizePages } from "../safeDesign";
-import { defaultConfig, relinkPages, type PageRef, type SectionConfig, type StorefrontConfig } from "./config";
+import { content } from "../content";
+import { loadSetup } from "../setup";
+import { ANNOUNCE_MESSAGES_MAX, defaultConfig, relinkPages, type Bi, type PageRef, type SectionConfig, type StorefrontConfig } from "./config";
 
 /* The merchant's design, kept in this browser. Missing parts fall back to the starter design,
    so a design saved by an older version still loads after new options are added.
@@ -37,7 +39,8 @@ function mergeAnnouncement(saved: unknown): StorefrontConfig["announcement"] {
     show: typeof a.show === "boolean" ? a.show : d.show,
     motion: a.motion === "ticker" ? "ticker" : "fade",
     seconds: typeof a.seconds === "number" ? a.seconds : d.seconds,
-    messages: list.slice(0, 6).map((m) => ({ ...base, ...m, text: { ...base.text, ...m.text } })),
+    ...(a.speed === "slow" || a.speed === "normal" || a.speed === "fast" ? { speed: a.speed } : {}),
+    messages: list.slice(0, ANNOUNCE_MESSAGES_MAX).map((m) => ({ ...base, ...m, text: { ...base.text, ...m.text } })),
   };
 }
 
@@ -71,7 +74,8 @@ function merge(s: Partial<StorefrontConfig>): StorefrontConfig {
     cart: { style: s.cart?.style ?? defaultConfig.cart?.style ?? "drawer" },
     productPage: { style: s.productPage?.style ?? defaultConfig.productPage?.style ?? "classic" },
     texts: { ...defaultConfig.texts, ...s.texts },
-    sections: Array.isArray(s.sections) && s.sections.length ? s.sections.map(upgrade) : defaultConfig.sections,
+    /* a page he emptied on purpose stays empty (the designer asks before saving one); only a design with no list at all gets the starter blocks */
+    sections: Array.isArray(s.sections) ? s.sections.map(upgrade) : defaultConfig.sections,
   };
 }
 
@@ -102,7 +106,20 @@ function savedPages(): PageRef[] | null {
     does not have (a theme's sample pages, a page he deleted) has them led to his own pages, or to his products (see relinkPages). */
 export function loadConfig(): StorefrontConfig {
   const own = read(KEY);
-  return own ? relinkPages(own, savedPages()) : loadTemplate() ?? defaultConfig;
+  return withDeliveryLine(own ? relinkPages(own, savedPages()) : loadTemplate() ?? defaultConfig);
+}
+
+/* The line under a delivery perk that Dukkan wrote (he never changed it) follows how the store delivers: with Dukkan's delivery,
+   the cities it reaches (the list of the delivery setup); with his own delivery, or none chosen yet, no city at all. */
+const cityList = (l: string[], and: string, comma: string) => (l.length > 1 ? `${l.slice(0, -1).join(comma)}${and}${l[l.length - 1]}` : l[0] ?? "");
+const dukkanCities = (): Bi => ({ en: cityList(content.en.onboarding.shipping.cities, " and ", ", "), ar: content.ar.onboarding.shipping.cities.join(" و") });
+const anyCity: Bi = { en: "Straight to your door", ar: "حتى باب بيتك" };
+function withDeliveryLine(cfg: StorefrontConfig): StorefrontConfig {
+  const stock = [{ en: "Irbid, Amman and Salt", ar: "إربد وعمّان والسلط" }, dukkanCities(), anyCity];
+  const ours = (d?: Bi) => !!d && stock.some((x) => x.en === d.en && x.ar === d.ar);
+  if (!cfg.sections.some((s) => s.type === "perks" && s.settings.items.some((p) => ours(p.desc)))) return cfg;
+  const line = loadSetup()?.shipping?.mode === "seen" ? dukkanCities() : anyCity;
+  return { ...cfg, sections: cfg.sections.map((s) => (s.type === "perks" ? { ...s, settings: { ...s.settings, items: s.settings.items.map((p) => (ours(p.desc) ? { ...p, desc: { ...line } } : p)) } } : s)) };
 }
 
 /** Returns false when the browser could not keep it (for example, too many large pictures). */
@@ -116,6 +133,16 @@ function write(key: string, config: StorefrontConfig): boolean {
 }
 
 export const saveConfig = (config: StorefrontConfig) => write(KEY, config);
+
+/** Whether customers can see the store: in this prototype, once its design has been saved one time. The designer's badge and the
+    dashboard's "Visit store" both ask this, so they always agree; a backend answers it from the store's real published state. */
+export function storeIsLive(): boolean {
+  try {
+    return localStorage.getItem(KEY) !== null;
+  } catch {
+    return false;
+  }
+}
 
 /** Forgets the store's own design, so the store starts again from the starter template. Used when a new account is created. */
 export function resetToStarterDesign() {

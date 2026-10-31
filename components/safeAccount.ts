@@ -98,7 +98,8 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
     logo: safeStoredImage(s.logo) || undefined,
     product: pr
       ? {
-          type: whole(pr.type, 0, 20, 0),
+          /* 0 shipped, 1 file, 2 card or code (the old 3, food and same-day orders, is gone: it becomes a shipped product) */
+          type: whole(pr.type, 0, 2, 0),
           name: cleanLine(pr.name, ACCOUNT_LIMITS.productName),
           price,
           ...(pr.quantity !== undefined ? { quantity: whole(pr.quantity, 0, 9_999_999, 0) } : {}),
@@ -125,7 +126,8 @@ export const reservedSlugError = { en: "This name is reserved. Choose another on
 
 /* ---------------- custom domains ---------------- */
 
-export type CustomDomain = { id: number; name: string; added: number };
+/* bought: a domain he bought through Dukkan (for how many years, when it renews, whether it renews by itself, what he paid) */
+export type CustomDomain = { id: number; name: string; added: number; bought?: { years: number; renews: number; autoRenew: boolean; paid: number } };
 
 export function cleanDomains(v: unknown): CustomDomain[] {
   if (!Array.isArray(v)) return [];
@@ -135,7 +137,9 @@ export function cleanDomains(v: unknown): CustomDomain[] {
     const name = cleanDomain(d?.name);
     if (!d || !name || out.some((x) => x.name === name)) continue;
     const id = whole(d.id, 1, 1e9, 0);
-    out.push({ id: id && !out.some((x) => x.id === id) ? id : out.reduce((m, x) => Math.max(m, x.id), 0) + 1, name, added: time(d.added) });
+    const b = obj(d.bought);
+    const bought = b ? { years: whole(b.years, 1, 5, 1), renews: time(b.renews), autoRenew: b.autoRenew !== false, paid: whole(b.paid, 0, 100000, 0) } : undefined;
+    out.push({ id: id && !out.some((x) => x.id === id) ? id : out.reduce((m, x) => Math.max(m, x.id), 0) + 1, name, added: time(d.added), ...(bought ? { bought } : {}) });
   }
   return out;
 }

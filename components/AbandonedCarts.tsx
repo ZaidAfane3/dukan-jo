@@ -7,6 +7,7 @@ import { DashboardBar } from "./DashboardBar";
 import { pushNotification } from "./notifications";
 import { usePrefs } from "./Prefs";
 import { cleanOrder, parseList } from "./records";
+import { initialOf } from "./safe";
 import { AnimatedNumber, Money, mulberry32 } from "./Reports";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
@@ -223,7 +224,7 @@ export function AbandonedCarts() {
                       {visible[0] && (
                         <td className={td}>
                           <div className="flex items-center gap-3">
-                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/20 text-sm font-bold text-primary">{row.name.charAt(0)}</span>
+                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/20 text-sm font-bold text-primary">{initialOf(row.name)}</span>
                             <div>
                               <p className="font-semibold">{row.name}</p>
                               <p className="text-xs text-muted">{m.created.replace("{n}", String(row.createdDays))}</p>

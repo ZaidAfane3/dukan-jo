@@ -4,34 +4,63 @@ import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { brandName } from "../content";
 import { demoActive, setOwnCopy } from "../demoSandbox";
-import { adoptTheme, findTheme, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
+import { adoptTheme, baseTheme, defaultTheme, findTheme, loadThemeState, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
 import { PageEditor } from "./PageEditor";
 import { load as loadPages, savePages, setPagesScope } from "../InfoPages";
 import { freshMine, loadMine, resetMine, saveMine } from "./mineTemplate";
-import { usePrefs } from "../Prefs";
+import { LangSwitch, usePrefs } from "../Prefs";
+import { oneSided, startingWords, textsNow, TRANSLATE_WORDS } from "./translations";
 import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
 import { StorefrontTheme } from "../storefront/StorefrontTheme";
 import { DesignerSkeleton } from "../StoreSkeletons";
-import { clearTemplate, loadConfig, loadTemplate, saveConfig, saveTemplate } from "../storefront/storage";
-import { defaultConfig } from "../storefront/config";
+import { clearTemplate, loadConfig, loadTemplate, saveConfig, saveTemplate, storeIsLive } from "../storefront/storage";
+import { defaultConfig, headingFamily, type PicEdit, type SectionMove } from "../storefront/config";
 import { Canvas } from "./Canvas";
 import { HEX, input } from "./controls";
 import { dc } from "./copy";
-import { IdentityPanel, OptionsPanel, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus } from "./panels";
+import { BugReport } from "./BugReport";
+import { legibleOn } from "../storefront/footerColors";
+import { IdentityPanel, OptionsPanel, PageLookNow, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus } from "./panels";
 import { hasStoreContact, visibleLength } from "../safe";
 import type { Design } from "../storefront/sections";
 
-/* What can stop a save. The last three live in the footer's contact form. */
-type Problem = "name" | "color" | "background" | "text" | "email" | "whatsapp" | "contact";
-const footerProblem = { email: "email", whatsapp: "whatsapp", contact: "phone" } as const;
-import { saveProductFocus, type StoreProduct } from "../storefront/useStoreData";
+/* What can stop a save. The last four live in the footer's contact form. */
+type Problem = "name" | "color" | "background" | "text" | "email" | "whatsapp" | "phone" | "contact";
+const footerProblem = { email: "email", whatsapp: "whatsapp", phone: "phone", contact: "phone" } as const;
+import { readProducts, saveProductFocus, type StoreProduct } from "../storefront/useStoreData";
 import type { StorefrontConfig } from "../storefront/config";
 import type { Lang } from "../content";
 import { shownMobile } from "../phone";
 import { savedPhone } from "../safeAccount";
 
+/* The design as text for "is anything changed?": keys in one order, and what draws the same as nothing (a value taken away, an
+   empty group of settings, words left empty in both languages) left out, so a value changed and then put back by hand is no change */
+const isBlankWords = (o: Record<string, unknown>) => {
+  const k = Object.keys(o);
+  return k.length === 2 && o.en === "" && o.ar === "";
+};
+function sameAs(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sameAs);
+  if (!v || typeof v !== "object") return v;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(v).sort()) {
+    const x = sameAs((v as Record<string, unknown>)[k]);
+    if (x === undefined) continue;
+    if (x && typeof x === "object" && !Array.isArray(x) && (!Object.keys(x).length || isBlankWords(x as Record<string, unknown>))) continue;
+    out[k] = x;
+  }
+  return out;
+}
+const designText = (d: unknown) => JSON.stringify(sameAs(d));
+
 const ico = { viewBox: "0 0 24 24", className: "h-5 w-5", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+
+/* The switch that fills the preview with sample products (see sampleChoice) */
+const SAMPLE_WORDS = {
+  en: { label: "Preview with sample products", hint: "Only in this preview. They are never saved or shown in your store." },
+  ar: { label: "معاينة بمنتجات تجريبية", hint: "في هذه المعاينة فقط، ولا تُحفظ ولا تظهر في متجرك." },
+};
 
 const railIcons = {
   collapse: <svg {...ico}><path d="M4 7h16M4 12h10M4 17h16" /></svg>,
@@ -99,7 +128,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     setPagesScope(null);
     setOwnCopy(false);
   }, []);
-  const { lang } = usePrefs();
+  const { lang, setLang } = usePrefs();
   const t = dc[lang];
   const tb = barText[lang];
   const router = useRouter();
@@ -115,7 +144,22 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [typing, setTyping] = useState(false);
   const [saved, setSaved] = useState("");
   const [tab, setTab] = useState<Tab>("pages");
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpenRaw] = useState(true);
+  /* On a phone or a tablet (under 1024px) the panel takes the whole height and the store is shown instead of it, by the Settings / Preview switch.
+     Anything that opens the panel (a tap on the store, a rail button) brings the settings back. */
+  const [phoneStore, setPhoneStore] = useState(false);
+  const setPanelOpen = (v: boolean | ((o: boolean) => boolean)) => {
+    setPanelOpenRaw(v);
+    if (v === true) setPhoneStore(false);
+  };
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const q = window.matchMedia("(max-width: 1023px)");
+    const on = () => setPhone(q.matches);
+    on();
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
   const [editing, setEditingRaw] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [focus, setFocus] = useState<Focus>(null);
@@ -148,24 +192,45 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [moreMenu, setMoreMenu] = useState(false);
   /* The name being typed to save this design as a theme (null: the form is closed) */
   const [themeName, setThemeName] = useState<string | null>(null);
+  /* The name of the theme in use, as My themes shows it (his own name for it, a saved design's name, or the theme's) */
+  const [activeTheme, setActiveTheme] = useState("");
+  /* the theme this page is (or is built over): the options of a theme show only while that theme is used */
+  const [usingTheme, setUsingTheme] = useState("");
+  useEffect(() => {
+    const s = loadThemeState();
+    const id = themeId ?? s.active;
+    setActiveTheme(s.names?.[id] || s.custom.find((c) => c.id === id)?.name || findTheme(id)?.name[lang] || "");
+    setUsingTheme(baseTheme(id));
+  }, [themeId, lang]);
   const [sample, setSample] = useState(false);
+  /* whether the store has products of its own (read again when the dashboard changes them in another tab) */
+  const [hasOwnProducts, setHasOwnProducts] = useState(true);
+  useEffect(() => {
+    const read = () => setHasOwnProducts(readProducts().length > 0);
+    read();
+    window.addEventListener("storage", read);
+    return () => window.removeEventListener("storage", read);
+  }, []);
   /* /design?template=1: the admin edits the starter template, the default design that every new store begins with */
   const [templateMode, setTemplateMode] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [attn, setAttn] = useState<{ id: Problem; tab: Tab; n: number } | null>(null);
-  const [flash, setFlash] = useState<"saved" | "savedExcept" | "errors" | "full" | "demo" | "theme" | "themeFail" | null>(null);
+  const [flash, setFlash] = useState<"saved" | "savedExcept" | "errors" | "full" | "demo" | "theme" | "themeFail" | "empty" | null>(null);
+  /* whether customers can see the store yet (it opens with its first save) */
+  const [isOpen, setIsOpen] = useState(false);
+  useEffect(() => setIsOpen(storeIsLive()), []);
   /* In the platform tour the designer can be opened and looked at, but nothing in it can be changed or uploaded */
   const [readOnly, setReadOnly] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   /* The side panel is one scrolling area for every tab. When a click in the preview opens a panel, it must start where that click
      belongs (the top, or the product card settings), not wherever the last panel was scrolled to. */
   const panelBox = useRef<HTMLDivElement>(null);
-  const scrollPanel = (to: "top" | "cards") =>
+  const scrollPanel = (to: "top" | "cards" | "productPage") =>
     setTimeout(() => {
       const box = panelBox.current;
       if (!box) return;
-      const el = to === "cards" ? box.querySelector<HTMLElement>('[data-section="cards"]') : null;
+      const el = to === "top" ? null : box.querySelector<HTMLElement>(`[data-section="${to}"]`);
       const top = el ? el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 8 : 0;
       box.scrollTo({ top, behavior: "auto" });
     }, 60);
@@ -195,6 +260,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       d.config = m.config;
       d.identity = m.identity;
     }
+    /* a look of a theme he has not bought is never in his design (an older save, or one picked before they were hidden) */
+    if (!mine && !template) d.config = withoutUnboughtLooks(d.config);
     const baseline = JSON.stringify(d);
     if (template) d.config = loadTemplate() ?? defaultConfig;
     const tryTheme = !ro && !template && !mine ? findTheme(q.get("theme")) : null;
@@ -209,7 +276,18 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   }, []);
 
   /* Kept from one render to the next: the whole design is turned into text only when it changes */
-  const dirty = useMemo(() => draft !== null && JSON.stringify(draft) !== saved, [draft, saved]);
+  const savedText = useMemo(() => (saved ? designText(JSON.parse(saved)) : ""), [saved]);
+  const dirty = useMemo(() => draft !== null && designText(draft) !== savedText, [draft, savedText]);
+
+  /* Texts written in one language only (changed since the designer opened, or before: his words in one language, the sample
+     words of the design the store started from in the other): the other language still shows the old words */
+  const startTexts = useRef<ReturnType<typeof textsNow> | null>(null);
+  if (draft && !startTexts.current) startTexts.current = textsNow(draft.config);
+  const samples = useMemo(
+    () => startingWords([usingTheme, trying?.id, themeId], mine ? [freshMine("en", themeId).config, freshMine("ar", themeId).config] : []),
+    [usingTheme, trying, themeId, mine],
+  );
+  const changedIn = useMemo(() => (draft && startTexts.current ? oneSided(startTexts.current, samples, draft.config) : { en: 0, ar: 0 }), [draft, samples]);
 
   /* One step back (or forward again), from the keys or from the arrows next to the save button */
   const travel = (redo: boolean) => {
@@ -374,7 +452,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
 
   /* "Save and see it in the theme store" under a look of a theme he has not bought: his design is saved, then that theme opens */
   const saveRef = useRef<() => boolean>(() => false);
-  const acts = useRef<Acts>({ select: () => {}, selectProduct: () => {}, reorderChips: () => {}, openPage: () => {} });
+  const acts = useRef<Acts>({ select: () => {}, selectProduct: () => {}, moveBit: () => {}, editPic: () => {}, reorderChips: () => {}, openPage: () => {}, sampleProducts: () => {} });
   /* A form of the footer is open in the side panel (its contact, social or licenses forms too): on a phone the preview zooms in on the footer */
   const [footerForm, setFooterForm] = useState(false);
   useEffect(() => {
@@ -395,6 +473,15 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     window.addEventListener("dk-save-go", go);
     return () => window.removeEventListener("dk-save-go", go);
   }, [router]);
+
+  /* where leaving goes: the dashboard, or the theme store (from its button at the top) */
+  const leaveTo = useRef("/dashboard");
+  /* he was told the page has no blocks and chose to save it anyway (asked again for every save) */
+  const emptyOk = useRef(false);
+  /* the page's background and the store color, for the color boxes that warn when a text color vanishes on them */
+  const pageBgNow = draft?.config.theme.background ?? "#ffffff";
+  const primaryNow = draft ? draft.config.theme.primary || (/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#004956") : "#004956";
+  const pageLook = useMemo(() => ({ bg: pageBgNow, primary: primaryNow }), [pageBgNow, primaryNow]);
 
   if (!draft) return <DesignerSkeleton />;
 
@@ -440,6 +527,36 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     scrollPanel("top");
   };
   /* Dragging a colored button in the preview: it moves to the place of the one it is dropped over */
+  /* a word or a picture moved in the preview, sideways and up or down (null: back to its place) */
+  const moveBit = (sectionId: string, key: string, at: SectionMove | null) =>
+    update((dr) => ({
+      ...dr,
+      config: {
+        ...dr.config,
+        sections: dr.config.sections.map((sec) => {
+          if (sec.id !== sectionId) return sec;
+          const moves = { ...(sec.moves ?? {}) };
+          if (at === null) delete moves[key];
+          else moves[key] = at;
+          return { ...sec, moves: Object.keys(moves).length ? moves : undefined };
+        }),
+      },
+    }));
+  /* a picture edited inside its frame in the preview (null: back as it was) */
+  const editPic = (sectionId: string, key: string, at: PicEdit | null) =>
+    update((dr) => ({
+      ...dr,
+      config: {
+        ...dr.config,
+        sections: dr.config.sections.map((sec) => {
+          if (sec.id !== sectionId) return sec;
+          const pics = { ...(sec.pics ?? {}) };
+          if (at === null) delete pics[key];
+          else pics[key] = at;
+          return { ...sec, pics: Object.keys(pics).length ? pics : undefined };
+        }),
+      },
+    }));
   const reorderChips = (sectionId: string, from: number, to: number) =>
     update((dr) => ({
       ...dr,
@@ -493,6 +610,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       const f = d.config.footer;
       if (!okEmail(f.email)) return { id: "email", tab: "pages" };
       if (!okPhone(f.whatsapp)) return { id: "whatsapp", tab: "pages" };
+      if (!okPhone(d.identity.phone)) return { id: "phone", tab: "pages" };
       if (!hasStoreContact(d.identity.phone, f.whatsapp)) return { id: "contact", tab: "pages" };
     }
     return null;
@@ -500,7 +618,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
 
   /* Take him to the field: open its panel, scroll to it, put the cursor in it, and make it shake and glow. */
   const showProblem = (p: { id: Problem; tab: Tab }) => {
-    if (p.id === "email" || p.id === "whatsapp" || p.id === "contact") {
+    if (p.id === "email" || p.id === "whatsapp" || p.id === "phone" || p.id === "contact") {
       /* Open the footer's contact form with the cursor in the field */
       select("footer", footerProblem[p.id]);
       setAttn({ ...p, n: Date.now() });
@@ -519,6 +637,15 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     setTimeout(() => setAttn((a) => (a && a.id === p.id ? null : a)), 6000);
   };
 
+  /* asked before a page with no blocks is saved */
+  const emptyAsk = (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-amber-500/15 px-3 py-1.5 text-amber-800 dark:text-amber-300">
+      {lang === "ar" ? "الصفحة بلا عناصر: لن يرى العملاء إلا رأس الصفحة وتذييلها." : "This page has no blocks: customers will see only the header and footer."}
+      <button type="button" onClick={() => { emptyOk.current = true; setFlash(null); save(); }} className="font-bold underline">{lang === "ar" ? "احفظ على أي حال" : "Save anyway"}</button>
+      <button type="button" onClick={() => setFlash(null)} className="font-bold underline">{lang === "ar" ? "إلغاء" : "Cancel"}</button>
+    </span>
+  );
+
   const save = (): boolean => {
     const problem = firstProblem(draft);
     if (problem) {
@@ -528,6 +655,12 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       setTimeout(() => setFlash(null), 6000);
       return false;
     }
+    /* a home page with no blocks shows customers only the header and footer: he confirms it once before it is saved */
+    if (!draft.config.sections.length && !emptyOk.current) {
+      setFlash("empty");
+      return false;
+    }
+    emptyOk.current = false;
     /* A look of a theme he has not bought can be tried in the preview, but the store keeps only what he owns */
     const kept = mine || templateMode ? draft : { ...draft, config: withoutUnboughtLooks(draft.config) };
     if (!(mine ? saveMine(draft.config, themeId) : templateMode ? saveTemplate(draft.config) : saveConfig(kept.config))) {
@@ -535,6 +668,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       setTimeout(() => setFlash(null), 4000);
       return false;
     }
+    setIsOpen(storeIsLive());
     if (templateMode || mine) {
       /* The template belongs to the platform, not to any store, so the store's own data stays as it is */
       setSaved(JSON.stringify(draft));
@@ -567,16 +701,26 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
 
   saveRef.current = save;
   /* What a click in the preview does. The preview keeps one set of these (see Preview), and they always call the latest ones. */
-  acts.current = { select, selectProduct, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); if (id !== null) setPanelOpen(true); } };
+  acts.current = { select, selectProduct, moveBit, editPic, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); if (id !== null) setPanelOpen(true); }, sampleProducts: setSample };
+  /* the preview with sample products: offered while the store has no products of its own (a theme try-out and his own copy of a
+     theme already show the theme's sample products, the starter template always shows them); it is only on screen, never saved */
+  const sampleChoice = !trying && !mine && !templateMode && (!hasOwnProducts || sample) ? { on: sample, set: setSample } : null;
+  /* the design this page is built on, as it first came (a design he made himself goes back to Dukkan's): the "original design" of the menu */
+  const originalTheme = findTheme(trying?.id ?? usingTheme) ?? defaultTheme;
 
-  const leave = () => router.push("/dashboard");
-  const tryExit = () => (dirty ? setExiting(true) : leave());
+  /* where leaving goes: the dashboard, or the theme store from its button at the top left */
+  const leave = () => router.push(leaveTo.current);
+  const tryExit = (to = "/dashboard") => { leaveTo.current = to; if (dirty) setExiting(true); else leave(); };
 
   /* The red frame and the red dot go away as soon as the field they point at is fixed */
   const problemNow = firstProblem(draft);
   const attnNow = attn && problemNow?.id === attn.id ? attn : null;
-  /* Both save buttons turn green and say "Saved" for a moment after a save */
+  /* The save button turns green and says "Saved" for a moment after a save */
   const justSaved = !dirty && (flash === "saved" || flash === "savedExcept");
+  /* A save here goes straight to the store customers visit (not the starter template, a private template or the fake demo), so the bar says so */
+  const live = !templateMode && !mine && !readOnly;
+  /* a store that was never saved can be saved as it is: that first save opens it to customers */
+  const canSave = dirty || (live && !isOpen);
   const saveLabel = justSaved ? (
     <span className="inline-flex items-center justify-center gap-1.5">
       {railIcons.check}
@@ -603,8 +747,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       }}
       aria-label={label}
       title={label}
-      aria-pressed={tab === key && panelOpen}
-      className={`relative grid h-9 w-9 place-items-center rounded-xl transition ${tab === key && panelOpen ? "bg-primary/15 text-primary" : "text-muted hover:bg-fg/10 hover:text-fg"}`}
+      aria-pressed={tab === key && panelOpen && !(phone && phoneStore)}
+      className={`relative grid h-9 w-9 place-items-center rounded-xl transition ${tab === key && panelOpen && !(phone && phoneStore) ?"bg-primary/15 text-primary" : "text-muted hover:bg-fg/10 hover:text-fg"}`}
     >
       {ic}
       {attnNow && attnNow.tab === key && <span aria-hidden className="absolute end-1.5 top-1.5 h-2.5 w-2.5 animate-pulse rounded-full bg-rose-500 ring-2 ring-card" />}
@@ -616,44 +760,61 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   return (
     <div ref={root} className="dash relative flex h-screen flex-col overflow-hidden bg-page">
       {/* Top bar */}
-      <div ref={bar} className="relative z-30 flex h-12 shrink-0 items-center gap-1 border-b border-fg/10 bg-card px-2 sm:gap-3 sm:px-4">
-        <span className="hidden text-sm font-extrabold sm:block">{t.themeName}</span>
+      {/* On a phone the bar takes two rows: the buttons above, the theme's name, its badge and the page being edited below */}
+      <div ref={bar} className="relative z-30 flex shrink-0 flex-wrap items-center gap-1 border-b border-fg/10 bg-card px-2 py-1.5 sm:gap-2 sm:px-4 lg:h-12 lg:flex-nowrap lg:gap-3 lg:py-0">
+        {/* the way to other themes: the theme store (it asks first when there are changes not saved) */}
+        <button type="button" onClick={() => tryExit("/themes")} title={t.themeStore} aria-label={t.themeStore} className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-[#d39e1f] bg-gradient-to-br from-[#ffe680] via-[#f8c841] to-[#e6a817] px-2 py-2 text-sm font-bold text-[#3d2a00] shadow-[0_2px_12px_-3px_rgba(230,168,23,0.75),inset_0_1px_0_rgba(255,255,255,0.6)] transition hover:-translate-y-px hover:brightness-110 sm:px-3">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 9l1.5-5h15L21 9" /><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0V9Z" /><path d="M5 13.5V20h14v-6.5" /></svg>
+          {/* one row from 1024px: the bar's longer words make room for the theme's and the page's names until 1280px */}
+          <span className="hidden md:inline lg:hidden xl:inline">{t.themeStore}</span>
+        </button>
+        <div className="order-last mt-1.5 flex w-full min-w-0 items-center gap-2 border-t border-fg/10 pt-1.5 lg:contents">
+        <span className="min-w-0 max-w-[12rem] truncate text-sm font-extrabold">{activeTheme || t.themeName}</span>
         {templateMode ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
+          <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
             {t.templateBadge}
           </span>
         ) : mine ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
+          <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
             {t.mineBadge}
           </span>
         ) : readOnly ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
+          <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
             {t.demoView}
           </span>
         ) : trying ? (
-          <span className="hidden items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300 sm:inline-flex">
-            {t.trying}: {trying.name[lang]}
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
+            <span className="truncate">{t.trying}: {trying.name[lang]}</span>
           </span>
-        ) : (
-        <span className="hidden items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-400 sm:inline-flex">
+        ) : isOpen ? (
+        <span title={t.publishedHint} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-400">
           {t.published}
+        </span>
+        ) : (
+        /* never saved yet: customers cannot see the store until the first save */
+        <span title={t.notLiveHint} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-fg/10 px-3 py-1 text-xs font-bold text-muted">
+          {t.notLive}
         </span>
         )}
 
-        {/* On the narrowest phones the page's name gives up room (it is cut short) so the bar's buttons still fit */}
-        <div className="relative min-w-0">
+        {/* On a phone the page being edited sits at the end of the second row, with room for its name */}
+        <div className="relative ms-auto min-w-0 shrink-0 lg:ms-0 lg:shrink">
           <button type="button" onClick={() => { setPagesMenu((o) => !o); setMoreMenu(false); }} aria-expanded={pagesMenu} className={`${pill} flex max-w-full items-center gap-2 whitespace-nowrap`}>
-            <span className="min-w-0 max-w-[4.5rem] truncate sm:max-w-none">{openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : cartView ? t.cartPage : t.pages[0]}</span>
+            <span className="min-w-0 max-w-[8rem] truncate sm:max-w-[14rem] lg:max-w-[10rem] xl:max-w-none">{openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : cartView ? t.cartPage : t.pages[0]}</span>
             <span className={`transition-transform ${pagesMenu ? "rotate-180" : ""}`}>{railIcons.chevron}</span>
           </button>
           {pagesMenu && (
-            <ul className="absolute start-0 top-full z-40 mt-2 w-56 overflow-hidden rounded-2xl bg-card p-1.5 shadow-2xl ring-1 ring-fg/10">
+            <ul className="absolute end-0 top-full z-40 mt-2 w-56 overflow-hidden rounded-2xl bg-card p-1.5 shadow-2xl ring-1 ring-fg/10 lg:end-auto lg:start-0">
               {t.pages.slice(0, 2).map((p, i) => (
                 <li key={p}>
                   <button
                     type="button"
                     disabled={i > 1}
-                    onClick={() => { setPagesMenu(false); setOpenedPage(null); setProductView(i === 1); setCartView(false); }}
+                    onClick={() => {
+                      setPagesMenu(false); setOpenedPage(null); setProductView(i === 1); setCartView(false);
+                      /* the product page: its settings (in Store look) open beside it */
+                      if (i === 1) { setPic(null); setPanelOpen(true); setPagePanel(false); setTab("options"); scrollPanel("productPage"); }
+                    }}
                     className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-medium transition ${(i === 0 && openedPage === null && !productView && !cartView) || (i === 1 && productView) ? "bg-primary/15 font-bold text-primary" : i <= 1 ? "font-bold hover:bg-soft" : "text-muted/70"}`}
                   >
                     {p}
@@ -699,11 +860,15 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           )}
           {makingPage && <NewPageDialog lang={lang} onClose={() => setMakingPage(false)} onCreated={(id) => { setMakingPage(false); setPagesVersion((v) => v + 1); setOpenedPage(id); setProductView(false); setCartView(false); setPanelOpen(true); }} />}
         </div>
+        </div>
 
         <div className="flex-1" />
 
         {/* On a phone the bar has no room for the message: a save that was stopped (or a change the tour does not allow) says so
             in a strip under the bar, with the way to the field */}
+        {flash === "empty" && (
+          <div role="alert" className="absolute inset-x-2 top-full z-40 mt-2 rounded-xl bg-card px-3 py-2 text-xs font-semibold shadow-lg ring-1 ring-fg/10 md:hidden">{emptyAsk}</div>
+        )}
         {(flash === "errors" || flash === "full" || flash === "demo" || flash === "themeFail") && (
           <div role="status" className="absolute inset-x-2 top-full z-40 mt-2 flex items-center gap-2 rounded-xl bg-card px-3 py-2 text-xs font-semibold shadow-lg ring-1 ring-fg/10 md:hidden">
             {flash === "errors" && attnNow ? (
@@ -723,11 +888,11 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           </div>
         )}
 
-        <span aria-live="polite" className="hidden text-xs font-semibold md:block">
-          {flash === "theme" ? <span className="text-primary">{t.themeSaved}</span> : flash === "themeFail" ? <span className="text-rose-600">{t.themeFail}</span> : flash === "demo" ? <span className="text-amber-700 dark:text-amber-300">{t.demoBlocked}</span> : flash === "saved" ? (
+        <span aria-live="polite" className="hidden min-w-0 shrink text-xs font-semibold leading-tight md:block">
+          {flash === "empty" ? emptyAsk : flash === "theme" ? <span className="text-primary">{t.themeSaved}</span> : flash === "themeFail" ? <span className="text-rose-600">{t.themeFail}</span> : flash === "demo" ? <span className="text-amber-700 dark:text-amber-300">{t.demoBlocked}</span> : flash === "saved" ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 px-3 py-1.5 text-emerald-700 dark:text-emerald-400">
               {railIcons.check}
-              {t.saving}
+              {live ? <><span className="xl:hidden">{t.saving}</span><span className="hidden xl:inline">{t.savedLive}</span></> : t.saving}
             </span>
           ) : flash === "savedExcept" ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 px-3 py-1.5 text-amber-800 dark:text-amber-300">
@@ -740,13 +905,16 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
               {t.problems[attnNow.id]}
               <span className="font-bold underline">{t.problemGo}</span>
             </button>
-          ) : flash === "errors" && problemNow ? <span className="text-rose-600">{t.errorsSave}</span> : flash === "full" ? <span className="text-rose-600">{t.errorsStorage}</span> : problemNow?.id === "contact" ? (
-            /* a store nobody can reach is pointed out all the time, not only after a save */
+          ) : flash === "errors" && problemNow ? <span className="text-rose-600">{t.errorsSave}</span> : flash === "full" ? <span className="text-rose-600">{t.errorsStorage}</span> : problemNow && (problemNow.id === "contact" || problemNow.id === "phone" || problemNow.id === "whatsapp") ? (
+            /* a store nobody can reach (no number, or a wrong one) is pointed out all the time, not only after a save */
             <button type="button" onClick={() => showProblem(problemNow)} className="inline-flex items-center gap-2 rounded-lg bg-amber-500/15 px-3 py-1.5 text-amber-800 transition hover:bg-amber-500/25 dark:text-amber-300">
-              {t.problems.contact}
+              {t.problems[problemNow.id]}
               <span className="font-bold underline">{t.problemGo}</span>
             </button>
-          ) : dirty ? <span className="text-amber-600">{t.unsaved}</span> : null}
+          ) : dirty ? (
+            /* the longer "customers don't see these yet" only where the bar has room for it */
+            <span className="text-amber-600">{live ? <><span className="xl:hidden">{t.unsaved}</span><span className="hidden xl:inline">{t.unsavedLive}</span></> : t.unsaved}</span>
+          ) : null}
         </span>
         {templateMode && (
           <button
@@ -770,9 +938,9 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
             <span className="rtl:-scale-x-100">{railIcons.redo}</span>
           </button>
         </div>
-        <button type="button" onClick={save} disabled={!dirty} className={`h-9 shrink-0 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition disabled:cursor-not-allowed sm:px-5 ${justSaved ? "bg-emerald-600 text-white" : "bg-ink text-onink hover:bg-deep disabled:opacity-40"}`} aria-label={justSaved ? t.saving : t.save}>
-          {/* On a phone the bar only has room for the icon */}
-          <span className="sm:hidden">{justSaved ? railIcons.check : railIcons.save}</span>
+        <button type="button" onClick={save} disabled={!canSave} className={`h-9 shrink-0 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition disabled:cursor-not-allowed sm:px-5 ${justSaved ? "bg-emerald-600 text-white" : "bg-ink text-onink hover:bg-deep disabled:opacity-40"}`} aria-label={justSaved ? t.saving : t.save}>
+          {/* the only save button, so even on a phone it says what it does (a short word) */}
+          <span className="inline-flex items-center gap-1.5 sm:hidden">{justSaved ? railIcons.check : railIcons.save}{justSaved ? t.saving : t.saveShort}</span>
           <span className="hidden sm:inline">{saveLabel}</span>
         </button>
 
@@ -782,7 +950,39 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           </button>
           {moreMenu && (
             <div className="absolute end-0 top-full z-40 mt-2 w-64 overflow-hidden rounded-2xl bg-card p-1.5 shadow-2xl ring-1 ring-fg/10">
-              <a href="/store?original=1" target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{railIcons.external}{t.starter}</a>
+              {sampleChoice && (
+                <button type="button" role="switch" aria-checked={sampleChoice.on} onClick={() => sampleChoice.set(!sampleChoice.on)} className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft">
+                  <span className="min-w-0 flex-1">
+                    {SAMPLE_WORDS[lang].label}
+                    <span className="mt-0.5 block text-[11px] font-normal text-muted">{SAMPLE_WORDS[lang].hint}</span>
+                  </span>
+                  <span aria-hidden className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${sampleChoice.on ? "justify-end bg-primary" : "justify-start bg-fg/20"}`}><span className="h-4 w-4 rounded-full bg-white shadow" /></span>
+                </button>
+              )}
+              <button type="button" onClick={() => { setMoreMenu(false); setLang(lang === "ar" ? "en" : "ar"); }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft sm:hidden">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18" /></svg>
+                {TRANSLATE_WORDS[lang].menu}
+              </button>
+              <a href={templateMode || mine ? "/store?original=1" : `/store?theme=${originalTheme.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{railIcons.external}{t.starter}</a>
+              {!templateMode && !mine && (
+                /* the design the store is built on, as it first came, back in the draft: one step Undo can take back, saved only with Save */
+                <button
+                  type="button"
+                  disabled={readOnly}
+                  title={readOnly ? t.demoBlocked : undefined}
+                  onClick={() => {
+                    if (!window.confirm(t.restoreOriginalAsk)) return;
+                    setMoreMenu(false);
+                    setEditing(null);
+                    setSelected(null);
+                    update((d) => ({ ...d, config: adoptTheme(d.config, originalTheme.build(lang, { samples: false, storeName: d.identity.name })) }));
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  {railIcons.reset}
+                  {t.restoreOriginal}
+                </button>
+              )}
               {templateMode && (
                 <a href="/store?starter=1" target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{railIcons.external}{t.templatePreview}</a>
               )}
@@ -831,35 +1031,58 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           )}
         </div>
 
+        {/* The designer's language, the same as the dashboard's: the texts of the store are edited in the language it is in.
+            Changing it keeps the changes not saved yet. (On a phone it is in the "more" menu.) */}
+        <span className="hidden shrink-0 sm:block"><LangSwitch /></span>
+
         {!mine && (
         <a href="/preview" target="_blank" rel="noreferrer" aria-label={t.previewBtn} className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-fg/15 px-2.5 text-sm font-semibold transition hover:bg-soft sm:px-3">
           {railIcons.eye}
-          <span className="hidden sm:inline">{t.previewBtn}</span>
+          <span className="hidden sm:inline lg:hidden xl:inline">{t.previewBtn}</span>
         </a>
         )}
 
-        <button ref={exitBtn} type="button" onClick={tryExit} aria-label={t.exit} title={t.exit} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-rose-500 transition hover:bg-rose-500/10">
+        {/* calm like the buttons beside it (red only under the pointer), with its name where the bar has room */}
+        <button ref={exitBtn} type="button" onClick={() => tryExit()} aria-label={t.exit} title={t.exit} className="flex h-9 min-w-9 shrink-0 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold text-muted transition hover:bg-rose-500/10 hover:text-rose-600 xl:border xl:border-fg/15 xl:px-3">
           {railIcons.exit}
+          <span className="hidden xl:inline">{t.exitShort}</span>
         </button>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* Icon rail */}
         <nav aria-label={t.title} className="flex shrink-0 items-center gap-2 border-b border-fg/10 bg-card p-2 lg:w-12 lg:flex-col lg:border-b-0 lg:border-e lg:py-3">
-          <button type="button" onClick={() => setPanelOpen((o) => !o)} aria-label={panelOpen ? t.rail.collapse : t.rail.expand} title={panelOpen ? t.rail.collapse : t.rail.expand} className="grid h-9 w-9 place-items-center rounded-xl text-muted transition hover:bg-fg/10 hover:text-fg">
+          <button type="button" onClick={() => setPanelOpen((o) => !o)} aria-label={panelOpen ? t.rail.collapse : t.rail.expand} title={panelOpen ? t.rail.collapse : t.rail.expand} className="hidden h-9 w-9 place-items-center rounded-xl text-muted transition hover:bg-fg/10 hover:text-fg lg:grid">
             {railIcons.collapse}
           </button>
           {railBtn("pages", t.rail.pages, railIcons.pages)}
           {!templateMode && railBtn("identity", t.rail.identity, railIcons.identity)}
           {railBtn("options", t.rail.options, railIcons.options)}
           {railBtn("texts", t.rail.texts, railIcons.texts)}
+          {/* On a phone or a tablet: the settings or the store, each on the whole screen */}
+          <div role="group" aria-label={t.rail.phoneSwitch} className="ms-auto flex shrink-0 rounded-xl border border-fg/15 p-0.5 lg:hidden">
+            {([false, true] as const).map((store) => {
+              const on = store ? phoneStore || !panelOpen : panelOpen && !phoneStore;
+              return (
+                <button key={String(store)} type="button" aria-pressed={on} onClick={() => (store ? setPhoneStore(true) : setPanelOpen(true))} className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold transition ${on ? "bg-ink text-onink" : "text-muted hover:bg-fg/10 hover:text-fg"}`}>
+                  {store && railIcons.eye}
+                  {store ? t.rail.phonePreview : t.rail.phoneSettings}
+                </button>
+              );
+            })}
+          </div>
         </nav>
 
-        {/* Panel */}
+        {/* Panel. The text color is the one the store draws (an automatic one where his vanishes on the background). */}
         {panelOpen && (
-          <TextColorNow.Provider value={draft.config.theme.text}>
+          <TextColorNow.Provider value={legibleOn(draft.config.theme.text, draft.config.theme.background)}>
+          <PageLookNow.Provider value={pageLook}>
+          <UsingTheme.Provider value={trying?.id ?? usingTheme}>
+          <StoreColorNow.Provider value={/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#004956"}>
+          <SampleProducts.Provider value={sampleChoice}>
           <OpenPage.Provider value={(id) => { setOpenedPage(id); setProductView(false); setCartView(false); setPanelOpen(true); }}>
-          <aside className="flex max-h-[45vh] shrink-0 flex-col border-b border-fg/10 bg-card lg:max-h-none lg:w-[20rem] lg:border-b-0 lg:border-e">
+          {/* --sf-heading: the store's titles font, so the font pickers' "like the titles" choice writes in it */}
+          <aside className={`flex min-h-0 flex-1 flex-col bg-card ${phoneStore ? "max-lg:hidden" : ""} lg:w-[20rem] lg:flex-none lg:shrink-0 lg:border-e lg:border-fg/10`} style={{ "--sf-heading": headingFamily(draft.config.theme) } as React.CSSProperties}>
             <div ref={panelBox} className="min-h-0 flex-1 overflow-y-auto">
               {!pic && openedPage !== null && pagePanel && (
                 <>
@@ -871,24 +1094,41 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
               {!pic && (openedPage === null || !pagePanel) && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditingView} focus={focus} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "identity" && <IdentityPanel lang={lang} draft={draft} update={update} showErrors={showErrors} attn={attnNow?.id} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
-              {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attnNow?.id} />}
+              {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attnNow?.id ?? (productView ? "productPage" : undefined)} />}
             </div>
-            <div className="shrink-0 border-t border-fg/10 p-3">
-              <p className="mb-2 text-xs text-muted">{templateMode ? t.templateNote : t.note}</p>
-              <button type="button" onClick={save} disabled={!dirty} className={`h-10 w-full rounded-xl text-sm font-semibold transition disabled:cursor-not-allowed ${justSaved ? "bg-emerald-600 text-white" : "bg-ink text-onink hover:bg-deep disabled:opacity-40"}`}>
-                {saveLabel}
-              </button>
+            {/* What saving does (the one Save button is in the top bar). On a phone or a tablet the round "Found a bug?" button sits
+                at the end of this strip, so the words leave it room. */}
+            <div className="shrink-0 border-t border-fg/10 p-3 max-lg:pe-14">
+              {(changedIn.en > 0 || changedIn.ar > 0) && (
+                /* texts changed in one language only: the other one is still to be written */
+                <div role="status" className="mb-2 space-y-1 rounded-lg bg-amber-500/15 px-2.5 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  {changedIn[lang === "ar" ? "en" : "ar"] > 0 && <p>{TRANSLATE_WORDS[lang].there(changedIn[lang === "ar" ? "en" : "ar"])}</p>}
+                  {changedIn[lang] > 0 && (
+                    <p>
+                      {TRANSLATE_WORDS[lang].here(changedIn[lang])}{" "}
+                      <button type="button" onClick={() => setLang(lang === "ar" ? "en" : "ar")} className="font-bold underline">{TRANSLATE_WORDS[lang].go}</button>
+                    </p>
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-muted">{templateMode ? t.templateNote : live ? t.note : t.noteMine}</p>
             </div>
           </aside>
           </OpenPage.Provider>
+          </SampleProducts.Provider>
+          </StoreColorNow.Provider>
+          </UsingTheme.Provider>
+          </PageLookNow.Provider>
           </TextColorNow.Provider>
         )}
 
-        {/* Preview: the store can be made smaller to see it all, and moved around */}
+        {/* Preview: the store can be made smaller to see it all, and moved around. On a phone or a tablet it gives the screen to the open
+            panel; it zooms in on the footer only once it is shown (frameOn), so the footer is in view when he switches to it. */}
+        <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${phone && panelOpen && !phoneStore ? "hidden" : ""}`}>
         <Preview
           lang={lang}
           reveal={reveal}
-          frameOn={panelOpen && !pic && (footerForm || (selected === "footer" && tab === "pages")) ? "footer" : null}
+          frameOn={panelOpen && !pic && !(phone && !phoneStore) && (footerForm || (selected === "footer" && tab === "pages")) ? "footer" : null}
           config={draft.config}
           typing={typing}
           name={draft.identity.name}
@@ -904,17 +1144,36 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           openCart={showCartPage}
           acts={acts}
         />
+        </div>
       </div>
+
+      {/* "Found a bug?": a report with pictures, sent as a support ticket with where he was */}
+      <BugReport
+        lang={lang}
+        lift={phone && panelOpen && !phoneStore}
+        where={[
+          activeTheme || t.themeName,
+          openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : cartView ? t.cartPage : t.pages[0],
+          (() => { const sec = draft.config.sections.find((x) => x.id === (editing ?? selected)); return sec ? t.elements[sec.type] : ""; })(),
+        ].filter(Boolean).join(" · ")}
+      />
 
       {exiting && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
-          <div ref={exitDialog} role="dialog" aria-modal="true" aria-label={t.modal.title} className="dash w-full max-w-md rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
-            <h2 className="text-lg font-bold">{t.modal.title}</h2>
-            <p className="mt-2 text-sm text-muted">{t.modal.body}</p>
-            <div className="mt-6 flex flex-col gap-2 sm:flex-row-reverse">
-              <button type="button" onClick={() => { if (save()) leave(); else setExiting(false); }} className="h-11 flex-1 rounded-xl bg-ink px-4 text-sm font-semibold text-onink transition hover:bg-deep">{t.modal.saveExit}</button>
-              <button type="button" onClick={() => { setSaved(JSON.stringify(draft)); leave(); }} className="h-11 flex-1 rounded-xl border border-rose-500/50 px-4 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
-              <button type="button" autoFocus onClick={() => setExiting(false)} className="h-11 flex-1 rounded-xl border border-fg/20 px-4 text-sm font-semibold transition hover:bg-soft">{t.modal.stay}</button>
+          <div ref={exitDialog} role="dialog" aria-modal="true" aria-label={t.modal.title} className="dash w-full max-w-sm rounded-3xl bg-card p-6 text-center text-fg shadow-2xl ring-1 ring-fg/10 sm:p-7">
+            {/* a soft warning mark, then what happens, then one clear way forward and the two quieter ones under it */}
+            <span aria-hidden className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-amber-500/15 text-amber-600 ring-8 ring-amber-500/5">
+              <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+            </span>
+            <h2 className="mt-4 text-lg font-bold">{t.modal.title}</h2>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted">{t.modal.body}</p>
+            <button type="button" onClick={() => { if (save()) leave(); else setExiting(false); }} className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-sm font-bold text-onink shadow-sm transition hover:bg-deep">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
+              {t.modal.saveExit}
+            </button>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" autoFocus onClick={() => setExiting(false)} className="h-11 whitespace-nowrap rounded-xl border border-fg/15 px-3 text-sm font-semibold transition hover:bg-soft">{t.modal.stay}</button>
+              <button type="button" onClick={() => { setSaved(JSON.stringify(draft)); leave(); }} className="h-11 whitespace-nowrap rounded-xl px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
             </div>
           </div>
         </div>
@@ -967,7 +1226,7 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
 
   const now = shown.current;
   const design = useMemo<Design>(
-    () => ({ selected, select: (id, field) => acts.current.select(id, field), selectProduct: (p) => acts.current.selectProduct(p), reorderChips: (id, from, to) => acts.current.reorderChips(id, from, to), openPage: (id) => acts.current.openPage(id) }),
+    () => ({ selected, select: (id, field) => acts.current.select(id, field), selectProduct: (p) => acts.current.selectProduct(p), moveBit: (id, key, at) => acts.current.moveBit(id, key, at), editPic: (id, key, at) => acts.current.editPic(id, key, at), reorderChips: (id, from, to) => acts.current.reorderChips(id, from, to), openPage: (id) => acts.current.openPage(id), sampleProducts: (on) => acts.current.sampleProducts(on) }),
     [selected, acts],
   );
   const closeCart = useCallback(() => acts.current.openPage(null), [acts]);

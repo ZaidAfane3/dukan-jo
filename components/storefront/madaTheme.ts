@@ -10,20 +10,20 @@ import type { StoreProduct } from "./useStoreData";
    It is a free default design for every merchant, without photos: every picture place is there, empty, for his own (all of it
    stays editable). With `samples` the photos, products and words of a made-up clothing store are filled in (Saad's showcase at
    /saad/mada, and the view-only page /store?theme=mada).
-   Every button leads to a part of the home page (by its id), so nothing is dead on any store. */
+   Every button leads to a part of the home page (by its id), so nothing is dead on any store. Without samples no words name
+   clothes (Women, Men, Kids ...): a merchant's store may sell anything, so the menu, the buttons and the cards name the parts of
+   the page they lead to (Shop, Sale): never «New in», which his customers only see once he picks its products. */
 
 const bi = (en: string, ar: string): Bi => ({ en, ar });
 
 export const MADA_INK = "#111111";
 export const MADA_SALE = "#C8102E";
 
-export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string }): StorefrontConfig {
+export function madaConfig(_lang: Lang, o: { samples: boolean; storeName?: string }): StorefrontConfig {
   const c = JSON.parse(JSON.stringify(defaultConfig)) as StorefrontConfig;
-  const L = (en: string, ar: string) => (lang === "ar" ? ar : en);
   const S = o.samples;
   /* the showcase's pictures (see public/demo/mada); a merchant's store starts without them */
   const photo = (f: string) => (S ? `/demo/mada/${f}.jpg` : "");
-  const name = o.storeName?.trim() || L("Your store", "متجرك");
 
   /* Black is the store color here: the buttons, the filters and the price are black, whatever color the store was set up with */
   c.theme = { ...c.theme, primary: MADA_INK, background: "#ffffff", text: MADA_INK, titleColor: "", radius: "none", font: "kufi", headingFont: "kufi", accent: "#6B6B6B", titleStyle: "bold", titleAlign: "start", hairlines: true, spacing: "airy", saleColor: MADA_SALE };
@@ -34,10 +34,7 @@ export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string
     style: "links",
     place: "start",
     links: [
-      { ...bi("Women", "نساء"), to: "collections" },
-      { ...bi("Men", "رجال"), to: "collections" },
-      { ...bi("Kids", "أطفال"), to: "trending" },
-      { ...bi("New in", "وصل حديثاً"), to: "new" },
+      ...(S ? [{ ...bi("Women", "نساء"), to: "collections" }, { ...bi("Men", "رجال"), to: "collections" }, { ...bi("Kids", "أطفال"), to: "trending" }, { ...bi("New in", "وصل حديثاً"), to: "new" }] : [{ ...bi("Shop", "تسوّق"), to: "trending" }]),
       { ...bi("Sale", "تخفيضات"), to: "sale", color: MADA_SALE },
     ],
   };
@@ -57,10 +54,13 @@ export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string
   c.footer.about = S ? bi("Everyday clothes at fair prices.", "ملابس يومية بأسعار معقولة.") : bi("", "");
   c.footer.columns = [
     { id: "about", kind: "about", visible: true },
-    { id: "mada-shop", kind: "custom", visible: true, title: bi("Shop", "تسوّق"), links: [
+    { id: "mada-shop", kind: "custom", visible: true, title: bi("Shop", "تسوّق"), links: S ? [
       { id: "shop-women", label: bi("Women", "نساء"), link: "collections", visible: true },
       { id: "shop-men", label: bi("Men", "رجال"), link: "collections", visible: true },
       { id: "shop-kids", label: bi("Kids", "أطفال"), link: "trending", visible: true },
+      { id: "shop-sale", label: bi("Sale", "تخفيضات"), link: "sale", visible: true },
+    ] : [
+      { id: "shop-best", label: bi("Best sellers", "الأكثر رواجاً"), link: "trending", visible: true },
       { id: "shop-sale", label: bi("Sale", "تخفيضات"), link: "sale", visible: true },
     ] },
     /* Sample pages: on his store each goes to his own page of the same kind, or is left out (see mergeFooter in themes.ts) */
@@ -91,12 +91,13 @@ export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string
       height: "tall",
       textPos: "bottom-start",
       eyebrow: S ? bi("Autumn collection 2026", "مجموعة الخريف ٢٠٢٦") : bi("New season", "موسم جديد"),
-      title: S ? bi("Style\nevery day", "أناقة\nكل يوم") : bi(name, name),
+      /* a title in both languages, never a copy of the store name (that would stay behind when he renames the store) */
+      title: bi("Style\nevery day", "أناقة\nكل يوم"),
       subtitle: S ? bi("Comfortable cuts and warm colors for the new season.", "قصّات مريحة وألوان دافئة للموسم الجديد.") : bi("A short line about your new collection", "سطر قصير عن مجموعتك الجديدة"),
-      button: bi("Shop women", "تسوّقي النساء"),
-      link: "collections",
-      button2: bi("Shop men", "تسوّق الرجال"),
-      link2: "collections",
+      button: S ? bi("Shop women", "تسوّقي النساء") : bi("Shop now", "تسوّق الآن"),
+      link: S ? "collections" : "trending",
+      button2: S ? bi("Shop men", "تسوّق الرجال") : bi("Sale", "التخفيضات"),
+      link2: S ? "collections" : "sale",
       backgrounds: [S ? { kind: "image", color: "", image: photo("hero"), pos: { x: 0, y: 0, zoom: 1 } } : { kind: "color", color: MADA_INK, image: "" }],
       autoplay: false,
       seconds: 5,
@@ -113,7 +114,8 @@ export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string
       title: bi("Shop by category", "تسوّق حسب الفئة"),
       columns: 8,
       style: "circles",
-      items: [
+      /* his own categories: without samples the row waits for his pictures (only the designer shows its place) */
+      items: !S ? [] : [
         cat("cat-dresses", "Dresses", "فساتين"),
         cat("cat-blouses", "Blouses", "بلوزات"),
         cat("cat-jeans", "Jeans", "جينز"),
@@ -127,17 +129,20 @@ export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string
   };
 
   /* Three photo cards, each with its name and a button straight on the picture */
-  const card = (f: string, title: Bi, button: Bi) => ({ image: photo(f), title, text: bi("", ""), button, link: "trending", variant: "photo" as const, titleSize: 44 });
+  const card = (f: string, title: Bi, button: Bi, link = "trending") => ({ image: photo(f), title, text: bi("", ""), button, link, variant: "photo" as const, titleSize: 44 });
   const collections: SectionConfig = {
     id: "collections",
     type: "banners",
     visible: true,
     settings: {
       height: "normal",
-      items: [
+      items: S ? [
         card("card-men", bi("Men", "رجال"), bi("Shop now", "تسوّق الآن")),
         card("card-women", bi("Women", "نساء"), bi("Shop now", "تسوّقي الآن")),
         card("card-shoes", bi("Shoes", "أحذية"), bi("Shop now", "تسوّق الآن")),
+      ] : [
+        card("card-men", bi("Best sellers", "الأكثر رواجاً"), bi("Shop now", "تسوّق الآن")),
+        card("card-women", bi("Sale", "تخفيضات"), bi("Shop now", "تسوّق الآن"), "sale"),
       ],
     },
   };
@@ -157,7 +162,7 @@ export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string
           eyebrow: bi("Sale", "تخفيضات"),
           title: bi("Up to 50% off", "خصم حتى ٥٠٪"),
           text: bi("On selected pieces for a limited time", "على قطع مختارة لفترة محدودة"),
-          button: bi("Shop the sale", "تسوّقي التخفيضات"),
+          button: S ? bi("Shop the sale", "تسوّقي التخفيضات") : bi("Shop the sale", "تسوّق التخفيضات"),
           link: "trending",
           variant: "photo",
           panel: "none",
@@ -183,7 +188,7 @@ export function madaConfig(lang: Lang, o: { samples: boolean; storeName?: string
     visible: true,
     settings: {
       items: [
-        { icon: "truck", title: bi("Fast shipping", "شحن سريع"), desc: bi("To every governorate", "لكل المحافظات") },
+        { icon: "truck", title: bi("Fast shipping", "شحن سريع"), desc: bi("Irbid, Amman and Salt", "إربد وعمّان والسلط") },
         { icon: "returns", title: bi("Free returns", "إرجاع مجاني"), desc: bi("Within 14 days", "خلال ١٤ يوماً") },
         { icon: "shield", title: bi("Secure payment", "دفع آمن"), desc: bi("Or cash on delivery", "أو عند الاستلام") },
         { icon: "chat", title: bi("Customer care", "خدمة عملاء"), desc: bi("7 days a week", "٧ أيام") },

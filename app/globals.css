@@ -451,3 +451,18 @@ label:has(> .sr-only) { position: relative; }
 @media (prefers-reduced-motion: reduce) {
   [style*="linear-gradient(-45deg"] { animation: none; }
 }
+
+/* The designer: words and pictures that can be slid sideways (Movers in storefront/sections.tsx). A text shows its box
+   under the mouse, unless the box that is clicked to edit it already draws one */
+.sf-movers :is(h1, h2, h3, h4, p, img, [data-move]) { cursor: grab; user-select: none; }
+.sf-movers :is(h1, h2, h3, h4, p):hover:not([class*="hover:outline-dashed"]):not([class*="hover:outline-dashed"] *) { outline: 1px dashed #14b8a6; outline-offset: 2px; }
+
+/* Store perks have no room under them (the next section's top gives it), but the hero banner has little or none (none when
+   edge to edge), so perks moved above a hero keep a gap and their cards are not cut against it */
+[data-sf^="perks"]:has(+ [data-sf^="hero"]) section { padding-bottom: 1.5rem; }
+
+/* a "saved" card dropping in from the top (Products) */
+@keyframes savedIn { from { opacity: 0; transform: translateY(-12px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* a section's subtitle in the font chosen for it in the designer */
+[data-subfont] [data-sub] { font-family: var(--sub-font); }

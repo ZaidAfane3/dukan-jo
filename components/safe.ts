@@ -4,6 +4,8 @@
    enforced there too, because anything in the browser can be bypassed. They are kept in one file
    so the browser and the server can share them. */
 
+import { isJordanNumber } from "./phone";
+
 /* ============================== uploads ============================== */
 
 export type FileKind = "png" | "jpeg" | "webp" | "gif" | "pdf" | "mp4" | "webm";
@@ -133,16 +135,31 @@ export function looksLikeSvg(b: Uint8Array): boolean {
   return /^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*(<!doctype svg[^>]*>\s*)?<svg[\s>]/i.test(head);
 }
 
-export type ImageRule = UploadRule & { /* an SVG is accepted and turned into a PNG */ svg?: boolean };
+export type ImageRule = UploadRule & { /* an SVG is accepted and turned into a PNG */ svg?: boolean; /* a picture smaller than this on its shorter side is taken, with a warning that it may look blurry */ minSide?: number };
 export type UploadProblem = "empty" | "type" | "size" | "dimensions" | "broken";
-export type ImageCheck = { kind: FileKind | "svg"; animated: boolean } | { problem: UploadProblem };
+export type ImageCheck = { kind: FileKind | "svg"; animated: boolean; /* its size in pixels (none for an SVG, a PDF or a video) */ w?: number; h?: number } | { problem: UploadProblem };
+
+/* Every picture the store designer takes (logo, icons, tab icon, covers, page background, slides, tiles, banners, the pop-up):
+   one list of kinds and one size limit, so every upload box says and does the same. Change them here.
+   SVG: accepted everywhere, never kept as SVG. It is drawn into a normal PNG or JPEG through an <img> on a canvas, where its
+   scripts and links never run, and only those pixels are saved (see components/designer/image.ts). */
+export const PICTURE_KINDS: FileKind[] = ["png", "jpeg", "webp", "gif"];
+export const PICTURE_MAX = 10 * MB;
+export const PICTURE_GIF_MAX = 1.2 * MB;
+export const PICTURE_VIDEO_MAX = 25 * MB;
+export const PICTURE_MIN_SIDE = 64;
+/** The `accept` of every picture input of the designer (what the file picker offers; the bytes are still checked) */
+export const PICTURE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/svg+xml";
+const designerPicture: ImageRule = { kinds: PICTURE_KINDS, max: PICTURE_MAX, maxByKind: { gif: PICTURE_GIF_MAX }, svg: true, minSide: PICTURE_MIN_SIDE };
 
 /* What each place that takes a picture accepts. The kind is read from the bytes; the name and declared type are ignored. */
 export const imageRules = {
   /* logos, icons and the tab icon: small, and an SVG is turned into a PNG */
   logo: { ...rules.logo, svg: true },
   photo: rules.photo,
-  background: rules.background,
+  /* the store designer: every picture (see designerPicture), and the page background, which may also be a video */
+  picture: designerPicture,
+  background: { ...designerPicture, kinds: [...PICTURE_KINDS, "mp4", "webm"], maxByKind: { gif: PICTURE_GIF_MAX, mp4: PICTURE_VIDEO_MAX, webm: PICTURE_VIDEO_MAX } },
   productPhoto: { kinds: ["png", "jpeg", "webp", "gif"], max: 8 * MB, maxByKind: { gif: 1.2 * MB } },
   /* a WebP watermark or stamp is redrawn as a PNG */
   invoice: { ...rules.invoice, kinds: ["png", "jpeg", "webp"] },
@@ -173,7 +190,7 @@ export function checkImageBytes(b: Uint8Array, rule: ImageRule): ImageCheck {
   const dim = imageSize(b);
   if (!dim || !dim.w || !dim.h) return { problem: "broken" };
   if (dim.w > MAX_SIDE || dim.h > MAX_SIDE || dim.w * dim.h > MAX_PIXELS) return { problem: "dimensions" };
-  return { kind, animated: kind === "gif" || (kind === "webp" && isAnimatedWebp(b)) };
+  return { kind, animated: kind === "gif" || (kind === "webp" && isAnimatedWebp(b)), w: dim.w, h: dim.h };
 }
 
 /** checkImageBytes for a file the browser hands over. Too-big files are refused before they are read. */
@@ -205,6 +222,31 @@ export const uploadProblemText: Record<UploadProblem, { en: string; ar: string }
   broken: { en: "This file is damaged or incomplete. Try another copy.", ar: "هذا الملف تالف أو غير مكتمل. جرّب نسخة أخرى." },
 };
 
+/* The names merchants know the kinds by */
+const kindName: Record<FileKind, string> = { png: "PNG", jpeg: "JPG", webp: "WebP", gif: "GIF", pdf: "PDF", mp4: "MP4", webm: "WebM" };
+const mb = (n: number) => `${Number((n / MB).toFixed(1))}`;
+const orList = (l: string[], or: string) => (l.length > 1 ? `${l.slice(0, -1).join(", ")}${or}${l[l.length - 1]}` : l[0] ?? "");
+
+/** What to tell the merchant when a file is refused, with the real reason and the real limits of the place it was put. */
+export function uploadProblemFor(p: UploadProblem, rule: ImageRule, lang: "en" | "ar"): string {
+  const names = [...rule.kinds.map((k) => kindName[k]), ...(rule.svg ? ["SVG"] : [])];
+  if (p === "type") return lang === "ar" ? `نوع هذا الملف غير مقبول. استخدم ${orList(names, " أو ")}.`.replace(/, /g, " أو ") : `This file type isn't accepted. Use ${orList(names, " or ")}.`;
+  if (p === "size") {
+    const extra = Object.entries(rule.maxByKind ?? {}).filter(([, v]) => v !== rule.max) as [FileKind, number][];
+    const more = extra.map(([k, v]) => (lang === "ar" ? `${kindName[k]} حتى ${mb(v)} ميجابايت` : `${kindName[k]} max ${mb(v)} MB`));
+    return lang === "ar"
+      ? `الملف كبير جدًا (الحد الأقصى ${mb(rule.max)} ميجابايت${more.length ? `، و${more.join("، و")}` : ""}).`
+      : `File too large (max ${mb(rule.max)} MB${more.length ? `; ${more.join(", ")}` : ""}).`;
+  }
+  return uploadProblemText[p][lang];
+}
+
+/** The warning for a picture that was taken but is very small, or "" when it is big enough (or has no size, like an SVG). */
+export function smallPictureNote(w: number | undefined, h: number | undefined, rule: ImageRule, lang: "en" | "ar"): string {
+  if (!w || !h || !rule.minSide || Math.min(w, h) >= rule.minSide) return "";
+  return lang === "ar" ? `هذه الصورة صغيرة جدًا (${w}×${h} بكسل) وقد تظهر غير واضحة.` : `This picture is very small (${w}×${h} px) and may look blurry.`;
+}
+
 /* ============================== text ============================== */
 
 /** Removes control characters and angle brackets, and cuts to a length. Keeps spaces as typed. */
@@ -233,9 +275,19 @@ export function cleanEmail(s: unknown): string {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(t) ? t : "";
 }
 
-/** Only #rrggbb is accepted, so a color can never carry other CSS. */
+/** A color code as people write it: "004956", "#004956", "#0af" or "0AF". Returns "#rrggbb" (lowercase), or null if it is not one. */
+export function normalizeHex(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let h = value.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(h)) h = h.split("").map((c) => c + c).join("");
+  return /^[0-9a-f]{6}$/i.test(h) ? `#${h.toLowerCase()}` : null;
+}
+
+/** Only a color code is accepted (given back as #rrggbb), so a color can never carry other CSS. */
 export function safeColor(s: unknown, fallback = ""): string {
-  return typeof s === "string" && /^#[0-9a-f]{6}$/i.test(s.trim()) ? s.trim() : fallback;
+  /* a full code stays as it was written */
+  if (typeof s === "string" && /^#[0-9a-f]{6}$/i.test(s.trim())) return s.trim();
+  return normalizeHex(s) ?? fallback;
 }
 
 /** A link a visitor may follow: http or https only. "shop.com" becomes "https://shop.com".
@@ -290,19 +342,49 @@ export function visibleLength(s: unknown): number {
   return typeof s === "string" ? Array.from(cleanText(s, 100_000).replace(NO_WIDTH, "").replace(/[\s‌‍]/g, "")).length : 0;
 }
 
+/** The first character a reader sees, whole: an emoji (🌸, a flag, a family) or a letter with its marks, never half of one
+    (cutting a text by code units gives a broken "�"). Upper case for Latin letters. "" for an empty text. */
+export function initialOf(s: string): string {
+  const t = s.replace(NO_WIDTH, "").trim();
+  if (!t) return "";
+  const Seg = (Intl as unknown as { Segmenter?: new (l?: string, o?: { granularity: "grapheme" }) => { segment: (x: string) => Iterable<{ segment: string }> } }).Segmenter;
+  const first = Seg ? (new Seg(undefined, { granularity: "grapheme" }).segment(t)[Symbol.iterator]().next().value?.segment ?? "") : Array.from(t)[0];
+  return first.toUpperCase();
+}
+
 /** True when nothing of the text can be seen: empty, spaces, zero-width or direction marks only. A required
     field holding only these is treated as empty, here and on the server. */
 export const isBlank = (s: unknown): boolean => visibleLength(s) === 0;
+
+/** Whether a text has an Arabic letter: Arabic is never slanted or spaced out (that breaks its joined letters). */
+export const hasArabic = (s: unknown): boolean => typeof s === "string" && /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/.test(s);
+
+/* A short list of common rude words, English and Arabic, for a gentle note only (saving is never blocked).
+   Whole words: English with its endings (fucking), Arabic after و/ف and يا/ال/ب/ل, spelled any usual way (أ/إ/آ, ى, ة, marks). */
+const RUDE_EN = /^(fuck\w*|motherfuck\w*|shit\w*|bitch\w*|cunt\w*|whore\w*|slut\w*|asshole\w*|bastard\w*|dick|dickhead|pussy|wanker\w*)$/;
+const RUDE_AR = new Set(["شرموط", "شرموطه", "شراميط", "عرص", "منيك", "منيوك", "قحبه", "كس", "كسمك", "زب", "خرا", "متناك", "طيز"]);
+const arabicKey = (w: string) => w.replace(/[ً-ْـٰ]/g, "").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه");
+/** True when a text seems to have a rude word: the designer warns softly, the merchant decides. */
+export function mayBeRude(s: unknown): boolean {
+  if (typeof s !== "string" || !s.trim()) return false;
+  return s.toLowerCase().split(/[^0-9a-zÀ-ɏ؀-ۿݐ-ݿ]+/).some((w) => {
+    if (!w) return false;
+    if (RUDE_EN.test(w)) return true;
+    const k = arabicKey(w);
+    /* after a prefix only the longer words count: "بكس" (a pickup truck) is not "كس" */
+    const bare = k.replace(/^[وف]?(يا|ال|ب|ل)?/, "");
+    return RUDE_AR.has(k) || (bare.length > 2 && RUDE_AR.has(bare));
+  });
+}
 
 /** A courier needs more than a city to collect a parcel: the area, the street and the building. */
 export const PICKUP_ADDRESS_MIN = 5;
 export const isPickupAddress = (s: unknown): boolean => visibleLength(s) >= PICKUP_ADDRESS_MIN;
 
-/** A store can be reached when it has a phone or a WhatsApp number (7 or more digits). A store without either
-    must not go live: customers in Jordan confirm, ask and pay on delivery by phone. */
+/** A store can be reached when it has a phone or a WhatsApp number that is a real Jordan number (see jordanNumber).
+    A store without one must not go live: customers in Jordan confirm, ask and pay on delivery by phone. */
 export function hasStoreContact(phone: unknown, whatsapp: unknown): boolean {
-  const digits = (v: unknown) => (typeof v === "string" ? v.replace(/\D/g, "").length : 0);
-  return digits(phone) >= 7 || digits(whatsapp) >= 7;
+  return (typeof phone === "string" && isJordanNumber(phone)) || (typeof whatsapp === "string" && isJordanNumber(whatsapp));
 }
 
 /** The email address in its saved form (trimmed, lower case), or "" when it is not one. Stricter than cleanEmail:

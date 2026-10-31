@@ -336,7 +336,7 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
     storeName: "Store name",
     storeNameHint: "Customize the text shown before your store name in the \"Issued by\" section.",
     storeNamePh: "Store name",
-    taxNumber: "Sales tax number (optional)",
+    taxNumber: "Sales tax number (Optional)",
     taxNumberHint: "If your store is registered for sales tax, your tax number must show on every invoice.",
     saved: "Saved",
     titleDefault: "Dukkan default",

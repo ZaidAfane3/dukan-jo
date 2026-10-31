@@ -68,7 +68,6 @@ type Copy = {
   category: string;
   categoryPh: string;
   catHint: string;
-  pctMax: string;
   costAbove: string;
   catNewPh: string;
   catAdd: string;
@@ -106,8 +105,6 @@ type Copy = {
   lowAtHint: string;
   restockMin: string;
   restockMinHint: string;
-  restockPct: string;
-  restockPctHint: string;
   save: string;
   saved: string;
   cancel: string;
@@ -123,6 +120,7 @@ type Copy = {
   imagesUploading: string;
   imageBroken: string;
   errQuantity: string;
+  errStockAsk: string;
   unlimited: string;
   unlimitedHint: string;
   unlimitedShort: string;
@@ -195,7 +193,6 @@ export const productsCopy: Record<Lang, Copy> = {
     category: "Category",
     categoryPh: "For example: Clothing",
     catHint: "Optional. Pick one of your categories, or make a new one. Your store uses them in its menu and filters, and shows products without one under Other.",
-    pctMax: "The share can't go above 100%",
     costAbove: "The cost is higher than the price: you lose money on every sale",
     catNewPh: "New category, e.g. Jeans",
     catAdd: "Add",
@@ -233,8 +230,6 @@ export const productsCopy: Record<Lang, Copy> = {
     lowAtHint: "You get a notification before the product runs out.",
     restockMin: "Notify subscribed customers when quantity is above",
     restockMinHint: "Avoids sending alerts when only a few pieces come back. Default 15.",
-    restockPct: "Share of subscribed customers to notify",
-    restockPctHint: "Dukkan notifies this share of customers who asked to be told when the product is back.",
     save: "Save",
     saved: "Saved",
     cancel: "Cancel",
@@ -250,6 +245,7 @@ export const productsCopy: Record<Lang, Copy> = {
     imagesUploading: "Wait for the photo to finish uploading, then save.",
     imageBroken: "This photo could not be loaded. Remove it and upload it again.",
     errQuantity: "Enter how many you have, or choose Unlimited quantity.",
+    errStockAsk: "Confirm this big quantity, or make it unlimited.",
     unlimited: "Unlimited quantity",
     unlimitedHint: "For products you can always make or order again. They never sell out in your store.",
     unlimitedShort: "Unlimited",
@@ -320,7 +316,6 @@ export const productsCopy: Record<Lang, Copy> = {
     category: "التصنيف",
     categoryPh: "مثال: ملابس",
     catHint: "اختياري. اختر أحد تصنيفاتك أو أنشئ تصنيفًا جديدًا. يستخدمها متجرك في القائمة والفلاتر، ويعرض المنتجات التي بلا تصنيف تحت «أخرى».",
-    pctMax: "النسبة لا تتجاوز 100٪",
     costAbove: "سعر التكلفة أعلى من سعر البيع، ستخسر في كل بيعة",
     catNewPh: "تصنيف جديد، مثال: جينز",
     catAdd: "إضافة",
@@ -358,8 +353,6 @@ export const productsCopy: Record<Lang, Copy> = {
     lowAtHint: "سيصلك إشعار قبل نفاد كمية المنتج.",
     restockMin: "إشعار العملاء المشتركين عند توفر كمية أكبر من",
     restockMinHint: "لتجنب إرسال الإشعارات عند توفر كمية محدودة من المنتج. القيمة الافتراضية 15.",
-    restockPct: "نسبة العملاء المراد إشعارهم",
-    restockPctHint: "ستُرسل دكان إشعار توفر المنتج إلى هذه النسبة من العملاء الذين طلبوا إعلامهم عند توفره.",
     save: "حفظ",
     saved: "تم الحفظ",
     cancel: "إلغاء",
@@ -375,6 +368,7 @@ export const productsCopy: Record<Lang, Copy> = {
     imagesUploading: "انتظر حتى ينتهي رفع الصورة، ثم احفظ.",
     imageBroken: "تعذّر تحميل هذه الصورة. احذفها وارفعها من جديد.",
     errQuantity: "أدخل الكمية المتوفرة لديك، أو اختر «كمية غير محدودة».",
+    errStockAsk: "أكّد هذه الكمية الكبيرة، أو اجعلها غير محدودة.",
     unlimited: "كمية غير محدودة",
     unlimitedHint: "للمنتجات التي يمكنك دائمًا صنعها أو طلبها من جديد. لا تنفد أبدًا في متجرك.",
     unlimitedShort: "غير محدود",

@@ -11,12 +11,10 @@ import { lammaLink } from "./lammaPages";
 
 const bi = (en: string, ar: string): Bi => ({ en, ar });
 
-export function lammaConfig(lang: Lang, o: { samples: boolean; storeName?: string }): StorefrontConfig {
+export function lammaConfig(_lang: Lang, o: { samples: boolean; storeName?: string }): StorefrontConfig {
   const c = JSON.parse(JSON.stringify(defaultConfig)) as StorefrontConfig;
-  const L = (en: string, ar: string) => (lang === "ar" ? ar : en);
   const S = o.samples;
   const photo = (f: string) => (S ? `/demo/lamma/${f}.jpg` : "");
-  const name = o.storeName?.trim() || L("Your store", "متجرك");
 
   /* primary is left empty: the theme follows the store color (the made-up store uses the same deep purple as the text) */
   c.theme = { ...c.theme, primary: "", background: "#fff6ea", text: "#2b1b47", titleColor: "", radius: "xl", font: "baloo", headingFont: "baloo", accent: "#7c5cff", titleStyle: "pop", spacing: "normal" };
@@ -68,7 +66,8 @@ export function lammaConfig(lang: Lang, o: { samples: boolean; storeName?: strin
     type: "hero",
     visible: true,
     settings: {
-      title: S ? bi("Wear Colors Have Fun", "البس الوانك وانبسط") : bi(name, name),
+      /* a title in both languages, never a copy of the store name (that would stay behind when he renames the store) */
+      title: S ? bi("Wear Colors Have Fun", "البس الوانك وانبسط") : bi("Wear your colors", "البس ألوانك"),
       subtitle: S ? bi("Comfy pieces in beautiful colors, for every place.", "قطع مريحة بألوان جميلة، لكل مكان.") : bi("A short line about your best products", "سطر قصير عن أفضل منتجاتك"),
       button: S ? bi("Let's shop", "يلا نتسوّق") : bi("Shop now", "تسوّق الآن"),
       backgrounds: [{ kind: "color", color: "#fff6ea", image: "" }],
@@ -83,12 +82,12 @@ export function lammaConfig(lang: Lang, o: { samples: boolean; storeName?: strin
       eyebrow: S ? bi("✿ Summer 2026", "✿ صيف ٢٠٢٦") : bi("✿ New season", "✿ موسم جديد"),
       button2: bi("", ""),
       sticker: S ? bi("20%\nOFF", "خصم\n٢٠٪") : bi("", ""),
-      accentWord: S ? bi("Colors", "الوانك") : bi("", ""),
+      accentWord: S ? bi("Colors", "الوانك") : bi("colors", "ألوانك"),
       popColors: { accent: "#7c5cff", blob: "#c9b6ff", sticker: "#ffe36e" },
     },
   };
 
-  const chips = newChips("chips");
+  const chips = newChips("chips", "products");
   if (S && chips.type === "chips") {
     chips.settings.items = [
       { label: bi("Men", "رجالي"), color: "#c9b6ff", link: lammaLink("men") },

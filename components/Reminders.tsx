@@ -7,7 +7,7 @@ import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
 import { REMINDER_MAX, cleanReminder, parseList, type Reminder } from "./records";
 import { cleanLine, visibleLength } from "./safe";
-import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 
 
 const KEYS = { abandoned: "seen-reminders", repurchase: "seen-repurchase" };
@@ -260,7 +260,7 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setCreating(false)}>
           <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={c.formTitle} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
             <h2 className="text-lg font-bold">{c.formTitle}</h2>
-            <div className="mt-2"><RequiredNote text={requiredNote[lang]} /></div>
+            {hasErrors(errors) && <div className="mt-2"><RequiredNote text={requiredNote[lang]} show /></div>}
             <div className="mt-5 space-y-5">
               <div>
                 <label htmlFor="r-name" className="mb-2 block text-sm font-semibold">{c.name}<RequiredMark /></label>

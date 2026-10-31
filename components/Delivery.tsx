@@ -5,7 +5,7 @@ import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { isJordanMobile, savedMobile, typedAnyPhone } from "./phone";
 import { cleanLine, isPickupAddress, visibleLength } from "./safe";
-import { RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { inLang } from "./safeOrder";
 import { usePrefs } from "./Prefs";
 import { loadSetup, saveSetup, type SavedSetup } from "./setup";
@@ -54,7 +54,7 @@ export function Delivery() {
     setPickup(v?.pickup ?? false);
     if (v?.shipping) {
       setMode(v.shipping.mode);
-      setCity(inLang(v.shipping.city, { en: content.en.onboarding.shipping.cities, ar: content.ar.onboarding.shipping.cities }, lang));
+      setCity(inLang(v.shipping.city, { en: content.en.onboarding.shipping.allCities, ar: content.ar.onboarding.shipping.allCities }, lang));
       setAddress(v.shipping.address);
       if (v.shipping.mode === "own") {
         setKind(v.shipping.kind);
@@ -64,6 +64,9 @@ export function Delivery() {
     }
     setReady(true);
   }, []);
+
+  /* the page language can arrive after the setup is loaded: the city follows it */
+  useEffect(() => setCity((old) => inLang(old, { en: content.en.onboarding.shipping.allCities, ar: content.ar.onboarding.shipping.allCities }, lang)), [lang]);
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,7 +105,7 @@ export function Delivery() {
             <h1 className="text-lg font-extrabold">{w.title}</h1>
             <p className="mt-1 text-sm text-muted">{w.sub}</p>
             {ready && !setup?.shipping && <p className="mt-3 rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{w.notSet}</p>}
-            {mode && <div className="mt-3"><RequiredNote text={requiredNote[lang]} /></div>}
+            {mode && hasErrors(errors) && <div className="mt-3"><RequiredNote text={requiredNote[lang]} show /></div>}
           </div>
 
           <fieldset className="space-y-3">
@@ -133,6 +136,8 @@ export function Delivery() {
                 <select id="d-city" aria-required aria-invalid={!!errors.city} value={city} onChange={(e) => { setCity(e.target.value); setErrors((x) => ({ ...x, city: undefined })); }} className={`${field} h-11 ${errors.city ? bad : ""}`}>
                   <option value="">{s.cityPh}</option>
                   {s.cities.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {/* a city saved before the list was cut stays shown, so the saved setup is not lost */}
+                  {city && !s.cities.includes(city) && <option value={city}>{city}</option>}
                 </select>
                 {errors.city && <p className="mt-1.5 text-xs text-rose-600">{errors.city}</p>}
               </div>

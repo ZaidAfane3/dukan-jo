@@ -1,5 +1,6 @@
 "use client";
 
+import { StockChoice, stockNeedsAnswer } from "./StockChoice";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
@@ -13,7 +14,7 @@ import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
 import { Tilt } from "./ui";
 import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, savedMobile, shownMobile, typedPhone } from "./phone";
-import { checkImage, cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, isPickupAddress, isSlug, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
+import { checkImage, cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isPickupAddress, isSlug, normalizeHex, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
 import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
 import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
@@ -64,13 +65,6 @@ const inputClass =
 /* ====================================================================
    Helpers
    ==================================================================== */
-
-/** Accepts "004956", "#004956" or "#0af" and returns "#rrggbb", or null if invalid. */
-function normalizeHex(value: string): string | null {
-  let h = value.trim().replace(/^#/, "");
-  if (/^[0-9a-f]{3}$/i.test(h)) h = h.split("").map((c) => c + c).join("");
-  return /^[0-9a-f]{6}$/i.test(h) ? `#${h.toLowerCase()}` : null;
-}
 
 function toRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -156,8 +150,9 @@ function Label({ title, hint, optional, required, htmlFor }: { title: string; hi
   );
 }
 
-/** "Fields with * must be filled", shown once at the top of a step that has required fields. */
-function RequiredNote({ text }: { text: string }) {
+/** "Fields with * must be filled", at the top of a step that has required fields: only after he pressed save with one left empty. */
+function RequiredNote({ text, show }: { text: string; show: boolean }) {
+  if (!show) return null;
   const [before, after] = text.split("*");
   return <p className="text-xs text-muted">{before}<span className="text-rose-600">*</span>{after}</p>;
 }
@@ -246,7 +241,6 @@ const productIcons = [
   <svg key="p0" {...icon}><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z" /><path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.25l9 4.5" /></svg>,
   <svg key="p1" {...icon}><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>,
   <svg key="p2" {...icon}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18M7 14.5h2M11 14.5h2M15 14.5h2" /></svg>,
-  <svg key="p3" {...icon}><path d="M3 13h18a9 8 0 0 1-18 0Z" /><path d="M8 9.5c0-1.5 1-1.5 1-3M12 9.5c0-1.5 1-1.5 1-3M16 9.5c0-1.5 1-1.5 1-3" /></svg>,
 ];
 
 const chevron = (
@@ -333,6 +327,8 @@ function IdentityStep({ store, onSave }: StepProps) {
   const [logo, setLogo] = useState<LogoFile | null>(store.logo);
   /* a chosen logo waiting to be cropped, and why the last file was refused */
   const [logoPending, setLogoPending] = useState<{ url: string; name: string } | null>(null);
+  /* the logo as it is being cropped, shown in the preview avatar right away */
+  const [logoLive, setLogoLive] = useState<string | null>(null);
   const [logoProblem, setLogoProblem] = useState<UploadProblem | null>(null);
   const [logoColor, setLogoColor] = useState<string | null>(null);
   const [color, setColor] = useState(store.color);
@@ -390,7 +386,7 @@ function IdentityStep({ store, onSave }: StepProps) {
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-8 lg:order-2">
-        <RequiredNote text={c.requiredNote} />
+        <RequiredNote text={c.requiredNote} show={!!nameError} />
         <div className="!mt-4">
           <Label title={c.nameLabel} hint={c.nameHint} required htmlFor="ob-name" />
           <input
@@ -417,7 +413,7 @@ function IdentityStep({ store, onSave }: StepProps) {
           <Label title={c.logoLabel} hint={c.logoHint} optional={c.optional} />
           <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
           {logoPending ? (
-            <ImageCropper lang={lang} src={logoPending.url} out={256} onCancel={() => setLogoPending(null)} onDone={(url) => { setLogo({ url, name: logoPending.name, size: formatSize(Math.round((url.length * 3) / 4)) }); setLogoPending(null); }} />
+            <ImageCropper lang={lang} src={logoPending.url} out={256} onLive={setLogoLive} onCancel={() => { setLogoPending(null); setLogoLive(null); }} onDone={(url) => { setLogo({ url, name: logoPending.name, size: formatSize(Math.round((url.length * 3) / 4)) }); setLogoPending(null); setLogoLive(null); }} />
           ) : logo ? (
             <div className="flex items-center gap-4 rounded-2xl border border-fg/15 p-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -531,7 +527,7 @@ function IdentityStep({ store, onSave }: StepProps) {
                     style={{ transform: "translateZ(55px)" }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {logo ? <img src={logo.url} alt="" className="h-full w-full object-cover" /> : <span className="text-3xl text-black/55">◎</span>}
+                    {logoLive || logo ? <img src={logoLive ?? logo!.url} alt="" className="h-full w-full object-cover" /> : <span className="text-3xl text-black/55">◎</span>}
                   </span>
                   <span className="min-w-0 truncate text-xl font-bold" style={{ transform: "translateZ(30px)" }}>{name || c.defaultName}</span>
                 </div>
@@ -539,7 +535,7 @@ function IdentityStep({ store, onSave }: StepProps) {
             </div>
             <div className={`mt-4 p-4 ${card3d}`} style={{ transform: "translateZ(35px)" }}>
               <p className="truncate font-bold" style={{ color }}>{name || c.defaultName}</p>
-              <p className="mt-1 line-clamp-2 min-h-[2.5rem] text-sm text-muted">{description || " "}</p>
+              <p className="mt-1 line-clamp-2 min-h-[2.5rem] whitespace-pre-line text-sm text-muted">{description || " "}</p>
               <div className="mt-4 flex gap-2" aria-hidden>
                 {[0, 1, 2, 3, 4].map((i) => (
                   <span key={i} className="h-8 w-8 rounded-full bg-fg/10" />
@@ -600,7 +596,7 @@ function ServiceStep({ store, onSave }: StepProps) {
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-6 lg:order-2">
-        <RequiredNote text={c.requiredNote} />
+        <RequiredNote text={c.requiredNote} show={tried && showError} />
         <div className="!mt-4">
           <Label title={sv.phoneLabel} hint={sv.hint} required htmlFor={usingAccount ? undefined : "ob-service-phone"} />
 
@@ -636,7 +632,7 @@ function ServiceStep({ store, onSave }: StepProps) {
           <div style={{ transformStyle: "preserve-3d" }}>
             <div className={`p-5 ${card3d}`} style={{ transform: "translateZ(15px)", transformStyle: "preserve-3d" }}>
               <p className="font-bold" style={{ color: store.color }}>{store.name || c.defaultName}</p>
-              <p className="mt-1 line-clamp-2 min-h-[2.5rem] text-sm text-muted">{store.description || "\u00A0"}</p>
+              <p className="mt-1 line-clamp-2 min-h-[2.5rem] whitespace-pre-line text-sm text-muted">{store.description || "\u00A0"}</p>
 
               {/* Contact card: the support number sits in the middle, other contact lines are placeholders */}
               <div className="mx-auto mt-5 max-w-[15rem] space-y-3 rounded-xl bg-soft p-4" style={{ transform: "translateZ(40px)" }}>
@@ -692,7 +688,7 @@ function DomainStep({ store, onSave }: StepProps) {
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-6 lg:order-2">
-        <RequiredNote text={c.requiredNote} />
+        <RequiredNote text={c.requiredNote} show={tried && showError} />
         <div className="!mt-4">
           <Label title={c.domain.label} hint={c.domain.hint} required htmlFor="ob-domain" />
           <div dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border bg-card text-sm transition focus-within:ring-2 ${showError ? "border-rose-500 focus-within:ring-rose-500/25" : "border-fg/15 focus-within:border-primary focus-within:ring-primary/25"}`}>
@@ -783,16 +779,20 @@ function ProductStep({ store, onSave }: StepProps) {
   const p = c.product;
 
   const saved = store.product;
-  const [type, setType] = useState(saved?.type ?? 0);
+  const [type, setType] = useState(Math.min(saved?.type ?? 0, 2));
   const [name, setName] = useState(saved?.name ?? "");
   const [price, setPrice] = useState(saved?.price ?? "");
   const [image, setImage] = useState<string | null>(saved?.image ?? null);
   /* a chosen picture waiting to be cropped */
   const [imagePending, setImagePending] = useState("");
+  /* the picture as it is being cropped, shown in the product preview right away */
+  const [imageLive, setImageLive] = useState<string | null>(null);
   const [imageError, setImageError] = useState("");
   const [needsShipping, setNeedsShipping] = useState(true);
   const [unlimited, setUnlimited] = useState(saved?.quantity === undefined);
   const [quantity, setQuantity] = useState(saved?.quantity !== undefined ? String(saved.quantity) : "");
+  /* a big quantity (999 or more) he said is right; one he saved before already was */
+  const [stockOk, setStockOk] = useState(saved?.quantity !== undefined ? String(saved.quantity) : "");
   const [device, setDevice] = useState<"mobile" | "desktop">("desktop");
   const [errors, setErrors] = useState<{ name?: string; price?: string; quantity?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
@@ -805,7 +805,7 @@ function ProductStep({ store, onSave }: StepProps) {
   }, []);
 
   /* Files and cards never ship, shipped products and food usually do. */
-  const physical = type === 0 || type === 3;
+  const physical = type === 0;
   const chooseType = (i: number) => {
     setType(i);
     setNeedsShipping(i === 0 || i === 3);
@@ -836,6 +836,7 @@ function ProductStep({ store, onSave }: StepProps) {
     if (visibleLength(name) < 2) next.name = p.errName;
     if (!(priceNumber > 0)) next.price = p.errPrice;
     if (!unlimited && quantity === "") next.quantity = p.errQuantity;
+    else if (stockNeedsAnswer(unlimited, quantity, stockOk)) next.quantity = lang === "ar" ? "أكّد هذه الكمية الكبيرة، أو اجعلها غير محدودة." : "Confirm this big quantity, or make it unlimited.";
     /* every product needs a photo (as on the Products page, see productProblems) */
     const noPhoto = !image;
     if (noPhoto) setImageError(p.errImage);
@@ -855,7 +856,7 @@ function ProductStep({ store, onSave }: StepProps) {
   return (
     <div className="mt-6">
       <p className="font-bold">{p.typeQuestion}</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
         {p.types.map((t, i) => (
           <button
             key={t.title}
@@ -876,13 +877,13 @@ function ProductStep({ store, onSave }: StepProps) {
       </div>
 
       <h3 className="mb-1 mt-10 font-bold">{p.dataTitle}</h3>
-      <div className="mb-4"><RequiredNote text={c.requiredNote} /></div>
+      {Object.values(errors).some(Boolean) && <div className="mb-4"><RequiredNote text={c.requiredNote} show /></div>}
       <div className="grid gap-8 rounded-2xl border border-fg/10 p-4 sm:p-5 lg:grid-cols-[1fr_1.1fr]">
         <div className="space-y-6 lg:order-2">
           <div>
             <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
             {imagePending ? (
-              <ImageCropper lang={lang} src={imagePending} shapes={["square", "tall", "wide"]} out={1200} type="image/jpeg" onCancel={() => setImagePending("")} onDone={(url) => { setImage(url); setImagePending(""); }} />
+              <ImageCropper lang={lang} src={imagePending} shapes={["square", "tall", "wide"]} out={1200} type="image/jpeg" onLive={setImageLive} onCancel={() => { setImagePending(""); setImageLive(null); }} onDone={(url) => { setImage(url); setImagePending(""); setImageLive(null); }} />
             ) : image ? (
               <div className="flex items-center gap-4 rounded-2xl border border-fg/15 p-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -956,14 +957,19 @@ function ProductStep({ store, onSave }: StepProps) {
 
           <div>
             <Label title={p.quantityLabel} />
-            <div className="flex gap-3">
-              <button type="button" onClick={() => setUnlimited((u) => !u)} aria-pressed={unlimited} className={`flex h-12 shrink-0 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${unlimited ? "border-ink bg-ink text-onink" : "border-fg/15 hover:border-primary/50"}`}>
-                <span aria-hidden>∞</span>
-                {unlimited ? p.unlimited : p.limited}
-              </button>
-              <input id="ob-product-quantity" value={quantity} onChange={(e) => { setQuantity(latin(e.target.value).replace(/\D/g, "").slice(0, 7)); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }} disabled={unlimited} inputMode="numeric" placeholder={p.quantityPh} aria-label={p.quantityLabel} aria-invalid={!!errors.quantity} className={`${inputClass} h-12 disabled:opacity-50 ${errors.quantity ? bad : ""}`} />
-            </div>
-            {errors.quantity && <FieldError id="ob-product-quantity-err">{errors.quantity}</FieldError>}
+            <StockChoice
+              lang={lang}
+              unlimited={unlimited}
+              quantity={quantity}
+              okFor={stockOk}
+              onUnlimited={(v) => { setUnlimited(v); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
+              onQuantity={(v) => { setQuantity(latin(v).replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, 7)); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
+              onConfirm={(q) => { setStockOk(q); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
+              inputId="ob-product-quantity"
+              inputClass={`${inputClass} ${errors.quantity ? bad : ""}`}
+              error={errors.quantity}
+              required
+            />
           </div>
 
           <SaveButton onClick={save}>{p.add}</SaveButton>
@@ -1002,7 +1008,7 @@ function ProductStep({ store, onSave }: StepProps) {
                       </div>
                       <div className={`grid shrink-0 place-items-center overflow-hidden rounded-xl bg-fg/10 ${device === "mobile" ? "aspect-square w-full" : "h-32 w-32"}`} style={{ transform: "translateZ(40px)" }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {image ? <img src={image} alt="" className="h-full w-full object-cover" /> : <span className="text-muted/60">{productIcons[type]}</span>}
+                        {imageLive || image ? <img src={imageLive ?? image!} alt="" className="h-full w-full object-cover" /> : <span className="text-muted/60">{productIcons[type]}</span>}
                       </div>
                     </div>
                   </div>
@@ -1031,8 +1037,10 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [pickup, setPickup] = useState(store.pickup);
 
   /* Dukkan Ship: only needs a pickup place */
-  const [city, setCity] = useState(inLang(saved?.city ?? "", { en: content.en.onboarding.shipping.cities, ar: content.ar.onboarding.shipping.cities }, lang));
+  const [city, setCity] = useState(inLang(saved?.city ?? "", { en: content.en.onboarding.shipping.allCities, ar: content.ar.onboarding.shipping.allCities }, lang));
   const [address, setAddress] = useState(saved?.address ?? "");
+  /* the page language can arrive after the step is drawn: the city follows it */
+  useEffect(() => setCity((old) => inLang(old, { en: content.en.onboarding.shipping.allCities, ar: content.ar.onboarding.shipping.allCities }, lang)), [lang]);
 
   /* His own shipping way: who delivers, their number, and proof */
   const own = saved?.mode === "own" ? saved : null;
@@ -1150,7 +1158,7 @@ function ShippingStep({ store, onSave }: StepProps) {
         <div className="space-y-8 lg:order-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             {changeLink}
-            <RequiredNote text={c.requiredNote} />
+            <RequiredNote text={c.requiredNote} show={!!error || Object.values(errors).some(Boolean)} />
           </div>
           {pickupBox}
 
@@ -1176,6 +1184,8 @@ function ShippingStep({ store, onSave }: StepProps) {
               {s.cities.map((name, i) => (
                 <option key={i} value={name}>{name}</option>
               ))}
+              {/* a city saved before the list was cut stays shown, so the saved setup is not lost */}
+              {city && !s.cities.includes(city) && <option value={city}>{city}</option>}
             </select>
             {errors.city && <FieldError id="ob-ship-city-err">{errors.city}</FieldError>}
           </div>
@@ -1254,7 +1264,7 @@ function ShippingStep({ store, onSave }: StepProps) {
       <div className="space-y-8 lg:order-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {changeLink}
-          <RequiredNote text={c.requiredNote} />
+          <RequiredNote text={c.requiredNote} show={Object.values(errors).some(Boolean)} />
         </div>
         {pickupBox}
 
@@ -1344,7 +1354,7 @@ function ShippingStep({ store, onSave }: StepProps) {
             <div className={`p-5 ${card3d}`} style={{ transform: "translateZ(15px)", transformStyle: "preserve-3d" }}>
               <div className="flex items-center gap-4" style={{ transformStyle: "preserve-3d" }}>
                 <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-ink text-2xl font-bold text-onink shadow-xl" style={{ transform: "translateZ(45px)" }}>
-                  {name.trim() ? name.trim().charAt(0).toUpperCase() : taskIcons[4]}
+                  {initialOf(name) || taskIcons[4]}
                 </span>
                 <div className="min-w-0">
                   <span className="inline-block rounded-full bg-soft px-3 py-0.5 text-[11px] font-bold text-deep dark:text-primary">{s.kinds[kind]}</span>

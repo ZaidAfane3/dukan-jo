@@ -37,7 +37,8 @@
     ".next-fb/types/**/*.ts",
     ".next-fa/types/**/*.ts",
     ".next-fc/types/**/*.ts",
-    ".next-ff/types/**/*.ts"
+    ".next-ff/types/**/*.ts",
+    ".next-fork/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

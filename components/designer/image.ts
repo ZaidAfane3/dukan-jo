@@ -3,13 +3,13 @@
    Redrawing turns a phone photo the right way up (its EXIF orientation), drops its hidden data (EXIF, GPS) and turns an SVG
    into a normal picture, so its scripts can never run. */
 
-import { checkImage, imageRules, type ImageRule, type UploadProblem } from "../safe";
+import { checkImage, imageRules, smallPictureNote, uploadProblemFor, type ImageRule, type UploadProblem } from "../safe";
 
 export const MAX_FILE = 2_000_000;
 /* A GIF (or an animated WebP) must be kept exactly as it is, or it stops moving, so it has a smaller size limit. */
 export const MAX_GIF = 1_200_000;
 
-export type Picked = { url: string } | { problem: UploadProblem };
+export type Picked = { url: string; /* the picture's own size, before it was shrunk (none for an SVG) */ w?: number; h?: number } | { problem: UploadProblem };
 
 /** Opens a checked picture. The browser turns it the right way up from its EXIF when it decodes it. */
 function decode(file: Blob, svg: boolean): Promise<HTMLImageElement | null> {
@@ -57,11 +57,11 @@ export async function pickPicture(file: File | undefined, rule: ImageRule, max: 
   if ("problem" in check) return check;
   if (check.animated && file!.size <= MAX_GIF) {
     const url = await asDataUrl(file!);
-    return url ? { url: url.replace(/^data:[^;]*;/, `data:image/${check.kind};`) } : { problem: "broken" };
+    return url ? { url: url.replace(/^data:[^;]*;/, `data:image/${check.kind};`), w: check.w, h: check.h } : { problem: "broken" };
   }
   const img = await decode(file!, check.kind === "svg");
   const url = img && redraw(img, max, type, quality);
-  return url ? { url } : { problem: "broken" };
+  return url ? { url, w: check.w, h: check.h } : { problem: "broken" };
 }
 
 export const pickedUrl = (p: Picked) => ("url" in p ? p.url : null);
@@ -71,6 +71,25 @@ export const readLogo = async (file: File, size = 256) => pickedUrl(await pickPi
 
 /** A photo: shrunk to a screen-sized JPEG so several fit in the browser's storage. */
 export const readPhoto = async (file: File, max = 1600) => pickedUrl(await pickPicture(file, imageRules.photo, max, "image/jpeg", 0.78));
+
+/** What an upload box says under itself: why a file was refused (error), or that a taken picture is very small (warn) */
+export type PicNote = { tone: "error" | "warn"; text: string } | null;
+
+/** The note for a picked picture, in the words of the rule it was checked with (its real kinds and limits) */
+export function pickedNote(p: Picked, rule: ImageRule, lang: "en" | "ar"): PicNote {
+  if ("problem" in p) return { tone: "error", text: uploadProblemFor(p.problem, rule, lang) };
+  const small = smallPictureNote(p.w, p.h, rule, lang);
+  return small ? { tone: "warn", text: small } : null;
+}
+
+/** A picture for the store designer (every place uses the same rule, see PICTURE_KINDS in safe.ts): a JPEG photo by default,
+    or a PNG to keep transparency. Gives the picture and what to say about it. */
+export async function readPicture(file: File, lang: "en" | "ar", o: { max?: number; type?: "image/png" | "image/jpeg"; quality?: number; rule?: ImageRule } = {}): Promise<{ url: string | null; note: PicNote }> {
+  const rule = o.rule ?? imageRules.picture;
+  const type = o.type ?? "image/jpeg";
+  const picked = await pickPicture(file, rule, o.max ?? 1600, type, o.quality ?? (type === "image/jpeg" ? 0.78 : undefined));
+  return { url: pickedUrl(picked), note: pickedNote(picked, rule, lang) };
+}
 
 /** Turns a picture that is only shown through a temporary link into a small saved one. */
 export async function toSavedLogo(url: string): Promise<string> {
@@ -86,7 +105,7 @@ export async function toSavedLogo(url: string): Promise<string> {
 /* ============================== cropping ============================== */
 
 /** Where a picture sits in a crop frame. x and y move it (in % of the frame); zoom 1 fills the frame exactly. */
-export type Crop = { x: number; y: number; zoom: number };
+export type Crop = { x: number; y: number; zoom: number; /* turned around its middle, in degrees (none: 0) */ r?: number };
 
 /** The picture's place inside a frame of the given shape (width / height), in % of the frame. The same numbers draw the preview
     on the page and the cropped picture on a canvas, so what the merchant sees is what he gets. */
@@ -131,7 +150,11 @@ export async function cropPicture(src: string, ratio: number, c: Crop, out: numb
     ctx.fillRect(0, 0, cv.width, cv.height);
   }
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(img, (b.left / 100) * cv.width, (b.top / 100) * cv.height, (b.width / 100) * cv.width, (b.height / 100) * cv.height);
+  /* turned around its own middle, the way the cropper shows it */
+  const bw = (b.width / 100) * cv.width, bh = (b.height / 100) * cv.height;
+  ctx.translate((b.left / 100) * cv.width + bw / 2, (b.top / 100) * cv.height + bh / 2);
+  if (c.r) ctx.rotate((c.r * Math.PI) / 180);
+  ctx.drawImage(img, -bw / 2, -bh / 2, bw, bh);
   const url = cv.toDataURL(type, type === "image/jpeg" ? 0.85 : undefined);
   return url.length > 30 ? url : null;
 }

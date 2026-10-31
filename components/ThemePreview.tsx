@@ -33,6 +33,12 @@ export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeIn
     setAddress(own || `dukkan.store/${loadSetup()?.slug || "your-store"}`);
   }, []);
 
+  /* React 18 does not know the inert attribute yet, so it is set by hand */
+  const still = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    still.current?.setAttribute("inert", "");
+  });
+
   const state = useRef({ hover: false, stopped: false, pos: 0, dir: 1, dragging: false, moved: false, startY: 0, startTop: 0 });
   const [grabbing, setGrabbing] = useState(false);
 
@@ -164,7 +170,8 @@ export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeIn
             // eslint-disable-next-line @next/next/no-img-element
             <img src={theme.shot} alt={theme.name[lang]} className="block w-full" draggable={false} />
           ) : (
-            <div aria-hidden className="pointer-events-none" style={{ width: WIDTH, zoom: w / WIDTH }}>
+            /* only a picture: its links and buttons can't be reached with the mouse or the keys (inert) */
+            <div ref={still} aria-hidden className="pointer-events-none" style={{ width: WIDTH, zoom: w / WIDTH }}>
               {config && <StorefrontTheme config={config} device="desktop" interactive={false} products={products} store={own ? undefined : theme.demo ? { name: theme.demo.name[lang], color: theme.demo.color } : { name: lang === "ar" ? "متجر عطور" : "Perfume Store", color: "#1c1a17" }} />}
             </div>
           )}

@@ -68,7 +68,7 @@ export function useStorePages(lang: Lang, version = 0) {
 }
 
 /** One button's destination */
-export function LinkPicker({ lang, value, onChange, label }: { lang: Lang; value: string; onChange: (v: string) => void; label: string }) {
+export function LinkPicker({ lang, value, onChange, label, web = true }: { lang: Lang; value: string; onChange: (v: string) => void; label: string; /* false: no "web address" choice (a link he already had still shows) */ web?: boolean }) {
   const w = words[lang];
   const sections = useContext(LinkTargets);
   const openPage = useContext(OpenPage);
@@ -108,7 +108,7 @@ export function LinkPicker({ lang, value, onChange, label }: { lang: Lang; value
           ))}
           <option value="__new">{w.newPage}</option>
         </optgroup>
-        <option value="web">{w.web}</option>
+        {(web || kind === "web") && <option value="web">{w.web}</option>}
       </select>
       {isPage && openPage && (
         <button type="button" onClick={() => openPage(Number(value.slice(5)))} className="text-xs font-semibold text-primary hover:underline">{w.open}</button>

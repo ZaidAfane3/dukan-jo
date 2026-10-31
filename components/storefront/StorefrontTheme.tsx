@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrefs } from "../Prefs";
-import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, type LogoConfig, type StorefrontConfig } from "./config";
-import { copy, currency, icons, LogoMark, money, moneyIn, onColor, picFill, priceLang, priceOf, resolveLogo } from "./parts";
+import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, shopTarget, type LogoConfig, type StorefrontConfig } from "./config";
+import { copy, currency, icons, LogoMark, money, moneyIn, onColor, picFill, priceLang, priceOf, readableOn, resolveLogo, drawerHeading } from "./parts";
 import { patterns } from "./patterns";
 import { linkProps, ProductPage, renderSection, type Ctx, type Design } from "./sections";
 import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
-import { fontFamily } from "./config";
-import { useStoreData, type StoreProduct } from "./useStoreData";
+import { fontFamily, headingFamily } from "./config";
+import { sampleProducts, useStoreData, type StoreProduct } from "./useStoreData";
 import { cartQty } from "../safeOrder";
 import { CartPanel } from "./Cart";
-import { footerColors, footerDim, footerNameSize } from "./footerColors";
+import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
 import { shownMobile } from "../phone";
+import { hasArabic } from "../safe";
 
 type Props = {
   config?: StorefrontConfig;
@@ -104,6 +105,29 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     }
     if (interactive) setCartOpen(true);
   };
+  /* in the designer the cart is drawn inside the preview: where he is looking (not at the top of the page), and it stays in
+     view while he scrolls. Measured against the box the preview scrolls in; the preview may be shown smaller than it is. */
+  const [cartAt, setCartAt] = useState<{ top: number; height: number } | null>(null);
+  useEffect(() => {
+    const el = root.current;
+    if (!design || !showCart || !el) return setCartAt(null);
+    let box: HTMLElement | null = el.parentElement;
+    while (box && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+    const place = () => {
+      const r = el.getBoundingClientRect();
+      const k = r.width / el.offsetWidth || 1;
+      const view = box ? box.getBoundingClientRect() : { top: 0, height: window.innerHeight };
+      /* the whole height he can see, but never taller than the page itself */
+      const height = Math.min(el.offsetHeight, Math.max(320, view.height / k));
+      const top = Math.max(0, Math.min(el.offsetHeight - height, (view.top - r.top) / k));
+      setCartAt({ top, height });
+    };
+    place();
+    const on: EventTarget = box ?? window;
+    on.addEventListener("scroll", place, { passive: true });
+    window.addEventListener("resize", place);
+    return () => { on.removeEventListener("scroll", place); window.removeEventListener("resize", place); };
+  }, [design, showCart]);
   const cartLines = data.products.filter((p) => qty[p.id]).map((p) => ({ p, qty: qty[p.id] }));
   const cart = data.products.reduce((k, p) => ({ count: k.count + (qty[p.id] ?? 0), total: k.total + (qty[p.id] ?? 0) * priceOf(p) }), { count: 0, total: 0 });
   /* A page of the store (an info page) shown in place of the home page */
@@ -131,7 +155,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     else setPageId(null);
   };
   const shownPage = pageId !== null ? data.pages.find((p) => p.id === pageId) : undefined;
-  const shownProduct = productId !== null ? data.products.find((x) => x.id === productId) : undefined;
+  /* the designer's product page with no products in the store: a sample product, so the page can still be designed */
+  const sampleProduct = useMemo(() => (design && showProduct && !(products ?? data.products).length ? sampleProducts(lang)[0] : undefined), [design, showProduct, products, data.products, lang]);
+  const shownProduct = (productId !== null ? data.products.find((x) => x.id === productId) : undefined) ?? sampleProduct;
   /* What the sections are given. It stays the same object while nothing they use changes, so editing one section draws only that
      section again: the sections see only the look (theme, texts, cards) and the products, never the list of sections or the footer,
      and the actions below are stable and always call the newest version. */
@@ -144,17 +170,21 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   }, []);
   const look = useMemo(() => ({ theme: config.theme, texts: config.texts, cards: config.cards }), [config.theme, config.texts, config.cards]);
   const goods = useMemo(() => ({ products: data.products, categories: data.categories, color: data.color, isDemo: data.isDemo }), [data.products, data.categories, data.color, data.isDemo]);
+  const shop = shopTarget(config);
   const ctx: Ctx = useMemo(
-    () => ({ lang, compact, data: goods, config: look, design, owner, query, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS }),
-    [lang, compact, goods, look, design, owner, query, interactive, qty, setQty, openPageS, openProductS, showSectionS],
+    () => ({ lang, compact, data: goods, config: look, shop, design, owner, query, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS }),
+    [lang, compact, goods, look, shop, design, owner, query, interactive, qty, setQty, openPageS, openProductS, showSectionS],
   );
 
+  /* his text and title colors, unless they vanish on his background (the same color, or too close): then automatic ones that read */
+  const pageText = legibleOn(config.theme.text, config.theme.background);
+  const pageTitle = legibleOn(config.theme.titleColor || pageText, config.theme.background, pageText);
   const vars = {
     "--sf-primary": primary,
     "--sf-on": onColor(primary),
     "--sf-bg": config.theme.background,
-    "--sf-text": config.theme.text,
-    "--sf-title": config.theme.titleColor || config.theme.text,
+    "--sf-text": pageText,
+    "--sf-title": pageTitle,
     "--sf-r": radiusValue[config.theme.radius],
     /* The same choice of corners, for the other shapes: big cards and blocks, the pictures inside them, and buttons and pills */
     "--sf-r2": { none: "0px", md: "16px", xl: "28px" }[config.theme.radius],
@@ -164,36 +194,56 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     /* The sale badges, sale prices and the basket count: his sale color, or the store color */
     "--sf-sale": config.theme.saleColor || primary,
     "--sf-onsale": onColor(config.theme.saleColor || primary),
-    "--sf-heading": fontFamily[config.theme.headingFont || config.theme.font],
+    /* the sale and accent colors when they color words: kept readable on the page's background */
+    "--sf-saletext": readableOn(config.theme.saleColor || primary, config.theme.background, pageText),
+    "--sf-primarytext": readableOn(primary, config.theme.background, pageText),
+    "--sf-accenttext": readableOn(config.theme.accent || primary, config.theme.background, pageText),
+    "--sf-heading": headingFamily(config.theme),
     "--sf-sy": config.theme.spacing === "airy" ? "96px" : "40px",
     "--sf-syc": config.theme.spacing === "airy" ? "56px" : "28px",
     "--sf-sb": config.theme.spacing === "airy" ? "16px" : "40px",
     "--sf-sbc": config.theme.spacing === "airy" ? "8px" : "28px",
     background: config.theme.background,
-    color: config.theme.text,
+    color: pageText,
     fontFamily: fontFamily[config.theme.font] || undefined,
   } as React.CSSProperties;
 
   const h = config.header;
-  const brandNode = (nameToo: boolean) => (
+  const tagline = config.identity.tagline?.[lang] || config.identity.tagline?.[lang === "ar" ? "en" : "ar"];
+  /* the name shows beside the logo unless he switched it off; with no logo the name always shows */
+  const nameShown = config.identity.showName !== false || !config.identity.showLogo;
+  /* the designer with no store name yet: an empty, dashed place for it (never a made-up name that looks saved) */
+  const namePlace = design && store && !store.name?.trim() ? (
+    <span className="truncate rounded-md border-2 border-dashed border-rose-400 px-2.5 py-0.5 text-sm font-bold text-rose-500">{lang === "ar" ? "اكتب اسم متجرك" : "Write your store name"}</span>
+  ) : null;
+  const nameSizeOwn = config.identity.nameSize ? (compact ? Math.round(config.identity.nameSize * 0.75) : config.identity.nameSize) : undefined;
+  /* the name's and the small line's own colors, on the header (the page's background): one that vanishes there gives way to the theme's */
+  const nameColor = (config.identity.nameColor && readsOn(config.identity.nameColor, config.theme.background) && config.identity.nameColor) || undefined;
+  const taglineColor = (config.identity.taglineColor && readsOn(config.identity.taglineColor, config.theme.background) && config.identity.taglineColor) || "var(--sf-accent)";
+  /* in the pill header the name sits on a pill of the text color: his name color there too, where it reads on that pill */
+  const pillNameColor = (config.identity.nameColor && readsOn(config.identity.nameColor, pageText) && config.identity.nameColor) || "var(--sf-bg)";
+  /* a link's own color, where it reads on what the link sits on (the page, or a white pill); otherwise the usual color */
+  const linkColor = (c: string | undefined, on: string) => (c && readsOn(c, on) ? c : undefined);
+  const drawerLinkOn = config.theme.titleStyle === "pop" ? "#ffffff" : config.theme.background;
+  const brand = (
     <a href="#" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
-      {(nameToo || !config.identity.showLogo) && (
+      {(nameShown || tagline) && (
         <span className={`flex min-w-0 flex-col ${centered ? "items-center" : ""}`}>
-          {config.identity.nameFont ? (
-            <span className="truncate font-bold leading-tight" style={{ fontFamily: heroTitleFamily(config.identity.nameFont), color: config.identity.nameColor || undefined, fontSize: compact ? 30 : 40 }}>{data.name}</span>
+          {/* his own size wins (a little smaller on a phone); without one, the theme's */}
+          {!nameShown ? null : namePlace ?? (config.identity.nameFont ? (
+            <span className="max-w-full truncate font-bold leading-tight" style={{ fontFamily: heroTitleFamily(config.identity.nameFont), color: nameColor, fontSize: nameSizeOwn ?? (compact ? 30 : 40) }}><bdi>{data.name}</bdi></span>
           ) : (
-            <span className={`truncate font-extrabold tracking-tight ${compact ? "text-lg" : "text-xl"}`} style={config.identity.nameColor ? { color: config.identity.nameColor } : undefined}>{data.name}</span>
-          )}
-          {/* the small line under the name ("FINE JEWELRY"), in an elegant italic */}
-          {(config.identity.tagline?.[lang] || config.identity.tagline?.[lang === "ar" ? "en" : "ar"]) && (
-            <span dir="auto" className="mt-1 truncate text-sm tracking-[0.2em]" style={{ fontFamily: "var(--font-elegant-latin), Georgia, serif", fontStyle: "italic", color: "var(--sf-accent)" }}>{config.identity.tagline?.[lang] || config.identity.tagline?.[lang === "ar" ? "en" : "ar"]}</span>
+            <span className={`max-w-full truncate font-extrabold tracking-tight ${compact ? "text-lg" : "text-xl"}`} style={{ color: nameColor, fontSize: nameSizeOwn }}><bdi>{data.name}</bdi></span>
+          ))}
+          {/* the small line under the name ("FINE JEWELRY"), in an elegant italic; Arabic is never slanted or spaced out (it breaks the joined letters) */}
+          {tagline && (
+            <span className={`mt-1 max-w-full truncate text-sm ${config.identity.taglineFont || hasArabic(tagline) ? "" : "tracking-[0.2em]"}`} style={{ fontFamily: config.identity.taglineFont ? heroTitleFamily(config.identity.taglineFont) : "var(--font-elegant-latin), Georgia, serif", fontStyle: config.identity.taglineFont || hasArabic(tagline) ? undefined : "italic", color: taglineColor }}><bdi>{tagline}</bdi></span>
           )}
         </span>
       )}
     </a>
   );
-  const brand = brandNode(true);
 
   const iconBtn = "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white ring-1 ring-black/[0.08] transition hover:ring-black/25";
 
@@ -211,16 +261,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
 
   const menuBtn = h.showMenu && (
-    <button type="button" onClick={() => setMenu(true)} aria-label={c.menu} className={iconBtn}>
+    <button type="button" onClick={(e) => { /* only opens the menu: in the designer it must not also pick the header and leave the settings he is in */ e.stopPropagation(); setMenu(true); }} aria-label={c.menu} className={iconBtn}>
       {icons.menu}
     </button>
   );
 
 
   const actions = (
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
               {h.showCart && (
-                <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className="flex h-10 items-center gap-2 rounded-full bg-white ps-3 pe-3 text-sm font-bold ring-1 ring-black/[0.08] transition hover:ring-black/25">
+                <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-white ps-3 pe-3 text-sm font-bold ring-1 ring-black/[0.08] transition hover:ring-black/25">
                   <span className="relative">
                     {icons.bag}
                     {cart.count > 0 && (
@@ -239,8 +289,19 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               </div>
   );
 
+  /* The parts of the home page that show nothing to customers (an empty part draws no element), found after each drawing of the
+     home page; kept while a page or a product is open, since the home page is not drawn then */
+  const [emptyParts, setEmptyParts] = useState<string[]>([]);
+  useEffect(() => {
+    if (design || pageId !== null || productId !== null || !root.current) return;
+    const empty = config.sections.filter((s) => !root.current?.querySelector(`[data-sf="${CSS.escape(s.id)}"]`)?.childElementCount).map((s) => s.id);
+    setEmptyParts((was) => (was.join() === empty.join() ? was : empty));
+  });
+
   /* The header with a row of links: logo | links | plain icons (account, saved, search, basket) */
-  const navLinks = config.nav.style === "links" || config.nav.style === "pill" ? config.nav.links.map((l) => ({ name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to, color: l.color })).filter((l) => l.name) : [];
+  /* a link to a part of the page that customers do not see (hidden, or with nothing in it yet: no reviews, no products picked)
+     is left out of their header; the designer keeps it, so he can still find and edit it */
+  const navLinks = config.nav.style === "links" || config.nav.style === "pill" ? config.nav.links.map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to, color: l.color })).filter((l) => l.name && !(l.to && emptyParts.includes(l.to))) : [];
   /* A link takes the visitor to its part of the page, smoothly */
   const goTo = (e: React.MouseEvent, to?: string) => {
     e.preventDefault();
@@ -264,14 +325,18 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   };
   latest.current.showSection = showSection;
   const [searchOpen, setSearchOpen] = useState(false);
+  /* The header rows in three columns. The buttons' columns keep their full width, so a long store name gives way (it ends
+     with "…") instead of pushing the basket out or wrapping its price: the name in the middle, or the name at the start. */
+  const nameMid = "grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)]";
+  const nameSide = "grid-cols-[minmax(0,1fr)_auto_minmax(max-content,1fr)]";
   const pillHeader = config.nav.style === "pill" && navLinks.length > 0;
   const linksHeader = navLinks.length > 0 && !pillHeader;
   const [navOn, setNavOn] = useState(0);
   /* The pill header: the name in a dark pill, the links in a white pill (the chosen one colored), and a round basket button */
   const pillBrand = (
-    <a href="#" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className="inline-flex items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: "var(--sf-bg)", fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
+    <a href="#" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className="inline-flex min-w-0 max-w-full items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: pillNameColor, fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
-      {data.name}
+      {namePlace ?? <span className="min-w-0 truncate" style={{ fontSize: nameSizeOwn }}>{data.name}</span>}
     </a>
   );
   /* With the search open, the pill of links turns into the search field in the same place, and the links are hidden until it closes */
@@ -299,9 +364,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           href={l.to ? `#${l.to}` : "#"}
           onClick={(e) => { goTo(e, l.to); setNavOn(i); }}
           className="whitespace-nowrap px-4 py-1.5 transition duration-200 hover:-translate-y-0.5 hover:scale-105 hover:bg-black/[0.07] active:scale-95"
-          style={{ borderRadius: "var(--sf-pill)", ...(l.color ? { color: l.color } : {}), ...(i === navOn ? { background: config.nav.activeColor || "#ff8fb1", color: onColor(config.nav.activeColor || "#ff8fb1") } : {}) }}
+          style={{ borderRadius: "var(--sf-pill)", ...(linkColor(l.color, "#ffffff") ? { color: l.color } : {}), ...(i === navOn ? { background: config.nav.activeColor || "#ff8fb1", color: onColor(config.nav.activeColor || "#ff8fb1") } : {}) }}
         >
-          {l.name}
+          <bdi>{l.name}</bdi>
         </a>
       ))}
     </nav>
@@ -309,7 +374,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* The other buttons of the header follow their switches in the pill header too: menu, search, account, language */
   const pillIcon = "relative grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[var(--sf-text)] bg-white transition hover:-translate-y-0.5";
   const pillMenu = h.showMenu && (
-    <button type="button" onClick={() => setMenu(true)} aria-label={c.menu} className={pillIcon}>
+    <button type="button" onClick={(e) => { e.stopPropagation(); setMenu(true); }} aria-label={c.menu} className={pillIcon}>
       {icons.menu}
     </button>
   );
@@ -398,7 +463,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           centered ? (
             /* The name in the middle: menu | name | buttons, and the links under it */
             <div className={compact ? "px-4 py-3" : "px-8 py-4"}>
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <div className={`grid ${nameMid} items-center gap-2`}>
                 <div className="flex items-center justify-start gap-2">{pillMenu}</div>
                 <div className="min-w-0">{pillBrand}</div>
                 <div className="flex items-center justify-end gap-2">{pillExtras}{pillCart}</div>
@@ -408,67 +473,67 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           ) : compact ? (
             <div className="px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">{pillMenu}{pillBrand}</div>
-                <div className="flex items-center gap-2">{pillExtras}{pillCart}</div>
+                <div className="flex min-w-0 items-center gap-2">{pillMenu}{pillBrand}</div>
+                <div className="flex shrink-0 items-center gap-2">{pillExtras}{pillCart}</div>
               </div>
               <div className="mt-3 flex justify-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{searchOpen && h.showSearch ? pillSearch : pillNav}</div>
             </div>
           ) : (
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-6 px-8 py-4">
-              <div className="flex items-center justify-start gap-2">{pillMenu}{pillBrand}</div>
+            <div className={`grid ${nameSide} items-center gap-6 px-8 py-4`}>
+              <div className="flex min-w-0 items-center justify-start gap-2">{pillMenu}{pillBrand}</div>
               {searchOpen && h.showSearch ? pillSearch : pillNav}
               <div className="flex items-center justify-end gap-2">{pillExtras}{pillCart}</div>
             </div>
           )
         ) : linksHeader ? (
           centered && !compact && config.nav.place === "start" ? (
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-6 px-8 py-7">
+            <div className={`grid ${nameMid} items-center gap-6 px-8 py-7`}>
               <nav aria-label={c.pages} className="flex items-center justify-start gap-7 text-[14px] font-light tracking-[0.04em]">
                 {menuBtn}
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center text-[var(--sf-text)] transition duration-200 hover:text-[var(--sf-primary)]" style={l.color ? { color: l.color } : undefined}>{l.name}</a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center text-[var(--sf-text)] transition duration-200 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}><bdi>{l.name}</bdi></a>
                 ))}
               </nav>
-              <div className="min-w-0">{brandNode(false)}</div>
+              <div className="min-w-0">{brand}</div>
               {plainActions}
             </div>
           ) : centered && !compact ? (
             <div className="px-8 py-3">
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+              <div className={`grid ${nameMid} items-center gap-3`}>
                 <div className="flex items-center justify-start">{menuBtn}</div>
-                <div className="min-w-0">{brandNode(false)}</div>
+                <div className="min-w-0">{brand}</div>
                 <div className="flex items-center justify-end">{plainActions}</div>
               </div>
               <nav aria-label={c.pages} className="mt-2 flex items-center justify-center gap-9 text-[14px]">
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={l.color ? { color: l.color } : undefined}>{l.name}</a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}><bdi>{l.name}</bdi></a>
                 ))}
               </nav>
             </div>
           ) : compact && config.nav.place === "start" ? (
             /* on a phone: the name on top, the links and the basket under it */
             <div className="px-4 py-4">
-              <div className="flex justify-center">{brandNode(false)}</div>
+              <div className="flex justify-center">{brand}</div>
               <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[13px] font-light">
                 {menuBtn}
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center" style={l.color ? { color: l.color } : undefined}>{l.name}</a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}><bdi>{l.name}</bdi></a>
                 ))}
                 {plainActions}
               </div>
             </div>
           ) : compact ? (
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-3">
+            <div className={`grid ${nameMid} items-center gap-3 px-4 py-3`}>
               <div className="flex items-center justify-start">{menuBtn}</div>
-              <div className="min-w-0">{brandNode(false)}</div>
+              <div className="min-w-0">{brand}</div>
               <div className="flex items-center justify-end">{plainActions}</div>
             </div>
           ) : (
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-6 px-8 py-3">
-              <div className="flex items-center justify-start gap-3">{menuBtn}{brandNode(false)}</div>
+            <div className={`grid ${nameSide} items-center gap-6 px-8 py-3`}>
+              <div className="flex min-w-0 items-center justify-start gap-3">{menuBtn}{brand}</div>
               <nav aria-label={c.pages} className="flex items-center gap-9 text-[14px]">
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={l.color ? { color: l.color } : undefined}>{l.name}</a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}><bdi>{l.name}</bdi></a>
                 ))}
               </nav>
               {plainActions}
@@ -476,18 +541,18 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           )
         ) : centered ? (
           /* Name in the middle: menu | name | account and cart, with the search bar on its own row */
-          <div className={`grid grid-cols-[1fr_auto_1fr] items-center gap-3 ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
+          <div className={`grid ${nameMid} items-center gap-3 ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
             <div className="flex items-center justify-start">{menuBtn}</div>
             <div className="min-w-0">{brand}</div>
             <div className="flex items-center justify-end">{actions}</div>
           </div>
         ) : (
+          /* a long name gives way first (it ends with "…"): the search keeps its room and the basket never wraps */
           <div className={`flex items-center gap-3 ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
             {menuBtn}
-            <div className="shrink-0">{brand}</div>
+            <div className={`min-w-0 ${compact ? "flex-1" : "max-w-[40%] shrink"}`}>{brand}</div>
 
-            {!compact && <div className="mx-auto w-full max-w-xl">{search}</div>}
-            {compact && <div className="flex-1" />}
+            {!compact && <div className="mx-auto w-full min-w-0 max-w-xl">{search}</div>}
 
             {actions}
           </div>
@@ -498,15 +563,23 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       </header>
 
       {design && showCart && (
-        /* the cart drawn inside the preview over its first screen, filled with the first products when nothing was added */
-        <div className="absolute inset-x-0 top-0 z-[60] h-[min(100%,880px)]">
+        /* the cart drawn inside the preview where he is looking, filled with the first products when nothing was added */
+        <div className={`absolute inset-x-0 z-[60] ${cartAt ? "" : "top-0 h-[min(100%,880px)]"}`} style={cartAt ? { top: cartAt.top, height: cartAt.height } : undefined}>
           <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} />
         </div>
       )}
       {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} />}
       <main>
         {shownProduct ? (
-          <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} />
+          <>
+          {sampleProduct && (
+            <p data-sample-product className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 text-center text-xs font-medium`} style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)" }}>
+              {lang === "ar" ? "منتج تجريبي: أضف منتجاتك لترى منتجك هنا" : "A sample product: add your products to see yours here"}
+              <a href="/products" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-bold text-[var(--sf-primary)] underline underline-offset-2">{lang === "ar" ? "أضف منتجًا" : "Add a product"}</a>
+            </p>
+          )}
+          <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} sections={config.sections} ask={whatsappHref(config.footer.whatsapp ?? "")} />
+          </>
         ) : shownPage ? (
           <>
             <section className={`${compact ? "px-4 pt-8" : "px-8 pt-12"} ${shownPage.sections.length || design ? "pb-2" : compact ? "min-h-[420px] pb-10" : "min-h-[640px] pb-16"}`}>
@@ -533,12 +606,17 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               </p>
             )}
           </>
+        ) : design && !config.sections.length ? (
+          /* the home page with every block taken off: only the designer sees where blocks would go */
+          <p className={`${compact ? "mx-4" : "mx-8"} my-10 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 px-4 py-14 text-center text-sm font-semibold text-[var(--sf-primary)]`}>
+            {lang === "ar" ? "الصفحة فارغة: أضف أول عنصر من «عناصر الصفحة» في القائمة الجانبية" : "This page is empty: add your first block from Page elements in the side panel"}
+          </p>
         ) : (
           config.sections.map((s) => renderSection(s, ctx))
         )}
       </main>
 
-      <Footer config={config} data={data} compact={compact} lang={lang} design={design} logo={logo} onPage={openPage} onSection={(id) => { if (!design) showSection(id); }} />
+      <Footer config={config} data={data} compact={compact} lang={lang} design={design} logo={logo} namePlace={namePlace} onPage={openPage} onSection={(id) => { if (!design) showSection(id); }} />
 
       {menu && (
         <div className="absolute inset-0 z-30 flex" role="dialog" aria-modal="true" aria-label={c.menu}>
@@ -572,16 +650,19 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
                               else if (lp.href) window.open(lp.href, "_blank", "noreferrer");
                             },
                           }))
-                    : navLinks.map((l, i) => ({ key: i, title: l.name, color: l.color, on: () => { setMenu(false); goTo({ preventDefault() {} } as React.MouseEvent, l.to); } }));
-              if (!rows.length) return null;
+                    : navLinks.map((l) => ({ key: l.at, title: l.name, color: l.color, on: () => { setMenu(false); goTo({ preventDefault() {} } as React.MouseEvent, l.to); } }));
+              /* the items he left out of this group in the designer */
+              const shown = rows.filter((r) => !(it.hidden ?? []).includes(String(r.key)));
+              if (!shown.length) return null;
+              const heading = it.title?.[lang]?.trim() || drawerHeading(it.kind, lang);
               return (
                 <div key={it.kind}>
-                  <p className={config.theme.titleStyle === "pop" ? "mb-3 text-lg font-extrabold" : "mb-2 text-xs font-bold uppercase tracking-wide text-sf-text/50"} style={config.theme.titleStyle === "pop" ? { color: "var(--sf-accent)", fontFamily: "var(--sf-heading)" } : undefined}>{it.kind === "categories" ? c.categories : it.kind === "pages" ? c.pages : it.kind === "custom" ? (lang === "ar" ? "روابط" : "Links") : lang === "ar" ? "روابط المتجر" : "Store links"}</p>
+                  <p className={config.theme.titleStyle === "pop" ? "mb-3 text-lg font-extrabold" : "mb-2 text-xs font-bold uppercase tracking-wide text-sf-text/50"} style={config.theme.titleStyle === "pop" ? { color: "var(--sf-accent)", fontFamily: "var(--sf-heading)" } : undefined}><bdi>{heading}</bdi></p>
                   <ul className={config.theme.titleStyle === "pop" ? "space-y-2" : "space-y-1"}>
-                    {rows.map((r) => (
+                    {shown.map((r) => (
                       <li key={r.key}>
-                        <button type="button" onClick={r.on} className={config.theme.titleStyle === "pop" ? "w-full rounded-full border-2 border-[var(--sf-text)] bg-white px-5 py-2.5 text-start text-base font-bold transition duration-200 hover:-translate-y-0.5 hover:scale-[1.02]" : "w-full rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition duration-200 hover:bg-black/[0.05] hover:ps-4"} style={r.color ? { color: r.color } : undefined}>
-                          {r.title}
+                        <button type="button" onClick={r.on} className={config.theme.titleStyle === "pop" ? "w-full rounded-full border-2 border-[var(--sf-text)] bg-white px-5 py-2.5 text-start text-base font-bold transition duration-200 hover:-translate-y-0.5 hover:scale-[1.02]" : "w-full rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition duration-200 hover:bg-black/[0.05] hover:ps-4"} style={linkColor(r.color, drawerLinkOn) ? { color: r.color } : undefined}>
+                          <bdi>{r.title}</bdi>
                         </button>
                       </li>
                     ))}
@@ -610,9 +691,9 @@ function freeDeliveryText(fd: FreeDelivery, lang: "en" | "ar", total: number, pr
 }
 
 function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor, linkFor }: { config: StorefrontConfig; lang: "en" | "ar"; design?: Design; reduceMotion: boolean; offer: string; offerColor: string; linkFor: (link: string) => React.AnchorHTMLAttributes<HTMLAnchorElement> }) {
-  const other = lang === "ar" ? "en" : "ar";
   const a = config.announcement;
-  const own = a.show ? a.messages.map((m) => ({ ...m, label: m.text[lang] || m.text[other] })).filter((m) => m.label.trim()) : [];
+  /* only what he wrote in this language: an empty message is skipped (never the other language's words in its place) */
+  const own = a.show ? a.messages.map((m) => ({ ...m, label: m.text[lang] ?? "" })).filter((m) => m.label.trim()) : [];
   /* The free delivery offer is one more message of the same bar, so there is never a second bar */
   const list = offer ? [...own, { text: { en: offer, ar: offer }, link: "", color: offerColor, textColor: "", label: offer }] : own;
   const [i, setI] = useState(0);
@@ -624,14 +705,24 @@ function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor
     return () => clearInterval(id);
   }, [rotate, paused, a.seconds]);
 
-  if (!list.length) return null;
+  if (!list.length) {
+    /* turned on with nothing written yet: customers see no bar; the designer shows a dashed place that opens its settings */
+    if (!design || !a.show) return null;
+    return (
+      <button type="button" onClick={() => design.select("announcement")} className="block w-full border-y border-dashed border-fg/25 bg-fg/[0.03] py-2 text-center text-xs font-semibold text-sf-text/55">
+        {lang === "ar" ? "اكتب رسالة الشريط الإعلاني في الإعدادات لتظهر هنا" : "Write the announcement bar's message in its settings to show it here"}
+      </button>
+    );
+  }
   const item = (m: (typeof list)[number], key: string, extra = "") => {
-    const color = m.textColor || onColor(m.color);
+    /* his text color, unless it vanishes on the bar's color: then the automatic one */
+    const color = legibleOn(m.textColor || onColor(m.color), m.color, onColor(m.color));
     const lead = m.link && m.link.trim() && !design;
+    /* <bdi>: his words keep their own direction ("خصم 20%" in an English store, or inside the left-to-right ticker) */
     return lead ? (
-      <a key={key} {...linkFor(m.link)} className={`underline-offset-2 hover:underline ${extra}`} style={{ color }}>{m.label}</a>
+      <a key={key} {...linkFor(m.link)} className={`underline-offset-2 hover:underline ${extra}`} style={{ color }}><bdi>{m.label}</bdi></a>
     ) : (
-      <span key={key} className={extra} style={{ color }}>{m.label}</span>
+      <span key={key} className={extra} style={{ color }}><bdi>{m.label}</bdi></span>
     );
   };
 
@@ -640,19 +731,22 @@ function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor
   /* A ticker: every message slides across, over and over, and stops while the mouse is over it */
   if (a.motion === "ticker" && !reduceMotion) {
     const chars = list.reduce((n, m) => n + m.label.length, 0);
+    /* one bar: every message in the colors of the first one (the free delivery offer too) */
+    const bar = { color: list[0].color, textColor: list[0].textColor };
+    const pace = { slow: 1.6, normal: 1, fast: 0.6 }[a.speed ?? "normal"];
     const copy = (k: string) => (
       <div key={k} className="flex shrink-0 items-center" aria-hidden={k !== "a"}>
         {[0, 1, 2].map((r) => list.map((m, n) => (
           <span key={`${r}-${n}`} className="flex items-center">
-            {item(m, `${k}${r}${n}`, "px-8")}
-            <span aria-hidden className="opacity-50" style={{ color: m.textColor || onColor(m.color) }}>•</span>
+            {item({ ...m, ...bar }, `${k}${r}${n}`, "px-8")}
+            <span aria-hidden className="opacity-50" style={{ color: legibleOn(bar.textColor || onColor(bar.color), bar.color, onColor(bar.color)) }}>•</span>
           </span>
         )))}
       </div>
     );
     return (
       <div role="note" dir="ltr" onClick={() => design?.select("announcement")} className={`dk-ticker py-2 ${wrap}`} style={{ background: list[0].color }}>
-        <div className={`dk-marquee flex w-max ${lang === "ar" ? "dk-marquee-rev" : ""}`} style={{ "--dk-d": `${Math.max(20, Math.round(chars * 0.9 * 3 / 2))}s` } as React.CSSProperties}>
+        <div className={`dk-marquee flex w-max ${lang === "ar" ? "dk-marquee-rev" : ""}`} style={{ "--dk-d": `${Math.round(Math.max(20, chars * 0.9 * 3 / 2) * pace)}s` } as React.CSSProperties}>
           {copy("a")}
           {copy("b")}
         </div>
@@ -688,6 +782,8 @@ function resolveLink(raw: string, opts: { pages?: number[]; sections?: string[];
   if (pg) return !opts.pages || opts.pages.includes(Number(pg[1])) ? { kind: "page", id: Number(pg[1]) } : { kind: "dead" };
   if (/^(javascript|data|vbscript|file):/i.test(l)) return null;
   if (/^(mailto|tel|sms|whatsapp):/i.test(l)) return { kind: "url", href: l, blank: false };
+  /* any other kind of link (javascript:, data:, vbscript:, …) is never one, only "shop.com:8080" (a port) */
+  if (/^[a-z][a-z0-9+.-]*:/i.test(l) && !/^https?:/i.test(l) && !/^[a-z0-9.-]+:\d+(\/|$)/i.test(l)) return null;
   if (/^https?:\/\//i.test(l)) return /\s/.test(l) ? null : { kind: "url", href: l, blank: true };
   if (opts.social && /^@?[\w.-]+$/.test(l) && (l.startsWith("@") || !l.includes("."))) return { kind: "url", href: profileOf[opts.social] + l.replace(/^@/, ""), blank: true };
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(l)) return { kind: "url", href: `mailto:${l}`, blank: false };
@@ -715,7 +811,7 @@ const telegramHref = (s: string) => {
   return /^\w{3,}$/.test(h) ? `https://t.me/${h}` : "";
 };
 
-function Footer({ config, data, compact, lang, design, logo, onPage, onSection }: { config: StorefrontConfig; data: ReturnType<typeof useStoreData>; compact: boolean; lang: "en" | "ar"; design?: Design; logo: LogoConfig; onPage: (id: number) => void; onSection: (id: string) => void }) {
+function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, onSection }: { config: StorefrontConfig; data: ReturnType<typeof useStoreData>; compact: boolean; lang: "en" | "ar"; design?: Design; logo: LogoConfig; /* the designer's empty place for the store name (none: the name) */ namePlace?: React.ReactNode; onPage: (id: number) => void; onSection: (id: string) => void }) {
   const c = copy[lang];
   const f = config.footer;
   const simple = f.style === "simple";
@@ -807,28 +903,30 @@ function Footer({ config, data, compact, lang, design, logo, onPage, onSection }
   });
 
   /* The parts both styles share */
-  const heading = (text: string) => text && <h2 className={`${simple ? "mb-2" : "mb-3"} font-extrabold`} style={{ fontSize: sizeTitle, color: "var(--sf-title)" }}>{text}</h2>;
+  /* a long title breaks between words; inside a word only when one word alone is wider than the column */
+  const heading = (text: string) => text && <h2 className={`${simple ? "mb-2" : "mb-3"} font-extrabold [overflow-wrap:break-word] [word-break:normal]`} style={{ fontSize: sizeTitle, color: "var(--sf-title)" }}><bdi>{text}</bdi></h2>;
   const brand = f.showLogo && (
     <div onClick={edit("name")} className={`inline-flex min-w-0 max-w-full items-center gap-2.5 font-extrabold ${hot}`} style={{ fontFamily: config.identity.nameFont ? heroTitleFamily(config.identity.nameFont) : "var(--sf-heading)", fontSize: sizeName, color: fc.name || undefined }}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
-      <span className="min-w-0">{data.name}</span>
+      <span className="min-w-0">{namePlace ?? <bdi>{data.name}</bdi>}</span>
     </div>
   );
   const textSize = simple ? undefined : sizeText;
   const linkList = (label: string, list: Item[]) => (
     <nav aria-label={label || c.pages}>
       <ul className={simple ? "flex flex-wrap items-center gap-x-6 gap-y-2 font-medium" : "space-y-2"} style={{ color: dim(simple ? 75 : 70), fontSize: textSize }}>
-        {design && list.length === 0 && <li className="opacity-50">—</li>}
+        {/* an empty column: customers never see it; the designer says so and where to fill it */}
+        {design && list.length === 0 && <li className="rounded-md border border-dashed border-current px-2 py-1 text-xs opacity-60">{lang === "ar" ? "لا روابط هنا بعد، فلا يراه العملاء. أضف روابطه من إعدادات التذييل" : "No links here yet, so customers don't see it. Add links in the footer settings"}</li>}
         {list.map((l) => {
           const p = aProps(l.to);
           return (
             <li key={l.key}>
               {p ? (
-                <a {...p} className="transition hover:text-[var(--sf-primary)]">{l.title}{p.target && newTab}</a>
+                <a {...p} className="transition hover:text-[var(--sf-primary)]"><bdi>{l.title}</bdi>{p.target && newTab}</a>
               ) : l.to?.kind === "dead" ? (
-                <span className="line-through opacity-50" title={c.missingPage}>{l.title}</span>
+                <span className="line-through opacity-50" title={c.missingPage}><bdi>{l.title}</bdi></span>
               ) : (
-                <span>{l.title}</span>
+                <span><bdi>{l.title}</bdi></span>
               )}
             </li>
           );
@@ -838,12 +936,12 @@ function Footer({ config, data, compact, lang, design, logo, onPage, onSection }
   );
   const contactList = (
     <ul className={simple ? "space-y-2.5" : "space-y-2"} style={{ color: dim(simple ? 75 : 70), fontSize: textSize }}>
-      {design && contactLines.length === 0 && <li className="opacity-50">—</li>}
+      {design && contactLines.length === 0 && <li className="rounded-md border border-dashed border-current px-2 py-1 text-xs opacity-60">{lang === "ar" ? "لا بيانات تواصل بعد، فلا يراه العملاء" : "No contact details yet, so customers don't see it"}</li>}
       {contactLines.map((x) => {
         const body = (
           <>
             <span className="shrink-0">{x.icon}</span>
-            <span dir={x.ltr ? "ltr" : undefined} className="min-w-0">{x.text}</span>
+            <span dir={x.ltr ? "ltr" : undefined} className="min-w-0">{x.ltr ? x.text : <bdi>{x.text}</bdi>}</span>
           </>
         );
         return (
@@ -906,7 +1004,7 @@ function Footer({ config, data, compact, lang, design, logo, onPage, onSection }
       return (
         <div key={col.id} className={`${cls} ${simple ? "max-w-xs" : ""}`} style={!simple && !compact ? { gridColumn: "span 2" } : undefined}>
           {brand}
-          {aboutText && <p onClick={edit("about")} className={`${simple ? "mt-2" : "mt-3 max-w-sm"} block leading-relaxed ${hot}`} style={{ color: dim(simple ? 70 : 65), fontSize: textSize }}>{aboutText}</p>}
+          {aboutText && <p onClick={edit("about")} className={`${simple ? "mt-2" : "mt-3 max-w-sm"} block whitespace-pre-line leading-relaxed ${hot}`} style={{ color: dim(simple ? 70 : 65), fontSize: textSize }}><bdi>{aboutText}</bdi></p>}
         </div>
       );
     if (col.kind === "pages" || col.kind === "custom") {
@@ -944,7 +1042,7 @@ function Footer({ config, data, compact, lang, design, logo, onPage, onSection }
   /* The copyright line and "Made with Dukkan" are fixed. The merchant can neither change nor remove them. */
   const bottom = (
     <div className={`flex flex-wrap items-center justify-between gap-2 border-t text-xs ${simple ? "border-sf-text/10" : fc.dark ? "border-white/10" : "border-black/[0.06]"} ${compact ? "px-4 py-4" : "px-8 py-5"}`} style={{ color: dim(55) }}>
-      <span>{`© ${new Date().getFullYear()} ${data.name}. ${c.rights}`}</span>
+      <span>© {new Date().getFullYear()} <bdi>{data.name}</bdi>. {c.rights}</span>
       <span>{c.made}</span>
     </div>
   );

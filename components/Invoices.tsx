@@ -16,7 +16,7 @@ import {
 import { usePrefs } from "./Prefs";
 import { pickPicture } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
-import { imageRules, uploadProblemText, type UploadProblem } from "./safe";
+import { imageRules, initialOf, uploadProblemText, type UploadProblem } from "./safe";
 import { cleanInvoice, taxNumber } from "./records";
 import { loadSetup } from "./setup";
 import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
@@ -113,16 +113,21 @@ function ImagePick({ title, copy, url, onPick, choose }: { title: string; copy: 
   const [problem, setProblem] = useState<UploadProblem | null>(null);
   /* the chosen picture, waiting to be cropped */
   const [pending, setPending] = useState("");
+  const before = useRef(url);
   const take = async (f?: File) => {
     if (!f) return;
     const picked = await pickPicture(f, imageRules.invoice, 1600, "image/png");
     setProblem("problem" in picked ? picked.problem : null);
-    if ("url" in picked) setPending(picked.url);
+    if ("url" in picked) {
+      /* the invoice preview shows the cut picture while he crops; Cancel puts this one back */
+      before.current = url;
+      setPending(picked.url);
+    }
   };
   return (
     <div>
       <p className="mb-2 text-sm font-semibold">{title}</p>
-      {pending && <ImageCropper lang={lang} src={pending} shapes={["original", "square", "wide"]} out={800} onCancel={() => setPending("")} onDone={(u) => { setPending(""); onPick(u); }} />}
+      {pending && <ImageCropper lang={lang} src={pending} shapes={["original", "square", "wide"]} out={800} onLive={onPick} onCancel={() => { setPending(""); onPick(before.current); }} onDone={(u) => { setPending(""); onPick(u); }} />}
       <div
         onDragOver={(e) => { e.preventDefault(); setOver(true); }}
         onDragLeave={() => setOver(false)}
@@ -260,7 +265,7 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
                 <LogoMark logo={mark.logo} name={shop} className="h-full w-full rounded-xl" />
               </span>
             ) : (
-              <span className="mx-auto grid place-items-center rounded-full bg-primary font-extrabold text-white" style={{ width: logo, height: logo, fontSize: logo * 0.45 }}>{shop.charAt(0)}</span>
+              <span className="mx-auto grid place-items-center rounded-full bg-primary font-extrabold text-white" style={{ width: logo, height: logo, fontSize: logo * 0.45 }}>{initialOf(shop)}</span>
             )}
             <p className="mt-1 text-sm" style={{ ...main, color: "#9ca3af" }}>{title}</p>
           </div>
