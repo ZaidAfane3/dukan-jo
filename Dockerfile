@@ -14,7 +14,8 @@ FROM node:20-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
 COPY --from=build /app/package.json /app/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/.next ./.next
@@ -22,4 +23,4 @@ COPY --from=build /app/public ./public
 COPY --from=build /app/next.config.mjs ./
 USER node
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["npm", "start", "--", "-H", "0.0.0.0"]
