@@ -1331,7 +1331,7 @@ function focusField(field: string) {
   setTimeout(tick, 60);
 }
 
-export function PagesPanel({ lang, draft, update, editing, setEditing, focus, onlyElements = false }: { lang: Lang; draft: Draft; update: Update; editing: string | null; setEditing: (id: string | null) => void; focus: Focus; /* a page of the store has only elements: no header and no footer */ onlyElements?: boolean }) {
+export function PagesPanel({ lang, draft, update, editing, setEditing, focus, onlyElements = false, onSub }: { lang: Lang; draft: Draft; update: Update; editing: string | null; setEditing: (id: string | null) => void; focus: Focus; /* a page of the store has only elements: no header and no footer */ onlyElements?: boolean; /* which screen of the header or footer is open (the designer shows the sidebar open while its settings are) */ onSub?: (sub: string | null) => void }) {
   const t = dc[lang];
   const [open, setOpen] = useState({ header: false, elements: true, footer: false });
   const [picker, setPicker] = useState(false);
@@ -1340,6 +1340,10 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [sub, setSub] = useState<SubKey | null>(null);
+  useEffect(() => {
+    onSub?.(sub);
+    return () => onSub?.(null);
+  }, [sub, onSub]);
   /* the part of the footer's screen to open (asked again with a new n, so the same part can be asked twice) */
   const [footAsk, setFootAsk] = useState<{ block: FootBlock; n: number } | null>(null);
   const cfg = draft.config;
@@ -1423,9 +1427,9 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
       <Accordion title={t.sectionsTitle.header} info={t.sectionsInfo.header} open={open.header} onToggle={() => setOpen((o) => ({ ...o, header: !o.header }))}>
         <ul>
           <RowLink icon={nameLogoIcon} label={t.rows.nameLogo} onClick={() => setSub("nameLogo")} />
-          <RowLink icon={sidebarIcon} label={t.rows.sidebarSettings} onClick={() => setSub("sidebarSettings")} badge={cfg.header.showMenu} />
+          <RowLink icon={sidebarIcon} label={t.rows.sidebarSettings} onClick={() => setSub("sidebarSettings")} />
           <RowLink icon={navIcon} label={t.rows.navigation} onClick={() => setSub("navigation")} />
-          <RowLink icon={ic.megaphone} label={t.rows.announcement} onClick={() => setSub("announcement")} badge={cfg.announcement.show} />
+          <RowLink icon={ic.megaphone} label={t.rows.announcement} onClick={() => setSub("announcement")} />
         </ul>
       </Accordion>
       )}
@@ -3036,13 +3040,12 @@ type FootBlock = "layout" | "links" | "contact" | "social" | "licenses" | "look"
 type SetCfg = (fn: (c: StorefrontConfig) => StorefrontConfig) => void;
 
 /** A row that opens a form. The "‹" says it can be pressed. */
-function RowLink({ icon: ico, label, onClick, badge }: { icon: React.ReactNode; label: string; onClick: () => void; badge?: boolean }) {
+function RowLink({ icon: ico, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <li>
       <button type="button" onClick={onClick} className="flex w-full items-center gap-3 rounded-lg px-1 py-2.5 text-start text-sm font-medium transition hover:bg-fg/[0.04]">
         <span className="text-muted">{ico}</span>
         <span className="flex-1">{label}</span>
-        {badge && <span aria-hidden className="h-2 w-2 rounded-full bg-primary" />}
         <span className="text-muted rtl:rotate-180">
           <svg {...icon} className="h-4 w-4"><path d="m9 6 6 6-6 6" /></svg>
         </span>

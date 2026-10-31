@@ -38,11 +38,13 @@ type Props = {
   showProduct?: boolean;
   /* In the designer: the store with its cart open, so the cart design can be seen (closing it goes back to the home page) */
   showCart?: boolean;
+  /* In the designer: the store with its sidebar open, while its settings are being edited, so every change shows live */
+  showMenu?: boolean;
   onCartClose?: () => void;
   onCartOpen?: () => void;
 };
 
-export function StorefrontTheme({ config = defaultConfig, device = "auto", interactive = true, store, design, sample = false, owner = false, products, showPage = null, showProduct = false, showCart = false, onCartClose, onCartOpen }: Props) {
+export function StorefrontTheme({ config = defaultConfig, device = "auto", interactive = true, store, design, sample = false, owner = false, products, showPage = null, showProduct = false, showCart = false, showMenu = false, onCartClose, onCartOpen }: Props) {
   const { lang, setLang } = usePrefs();
   const c = copy[lang];
   const saved = useStoreData(lang, sample);
@@ -61,6 +63,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const [width, setWidth] = useState(1100);
   const [query, setQuery] = useState("");
   const [menu, setMenu] = useState(false);
+  /* the designer opens the sidebar while its settings are open, and closes it when he leaves them */
+  useEffect(() => {
+    if (design) setMenu(showMenu);
+  }, [design, showMenu]);
   const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches), []);
   /* What is in the basket: how many of each product (by product id) */

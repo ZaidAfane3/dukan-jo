@@ -173,6 +173,9 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [productView, setProductView] = useState(false);
   /* The preview shows the store with its cart open (the cart design is seen there) */
   const [cartView, setCartView] = useState(false);
+  /* the sidebar settings are open: the store shows its sidebar open, to see the changes live */
+  const [menuView, setMenuView] = useState(false);
+  const onSub = useCallback((sub: string | null) => setMenuView(sub === "sidebarSettings"), []);
   const showCartPage = useCallback(() => { setOpenedPage(null); setProductView(false); setCartView(true); }, []);
   /* The page asked about in the trash question of the page menu */
   const [delAsk, setDelAsk] = useState<number | null>(null);
@@ -1089,7 +1092,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
                 </>
               )}
               {pic && <ProductPicturePanel lang={lang} name={pic.name} image={pic.image} value={pic.focus} onChange={setPicFocus} onBack={() => setPic(null)} blocked={readOnly} onBlocked={blockedNote} />}
-              {!pic && (openedPage === null || !pagePanel) && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditingView} focus={focus} />}
+              {!pic && (openedPage === null || !pagePanel) && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditingView} focus={focus} onSub={onSub} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attnNow?.id ?? (productView ? "productPage" : undefined)} />}
             </div>
@@ -1138,6 +1141,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           showPage={openedPage}
           showProduct={productView}
           showCart={cartView}
+          showMenu={menuView && tab === "pages"}
           openCart={showCartPage}
           acts={acts}
         />
@@ -1186,7 +1190,7 @@ type Acts = Required<Omit<Design, "selected">>;
  * (a menu, a message, a panel opening). While a text is being typed it follows a moment later: when typing pauses, and at
  * least every quarter of a second, so the side panel keeps up with the keys.
  */
-const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, name, description, color, phone, selected, sample, products, showPage, showProduct, showCart, openCart, acts }: {
+const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, name, description, color, phone, selected, sample, products, showPage, showProduct, showCart, showMenu, openCart, acts }: {
   lang: Lang;
   reveal: { id: string; n: number } | null;
   frameOn: string | null;
@@ -1202,6 +1206,7 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
   showPage: number | null;
   showProduct: boolean;
   showCart: boolean;
+  showMenu: boolean;
   openCart: () => void;
   acts: React.MutableRefObject<Acts>;
 }) {
@@ -1228,8 +1233,8 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
   );
   const closeCart = useCallback(() => acts.current.openPage(null), [acts]);
   const store = useMemo(
-    () => <StorefrontTheme config={now.config} device="auto" interactive={false} sample={sample} products={products} owner showPage={showPage} showProduct={showProduct} showCart={showCart} onCartClose={closeCart} onCartOpen={openCart} design={design} store={now.store} />,
-    [now, sample, products, showPage, showProduct, showCart, closeCart, openCart, design],
+    () => <StorefrontTheme config={now.config} device="auto" interactive={false} sample={sample} products={products} owner showPage={showPage} showProduct={showProduct} showCart={showCart} showMenu={showMenu} onCartClose={closeCart} onCartOpen={openCart} design={design} store={now.store} />,
+    [now, sample, products, showPage, showProduct, showCart, showMenu, closeCart, openCart, design],
   );
   return (
     <Canvas lang={lang} reveal={reveal} frameOn={frameOn}>
