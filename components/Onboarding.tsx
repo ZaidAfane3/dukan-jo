@@ -491,9 +491,12 @@ function IdentityStep({ store, onSave }: StepProps) {
               focusFirst(["ob-name"]);
               return;
             }
-            savedUrl.current = logo?.url ?? null;
-            const logoData = logo ? await toSavedLogo(logo.url) : "";
-            onSave({ name: cleanLine(name, ACCOUNT_LIMITS.storeName), description: cleanLines(description, ACCOUNT_LIMITS.description), logo, logoData, color });
+            /* a logo still in the cropper counts as it looks there now: no need to press Done first */
+            const kept = logoPending ? (() => { const url = logoLive ?? logoPending.url; return { url, name: logoPending.name, size: formatSize(Math.round((url.length * 3) / 4)) }; })() : logo;
+            if (logoPending) { setLogo(kept); setLogoPending(null); setLogoLive(null); }
+            savedUrl.current = kept?.url ?? null;
+            const logoData = kept ? await toSavedLogo(kept.url) : "";
+            onSave({ name: cleanLine(name, ACCOUNT_LIMITS.storeName), description: cleanLines(description, ACCOUNT_LIMITS.description), logo: kept, logoData, color });
           }}
         >
           {c.save}
@@ -837,8 +840,11 @@ function ProductStep({ store, onSave }: StepProps) {
     if (!(priceNumber > 0)) next.price = p.errPrice;
     if (!unlimited && quantity === "") next.quantity = p.errQuantity;
     else if (stockNeedsAnswer(unlimited, quantity, stockOk)) next.quantity = lang === "ar" ? "أكّد هذه الكمية الكبيرة، أو اجعلها غير محدودة." : "Confirm this big quantity, or make it unlimited.";
+    /* a photo still in the cropper counts as it looks there now: no need to press Done first */
+    const photo = imagePending ? imageLive ?? imagePending : image;
+    if (imagePending) { setImage(photo); setImagePending(""); setImageLive(null); }
     /* every product needs a photo (as on the Products page, see productProblems) */
-    const noPhoto = !image;
+    const noPhoto = !photo;
     if (noPhoto) setImageError(p.errImage);
     setErrors(next);
     const wrong = (["name", "price", "quantity"] as const).filter((k) => next[k]);
@@ -846,8 +852,8 @@ function ProductStep({ store, onSave }: StepProps) {
       focusFirst([...(noPhoto ? ["ob-product-photo"] : []), ...wrong.map((k) => `ob-product-${k}`)]);
       return;
     }
-    savedUrl.current = image;
-    const product = { type, name: cleanLine(name, ACCOUNT_LIMITS.productName), price: cleanMoney(price), ...(unlimited ? {} : { quantity: Number(quantity) }), image };
+    savedUrl.current = photo;
+    const product = { type, name: cleanLine(name, ACCOUNT_LIMITS.productName), price: cleanMoney(price), ...(unlimited ? {} : { quantity: Number(quantity) }), image: photo };
     /* it becomes a real product, with its cropped picture, so the store shows it */
     const id = syncSetupProduct(product, saved?.id) ?? saved?.id;
     onSave({ product: { ...product, ...(id ? { id } : {}) } });
