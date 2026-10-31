@@ -250,7 +250,7 @@ export function Products() {
     setFlash((f) => ({ name, n: (f?.n ?? 0) + 1 }));
     flashTimer.current = setTimeout(() => setFlash(null), 4000);
   };
-  /* the editor scrolls on its own on a wide screen; after saving it goes back to its top */
+  /* the editor scrolls on its own on a wide screen; after saving (it closes) it goes back to its top */
   const editorBox = useRef<HTMLElement>(null);
   /* The product's photos: shrunk and saved with the product, so the store shows them */
   const [photos, setPhotos] = useState<string[]>([]);
@@ -461,12 +461,14 @@ export function Products() {
     if (editing === "new") {
       const id = items.reduce((m, x) => Math.max(m, x.id), 0) + 1;
       setItems((list) => [{ id, created: Date.now(), ...base }, ...list]);
-      setEditing(id);
     } else {
       /* if the product was removed meanwhile (in another tab), his edits bring it back instead of being lost */
       setItems((list) => (list.some((x) => x.id === editing) ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list]));
     }
-    setClean(snapshot(draft, photos, focus));
+    /* saved: the editor closes and the first screen ("pick a product") comes back, under the "saved" card */
+    setCropAt(null);
+    setPhotoLive(null);
+    setEditing(null);
     showSaved(base.name);
     editorBox.current?.scrollTo({ top: 0, behavior: "smooth" });
     window.scrollTo({ top: 0, behavior: "smooth" });
