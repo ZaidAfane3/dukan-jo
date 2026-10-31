@@ -416,11 +416,13 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       scrollPanel("cards");
       return;
     }
-    setPagePanel(!(id === "header" || id === "footer" || id === "announcement"));
+    /* the header, its Store identity screen, the announcement bar and the footer are not parts of the page */
+    const frame = id === "header" || id === "identity" || id === "footer" || id === "announcement";
+    setPagePanel(!frame);
     setTab("pages");
     scrollPanel("top");
     setFocus({ id, field, n: Date.now() });
-    setEditingRaw(id === "header" || id === "footer" || id === "announcement" ? null : id);
+    setEditingRaw(frame ? null : id);
   };
 
   /* In the tour nothing can be changed: every field is switched off (an upload button says it is not available in the demo),
