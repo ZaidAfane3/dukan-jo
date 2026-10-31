@@ -317,7 +317,7 @@ const top: Top = {
   nav: obj({
     style: oneOf("button", "links", "pill"),
     links: list((v) => (isObj(v) ? { en: cleanWords(v.en, 120) ?? "", ar: cleanWords(v.ar, 120) ?? "", ...(link(v.to, 0) !== undefined ? { to: link(v.to, 0) } : {}), ...(color(v.color, 0) !== undefined ? { color: color(v.color, 0) } : {}) } : undefined), 20),
-    activeColor: color, cartColor: color, place: oneOf("below", "start"), cartLook: oneOf("icon", "text"),
+    activeColor: color, cartColor: color, place: oneOf("below", "start"), cartLook: oneOf("icon", "text"), searchLook: oneOf("bar", "icon"),
   }),
   texture: obj({ pattern: (v) => (v === true ? "stars" : v === false ? "none" : oneOf("none", "stars", "dots", "lines", "diamonds", "waves")(v, 0)), watermark: bi(80), area: oneOf("all", "below", "top"), strength: oneOf("light", "medium", "strong"), fade: bool }),
   header: obj({ showMenu: bool, showSearch: bool, showUser: bool, showCart: bool, showLanguage: bool, sticky: bool }),
