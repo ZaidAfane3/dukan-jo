@@ -257,7 +257,7 @@ const popT = {
     dEmptyLinks: "No header links yet. Add them in Navigation design.",
     menuLinkAdd: "Add a sidebar link",
     menuLinksTitle: "Sidebar-only links",
-    menuLinksHint: "Choose what else the sidebar has and where each link goes: a page of the store, a part of the page or a web address. Each one has its own switch.",
+    menuLinksHint: "Choose what else the sidebar has and where each link goes: a page of the store or a part of the page. Each one has its own switch.",
     tabsTitle: "Your own footer links",
     tabsHint: "Add links like Contact us or Shipping. Each one leads where you choose and has its own switch. Use the arrows (or drag by the handle) to change its place.",
     tabLabel: "Link text",
@@ -526,7 +526,7 @@ const popT = {
     dEmptyLinks: "لا روابط في الهيدر بعد. أضفها من «تصميم التنقل».",
     menuLinkAdd: "إضافة رابط في القائمة الجانبية",
     menuLinksTitle: "روابط القائمة الجانبية فقط",
-    menuLinksHint: "اختر ماذا تضم القائمة الجانبية أيضًا وإلى أين يذهب كل رابط: صفحة من المتجر أو جزء من الصفحة أو عنوان موقع. لكل واحد مفتاحه الخاص.",
+    menuLinksHint: "اختر ماذا تضم القائمة الجانبية أيضًا وإلى أين يذهب كل رابط: صفحة من المتجر أو جزء من الصفحة. لكل واحد مفتاحه الخاص.",
     tabsTitle: "روابطك الخاصة في التذييل",
     tabsHint: "أضف روابط مثل تواصل معنا أو الشحن. كل رابط يذهب إلى ما تختاره وله مفتاحه الخاص. غيّر مكانه بالأسهم (أو اسحبه من مقبضه).",
     tabLabel: "نص الرابط",
@@ -4587,7 +4587,7 @@ function DrawerItemsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCon
       ))}
       </ItemList>
       <div className="pt-3">
-        <OwnLinksForm lang={lang} tabs={cfg.drawer.custom ?? []} update={(fn) => setCfg((c) => ({ ...c, drawer: { ...c.drawer, custom: fn(c.drawer.custom ?? []) } }))} title={pp.menuLinksTitle} hint={pp.menuLinksHint} add={pp.menuLinkAdd} others={otherLinks(cfg, lang, "menu")} />
+        <OwnLinksForm lang={lang} tabs={cfg.drawer.custom ?? []} update={(fn) => setCfg((c) => ({ ...c, drawer: { ...c.drawer, custom: fn(c.drawer.custom ?? []) } }))} title={pp.menuLinksTitle} hint={pp.menuLinksHint} add={pp.menuLinkAdd} others={otherLinks(cfg, lang, "menu")} web={false} />
       </div>
     </div>
   );
@@ -4671,7 +4671,7 @@ function otherLinks(cfg: StorefrontConfig, lang: Lang, self: string): { key: str
 }
 
 /** A list of his own links. `update` gets the list as it is at that moment (never a stale copy). `others`: the other lists, to copy a link from. */
-function OwnLinksForm({ lang, tabs, update, title, hint, add, others = [] }: { lang: Lang; tabs: Tabs; update: (fn: (prev: Tabs) => Tabs) => void; title: string; hint: string; add: string; others?: { key: string; from: string; links: Tabs }[] }) {
+function OwnLinksForm({ lang, tabs, update, title, hint, add, others = [], web = true }: { lang: Lang; tabs: Tabs; update: (fn: (prev: Tabs) => Tabs) => void; title: string; hint: string; add: string; others?: { key: string; from: string; links: Tabs }[]; /* false: the links lead only inside the store (no web address), like the sidebar's */ web?: boolean }) {
   const pp = popT[lang];
   const ol = dc[lang].ownLinks;
   const other = lang === "ar" ? "en" : "ar";
@@ -4740,7 +4740,7 @@ function OwnLinksForm({ lang, tabs, update, title, hint, add, others = [] }: { l
                 <RudeNote lang={lang} text={x.label?.[lang]} />
                 {noWords && <p className="mt-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400">{ol.labelEmpty}</p>}
               </Field>
-              <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(x.id, { link })} label={pp.tabLabel} />
+              <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(x.id, { link })} label={pp.tabLabel} web={web} />
               {problem === "target" && <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">{pp.linkPickTarget}</p>}
               {problem === "web" && <p role="alert" className="text-xs font-semibold text-rose-600">{ol.webBad}</p>}
               {problem === "page" && <p role="alert" className="text-xs font-semibold text-rose-600">{ol.pageGone}</p>}
