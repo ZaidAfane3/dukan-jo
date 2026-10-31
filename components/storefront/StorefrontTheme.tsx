@@ -208,7 +208,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     fontFamily: fontFamily[config.theme.font] || undefined,
   } as React.CSSProperties;
 
-  const h = config.header;
+  /* the search bar and the basket are always there, and the header always stays in view while scrolling (no longer
+     switches in the designer; older saved designs that turned them off get them back) */
+  const h = { ...config.header, showSearch: true, showCart: true, sticky: true };
   const tagline = config.identity.tagline?.[lang] || config.identity.tagline?.[lang === "ar" ? "en" : "ar"];
   /* the name shows beside the logo unless he switched it off; with no logo the name always shows */
   const nameShown = config.identity.showName !== false || !config.identity.showLogo;

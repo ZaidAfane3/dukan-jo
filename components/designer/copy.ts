@@ -76,7 +76,7 @@ export const dc = {
     dashboard: "Back to dashboard",
     rail: { phoneSettings: "Settings", phonePreview: "Preview", phoneSwitch: "Show the settings or the preview", collapse: "Hide panel", expand: "Show panel", pages: "Store pages", identity: "Store identity", options: "Design options", texts: "Store wording" },
     sectionsTitle: { header: "Page header", elements: "Page elements", footer: "Page footer" },
-    rows: { headerSettings: "Header settings", nameLogo: "Store name and logo", sidebarSettings: "Sidebar settings", navigation: "Navigation design", announcement: "Announcement bar", footerSettings: "Footer settings", service: "Customer service channels", certificate: "Store licenses", social: "Social media accounts" },
+    rows: { nameLogo: "Store name and logo", sidebarSettings: "Sidebar settings", navigation: "Navigation design", announcement: "Announcement bar", footerSettings: "Footer settings", service: "Customer service channels", certificate: "Store licenses", social: "Social media accounts" },
     /* The footer's one screen: its parts open and close, several at a time */
     footBlocks: {
       hint: "Open a part to edit it. Inside each column, \"Edit what this column shows\" opens the part that fills it.",
@@ -107,7 +107,7 @@ export const dc = {
       elements: "The blocks of this page. Reorder, hide, duplicate or edit them.",
       footer: "What shows at the bottom of every page.",
     },
-    header: { showMenu: "Sidebar button", showSearch: "Search bar", showUser: "Account button", showCart: "Cart", sticky: "Keep the header visible while scrolling", tipMenu: "When the sidebar button is hidden, your customers will find it harder to move around your store.", tipCart: "When the cart is hidden, customers cannot see what they have added or finish an order.", showLogo: "Show the store logo" },
+    header: { showMenu: "Sidebar button", showUser: "Account button", tipMenu: "When the sidebar button is hidden, your customers will find it harder to move around your store.", showLogo: "Show the store logo" },
     footer: { showLogo: "Store logo and name", showLinks: "Important links", showContact: "Contact details", showSocial: "Social media icons", copyright: "Copyright line" },
     elements: { hero: "Main cover", perks: "Store perks", featured: "Featured products", discounts: "Deals", products: "Product grid", text: "Free text", reviews: "Customer reviews", collection: "Pinned products", slides: "Animated pictures", tiles: "Picture tiles", banners: "Promo banners", ribbon: "Words ribbon", chips: "Colored chips", newsletter: "Newsletter" },
     actions: { drag: "Drag to reorder", edit: "Edit", hide: "Hide", show: "Show", up: "Move up", down: "Move down", duplicate: "Duplicate", delete: "Delete", add: "Add element" },
@@ -248,7 +248,7 @@ export const dc = {
     dashboard: "العودة للوحة التحكم",
     rail: { phoneSettings: "الإعدادات", phonePreview: "المعاينة", phoneSwitch: "اعرض الإعدادات أو المعاينة", collapse: "إخفاء القائمة الجانبية", expand: "إظهار القائمة الجانبية", pages: "صفحات المتجر", identity: "هوية المتجر", options: "خيارات التصميم", texts: "كلمات المتجر" },
     sectionsTitle: { header: "رأس الصفحة", elements: "عناصر الصفحة", footer: "تذييل الصفحة" },
-    rows: { headerSettings: "إعدادات رأس الصفحة", nameLogo: "اسم المتجر والشعار", sidebarSettings: "إعدادات القائمة الجانبية", navigation: "تصميم التنقل", announcement: "الشريط الإعلاني", footerSettings: "إعدادات تذييل الصفحة", service: "قنوات خدمة العملاء", certificate: "رُخَص المتجر", social: "حسابات التواصل الاجتماعي" },
+    rows: { nameLogo: "اسم المتجر والشعار", sidebarSettings: "إعدادات القائمة الجانبية", navigation: "تصميم التنقل", announcement: "الشريط الإعلاني", footerSettings: "إعدادات تذييل الصفحة", service: "قنوات خدمة العملاء", certificate: "رُخَص المتجر", social: "حسابات التواصل الاجتماعي" },
     footBlocks: {
       hint: "افتح أي جزء لتعديله. داخل كل عمود، يفتح «تعديل ما يعرضه هذا العمود» الجزء الذي يملؤه.",
       layout: "الأعمدة والشكل", links: "روابط التذييل", look: "الألوان وأحجام النصوص",
@@ -277,7 +277,7 @@ export const dc = {
       elements: "مكوّنات هذه الصفحة. يمكنك ترتيبها أو إخفاؤها أو تكرارها أو تعديلها.",
       footer: "ما يظهر أسفل كل صفحة.",
     },
-    header: { showMenu: "زر القائمة الجانبية", showSearch: "شريط البحث", showUser: "زر الحساب", showCart: "السلة", sticky: "تثبيت الرأس أثناء التمرير", tipMenu: "عند إخفاء زر القائمة الجانبية يصعب على العميل التنقل في متجرك.", tipCart: "عند إخفاء السلة لا يستطيع العميل رؤية ما أضافه أو إتمام طلبه.", showLogo: "عرض شعار المتجر" },
+    header: { showMenu: "زر القائمة الجانبية", showUser: "زر الحساب", tipMenu: "عند إخفاء زر القائمة الجانبية يصعب على العميل التنقل في متجرك.", showLogo: "عرض شعار المتجر" },
     footer: { showLogo: "شعار المتجر واسمه", showLinks: "الروابط المهمة", showContact: "بيانات التواصل", showSocial: "أيقونات التواصل الاجتماعي", copyright: "سطر حقوق النشر" },
     elements: { hero: "الغلاف الرئيسي", perks: "مزايا المتجر", featured: "منتجات مميزة", discounts: "التخفيضات", products: "شبكة المنتجات", text: "نص حر", reviews: "آراء العملاء", collection: "منتجات ثابتة", slides: "صور متحركة", tiles: "معرض صور", banners: "بنرات ترويجية", ribbon: "شريط الكلمات", chips: "أزرار ملوّنة", newsletter: "النشرة البريدية" },
     actions: { drag: "اسحب لإعادة الترتيب", edit: "تعديل", hide: "إخفاء", show: "إظهار", up: "تحريك للأعلى", down: "تحريك للأسفل", duplicate: "تكرار", delete: "حذف", add: "إضافة عنصر" },

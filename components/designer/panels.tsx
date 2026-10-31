@@ -1399,7 +1399,6 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
     return (
       <SubShell lang={lang} title={t.rows[sub]} onBack={() => { setSub(null); setFootAsk(null); }}>
         <PartFocus.Provider value={{ field: focus?.id === "footer" ? focus.field : undefined, n: focus?.n ?? 0 }}>
-        {sub === "headerSettings" && <LinkTargets.Provider value={[...cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) })), { id: "footer", name: t.luxe.navFooter }]}><HeaderSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
         {sub === "nameLogo" && <NameLogoForm lang={lang} cfg={cfg} setCfg={setCfg} draft={draft} update={update} />}
         {sub === "sidebarSettings" && <SidebarSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} />}
         {sub === "navigation" && <LinkTargets.Provider value={[...cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) })), { id: "footer", name: t.luxe.navFooter }]}><NavigationForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
@@ -1415,7 +1414,6 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
       {!onlyElements && (
       <Accordion title={t.sectionsTitle.header} info={t.sectionsInfo.header} open={open.header} onToggle={() => setOpen((o) => ({ ...o, header: !o.header }))}>
         <ul>
-          <RowLink icon={ic.gear} label={t.rows.headerSettings} onClick={() => setSub("headerSettings")} />
           <RowLink icon={nameLogoIcon} label={t.rows.nameLogo} onClick={() => setSub("nameLogo")} />
           <RowLink icon={sidebarIcon} label={t.rows.sidebarSettings} onClick={() => setSub("sidebarSettings")} badge={cfg.header.showMenu} />
           <RowLink icon={navIcon} label={t.rows.navigation} onClick={() => setSub("navigation")} />
@@ -3057,7 +3055,7 @@ function CollectionForm({ lang, s, onChange, text }: { lang: Lang; s: Collection
 /*  Header and footer: rows that open their own small forms            */
 /* ------------------------------------------------------------------ */
 
-type SubKey = "headerSettings" | "nameLogo" | "sidebarSettings" | "navigation" | "announcement" | "footerSettings";
+type SubKey = "nameLogo" | "sidebarSettings" | "navigation" | "announcement" | "footerSettings";
 /* The parts of the footer's screen */
 type FootBlock = "layout" | "links" | "contact" | "social" | "licenses" | "look";
 type SetCfg = (fn: (c: StorefrontConfig) => StorefrontConfig) => void;
@@ -3104,7 +3102,6 @@ function SidebarSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefron
   const t = dc[lang];
   return (
     <>
-      <NoWayAround lang={lang} cfg={cfg} />
       <div>
         <Toggle on={cfg.header.showMenu} onChange={(v) => setCfg((c) => ({ ...c, header: { ...c.header, showMenu: v } }))} label={t.header.showMenu} />
         {!cfg.header.showMenu && <Tip text={t.header.tipMenu} />}
@@ -3127,38 +3124,6 @@ export function ProductPicturePanel({ lang, name, image, value, onChange, onBack
 
 /** One clear warning, on every screen that can cause it, when the header leaves customers no way to move around the store: no
     sidebar button, no search and no links in the header (each switch alone has its own small tip) */
-function NoWayAround({ lang, cfg }: { lang: Lang; cfg: StorefrontConfig }) {
-  const links = cfg.nav.style !== "button" && cfg.nav.links.some((l) => l.en.trim() || l.ar.trim());
-  if (cfg.header.showMenu || cfg.header.showSearch || links) return null;
-  return (
-    <p role="alert" className="mb-3 flex items-start gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-xs font-semibold leading-relaxed text-rose-700 dark:border-rose-400/40 dark:bg-rose-400/10 dark:text-rose-300">
-      <span aria-hidden>⚠</span>
-      {lang === "ar"
-        ? "لا يستطيع العملاء التنقل في متجرك: زر القائمة الجانبية والبحث مخفيّان، ولا روابط في رأس الصفحة. أظهر واحدًا منها على الأقل."
-        : "Customers can't move around your store: the sidebar button and search are hidden, and the header has no links. Show at least one of them."}
-    </p>
-  );
-}
-
-function HeaderSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg }) {
-  const t = dc[lang];
-  const tog = (key: keyof StorefrontConfig["header"], label: string) => (
-    <Toggle key={key} on={cfg.header[key]} onChange={(v) => setCfg((c) => ({ ...c, header: { ...c.header, [key]: v } }))} label={label} />
-  );
-  return (
-    <>
-    <NoWayAround lang={lang} cfg={cfg} />
-    <div className="divide-y divide-fg/10 [&>*]:py-2.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
-      {/* the sidebar button is in Sidebar settings, the store name and logo in their own screen */}
-      {tog("showSearch", t.header.showSearch)}
-      {tog("showCart", t.header.showCart)}
-      {!cfg.header.showCart && <Tip text={t.header.tipCart} />}
-      {tog("sticky", t.header.sticky)}
-    </div>
-    </>
-  );
-}
-
 /** The store name and logo at the top of the store: whether the logo shows, where the name sits, its font and color, and the
     small line under it. Always a screen of its own. */
 function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg; draft: Draft; update: Update }) {
@@ -3257,7 +3222,6 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
   const [added, setAdded] = useState<number | null>(null);
   return (
     <>
-      <NoWayAround lang={lang} cfg={cfg} />
       <Part lang={lang} label={lx.navStyle}>
         <Seg value={cfg.nav.style} onChange={(style) => setCfg((c) => ({ ...c, nav: { ...c.nav, style } }))} cols={3} options={[{ key: "button", label: lx.navButton }, { key: "links", label: lx.navLinks }, { key: "pill", label: popT[lang].navPill }]} />
       </Part>
