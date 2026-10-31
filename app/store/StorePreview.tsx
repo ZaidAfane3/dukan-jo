@@ -11,6 +11,9 @@ import { accountName, loadSetup } from "@/components/setup";
 import { composeDesign, findTheme, loadThemeState, previewProducts } from "@/components/themes";
 import { safeStoredImage } from "@/components/safe";
 import type { StoreProduct } from "@/components/storefront/useStoreData";
+import { loadMaintenance } from "@/components/maintenance";
+import { MaintenancePage } from "@/components/MaintenancePage";
+import { demoActive } from "@/components/demoSandbox";
 
 const banner = {
   en: { title: "Your store is under construction", body: "All you have to do is finish the launch steps today to start your journey with Dukkan.", button: "Finish the launch steps", preview: "Preview" },
@@ -32,6 +35,8 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   const [showcase, setShowcase] = useState<{ products?: StoreProduct[]; name?: string; color?: string } | null>(null);
   /* His saved design is read in the browser, so show a placeholder until it is ready */
   const [ready, setReady] = useState(false);
+  /* the store paused for maintenance (dashboard): visitors get the "back soon" page, with his message */
+  const [paused, setPaused] = useState<string | null>(null);
 
   /* &look=1 (the preview window of the themes pages): the store can only be scrolled, every click and form is stopped */
   useEffect(() => {
@@ -70,8 +75,11 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
     setConfig(original ? defaultConfig : starter ? loadTemplate() ?? defaultConfig : loadConfig());
     /* /store?demo=1 shows the store with sample products, for screenshots. Nothing is saved. */
     setDemo(original || starter || q.get("demo") === "1");
+    /* his own store, not a preview of it: paused, it shows the maintenance page instead */
+    const m = loadMaintenance();
+    setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && m.on ? m.message[lang] : null);
     setReady(true);
-  }, [lang]);
+  }, [lang, preview]);
 
   useEffect(() => {
     const name = loadSetup()?.name || accountName();
@@ -93,6 +101,14 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   }, [config.identity.favicon, preview, b.preview]);
 
   if (!ready) return <StoreSkeleton />;
+
+  if (paused !== null) {
+    const setup = loadSetup();
+    const lg = config.identity.logo;
+    /* his own logo picture, or the one from setup; otherwise the first letter on the store color */
+    const logo = safeStoredImage(lg.kind === "image" ? lg.image : lg.kind === "auto" ? setup?.logo : "");
+    return <MaintenancePage lang={lang} name={setup?.name || accountName()} logo={logo} color={setup?.color || "#004956"} message={paused} owner />;
+  }
 
   return (
     <div className="min-h-screen bg-[#eef0f0]">

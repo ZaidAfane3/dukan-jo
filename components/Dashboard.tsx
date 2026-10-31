@@ -9,6 +9,7 @@ import { demoActive } from "./demoSandbox";
 import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";
 import { cleanOrder, money, parseList, typedMoney } from "./records";
+import { StoreStatus } from "./StoreStatus";
 
 const TOTAL_TASKS = 6;
 
@@ -164,6 +165,9 @@ export function Dashboard() {
             </a>
           </section>
         )}
+
+        {/* Open or paused (a maintenance page for visitors). Not in the tour, whose store is made up. */}
+        {!tour && <StoreStatus lang={lang} className={card} />}
 
         {/* Month summary */}
         <section className={card}>
