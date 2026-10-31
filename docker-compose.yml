@@ -3,8 +3,10 @@ services:
     build: .
     image: dukkan-jo
     container_name: dukkan-jo
+    # Localhost only: visitors arrive through the Cloudflare tunnel, which reaches the app over the
+    # cloudflared_default network, so the port never needs to be open to the internet.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgres://dukkan:${POSTGRES_PASSWORD:-dukkan-local-only}@db:5432/dukkan
     depends_on:
