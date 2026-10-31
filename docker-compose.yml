@@ -1,8 +1,8 @@
 services:
   app:
-    image: ghcr.io/zaidafane3/dukan-jo:latest
+    build: .
+    image: dukkan-jo
     container_name: dukkan-jo
-    pull_policy: always
     ports:
       - "3000:3000"
     restart: unless-stopped
