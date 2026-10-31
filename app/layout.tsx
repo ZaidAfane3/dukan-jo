@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Almarai, Amiri, Aref_Ruqaa, Baloo_Bhaijaan_2, Cairo, Cormorant_Garamond, El_Messiri, IBM_Plex_Sans_Arabic, Lemonada, Noto_Kufi_Arabic, Readex_Pro, Tajawal } from "next/font/google";
+import { BuildTimeLogger } from "@/components/BuildTimeLogger";
 import { DemoBoot, DemoRemount } from "@/components/DemoBoot";
 import { PrefsProvider } from "@/components/Prefs";
 import { SkeletonOverlay } from "@/components/Skeleton";
@@ -50,6 +51,7 @@ export default function RootLayout({
       </head>
       <body className={`${sans.variable} ${elegantLatin.variable} ${elegantArabic.variable} ${cairo.variable} ${tajawal.variable} ${plex.variable} ${ruqaa.variable} ${lemonada.variable} ${baloo.variable} ${messiri.variable} ${almarai.variable} ${kufi.variable}`}>
         <PrefsProvider>
+          <BuildTimeLogger />
           <DemoBoot />
           <SkeletonOverlay />
           <DemoRemount>{children}</DemoRemount>

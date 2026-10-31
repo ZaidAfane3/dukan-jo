@@ -9,7 +9,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > BUILD_TIME
-RUN npm run build
+RUN NEXT_PUBLIC_BUILD_TIME="$(cat BUILD_TIME)" npm run build
 
 FROM node:20-alpine AS run
 WORKDIR /app
