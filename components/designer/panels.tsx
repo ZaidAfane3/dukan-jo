@@ -2628,21 +2628,24 @@ function LogoChoice({ lang, draft, update }: { lang: Lang; draft: Draft; update:
   const name = draft.identity.name.trim() || (lang === "ar" ? "متجرك" : "Your store");
   const setupLogo = loadSetup()?.logo ?? "";
   const pick = (on: boolean) => `${tile} ${on ? "border-primary bg-primary/10 ring-2 ring-primary/40" : "border-fg/15 hover:bg-soft"}`;
+  /* the marks in the store's color, with white or dark on them (whichever reads), as the store shows them: white on a
+     light color would barely show */
+  const color = HEXISH.test(draft.identity.color) ? draft.identity.color : "#004956";
   return (
-    <div className="space-y-3" style={{ ["--sf-primary" as string]: HEXISH.test(draft.identity.color) ? draft.identity.color : "#004956", ["--sf-on" as string]: "#fff" }}>
+    <div className="space-y-3" style={{ ["--sf-primary" as string]: color, ["--sf-on" as string]: onColor(color) }}>
       <div className="flex flex-wrap items-center gap-2">
         {/* "my logo from setup" only when setup has one: without it, it is the first letter, the same as the next tile */}
         {setupLogo && (
           <button type="button" onClick={() => set({ kind: "auto" })} aria-pressed={logo.kind === "auto"} title={t.identity.logoAuto} aria-label={t.identity.logoAuto} className={pick(logo.kind === "auto")}>
-            <LogoMark logo={resolveLogo({ ...logo, kind: "auto" }, setupLogo)} name={name} className="h-8 w-8 rounded-lg text-sm" />
+            <LogoMark logo={resolveLogo({ ...logo, kind: "auto" }, setupLogo)} name={name} className="h-8 w-8 rounded-lg text-sm ring-1 ring-black/15" />
           </button>
         )}
         <button type="button" onClick={() => set({ kind: "letter" })} aria-pressed={logo.kind === "letter" || (logo.kind === "auto" && !setupLogo)} title={t.identity.logoLetter} aria-label={t.identity.logoLetter} className={pick(logo.kind === "letter" || (logo.kind === "auto" && !setupLogo))}>
-          <LogoMark logo={{ ...logo, kind: "letter" }} name={name} className="h-8 w-8 rounded-lg text-sm" />
+          <LogoMark logo={{ ...logo, kind: "letter" }} name={name} className="h-8 w-8 rounded-lg text-sm ring-1 ring-black/15" />
         </button>
         {markKeys.map((k: MarkKey) => (
           <button key={k} type="button" onClick={() => set({ kind: "sample", sample: k })} aria-pressed={logo.kind === "sample" && logo.sample === k} aria-label={popT[lang].sampleMarks[k]} title={popT[lang].sampleMarks[k]} className={pick(logo.kind === "sample" && logo.sample === k)}>
-            <span className="grid h-8 w-8 place-items-center rounded-lg" style={{ background: "var(--sf-primary)", color: "#fff" }}>
+            <span className="grid h-8 w-8 place-items-center rounded-lg ring-1 ring-black/15" style={{ background: "var(--sf-primary)", color: "var(--sf-on)" }}>
               <svg {...icon} className="h-4 w-4">{sampleMarks[k]}</svg>
             </span>
           </button>
@@ -3185,15 +3188,6 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
           <LogoChoice lang={lang} draft={draft} update={update} />
         </Part>
       )}
-      <Part lang={lang} label={t.header.align}>
-        <div className="flex gap-2">
-          {(["start", "center"] as const).map((a) => (
-            <button key={a} type="button" onClick={() => setId({ align: a })} aria-pressed={id.align === a} className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${id.align === a ? "border-primary bg-primary text-white [&_.text-muted]:!text-white/80" : "border-fg/15 hover:bg-soft"}`}>
-              {t.header[a]}
-            </button>
-          ))}
-        </div>
-      </Part>
       <Part lang={lang} label={pt.nameFont}>
         <FontGrid lang={lang} value={id.nameFont} onChange={(nameFont) => setId({ nameFont })} first={pt.nameFontSame} />
       </Part>
