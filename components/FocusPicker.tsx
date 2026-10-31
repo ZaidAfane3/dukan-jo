@@ -1,7 +1,11 @@
 "use client";
 
+import { useRef } from "react";
+
 /* Choose the part of a picture that stays visible when the store crops it (tall, square or wide), and how much to zoom in on it
-   (to crop closer). The merchant taps or drags on the picture and moves the zoom; the three small pictures show the result.
+   (to crop closer). The merchant taps (or with a mouse, drags) on the picture and moves the zoom; the three small pictures
+   show the result. On a touch screen a swipe over the picture scrolls the page as anywhere else, and only a tap moves the
+   point, so a tall picture never traps the page.
    Used in the product form and in the store designer. */
 
 export type Focus = { x: number; y: number; /* 1 = the whole picture; up to 3 = zoomed in on the point */ zoom?: number };
@@ -27,6 +31,8 @@ export function FocusPicker({
   labels: { tall: string; square: string; wide: string; center: string; zoom?: string };
 }) {
   const zoom = value.zoom ?? 1;
+  /* where a finger went down: it is a tap (the point moves there) only if it lifts without moving away */
+  const touch = useRef<{ id: number; x: number; y: number } | null>(null);
   const at = (e: React.PointerEvent<HTMLDivElement>): Focus => {
     const r = e.currentTarget.getBoundingClientRect();
     const pct = (n: number) => Math.round(Math.min(100, Math.max(0, n)));
@@ -35,10 +41,15 @@ export function FocusPicker({
   return (
     <div>
       <div className="grid items-start gap-4">
+        {/* as big as the picture itself (so a spot on it is a spot on the picture), and never taller than about half the screen */}
         <div
-          className={`relative w-full max-w-xs touch-none overflow-hidden rounded-lg ring-1 ring-fg/15 ${disabled ? "cursor-not-allowed" : "cursor-crosshair"}`}
+          className={`relative w-fit max-w-full touch-pan-y justify-self-start overflow-hidden rounded-lg ring-1 ring-fg/15 sm:max-w-xs ${disabled ? "cursor-not-allowed" : "cursor-crosshair"}`}
           onPointerDown={(e) => {
             if (disabled) return onBlocked?.();
+            if (e.pointerType === "touch") {
+              touch.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+              return;
+            }
             e.currentTarget.setPointerCapture(e.pointerId);
             onChange(at(e));
           }}
@@ -46,9 +57,16 @@ export function FocusPicker({
             if (disabled || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
             onChange(at(e));
           }}
+          onPointerUp={(e) => {
+            const t = touch.current;
+            touch.current = null;
+            if (!disabled && t && t.id === e.pointerId && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 10) onChange(at(e));
+          }}
+          /* the finger moved on and the page scrolled */
+          onPointerCancel={() => (touch.current = null)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={image} alt="" draggable={false} className="block w-full select-none" />
+          <img src={image} alt="" draggable={false} className="block h-auto max-h-[min(55vh,26rem)] w-auto max-w-full select-none" />
           <span aria-hidden className="pointer-events-none absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-black/10 shadow-[0_0_0_2px_rgba(0,0,0,0.45)]" style={{ left: `${value.x}%`, top: `${value.y}%` }} />
         </div>
         <div className="flex gap-3">

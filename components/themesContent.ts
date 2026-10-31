@@ -30,8 +30,8 @@ export const themeWords = {
     mine: {
       title: "My themes",
       sub: "The themes you bought. Use one to make it your store design.",
-      emptyTitle: "You have no themes yet",
-      emptyBody: "Visit the theme store to pick a design for your store.",
+      emptyTitle: "Want more designs?",
+      emptyBody: "Besides the two free ones above, the theme store has more designs for your store.",
       visit: "Visit the theme store",
       inUse: "In use",
       filters: { all: "All", default: "Free designs", bought: "Bought", mine: "My designs" },
@@ -102,8 +102,8 @@ export const themeWords = {
     mine: {
       title: "ثيماتي",
       sub: "الثيمات التي اشتريتها. استخدم أحدها ليصبح تصميم متجرك.",
-      emptyTitle: "ليس لديك ثيمات بعد",
-      emptyBody: "زر متجر الثيمات لتختار تصميمًا لمتجرك.",
+      emptyTitle: "تريد تصاميم أكثر؟",
+      emptyBody: "إلى جانب التصميمين المجانيين أعلاه، في متجر الثيمات تصاميم أخرى لمتجرك.",
       visit: "زيارة متجر الثيمات",
       inUse: "قيد الاستخدام",
       filters: { all: "الكل", default: "التصاميم المجانية", bought: "المشتراة", mine: "تصاميمي" },

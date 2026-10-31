@@ -119,22 +119,6 @@ export function MyThemes() {
           </div>
         )}
 
-        {state && all.length === freeThemes.length && (
-          <section className={`${card} grid place-items-center py-16 text-center`}>
-            <span className="grid h-20 w-20 place-items-center rounded-full bg-soft text-primary">
-              <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.5-.8 1.2-1.6-.4-1 .2-2 1.3-2H17a4 4 0 0 0 4-4c0-5-4-10.4-9-10.4Z" />
-                <circle cx="7.5" cy="11" r="1" />
-                <circle cx="10.5" cy="7" r="1" />
-                <circle cx="15.5" cy="7.5" r="1" />
-              </svg>
-            </span>
-            <h2 className="mt-5 text-lg font-extrabold">{w.emptyTitle}</h2>
-            <p className="mt-1 text-sm text-muted">{w.emptyBody}</p>
-            <Link href="/themes" className="mt-6 h-11 rounded-xl bg-ink px-8 text-sm font-semibold leading-[2.75rem] text-onink transition hover:bg-deep">{w.visit}</Link>
-          </section>
-        )}
-
         {/* the themes side by side: three in a row on a big screen, two on a tablet, one on a phone */}
         {(() => {
           const group = (k: (typeof all)[number]["kind"]) => (k === "default" ? "default" : k === "saved" ? "mine" : "bought");
@@ -261,6 +245,27 @@ export function MyThemes() {
           );
         })}
         </div>
+
+        {/* Only the two free designs so far: they are his, so the page does not say "no themes", it points to more */}
+        {state && all.length === freeThemes.length && (
+          <section className={`${card} flex flex-wrap items-center justify-between gap-4 px-6 py-5`}>
+            <div className="flex items-center gap-4">
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-soft text-primary">
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.5-.8 1.2-1.6-.4-1 .2-2 1.3-2H17a4 4 0 0 0 4-4c0-5-4-10.4-9-10.4Z" />
+                  <circle cx="7.5" cy="11" r="1" />
+                  <circle cx="10.5" cy="7" r="1" />
+                  <circle cx="15.5" cy="7.5" r="1" />
+                </svg>
+              </span>
+              <div>
+                <h2 className="font-extrabold">{w.emptyTitle}</h2>
+                <p className="mt-0.5 text-sm text-muted">{w.emptyBody}</p>
+              </div>
+            </div>
+            <Link href="/themes" className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold leading-[2.75rem] text-onink transition hover:bg-deep">{w.visit}</Link>
+          </section>
+        )}
       </main>
       {previewing && <PreviewWindow theme={previewing} onClose={() => setPreviewing(null)} />}
     </div>
