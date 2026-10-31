@@ -105,7 +105,7 @@ export type TextStyle = { align?: "right" | "center" | "left"; bold?: boolean; i
 export type PicPos = { x: number; y: number; zoom: number };
 
 /* moves: the words and pictures he slid sideways in the designer, by their place in the section ("h:0" its first title,
-   "p:1" its second line of text, "img:0" its first picture, "btn:0" its first button, "box:0" its first picture made of several pieces), as a share of the section's width
+   "p:1" its second line of text, "img:0" its first picture, "btn:0" its first button, "box:0" its first picture made of several pieces, "card:1" the second card of such a group), as a share of the section's width
    (-100 to 100), so they keep their place on a phone and on a computer. Moved up or down too: { x, y } with x that share of the width and
    y in pixels (-600 to 600, + is down). A bare number (saved before he could move up and down) is { x: that, y: 0 }. */
 export type SectionMove = { x: number; y: number };

@@ -1535,6 +1535,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
                   {shown.map((p, i) => (
                     <div
                       key={p.id}
+                      data-move-item
                       className={`absolute w-36 ${frame}`}
                       style={{ insetInlineStart: `${i * 52}px`, top: `${i === 1 ? 0 : 36}px`, transform: `rotateY(${(i - 1) * -10}deg) rotate(${(i - 1) * 4}deg)`, zIndex: i === 1 ? 2 : 1 }}
                     >
@@ -1546,7 +1547,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
             return (
               <div className="flex shrink-0 items-end gap-3">
                 {shown.map((p) => (
-                  <div key={p.id} className={`${arrange === "single" ? "w-56" : "w-28"} ${frame}`}>
+                  <div key={p.id} data-move-item className={`${arrange === "single" ? "w-56" : "w-28"} ${frame}`}>
                     {one(p)}
                   </div>
                 ))}
@@ -2675,8 +2676,9 @@ const SectionView = memo(function SectionView({ s, ctx }: { s: SectionConfig; ct
 });
 
 /* What can be moved, by kind: a picture made of several pieces that moves as one (marked data-move, like the hero's
-   cards), titles, lines of text, pictures and buttons */
-const MOVE_KINDS: [string, string][] = [["box", "[data-move]"], ["h", "h1,h2,h3,h4"], ["p", "p"], ["img", "img"], ["btn", "a,button"]];
+   cards), one card of such a group (data-move-item, once he has gone into the group), titles, lines of text, pictures
+   and buttons */
+const MOVE_KINDS: [string, string][] = [["box", "[data-move]"], ["card", "[data-move-item]"], ["h", "h1,h2,h3,h4"], ["p", "p"], ["img", "img"], ["btn", "a,button"]];
 const MOVE_ALL = MOVE_KINDS.map(([, q]) => q).join(",");
 
 /** A piece's name in the section ("p:1": its second line of text), and what moves with it: the frame or box it sits alone
@@ -2702,7 +2704,10 @@ function moveTarget(root: HTMLElement, key: string): HTMLElement | null {
 /** A section whose words and pictures he can move anywhere in the designer (sideways, up and down), like a text box in Word:
     the box moves, and the alignment he chose still lines the words up inside it (the box shows as a dashed line under the
     mouse). While dragging, teal lines show when its edges or middle line up with the section's, and it snaps to them
-    (hold Alt to move freely). The store shows them where he left them. Double-click one to put it back. */
+    (hold Alt to move freely). The store shows them where he left them. Double-click one to put it back.
+    A group of product cards goes one level at a time, like Figma: a drag moves the whole group; a double-click goes into it
+    (a dashed line around it), where a drag moves the one card (its frame); a double-click on a card's picture then edits
+    the picture inside its frame. Escape, or a press outside the group, comes back out. */
 function Movers({ id, moves, pics, subFont, design, lang, children }: { id: string; moves?: SectionMoves; pics?: Record<string, PicEdit>; subFont?: HeroFont; design?: Design; lang: Lang; children: React.ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const live = useRef(moves);
@@ -2713,6 +2718,27 @@ function Movers({ id, moves, pics, subFont, design, lang, children }: { id: stri
   const [editing, setEditing] = useState<string | null>(null);
   const editingRef = useRef(editing);
   editingRef.current = editing;
+  /* the group of cards he went into (double-click), by its key ("box:0"): a drag there moves one card, not the group */
+  const [inside, setInside] = useState<string | null>(null);
+  const insideRef = useRef(inside);
+  insideRef.current = inside;
+  useEffect(() => {
+    const el = root.current;
+    if (!inside || !el) return;
+    const group = el.querySelectorAll<HTMLElement>("[data-move]")[Number(inside.split(":")[1])];
+    if (!group) return setInside(null);
+    group.dataset.inside = "";
+    /* a press anywhere outside the group (not while its picture is being edited), or Escape, comes back out */
+    const off = (ev: PointerEvent) => { if (!editingRef.current && !group.contains(ev.target as Node)) setInside(null); };
+    const esc = (ev: KeyboardEvent) => { if (ev.key === "Escape" && !editingRef.current) setInside(null); };
+    window.addEventListener("pointerdown", off, true);
+    window.addEventListener("keydown", esc);
+    return () => {
+      delete group.dataset.inside;
+      window.removeEventListener("pointerdown", off, true);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [inside]);
   /* put every moved piece where he left it (again after the section draws, its size changes or its pieces change) */
   const place = () => {
     const el = root.current;
@@ -2753,35 +2779,48 @@ function Movers({ id, moves, pics, subFont, design, lang, children }: { id: stri
     /* while a picture is edited inside its frame, the picture editor has the mouse */
     if (!save || !el || e.button !== 0 || editingRef.current) return;
     const target = e.target as HTMLElement;
-    /* a double-click on a picture goes into it, like Figma: the frame stays and the picture inside can be moved, stretched and turned */
+    const now = Date.now();
+    /* a second press on the same thing right after the first (the preview draws again between the two presses, so the
+       browser's own double-click does not reach it) */
+    const again = (k: string | null) => !!k && !!lastPress.current && lastPress.current.key === k && now - lastPress.current.at < 400;
+    /* the group of cards the press is in, and whether he already went into it */
+    const group = target.closest<HTMLElement>("[data-move]");
+    const groupKey = group && el.contains(group) ? moveKey(el, group) : null;
+    const isIn = !!groupKey && insideRef.current === groupKey;
     const img = target.closest("img") as HTMLElement | null;
-    if (img && el.contains(img) && design?.editPic) {
-      const pk = `img:${Array.from(el.querySelectorAll<HTMLElement>("img")).indexOf(img)}`;
-      const now = Date.now();
-      if (lastPress.current && lastPress.current.key === pk && now - lastPress.current.at < 400) {
-        lastPress.current = null;
-        e.preventDefault();
-        e.stopPropagation();
-        setEditing(pk);
-        return;
-      }
+    const imgKey = img && el.contains(img) ? `img:${Array.from(el.querySelectorAll<HTMLElement>("img")).indexOf(img)}` : null;
+    /* a double-click on a group goes into it: from now on a drag there moves one card */
+    if (groupKey && !isIn && again(groupKey)) {
+      lastPress.current = null;
+      e.preventDefault();
+      e.stopPropagation();
+      setInside(groupKey);
+      return;
     }
-    const hit = (target.closest("[data-move]") ?? target.closest(MOVE_ALL)) as HTMLElement | null;
+    /* a double-click on a picture (one on its own, or a card's once inside its group) goes into it, like Figma: the frame
+       stays and the picture inside can be moved, stretched and turned */
+    if (imgKey && design?.editPic && (!groupKey || isIn) && again(imgKey)) {
+      lastPress.current = null;
+      e.preventDefault();
+      e.stopPropagation();
+      setEditing(imgKey);
+      return;
+    }
+    const hit = (isIn ? target.closest("[data-move-item]") : group ?? target.closest(MOVE_ALL)) as HTMLElement | null;
     /* the colored buttons of a row are dragged to another place in their row instead */
     if (!hit || !el.contains(hit) || hit.closest("[draggable=true]")) return;
     const key = moveKey(el, hit);
     const t = key && moveTarget(el, key);
     if (!key || !t) return;
-    /* a second press on the same piece right after the first puts it back (the preview draws again between the two
-       presses, so the browser's own double-click does not reach it) */
-    const now = Date.now();
-    if (lastPress.current && lastPress.current.key === key && now - lastPress.current.at < 400) {
+    /* a double-click on any other piece (a card's name inside its group too) puts it back */
+    if (again(key)) {
       lastPress.current = null;
       if (live.current?.[key] !== undefined) save(id, key, null);
       return;
     }
-    lastPress.current = { key: img && el.contains(img) ? `img:${Array.from(el.querySelectorAll<HTMLElement>("img")).indexOf(img)}` : key, at: now };
-    if (hit.tagName === "IMG") e.preventDefault();
+    /* what a second press would be on: the group (to go into it), a picture (to edit it), or the piece (to put it back) */
+    lastPress.current = { key: groupKey && !isIn ? groupKey : imgKey ?? key, at: now };
+    if (img) e.preventDefault();
     const w = el.offsetWidth;
     /* the preview may be shown smaller than it is */
     const scale = el.getBoundingClientRect().width / w || 1;

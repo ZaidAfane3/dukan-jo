@@ -247,7 +247,7 @@ function sanitizeMoves(v: unknown): Record<string, number | { x: number; y: numb
   const out: Record<string, number | { x: number; y: number }> = {};
   const fin = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
   for (const [k, n] of Object.entries(v).slice(0, 60)) {
-    if (!/^(box|h|p|img|btn):\d{1,3}$/.test(k)) continue;
+    if (!/^(box|card|h|p|img|btn):\d{1,3}$/.test(k)) continue;
     /* a bare number: only sideways (saved before he could move up and down) */
     if (fin(n)) out[k] = Math.round(Math.max(-100, Math.min(100, n)) * 10) / 10;
     else if (isObj(n) && (fin(n.x) || fin(n.y))) {
