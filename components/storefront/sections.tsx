@@ -2729,7 +2729,7 @@ const SectionView = memo(function SectionView({ s, ctx }: { s: SectionConfig; ct
     }
   })();
   return (
-    <Movers id={s.id} moves={s.moves} pics={s.pics} subFont={s.subFont} design={ctx.design} lang={ctx.lang}>
+    <Movers id={s.id} moves={s.moves} pics={s.pics} subFont={s.subFont} design={ctx.design} lang={ctx.lang} flat={s.type === "hero"}>
       <Selectable id={s.id} name={sectionNames[ctx.lang][s.type]} ctx={ctx}>
         <SectionTitleLook.Provider value={s.titleLook}>{inner}</SectionTitleLook.Provider>
       </Selectable>
@@ -2769,8 +2769,12 @@ function moveTarget(root: HTMLElement, key: string): HTMLElement | null {
     (hold Alt to move freely). The store shows them where he left them. Double-click one to put it back.
     A group of product cards goes one level at a time, like Figma: a drag moves the whole group; a double-click goes into it
     (a dashed line around it), where a drag moves the one card (its frame); a double-click on a card's picture then edits
-    the picture inside its frame. Escape, or a press outside the group, comes back out. */
-function Movers({ id, moves, pics, subFont, design, lang, children }: { id: string; moves?: SectionMoves; pics?: Record<string, PicEdit>; subFont?: HeroFont; design?: Design; lang: Lang; children: React.ReactNode }) {
+    the picture inside its frame. Escape, or a press outside the group, comes back out.
+    flat (the main cover): its pieces only slide sideways, so they always sit at the height the cover's layout gives them;
+    an up or down move saved before that is left out. */
+function Movers({ id, moves, pics, subFont, design, lang, flat, children }: { id: string; moves?: SectionMoves; pics?: Record<string, PicEdit>; subFont?: HeroFont; design?: Design; lang: Lang; flat?: boolean; children: React.ReactNode }) {
+  const flatRef = useRef(flat);
+  flatRef.current = flat;
   const root = useRef<HTMLDivElement>(null);
   const live = useRef(moves);
   live.current = moves;
@@ -2810,7 +2814,8 @@ function Movers({ id, moves, pics, subFont, design, lang, children }: { id: stri
     for (const [k, m] of Object.entries(live.current ?? {})) {
       const t = moveTarget(el, k);
       if (!t) continue;
-      const { x, y } = moveXY(m);
+      const { x } = moveXY(m);
+      const y = flatRef.current ? 0 : moveXY(m).y;
       t.dataset.mv = k;
       t.dataset.mvpx = String((x / 100) * w);
       t.dataset.mvpy = String(y);
@@ -2886,7 +2891,7 @@ function Movers({ id, moves, pics, subFont, design, lang, children }: { id: stri
     const w = el.offsetWidth;
     /* the preview may be shown smaller than it is */
     const scale = el.getBoundingClientRect().width / w || 1;
-    const start = moveXY(live.current?.[key]);
+    const start = flat ? { x: moveXY(live.current?.[key]).x, y: 0 } : moveXY(live.current?.[key]);
     /* it stays inside what holds it: the card it sits in (one that cuts off what spills out), or the section */
     let box: HTMLElement = el;
     for (let a = t.parentElement; a && a !== el; a = a.parentElement) if (getComputedStyle(a).overflow !== "visible") { box = a; break; }
@@ -2921,7 +2926,8 @@ function Movers({ id, moves, pics, subFont, design, lang, children }: { id: stri
     const move = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) return;
       let dx = keepIn(ev.clientX - x0, minDx, maxDx);
-      let dy = keepIn(ev.clientY - y0, minDy, maxDy);
+      /* the main cover: sideways only */
+      let dy = flat ? 0 : keepIn(ev.clientY - y0, minDy, maxDy);
       if (!moved) {
         ghost = document.createElement("div");
         Object.assign(ghost.style, { position: "fixed", left: `${was.left}px`, top: `${was.top}px`, width: `${was.width}px`, height: `${was.height}px`, border: "1px dashed rgba(20, 184, 166, 0.8)", borderRadius: getComputedStyle(t).borderRadius || "6px", pointerEvents: "none", zIndex: "60" });
@@ -2934,7 +2940,7 @@ function Movers({ id, moves, pics, subFont, design, lang, children }: { id: stri
       moved = true;
       /* snap to the box's edges and middle when close, unless he holds Alt */
       const sx = ev.altKey ? null : snapTo(dx, r.left, r.width, outer.left, outer.right);
-      const sy = ev.altKey ? null : snapTo(dy, r.top, r.height, outer.top, outer.bottom);
+      const sy = ev.altKey || flat ? null : snapTo(dy, r.top, r.height, outer.top, outer.bottom);
       if (sx) dx = keepIn(sx.d, minDx, maxDx);
       if (sy) dy = keepIn(sy.d, minDy, maxDy);
       Object.assign(lines[0].style, sx ? { display: "block", left: `${sx.at - 0.5}px`, top: `${outer.top}px`, width: "1px", height: `${outer.height}px` } : { display: "none" });
@@ -2947,7 +2953,7 @@ function Movers({ id, moves, pics, subFont, design, lang, children }: { id: stri
       t.style.outline = "2px dashed #14b8a6";
       t.style.outlineOffset = "4px";
       /* how far it is from where it belongs, in the section's own pixels */
-      tag.textContent = `x ${String(px).replace("-", "−")} · y ${String(at.y).replace("-", "−")} px`;
+      tag.textContent = flat ? `x ${String(px).replace("-", "−")} px` : `x ${String(px).replace("-", "−")} · y ${String(at.y).replace("-", "−")} px`;
       const top = r.top + dy - 28;
       Object.assign(tag.style, { left: `${r.left + dx}px`, top: `${top < 4 ? r.bottom + dy + 10 : top}px` });
     };
@@ -2974,7 +2980,7 @@ function Movers({ id, moves, pics, subFont, design, lang, children }: { id: stri
   };
   const editImg = editing ? (root.current?.querySelectorAll<HTMLElement>("img")[Number(editing.split(":")[1])] ?? null) : null;
   return (
-    <div ref={root} data-sf={id} data-subfont={subFont || undefined} style={subFont ? ({ "--sub-font": heroTitleFamily(subFont) } as React.CSSProperties) : undefined} onPointerDownCapture={save ? down : undefined} className={`scroll-mt-20 ${save ? "sf-movers" : ""}`}>
+    <div ref={root} data-sf={id} data-subfont={subFont || undefined} style={subFont ? ({ "--sub-font": heroTitleFamily(subFont) } as React.CSSProperties) : undefined} onPointerDownCapture={save ? down : undefined} data-flat={save && flat ? "" : undefined} className={`scroll-mt-20 ${save ? "sf-movers" : ""}`}>
       {children}
       {editing && editImg && design?.editPic && createPortal(
         <PicEditor

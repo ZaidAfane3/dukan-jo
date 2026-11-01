@@ -242,7 +242,8 @@ const starters: Record<SectionType, (id: string) => SectionConfig | undefined> =
 };
 
 /** Where he slid a section's words and pictures: at most 60, each a known kind of piece and a share of the width */
-function sanitizeMoves(v: unknown): Record<string, number | { x: number; y: number }> | undefined {
+/* flat (the main cover): its pieces only slide sideways, so an up or down move saved before that is dropped */
+function sanitizeMoves(v: unknown, flat = false): Record<string, number | { x: number; y: number }> | undefined {
   if (!isObj(v)) return undefined;
   const out: Record<string, number | { x: number; y: number }> = {};
   const fin = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
@@ -252,7 +253,7 @@ function sanitizeMoves(v: unknown): Record<string, number | { x: number; y: numb
     if (fin(n)) out[k] = Math.round(Math.max(-100, Math.min(100, n)) * 10) / 10;
     else if (isObj(n) && (fin(n.x) || fin(n.y))) {
       const x = fin(n.x) ? Math.round(Math.max(-100, Math.min(100, n.x)) * 10) / 10 : 0;
-      const y = fin(n.y) ? Math.round(Math.max(-600, Math.min(600, n.y))) : 0;
+      const y = fin(n.y) && !flat ? Math.round(Math.max(-600, Math.min(600, n.y))) : 0;
       if (x || y) out[k] = { x, y };
     }
   }
@@ -282,7 +283,7 @@ export function sanitizeSection(v: unknown, i = 0): SectionConfig | undefined {
   const clean = obj(shapes[type] as Record<string, Spec>)({ ...raw, ...legacy }, i) as Obj;
   const start = (JSON.parse(JSON.stringify(starters[type](sid)?.settings ?? {})) as Obj);
   /* A list the starter fills with samples stays empty when the saved one was emptied on purpose */
-  const moves = sanitizeMoves(v.moves);
+  const moves = sanitizeMoves(v.moves, type === "hero");
   const look = isObj(v.titleLook) ? (obj({ size: num(12, 120, true), color, font: heroFont })(v.titleLook, i) as Obj) : undefined;
   const titleLook = look && Object.values(look).some((x) => x !== undefined && x !== "") ? look : undefined;
   const pics = sanitizePics(v.pics);

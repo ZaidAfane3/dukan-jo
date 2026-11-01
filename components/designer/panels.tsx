@@ -344,7 +344,7 @@ const popT = {
     titlePop: "Playful",
     navPill: "Pill buttons",
     navSidebarOff: "The sidebar is hidden, so customers see no way to move around. Show it in Sidebar settings, or pick links in the header.",
-    navNoLinks: "No links yet, so the header shows none. Add your first link below.",
+    navNoLinks: "No link is ready yet, so customers see none in the header. Add a link below, write its name and choose where it leads.",
     navActive: "Chosen link color",
     navCart: "Basket button color",
     footerStyle: "Footer style",
@@ -619,7 +619,7 @@ const popT = {
     titlePop: "مرح",
     navPill: "أزرار كبسولة",
     navSidebarOff: "القائمة الجانبية مخفية، فلا يجد العملاء طريقة للتنقل. أظهرها من إعدادات القائمة الجانبية، أو اختر روابط في رأس الصفحة.",
-    navNoLinks: "لا روابط بعد، فلا يظهر شيء في رأس الصفحة. أضف أول رابط في الأسفل.",
+    navNoLinks: "لا رابط جاهزًا بعد، فلا يرى العملاء أي رابط في رأس الصفحة. أضف رابطًا في الأسفل، واكتب اسمه واختر وجهته.",
     navActive: "لون الرابط المختار",
     navCart: "لون زر السلة",
     footerStyle: "شكل التذييل",
@@ -1772,7 +1772,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
           <MoreButton lang={lang} value={s.settings.button2 ?? noText} onChange={(button2) => set({ button2 })} onRemove={() => set({ button2: undefined, link2: undefined })}>{link2}</MoreButton>
         </Part>
         {/* the round-photo layout came with a theme that was removed: it is offered only to a design that already uses it */}
-        <Part lang={lang} label={t.form.heroLayout}>
+        <Part lang={lang} label={t.form.heroLayout} hint={t.form.coverMove}>
           <Seg lang={lang} value={s.settings.layout ?? "banner"} onChange={(layout) => set({ layout })} options={[{ key: "banner", label: t.form.layoutBanner }, { key: "split", label: t.form.layoutSplit }, { key: "pop", label: pp.layoutPop, theme: "lamma" }, ...(orbit ? [{ key: "orbit" as const, label: pp.layoutOrbit }] : [])]} />
         </Part>
         {split && (
@@ -3436,12 +3436,24 @@ function FontGrid({ lang, value, onChange, first, firstFamily, text }: { lang: L
 
 /** Navigation design: how visitors move around the store from the top of the page (a sidebar button, links in the header or
     pill buttons), the header links themselves and their colors */
+/* what a header link still needs before customers see it */
+const navMissing = {
+  en: { both: "Write the link's name and choose where it leads: customers don't see it until then.", name: "Write the link's name: customers don't see it until then.", to: "This link takes customers nowhere, so they don't see it. Choose where it leads." },
+  ar: { both: "اكتب اسم الرابط واختر وجهته، فلن يراه العملاء قبل ذلك.", name: "اكتب اسم الرابط، فلن يراه العملاء قبل ذلك.", to: "هذا الرابط لا يأخذ العميل إلى أي مكان، لذلك لا يراه العملاء. اختر وجهة له." },
+};
+
 function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg }) {
   const lx = dc[lang].luxe;
   /* the header link whose trash was pressed: it asks before it goes */
   const [asking, setAsking] = useState<number | null>(null);
   /* a link just added opens by itself, the others stay closed under their names */
   const [added, setAdded] = useState<number | null>(null);
+  /* a link just added: once its card has slid open, the cursor waits in its name */
+  useEffect(() => {
+    if (added === null) return;
+    const t = setTimeout(() => (document.querySelector(`[data-nav-name="${added}"]`) as HTMLInputElement | null)?.focus(), 260);
+    return () => clearTimeout(t);
+  }, [added]);
   return (
     <>
       <Part lang={lang} label={lx.navStyle}>
@@ -3456,7 +3468,7 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
       )}
       {/* a style that would show nothing says why, instead of seeming to do nothing (outside the fold, so it shows while closed) */}
       {cfg.nav.style === "button" && !cfg.header.showMenu && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navSidebarOff}</p>}
-      {cfg.nav.style !== "button" && !cfg.nav.links.some((l) => l.en.trim() || l.ar.trim()) && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navNoLinks}</p>}
+      {cfg.nav.style !== "button" && !cfg.nav.links.some((l) => (l.en.trim() || l.ar.trim()) && l.to?.trim()) && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navNoLinks}</p>}
       {cfg.nav.style === "links" && cfg.identity.align === "center" && (
         <Part lang={lang} label={popT[lang].navPlace}>
           <Seg value={cfg.nav.place ?? "below"} onChange={(place) => setCfg((c) => ({ ...c, nav: { ...c.nav, place } }))} options={[{ key: "below", label: popT[lang].navBelow }, { key: "start", label: popT[lang].navStart }]} />
@@ -3491,13 +3503,20 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
                 removeLabel={lx.navRemove}
               >
                 <Field label={lx.navLink}>
-                  <input value={l[lang] ?? ""} onChange={(e) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, [lang]: e.target.value } : x)) } }))} placeholder={itemWords[lang].linkTextPh} aria-label={lx.navLink} maxLength={20} className={`${input} h-10`} />
+                  <input data-nav-name={i} value={l[lang] ?? ""} onChange={(e) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, [lang]: e.target.value } : x)) } }))} placeholder={itemWords[lang].linkTextPh} aria-label={lx.navLink} maxLength={20} className={`${input} h-10`} />
                   <CharCount value={l[lang] ?? ""} max={20} />
                   <RudeNote lang={lang} text={l[lang]} />
                 </Field>
-                <Part lang={lang} label={lx.navTarget}>
+                <Part lang={lang} label={lx.navTarget} force={added === i}>
                   <LinkPicker lang={lang} value={l.to ?? ""} onChange={(to) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, to: to || undefined } : x)) } }))} label={lx.navTarget} />
                 </Part>
+                {/* customers only see a link with a name and somewhere to go: the card says what is missing (the preview keeps it) */}
+                {(!(l.en.trim() || l.ar.trim()) || !l.to?.trim()) && (
+                  <p role="status" className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">
+                    <span aria-hidden>⚠</span>
+                    {navMissing[lang][!(l.en.trim() || l.ar.trim()) ? (l.to?.trim() ? "name" : "both") : "to"]}
+                  </p>
+                )}
                 {/* a link can stand out in a color of its own, like a red "Sale" */}
                 <ColorChip lang={lang} label={popT[lang].linkColor} value={l.color} auto={cfg.theme.text} onChange={(color) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, color } : x)) } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, color: undefined } : x)) } }))} on={[cfg.nav.style === "pill" ? "#ffffff" : cfg.theme.background, ...(cfg.header.showMenu ? [cfg.theme.titleStyle === "pop" ? "#ffffff" : cfg.theme.background] : [])]} />
                 {asking === i && <LinkAsk lang={lang} onYes={() => { setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.filter((_, j) => j !== i) } })); setAsking(null); }} onNo={() => setAsking(null)} />}

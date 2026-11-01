@@ -455,6 +455,8 @@ label:has(> .sr-only) { position: relative; }
 /* The designer: words and pictures that can be slid sideways (Movers in storefront/sections.tsx). A text shows its box
    under the mouse, unless the box that is clicked to edit it already draws one */
 .sf-movers :is(h1, h2, h3, h4, p, img, [data-move]) { cursor: grab; user-select: none; }
+/* the main cover: its pieces only slide sideways, and the pointer says so */
+.sf-movers[data-flat] :is(h1, h2, h3, h4, p, img, a, button, [data-move]) { cursor: ew-resize; }
 /* a group of cards he went into (double-click): a dashed line around it, and around the card under the mouse */
 .sf-movers [data-inside] { outline: 2px dashed #14b8a6; outline-offset: 8px; border-radius: 1rem; }
 .sf-movers [data-inside] [data-move-item]:hover { outline: 1px dashed #14b8a6; outline-offset: 3px; border-radius: 1rem; }

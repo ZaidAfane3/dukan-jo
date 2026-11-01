@@ -28,8 +28,8 @@ function SpotHole({ spot, text, className = "" }: { spot: string; text: string; 
 }
 /* the words of those places */
 const holeWords = {
-  en: { links: "Your links will show here", tagline: "Your short line will show here", bar: "The announcement bar is off: it will show here when you turn it on", column: "This column is hidden: it will show here when you show it", license: "Your license will show here", about: "Your store description will show here" },
-  ar: { links: "ستظهر روابطك هنا", tagline: "سيظهر سطرك القصير هنا", bar: "الشريط الإعلاني مخفي، وسيظهر هنا عند تفعيله", column: "هذا العمود مخفي، وسيظهر هنا عند إظهاره", license: "ستظهر رخصتك هنا", about: "سيظهر وصف متجرك هنا" },
+  en: { links: "Your links will show here", newLink: "New link", tagline: "Your short line will show here", bar: "The announcement bar is off: it will show here when you turn it on", column: "This column is hidden: it will show here when you show it", license: "Your license will show here", about: "Your store description will show here" },
+  ar: { links: "ستظهر روابطك هنا", newLink: "رابط جديد", tagline: "سيظهر سطرك القصير هنا", bar: "الشريط الإعلاني مخفي، وسيظهر هنا عند تفعيله", column: "هذا العمود مخفي، وسيظهر هنا عند إظهاره", license: "ستظهر رخصتك هنا", about: "سيظهر وصف متجرك هنا" },
 };
 
 type Props = {
@@ -386,10 +386,22 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* The header with a row of links: logo | links | plain icons (account, saved, search, basket) */
   /* a link to a part of the page that customers do not see (hidden, or with nothing in it yet: no reviews, no products picked)
      is left out of their header; the designer keeps it, so he can still find and edit it */
-  const navOwn = config.nav.style === "links" || config.nav.style === "pill" ? config.nav.links.map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to as string | undefined, color: l.color as string | undefined })).filter((l) => l.name && !(l.to && emptyParts.includes(l.to))) : [];
+  /* customers only get links that have words and somewhere to go; the designer keeps a link he has just added (no words yet)
+     as a dashed "New link" in its place, so he sees where it lands */
+  const navOwn = config.nav.style === "links" || config.nav.style === "pill"
+    ? config.nav.links
+        .map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to?.trim() || undefined, color: l.color as string | undefined, hole: false }))
+        .filter((l) => (design ? true : !!l.name && !!l.to && !emptyParts.includes(l.to)))
+        .map((l) => (l.name ? l : { ...l, name: holeWords[lang].newLink, hole: true }))
+    : [];
   /* in the designer, his navigation settings open with no links yet: the header is drawn as it will be, with one link that
      says where his links will show */
-  const navLinks = navOwn.length || !spotted("nav") || config.nav.style === "button" ? navOwn : [{ at: -1, name: holeWords[lang].links, to: undefined, color: undefined }];
+  const navLinks = navOwn.length || !spotted("nav") || config.nav.style === "button" ? navOwn : [{ at: -1, name: holeWords[lang].links, to: undefined, color: undefined, hole: true }];
+  /* with his navigation settings open, the search gives the links their place back (an open search hides the pill of links) */
+  const navSpotted = spotted("nav");
+  useEffect(() => {
+    if (navSpotted) setSearchOpen(false);
+  }, [navSpotted]);
   /* A link takes the visitor to its part of the page, smoothly */
   const goTo = (e: React.MouseEvent, to?: string) => {
     e.preventDefault();
@@ -417,8 +429,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const nameMid = "grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)]";
   const nameSide = "grid-cols-[minmax(0,1fr)_auto_minmax(max-content,1fr)]";
   const nameSideEnd = "grid-cols-[minmax(max-content,1fr)_auto_minmax(0,1fr)]";
-  const pillHeader = config.nav.style === "pill" && navLinks.length > 0;
-  const linksHeader = navLinks.length > 0 && !pillHeader;
+  /* the chosen navigation style decides the header, with or without links in it: adding the first link only adds a link,
+     it does not change how the whole header looks */
+  const pillHeader = config.nav.style === "pill";
+  const linksHeader = config.nav.style === "links";
+  /* the pill of links, or the search in its place while it is open (nothing at all with no links and no search) */
+  const pillMiddle = searchOpen && h.showSearch ? "search" : navLinks.length ? "links" : null;
   const [navOn, setNavOn] = useState(0);
   /* The pill header: the name in a dark pill, the links in a white pill (the chosen one colored), and a round basket button */
   const pillBrand = (
@@ -454,7 +470,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           className="whitespace-nowrap px-4 py-1.5 transition duration-200 hover:-translate-y-0.5 hover:scale-105 hover:bg-black/[0.07] active:scale-95"
           style={{ borderRadius: "var(--sf-pill)", ...(linkColor(l.color, "#ffffff") ? { color: l.color } : {}), ...(i === navOn ? { background: config.nav.activeColor || "#ff8fb1", color: onColor(config.nav.activeColor || "#ff8fb1") } : {}) }}
         >
-          {l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}
+          {l.hole ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}
         </a>
       ))}
     </nav>
@@ -558,7 +574,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
                 <div className="min-w-0">{pillBrand}</div>
                 <div className="flex items-center justify-end gap-2">{pillExtras}{pillCart}</div>
               </div>
-              <div className="mt-3 flex justify-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{searchOpen && h.showSearch ? pillSearch : pillNav}</div>
+              {pillMiddle && <div className="mt-3 flex justify-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{pillMiddle === "search" ? pillSearch : pillNav}</div>}
             </div>
           ) : compact ? (
             <div className="px-4 py-3">
@@ -566,19 +582,19 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
                 <div className={`flex min-w-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>{pillMenu}{pillBrand}</div>
                 <div className={`flex shrink-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>{pillExtras}{pillCart}</div>
               </div>
-              <div className="mt-3 flex justify-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{searchOpen && h.showSearch ? pillSearch : pillNav}</div>
+              {pillMiddle && <div className="mt-3 flex justify-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{pillMiddle === "search" ? pillSearch : pillNav}</div>}
             </div>
           ) : nameEnd ? (
             /* mirrored: buttons | links | name, the menu button at the outer edge */
             <div className={`grid ${nameSideEnd} items-center gap-6 px-8 py-4`}>
               <div className="flex flex-row-reverse items-center justify-end gap-2">{pillExtras}{pillCart}</div>
-              {searchOpen && h.showSearch ? pillSearch : pillNav}
+              {pillMiddle === "search" ? pillSearch : pillMiddle === "links" ? pillNav : <span />}
               <div className="flex min-w-0 flex-row-reverse items-center justify-start gap-2">{pillMenu}{pillBrand}</div>
             </div>
           ) : (
             <div className={`grid ${nameSide} items-center gap-6 px-8 py-4`}>
               <div className="flex min-w-0 items-center justify-start gap-2">{pillMenu}{pillBrand}</div>
-              {searchOpen && h.showSearch ? pillSearch : pillNav}
+              {pillMiddle === "search" ? pillSearch : pillMiddle === "links" ? pillNav : <span />}
               <div className="flex items-center justify-end gap-2">{pillExtras}{pillCart}</div>
             </div>
           )
@@ -588,7 +604,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               <nav aria-label={c.pages} className="flex items-center justify-start gap-7 text-[14px] font-light tracking-[0.04em]">
                 {menuBtn}
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center text-[var(--sf-text)] transition duration-200 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center text-[var(--sf-text)] transition duration-200 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.hole ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
                 ))}
               </nav>
               <div className="min-w-0">{brand}</div>
@@ -603,7 +619,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               </div>
               <nav aria-label={c.pages} className="mt-2 flex items-center justify-center gap-9 text-[14px]">
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.hole ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
                 ))}
               </nav>
             </div>
@@ -614,7 +630,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[13px] font-light">
                 {menuBtn}
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.hole ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
                 ))}
                 {plainActions}
               </div>
@@ -634,7 +650,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               {!nameEnd && <div className="flex min-w-0 items-center justify-start gap-3">{menuBtn}{brand}</div>}
               <nav aria-label={c.pages} className="flex items-center gap-9 text-[14px]">
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.hole ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
                 ))}
               </nav>
               {!nameEnd && plainActions}
@@ -756,7 +772,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
                               else if (lp.href) window.open(lp.href, "_blank", "noreferrer");
                             },
                           }))
-                    : navLinks.map((l) => ({ key: l.at, title: l.name, color: l.color, on: () => { setMenu(false); goTo({ preventDefault() {} } as React.MouseEvent, l.to); } }));
+                    : navLinks.filter((l) => !l.hole).map((l) => ({ key: l.at, title: l.name, color: l.color, on: () => { setMenu(false); goTo({ preventDefault() {} } as React.MouseEvent, l.to); } }));
               /* the items he left out of this group in the designer */
               const shown = rows.filter((r) => !(it.hidden ?? []).includes(String(r.key)));
               if (!shown.length) return null;
