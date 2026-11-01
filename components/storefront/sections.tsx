@@ -7,10 +7,11 @@ import { createPortal } from "react-dom";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
-import { copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
-import { categoriesOf, type StoreData, type StoreProduct } from "./useStoreData";
-import { bannerSurface, legibleOn, readsOn } from "./footerColors";
+import { centsFor, copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
+import { bannerSurface, dimOn, inkOn, legibleOn, readsOn } from "./footerColors";
 import { onShowSlide } from "./slideSignal";
+import { useSpots } from "./spotSignal";
 import { initialOf, isBlank } from "../safe";
 
 /* Set only inside the store designer: clicking a part of the store selects it for editing. */
@@ -167,6 +168,8 @@ export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id
     <span
       role="button"
       tabIndex={0}
+      /* the side panel's part for this text finds it here, to outline it while it is open (see spotSignal) */
+      data-pick={field}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -189,8 +192,10 @@ export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id
 /* the title look of the section being drawn, for its Heading */
 const SectionTitleLook = createContext<TitleLook | undefined>(undefined);
 
-function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string }) {
+function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string; /* a section with no products yet: its "view all" shows in the designer while the merchant edits that wording, to see where it goes */ moreHole?: boolean }) {
   const c = copy[ctx.lang];
+  const spots = useSpots();
+  const more = moreOn || (!!moreHole && !!ctx.design && spots.some((x) => x.key === "viewall"));
   /* his own size, color and font for this section's title, over the theme's (a color that vanishes on the page: the theme's) */
   const look = useContext(SectionTitleLook);
   const lookStyle = (size: number): React.CSSProperties => ({ fontFamily: look?.font ? heroTitleFamily(look.font) : "var(--sf-heading)", fontSize: scaled(look?.size ?? size, ctx.compact), ...(look?.color && readsOn(look.color, ctx.config.theme.background) ? { color: look.color } : {}) });
@@ -209,7 +214,7 @@ function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; m
       return (
         <div className="mb-8 flex items-end justify-between gap-4">
           {h2}
-          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : <span className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
+          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : <span data-spot="viewall" className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
           {right}
         </div>
       );
@@ -240,7 +245,7 @@ function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; m
           return link?.trim() && !ctx.design ? (
             <a {...linkProps(link, ctx)} className={`${cls} transition hover:opacity-70`} style={style}>{inner}</a>
           ) : (
-            <span className={cls} style={style} onClick={designOpen(link, ctx)}>{inner}</span>
+            <span data-spot="viewall" className={cls} style={style} onClick={designOpen(link, ctx)}>{inner}</span>
           );
         })()}
       {right}
@@ -250,8 +255,32 @@ function Heading({ title, ctx, more, right, link }: { title: string; ctx: Ctx; m
 
 /* ---------------- Product card ---------------- */
 
-/* A discounted price shows in his sale color, when he picked one */
-const saleTint = (ctx: Ctx, p: StoreProduct): React.CSSProperties | undefined => (p.sale !== null && ctx.config.theme.saleColor ? { color: "var(--sf-saletext, var(--sf-sale))" } : undefined);
+/* The page text where it reads on `on` (the card or the page), else a soft dark or light */
+const inkFor = (ctx: Ctx, on: string) => legibleOn(ctx.config.theme.text || "#1c1a17", on);
+
+/* A discounted price shows in his discount color, when he picked one: on what it sits on (`on`), darkened toward the text
+   just as far as it still reads 4.5:1 */
+const saleTint = (ctx: Ctx, p: StoreProduct, on: string): React.CSSProperties | undefined =>
+  p.sale !== null && ctx.config.theme.saleColor ? { color: inkOn(ctx.config.theme.saleColor, on, inkFor(ctx, on)) } : undefined;
+
+/* The price before the discount, struck through: quieter than the price but easy to read. Its size (px) follows the price beside it,
+   never under 13; its color is the text (never the discount color), dimmed only as far as it still reads 4.5:1 on `on`;
+   its digits, cents and currency are written like the price's. */
+function OldPrice({ p, ctx, size, on }: { p: StoreProduct; ctx: Ctx; size: number; on: string }) {
+  if (p.price === null || p.sale === null) return null;
+  const pl = priceLang(ctx.config.theme.prices, ctx.lang);
+  const px = Math.max(13, Math.round(size));
+  return (
+    <s
+      dir="ltr"
+      data-old-price
+      className="whitespace-nowrap font-medium tabular-nums"
+      style={{ fontSize: px, color: dimOn(inkFor(ctx, on), on, 70), textDecorationThickness: px >= 20 ? 2 : 1.5, textDecorationColor: "color-mix(in srgb, currentColor 70%, transparent)" }}
+    >
+      {moneyIn(p.price, pl, centsFor(p))} <span style={{ fontSize: "0.8em" }}>{currency(pl)}</span>
+    </s>
+  );
+}
 
 function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
   const c = copy[ctx.lang];
@@ -267,6 +296,8 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
     pop: "rounded-[var(--sf-r2)] border-2 border-[var(--sf-text)] bg-white p-3 shadow-[5px_5px_0_var(--sf-text)]",
   }[k.style ?? "shadow"];
   const pop = k.style === "pop";
+  /* what the card's words sit on: white, or the page when the card has no background */
+  const cardOn = k.style === "flat" ? ctx.config.theme.background : "#ffffff";
   /* the add-to-cart button (or the + button) shows unless he turned it off; the product page keeps its own */
   const withAdd = k.showAdd ?? true;
   const plus = withAdd && k.add === "plus";
@@ -321,25 +352,28 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
         {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
         </div>
         {k.showPrice && (
-          <p dir="ltr" className={`${row ? "mt-0.5 shrink-0" : centered ? "mt-2 justify-center" : pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} flex items-baseline gap-1.5 text-start`} style={{ ...(k.priceColor ? { color: k.priceColor } : {}), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
+          <p dir="ltr" className={`${row ? "mt-0.5 max-w-[60%] shrink-0 justify-end" : centered ? "mt-2 justify-center" : `${pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} rtl:justify-end`} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-start`} style={{ ...(k.priceColor ? { color: k.priceColor } : {}), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
             {p.price === null ? (
               <span className="text-sm text-sf-text/55">{ctx.lang === "ar" ? "بدون سعر" : "No price"}</span>
             ) : (
               <>
-                <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-                <span className="text-[11px] font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-                {p.sale !== null && k.showOldPrice && <s className="text-xs text-sf-text/70">{moneyIn(p.price, priceLang(ctx.config.theme.prices, ctx.lang))}</s>}
+                {/* the price and its currency stay together; the old price goes beside them, or under them when the card is narrow */}
+                <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                  <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang), centsFor(p))}</span>
+                  <span className="text-[11px] font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                </span>
+                {k.showOldPrice && <OldPrice p={p} ctx={ctx} size={centered ? 16 : 14} on={cardOn} />}
               </>
             )}
           </p>
         )}
        </div>
 
-        {/* Add to cart. Once the product is in the basket the button turns into  -  1  +  (both follow the store's corners: round, soft or sharp) */}
+        {/* Add to cart. Once the product is in the basket the button turns into  -  1  +  (both always round, whatever the store's corners: the option is "round +") */}
         {plus && (
           inBasket > 0 && !out ? (
             <div className="absolute bottom-2 end-1.5">
-              <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-[var(--sf-pill,999px)] border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]">
+              <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-full border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]">
               <button type="button" onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket - 1)} aria-label={`${ctx.lang === "ar" ? "إنقاص" : "Remove one"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10">&minus;</button>
               <span aria-live="polite" className="min-w-[1.25rem] text-center tabular-nums">{inBasket}</span>
               <button type="button" disabled={inBasket >= p.quantity} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
@@ -351,7 +385,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               disabled={out || p.price === null}
               onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, 1)}
               aria-label={out ? c.soldOut : `${c.add}: ${p.name}`}
-              className="absolute bottom-2 end-1.5 grid h-9 w-9 place-items-center rounded-[var(--sf-pill,999px)] border-2 border-[var(--sf-text)] text-xl font-extrabold leading-none text-[var(--sf-text)] transition hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+              className="absolute bottom-2 end-1.5 grid h-9 w-9 place-items-center rounded-full border-2 border-[var(--sf-text)] text-xl font-extrabold leading-none text-[var(--sf-text)] transition hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
               /* a dark button color gets a white + so it stays visible (mid tones keep the dark +, which reads better on them) */
               style={{ background: k.addColor || "#b9f3d0", ...(k.addColor && luminance(k.addColor) < 0.18 ? { color: "#ffffff" } : {}) }}
             >
@@ -433,8 +467,9 @@ type PageSkin = {
   info: string;
   eyebrow: string;
   title: string;
-  /* the price line, the sale label, the "you save" line */
+  /* the price line, the size of the old price beside it (px), the sale label, the "you save" line */
   price: string;
+  old: number;
   off: string;
   save: string;
   /* the quantity stepper and the add button */
@@ -458,6 +493,7 @@ const pageSkins: Record<ProductPageStyle, PageSkin> = {
     eyebrow: "inline-flex items-center rounded-[var(--sf-pill)] bg-sf-primary/10 px-3 py-1 text-xs font-bold",
     title: "mt-3 font-extrabold leading-tight tracking-tight",
     price: "text-[34px] font-extrabold leading-none",
+    old: 22,
     off: "rounded-[var(--sf-pill)] bg-[var(--sf-sale)] px-2.5 py-1 text-xs font-extrabold text-[var(--sf-onsale)]",
     save: "text-sm font-semibold",
     stepper: "h-12 rounded-[var(--sf-pill)] ring-1 ring-sf-text/20",
@@ -477,6 +513,7 @@ const pageSkins: Record<ProductPageStyle, PageSkin> = {
     eyebrow: "text-[11px] font-semibold uppercase tracking-[0.28em] text-sf-text/70 rtl:tracking-normal rtl:text-xs",
     title: "mt-3 font-semibold leading-snug ltr:uppercase ltr:tracking-[0.06em] rtl:tracking-normal",
     price: "text-xl font-semibold",
+    old: 16,
     off: "text-sm font-bold text-[var(--sf-saletext,var(--sf-sale))]",
     save: "text-xs font-semibold uppercase tracking-[0.18em] text-sf-text/70 rtl:tracking-normal",
     stepper: "h-14 rounded-[var(--sf-ri)] border border-[var(--sf-text)]",
@@ -496,6 +533,7 @@ const pageSkins: Record<ProductPageStyle, PageSkin> = {
     eyebrow: "text-[17px] text-[var(--sf-accenttext,var(--sf-accent))]",
     title: "mt-2 font-light leading-[1.15]",
     price: "text-[28px] font-light",
+    old: 19,
     off: "rounded-[var(--sf-pill)] border border-[var(--sf-sale)] px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.12em] text-[var(--sf-saletext,var(--sf-sale))] rtl:tracking-normal rtl:text-xs",
     save: "text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--sf-accenttext,var(--sf-accent))] rtl:tracking-normal rtl:text-xs",
     stepper: "h-[52px] rounded-[var(--sf-pill)] border border-sf-text/25",
@@ -515,6 +553,7 @@ const pageSkins: Record<ProductPageStyle, PageSkin> = {
     eyebrow: "inline-flex items-center rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-3 py-0.5 text-xs font-extrabold",
     title: "mt-3 font-extrabold leading-[1.05]",
     price: "text-[30px] font-extrabold leading-none",
+    old: 20,
     off: "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] bg-[var(--sf-sale)] px-2.5 py-0.5 text-xs font-extrabold text-[var(--sf-onsale)] -rotate-3",
     save: "text-sm font-bold",
     stepper: "h-14 rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] bg-[var(--sf-bg)] shadow-[3px_3px_0_var(--sf-text)]",
@@ -679,10 +718,10 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         className={`inline-flex items-baseline gap-1.5 ${pop ? "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-4 py-2 shadow-[3px_3px_0_var(--sf-text)]" : ""}`}
         style={{ ...(ctx.config.cards.priceColor ? { color: ctx.config.cards.priceColor } : {}), ...(pop ? { background: tint("--sf-accent", 20) } : {}) }}
       >
-        <span className={s.price} style={{ ...saleTint(ctx, p), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{moneyIn(now, pl)}</span>
+        <span className={s.price} style={{ ...saleTint(ctx, p, ctx.config.theme.background), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{moneyIn(now, pl, centsFor(p))}</span>
         <span className={`text-sm font-semibold ${pop ? "text-[var(--sf-text)]" : "opacity-70"}`}>{currency(pl)}</span>
       </span>
-      {p.sale !== null && <s dir="ltr" className="text-base text-sf-text/70">{moneyIn(p.price, pl)} {currency(pl)}</s>}
+      <OldPrice p={p} ctx={ctx} size={s.old} on={ctx.config.theme.background} />
       {off > 0 && <span dir="ltr" className={s.off}>-{off}%</span>}
     </div>
   );
@@ -1634,7 +1673,7 @@ function Collection({ s, ctx }: { s: Extract<SectionConfig, { type: "collection"
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <Heading title={s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]} ctx={ctx} />
+        <Heading title={s.title[ctx.lang] || s.title[ctx.lang === "ar" ? "en" : "ar"]} ctx={ctx} moreHole />
         <DesignEmpty ctx={ctx} hint={ctx.lang === "ar" ? "اختر منتجات هذا القسم من إعداداته" : "Pick products for this section in its settings"} />
       </section>
     );
@@ -2204,7 +2243,7 @@ function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>[
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <Heading title={s.title[ctx.lang]} ctx={ctx} />
+        <Heading title={s.title[ctx.lang]} ctx={ctx} moreHole />
         <DesignEmpty ctx={ctx} add hint={ctx.lang === "ar" ? "اختر منتجات هذا القسم من إعداداته، أو علّم منتجاتك كمميزة" : "Pick products in this section's settings, or mark products as featured"} />
       </section>
     );
@@ -2223,7 +2262,7 @@ function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <Heading title={s.title[ctx.lang]} ctx={ctx} />
+        <Heading title={s.title[ctx.lang]} ctx={ctx} moreHole />
         <DesignEmpty ctx={ctx} add hint={ctx.lang === "ar" ? "المنتجات التي لها سعر مخفّض تظهر هنا" : "Products with a discounted price show here"} />
       </section>
     );
@@ -2242,15 +2281,36 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
   const c = copy[ctx.lang];
   /* the row of category buttons above the grid was taken out (showFilters is still kept in saved designs, unused) */
   const q = ctx.query.trim().toLowerCase();
-  const all = ctx.data.products.filter((p) => !q || p.name.toLowerCase().includes(q));
+  /* Which products it holds: the ones he picked (in his order), the ones in his chosen categories, or all.
+     A choice that matches nothing (a category emptied, every picked product deleted) shows all his products:
+     this grid is where the store's links lead, so it never goes empty. A search always looks through every product. */
+  const cats = (s.categories ?? []).filter((x) => x.trim());
+  const chosen =
+    s.source === "picked" ? (s.productIds ?? []).map((id) => ctx.data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p)
+    : s.source === "categories" && cats.length ? ctx.data.products.filter((p) => cats.some((x) => inCategory(p, x)))
+    : null;
+  const narrowed = s.source === "picked" || (s.source === "categories" && cats.length > 0);
+  const base = !q && chosen?.length ? chosen : ctx.data.products;
+  const all = base.filter((p) => !q || p.name.toLowerCase().includes(q));
   /* He chose how many products the section holds; they sit in one row that slides when there are more than fit */
   const items = s.limit ? all.slice(0, s.limit) : all;
   const cols = ctx.compact ? 2 : s.columns;
   const railCtl = useRail(items.length, cols, ctx);
+  /* in the designer only: why the grid shows something else than his choice */
+  const note = !ctx.design || !narrowed || q || !ctx.data.products.length ? "" : ctx.data.isDemo
+    ? (ctx.lang === "ar" ? "تظهر منتجات تجريبية الآن، واختيارك للمنتجات ينطبق على منتجاتك الحقيقية." : "Sample products are showing now. Your choice of products applies to your real products.")
+    : !chosen?.length
+      ? (ctx.lang === "ar" ? "لا يطابق اختيارك أي منتج، فيرى العملاء كل منتجاتك. غيّر الاختيار من إعدادات هذا القسم." : "Your choice matches no product, so customers see all your products. Change it in this section's settings.")
+      : "";
 
   return (
     <section className={section(ctx.compact)}>
       <Heading title={s.title[ctx.lang]} ctx={ctx} right={items.length > cols ? railCtl.arrows : null} />
+      {note && (
+        <p className="mb-4 rounded-xl border-2 border-dashed px-4 py-3 text-center text-sm font-semibold text-[var(--sf-primary)]" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
+          {note}
+        </p>
+      )}
 
       {items.length ? (
         <Grid items={items} ctx={ctx} columns={s.columns} rail={railCtl} />

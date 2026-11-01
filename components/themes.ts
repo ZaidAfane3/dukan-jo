@@ -373,7 +373,7 @@ function mergeIdentity(cur: StorefrontConfig["identity"], look?: ThemeLook["iden
   return {
     ...rest,
     showLogo: typeof look.showLogo === "boolean" ? look.showLogo : cur.showLogo,
-    align: look.align === "start" || look.align === "center" ? look.align : cur.align,
+    align: look.align === "start" || look.align === "center" || look.align === "end" ? look.align : cur.align,
     ...(typeof look.nameFont === "string" && look.nameFont ? { nameFont: look.nameFont } : {}),
     ...(typeof look.nameColor === "string" && look.nameColor ? { nameColor: look.nameColor } : {}),
   };

@@ -1165,7 +1165,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
               {!pic && (openedPage === null || !pagePanel) && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attnNow?.id ?? (productView ? "productPage" : undefined)} />}
             </div>
-            {/* What saving does (the one Save button is in the top bar). On a phone or a tablet the round "Found a bug?" button sits
+            {/* What saving does (the one Save button is in the top bar). On a phone or a tablet the round "Bug or idea?" button sits
                 at the end of this strip, so the words leave it room. */}
             <div className="shrink-0 border-t border-fg/10 p-3 max-lg:pe-14">
               {(changedIn.en > 0 || changedIn.ar > 0) && (
@@ -1217,7 +1217,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
         </div>
       </div>
 
-      {/* "Found a bug?": a report with pictures, sent as a support ticket with where he was */}
+      {/* "Bug or idea?": a report or an idea with pictures, sent as a support ticket with its kind and where he was */}
       <BugReport
         lang={lang}
         lift={phone && panelOpen && !phoneStore}

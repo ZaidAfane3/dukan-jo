@@ -616,7 +616,7 @@ export function Products() {
                           ) : x.sale !== null ? (
                             <>
                               {fmt(x.sale)} <small className="font-semibold opacity-70">{p.currency}</small>{" "}
-                              <s className="text-xs font-medium text-muted">{fmt(x.price)}</s>
+                              <s className="text-[13px] font-medium text-muted [text-decoration-thickness:1.5px]">{fmt(x.price)}</s>
                             </>
                           ) : (
                             <>

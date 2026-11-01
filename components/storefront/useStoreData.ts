@@ -149,6 +149,12 @@ const isOther = (c: string) => {
 /** Every category a store product is in (one, or several) */
 export const categoriesOf = (p: { category: string; categories?: string[] }): string[] => (p.categories?.length ? p.categories : [p.category]);
 
+/** Whether a product is in a category he named (the "Other" group, in either language, holds the products with none) */
+export const inCategory = (p: { category: string; categories?: string[] }, c: string): boolean => {
+  const k = c.trim().toLowerCase();
+  return categoriesOf(p).some((x) => (isOther(k) ? isOther(x) : x.trim().toLowerCase() === k));
+};
+
 /** Every product with a category to show: no category (or "Other") becomes the "Other" group of this language. */
 export function withOtherCategory<T extends { category: string }>(products: T[], lang: Lang): T[] {
   return products.map((p) => (isOther(p.category) ? { ...p, category: OTHER_CATEGORY[lang] } : p));
@@ -209,10 +215,19 @@ export function useStoreData(lang: Lang, sample = false): StoreData {
 }
 
 /** The merchant's real products (not deleted), for pickers in the designer. */
-export function readProducts(): { id: number; name: string; category: string }[] {
+export function readProducts(): { id: number; name: string; category: string; categories?: string[] }[] {
   return savedList("seen-products")
     .filter((p) => !p.deletedAt)
-    .map((p) => ({ id: Number(p.id), name: String(p.name ?? ""), category: String(p.category ?? "") }));
+    .map((p) => {
+      /* every category it is in, so the designer can offer them all (the first one is its label) */
+      const all = productCategories(p);
+      return { id: Number(p.id), name: String(p.name ?? ""), category: all[0] ?? String(p.category ?? ""), ...(all.length > 1 ? { categories: all } : {}) };
+    });
+}
+
+/** How many of the merchant's own products customers see with a discount (the Deals block shows them; none: it stays hidden). */
+export function countDiscounted(): number {
+  return savedList("seen-products").filter((p) => !p.deletedAt && !p.hidden).map(toStoreProduct).filter((p) => p.sale !== null).length;
 }
 
 /** Keeps which part of a product's main picture stays visible (the store designer sets it by clicking the picture). */

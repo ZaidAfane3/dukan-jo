@@ -15,6 +15,22 @@ import { CartPanel } from "./Cart";
 import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
 import { shownMobile } from "../phone";
 import { hasArabic } from "../safe";
+import { useSpots } from "./spotSignal";
+
+/* In the designer: the open settings point at a part of the store that is empty or hidden. It gets a dashed place with what
+   will show there, so he sees where his change goes (customers never see it). */
+function SpotHole({ spot, text, className = "" }: { spot: string; text: string; className?: string }) {
+  return (
+    <span data-spot={spot} className={`inline-flex items-center justify-center rounded-lg border-2 border-dashed border-[#14b8a6] bg-[#14b8a6]/10 px-3 py-1.5 text-xs font-bold text-[#0f766e] ${className}`}>
+      {text}
+    </span>
+  );
+}
+/* the words of those places */
+const holeWords = {
+  en: { links: "Your links will show here", tagline: "Your short line will show here", bar: "The announcement bar is off: it will show here when you turn it on", column: "This column is hidden: it will show here when you show it", license: "Your license will show here", about: "Your store description will show here" },
+  ar: { links: "ستظهر روابطك هنا", tagline: "سيظهر سطرك القصير هنا", bar: "الشريط الإعلاني مخفي، وسيظهر هنا عند تفعيله", column: "هذا العمود مخفي، وسيظهر هنا عند إظهاره", license: "ستظهر رخصتك هنا", about: "سيظهر وصف متجرك هنا" },
+};
 
 type Props = {
   config?: StorefrontConfig;
@@ -86,6 +102,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const bg = config.pageBackground;
   const bgUrl = useMediaUrl(bg.kind === "none" ? "" : bg.media);
   const centered = config.identity.align === "center";
+  /* the logo and name at the other side (the left in Arabic, the right in English): the header's rows are drawn mirrored */
+  const nameEnd = config.identity.align === "end";
   const compact = device === "mobile" || (device === "auto" && width < 720);
   const primary = config.theme.primary || data.color;
 
@@ -233,11 +251,15 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* a link's own color, where it reads on what the link sits on (the page, or a white pill); otherwise the usual color */
   const linkColor = (c: string | undefined, on: string) => (c && readsOn(c, on) ? c : undefined);
   const drawerLinkOn = config.theme.titleStyle === "pop" ? "#ffffff" : config.theme.background;
+  /* the parts of the store the designer's open settings point at (see spotSignal): an empty one gets a dashed place */
+  const spots = useSpots();
+  const spotted = (key: string) => !!design && spots.some((s) => s.key === key);
+  const taglineHole = !tagline && spotted("identity:tagline");
   const brand = (
-    <a href="#" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
+    <a href="#" data-spot="identity" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
-      {(nameShown || tagline) && (
-        <span className={`flex min-w-0 flex-col ${centered ? "items-center" : ""}`}>
+      {(nameShown || tagline || taglineHole) && (
+        <span className={`flex min-w-0 flex-col ${centered ? "items-center" : nameEnd ? "items-end" : ""}`}>
           {/* his own size wins (a little smaller on a phone); without one, the theme's */}
           {!nameShown ? null : namePlace ?? (config.identity.nameFont ? (
             <span className="max-w-full truncate font-bold leading-tight" style={{ fontFamily: heroTitleFamily(config.identity.nameFont), color: nameColor, fontSize: nameSizeOwn ?? (compact ? 30 : 40) }}><bdi>{data.name}</bdi></span>
@@ -245,8 +267,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             <span className={`max-w-full truncate font-extrabold tracking-tight ${compact ? "text-lg" : "text-xl"}`} style={{ color: nameColor, fontSize: nameSizeOwn }}><bdi>{data.name}</bdi></span>
           ))}
           {/* the small line under the name ("FINE JEWELRY"), in an elegant italic; Arabic is never slanted or spaced out (it breaks the joined letters) */}
+          {taglineHole && <SpotHole spot="identity:tagline" text={holeWords[lang].tagline} className="mt-1" />}
           {tagline && (
-            <span className={`mt-1 max-w-full truncate text-sm ${config.identity.taglineFont || hasArabic(tagline) ? "" : "tracking-[0.2em]"}`} style={{ fontFamily: config.identity.taglineFont ? heroTitleFamily(config.identity.taglineFont) : "var(--font-elegant-latin), Georgia, serif", fontStyle: config.identity.taglineFont || hasArabic(tagline) ? undefined : "italic", color: taglineColor }}><bdi>{tagline}</bdi></span>
+            <span data-spot="identity:tagline" className={`mt-1 max-w-full truncate text-sm ${config.identity.taglineFont || hasArabic(tagline) ? "" : "tracking-[0.2em]"}`} style={{ fontFamily: config.identity.taglineFont ? heroTitleFamily(config.identity.taglineFont) : "var(--font-elegant-latin), Georgia, serif", fontStyle: config.identity.taglineFont || hasArabic(tagline) ? undefined : "italic", color: taglineColor }}><bdi>{tagline}</bdi></span>
           )}
         </span>
       )}
@@ -256,9 +279,53 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* the search bar opened from its icon (declared before the buttons that use it) */
   const [searchOpen, setSearchOpen] = useState(false);
   const iconBtn = "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white ring-1 ring-black/[0.08] transition hover:ring-black/25";
-  /* the search as an icon beside the basket (it opens the bar under the header), or as a full bar: his choice, and with
-     none an icon when the name is in the middle */
-  const searchIcon = (config.nav.searchLook ?? (centered ? "icon" : "bar")) === "icon";
+  /* the search as an icon beside the basket (it opens its field right beside it), or as a full bar: his choice, and with
+     none an icon when the name is in the middle. On a phone there is no room for a bar in the row: always the icon */
+  const searchIcon = compact || (config.nav.searchLook ?? (centered ? "icon" : "bar")) === "icon";
+  /* the field opened from a search icon: focused at once; Escape or a press anywhere else closes it */
+  const searchField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!searchOpen) return;
+    searchField.current?.focus({ preventScroll: true });
+    const away = (e: PointerEvent) => { if (!(e.target as Element | null)?.closest?.("[data-search-zone]")) setSearchOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setSearchOpen(false); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [searchOpen]);
+  /* where the pressed search button sits in the header (its half of the row, and the room from it to the far side), so the
+     field opens toward the middle and never past the edge, whichever side the name and buttons are on */
+  const [searchAt, setSearchAt] = useState<{ right: boolean; room: number }>({ right: true, room: 288 });
+  const measureSearch = (e: React.PointerEvent<HTMLElement>) => {
+    const row = e.currentTarget.closest("header")?.getBoundingClientRect();
+    const r = e.currentTarget.getBoundingClientRect();
+    if (!row) return;
+    const right = r.left + r.width / 2 > row.left + row.width / 2;
+    setSearchAt({ right, room: Math.round(right ? r.right - row.left - 16 : row.right - r.left - 16) });
+  };
+  /* A search button with its field right beside it, in the header row (never on a row of its own): on a wide screen it
+     opens toward the middle of the row, on a phone just under the button */
+  const searchPop = (trigger: React.ReactNode) => (
+    <span data-search-zone onPointerDownCapture={measureSearch} className="relative inline-flex shrink-0">
+      {trigger}
+      {searchOpen && h.showSearch && (
+        <span className={`absolute z-30 ${compact ? `top-full mt-2 ${searchAt.right ? "right-0" : "left-0"}` : `top-1/2 -translate-y-1/2 ${searchAt.right ? "right-full mr-2" : "left-full ml-2"}`}`} style={{ width: Math.max(160, Math.min(compact ? 256 : Math.min(288, Math.max(176, Math.round(width * 0.24))), searchAt.room)) }}>
+          <input
+            ref={searchField}
+            value={query}
+            onChange={(e) => interactive && setQuery(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            placeholder={config.texts.search[lang] || c.search}
+            aria-label={config.texts.search[lang] || c.search}
+            className="h-10 w-full rounded-full bg-white px-4 text-sm leading-[2] text-[#1c1a17] shadow-lg outline-none ring-1 ring-black/[0.12] transition placeholder:text-black/50 focus:ring-2 focus:ring-[var(--sf-primary)]"
+          />
+        </span>
+      )}
+    </span>
+  );
 
   const search = h.showSearch && (
     <label className="relative block min-w-[11rem] flex-1">
@@ -274,15 +341,15 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
 
   const menuBtn = h.showMenu && (
-    <button type="button" onClick={(e) => { /* only opens the menu: in the designer it must not also pick the header and leave the settings he is in */ e.stopPropagation(); setMenu(true); }} aria-label={c.menu} className={iconBtn}>
+    <button type="button" onClick={(e) => { /* only opens the menu: in the designer it must not also pick the header and leave the settings he is in */ e.stopPropagation(); setMenu(true); }} aria-label={c.menu} data-spot="menu" className={iconBtn}>
       {icons.menu}
     </button>
   );
 
 
   const actions = (
-    <div className="flex shrink-0 items-center gap-2">
-              {searchIcon && (
+    <div className={`flex shrink-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>
+              {searchIcon && searchPop(
                 <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={iconBtn}>
                   {icons.search}
                 </button>
@@ -319,7 +386,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* The header with a row of links: logo | links | plain icons (account, saved, search, basket) */
   /* a link to a part of the page that customers do not see (hidden, or with nothing in it yet: no reviews, no products picked)
      is left out of their header; the designer keeps it, so he can still find and edit it */
-  const navLinks = config.nav.style === "links" || config.nav.style === "pill" ? config.nav.links.map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to, color: l.color })).filter((l) => l.name && !(l.to && emptyParts.includes(l.to))) : [];
+  const navOwn = config.nav.style === "links" || config.nav.style === "pill" ? config.nav.links.map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to as string | undefined, color: l.color as string | undefined })).filter((l) => l.name && !(l.to && emptyParts.includes(l.to))) : [];
+  /* in the designer, his navigation settings open with no links yet: the header is drawn as it will be, with one link that
+     says where his links will show */
+  const navLinks = navOwn.length || !spotted("nav") || config.nav.style === "button" ? navOwn : [{ at: -1, name: holeWords[lang].links, to: undefined, color: undefined }];
   /* A link takes the visitor to its part of the page, smoothly */
   const goTo = (e: React.MouseEvent, to?: string) => {
     e.preventDefault();
@@ -346,19 +416,20 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
      with "…") instead of pushing the basket out or wrapping its price: the name in the middle, or the name at the start. */
   const nameMid = "grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)]";
   const nameSide = "grid-cols-[minmax(0,1fr)_auto_minmax(max-content,1fr)]";
+  const nameSideEnd = "grid-cols-[minmax(max-content,1fr)_auto_minmax(0,1fr)]";
   const pillHeader = config.nav.style === "pill" && navLinks.length > 0;
   const linksHeader = navLinks.length > 0 && !pillHeader;
   const [navOn, setNavOn] = useState(0);
   /* The pill header: the name in a dark pill, the links in a white pill (the chosen one colored), and a round basket button */
   const pillBrand = (
-    <a href="#" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className="inline-flex min-w-0 max-w-full items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: pillNameColor, fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
+    <a href="#" data-spot="identity" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className="inline-flex min-w-0 max-w-full items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: pillNameColor, fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
       {namePlace ?? <span className="min-w-0 truncate" style={{ fontSize: nameSizeOwn }}>{data.name}</span>}
     </a>
   );
   /* With the search open, the pill of links turns into the search field in the same place, and the links are hidden until it closes */
   const pillSearch = (
-    <label className="flex h-[46px] w-full min-w-[16rem] max-w-md items-center gap-2 border-2 border-[var(--sf-text)] bg-white px-4" style={{ borderRadius: "var(--sf-pill)" }}>
+    <label data-search-zone onClick={(e) => e.stopPropagation()} className="flex h-[46px] w-full min-w-[16rem] max-w-md items-center gap-2 border-2 border-[var(--sf-text)] bg-white px-4" style={{ borderRadius: "var(--sf-pill)" }}>
       <span className="shrink-0 text-sf-text/60">{icons.search}</span>
       <input
         autoFocus={!design}
@@ -383,7 +454,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           className="whitespace-nowrap px-4 py-1.5 transition duration-200 hover:-translate-y-0.5 hover:scale-105 hover:bg-black/[0.07] active:scale-95"
           style={{ borderRadius: "var(--sf-pill)", ...(linkColor(l.color, "#ffffff") ? { color: l.color } : {}), ...(i === navOn ? { background: config.nav.activeColor || "#ff8fb1", color: onColor(config.nav.activeColor || "#ff8fb1") } : {}) }}
         >
-          <bdi>{l.name}</bdi>
+          {l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}
         </a>
       ))}
     </nav>
@@ -391,14 +462,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* The other buttons of the header follow their switches in the pill header too: menu, search, account, language */
   const pillIcon = "relative grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[var(--sf-text)] bg-white transition hover:-translate-y-0.5";
   const pillMenu = h.showMenu && (
-    <button type="button" onClick={(e) => { e.stopPropagation(); setMenu(true); }} aria-label={c.menu} className={pillIcon}>
+    <button type="button" onClick={(e) => { e.stopPropagation(); setMenu(true); }} aria-label={c.menu} data-spot="menu" className={pillIcon}>
       {icons.menu}
     </button>
   );
   const pillExtras = (
     <>
       {h.showSearch && (
-        <button type="button" onClick={() => setSearchOpen((v) => !v)} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={`${pillIcon} ${searchOpen ? "!bg-[var(--sf-text)] !text-[var(--sf-bg)]" : ""}`}>
+        <button type="button" data-search-zone onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={`${pillIcon} ${searchOpen ? "!bg-[var(--sf-text)] !text-[var(--sf-bg)]" : ""}`}>
           {icons.search}
         </button>
       )}
@@ -414,11 +485,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const textCart = config.nav.cartLook === "text";
   const digits = (n: number) => (lang === "ar" ? String(n).replace(/[0-9]/g, (d) => "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"[Number(d)]) : String(n));
   const wordBtn = "inline-flex min-h-[44px] items-center whitespace-nowrap text-sm font-light tracking-[0.04em] transition hover:opacity-70";
+  /* the buttons' side of the row: the end, or the start when the name sits at the end (mirrored, the search nearest the middle) */
+  const plainRow = nameEnd ? "flex-row-reverse justify-end" : "justify-end";
   const plainActions = textCart ? (
-    <div className="flex items-center justify-end gap-3">
+    <div className={`flex items-center gap-3 ${plainRow}`}>
       {h.showSearch && (
         <>
-          <button type="button" onClick={() => setSearchOpen((v) => !v)} aria-expanded={searchOpen} className={wordBtn}>{config.texts.search[lang] || c.search}</button>
+          {searchPop(<button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-expanded={searchOpen} className={wordBtn}>{config.texts.search[lang] || c.search}</button>)}
           <span aria-hidden className="opacity-50">·</span>
         </>
       )}
@@ -427,9 +500,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       {h.showCart && <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className={wordBtn}>{c.cart} <span className="ms-1" style={config.theme.saleColor ? { color: "var(--sf-sale)" } : undefined}>({digits(cart.count)})</span></button>}
     </div>
   ) : (
-    <div className="flex items-center justify-end">
-      {h.showSearch && (
-        <button type="button" onClick={() => setSearchOpen((v) => !v)} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={plain}>
+    <div className={`flex items-center ${plainRow}`}>
+      {h.showSearch && searchPop(
+        <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={plain}>
           {icons.search}
         </button>
       )}
@@ -473,7 +546,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       )}
       {data.isDemo && design && <p className="px-4 py-2 text-center text-xs font-medium" style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)" }}>{c.sample}</p>}
 
-      <AnnouncementBar config={config} lang={lang} design={design} reduceMotion={reduceMotion} offer={freeDeliveryText(fd, lang, cart.total, priceLang(config.theme.prices, lang))} offerColor={primary} linkFor={(l) => linkProps(l, ctx)} />
+      <AnnouncementBar config={config} lang={lang} design={design} reduceMotion={reduceMotion} offer={freeDeliveryText(fd, lang, cart.total, priceLang(config.theme.prices, lang))} offerColor={primary} linkFor={(l) => linkProps(l, ctx)} spotted={spotted("announcement")} />
 
       <header onClick={() => design?.select("header")} className={`group/sel z-20 ${pillHeader ? "" : config.theme.hairlines ? "border-b border-[color-mix(in_srgb,var(--sf-primary)_25%,transparent)] backdrop-blur-xl" : "border-b border-black/[0.06] backdrop-blur-xl"} ${h.sticky ? "sticky top-0" : "relative"} ${design ? "cursor-pointer" : ""}`} style={{ background: pillHeader ? "color-mix(in srgb, var(--sf-bg) 94%, transparent)" : "color-mix(in srgb, var(--sf-bg) 86%, transparent)" }}>
         {pillHeader ? (
@@ -489,11 +562,18 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             </div>
           ) : compact ? (
             <div className="px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2">{pillMenu}{pillBrand}</div>
-                <div className="flex shrink-0 items-center gap-2">{pillExtras}{pillCart}</div>
+              <div className={`flex items-center justify-between gap-3 ${nameEnd ? "flex-row-reverse" : ""}`}>
+                <div className={`flex min-w-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>{pillMenu}{pillBrand}</div>
+                <div className={`flex shrink-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>{pillExtras}{pillCart}</div>
               </div>
               <div className="mt-3 flex justify-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{searchOpen && h.showSearch ? pillSearch : pillNav}</div>
+            </div>
+          ) : nameEnd ? (
+            /* mirrored: buttons | links | name, the menu button at the outer edge */
+            <div className={`grid ${nameSideEnd} items-center gap-6 px-8 py-4`}>
+              <div className="flex flex-row-reverse items-center justify-end gap-2">{pillExtras}{pillCart}</div>
+              {searchOpen && h.showSearch ? pillSearch : pillNav}
+              <div className="flex min-w-0 flex-row-reverse items-center justify-start gap-2">{pillMenu}{pillBrand}</div>
             </div>
           ) : (
             <div className={`grid ${nameSide} items-center gap-6 px-8 py-4`}>
@@ -508,7 +588,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               <nav aria-label={c.pages} className="flex items-center justify-start gap-7 text-[14px] font-light tracking-[0.04em]">
                 {menuBtn}
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center text-[var(--sf-text)] transition duration-200 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}><bdi>{l.name}</bdi></a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center text-[var(--sf-text)] transition duration-200 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
                 ))}
               </nav>
               <div className="min-w-0">{brand}</div>
@@ -523,7 +603,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               </div>
               <nav aria-label={c.pages} className="mt-2 flex items-center justify-center gap-9 text-[14px]">
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}><bdi>{l.name}</bdi></a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
                 ))}
               </nav>
             </div>
@@ -534,38 +614,47 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[13px] font-light">
                 {menuBtn}
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}><bdi>{l.name}</bdi></a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[44px] items-center" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
                 ))}
                 {plainActions}
               </div>
             </div>
           ) : compact ? (
+            /* on a phone the name stays in the middle; the menu button and the other buttons swap sides when the name is set
+               to the end */
             <div className={`grid ${nameMid} items-center gap-3 px-4 py-3`}>
-              <div className="flex items-center justify-start">{menuBtn}</div>
+              <div className="flex items-center justify-start">{nameEnd ? plainActions : menuBtn}</div>
               <div className="min-w-0">{brand}</div>
-              <div className="flex items-center justify-end">{plainActions}</div>
+              <div className="flex items-center justify-end">{nameEnd ? menuBtn : plainActions}</div>
             </div>
           ) : (
-            <div className={`grid ${nameSide} items-center gap-6 px-8 py-3`}>
-              <div className="flex min-w-0 items-center justify-start gap-3">{menuBtn}{brand}</div>
+            /* name | links | buttons, or mirrored when the name sits at the end (the menu button at the outer edge) */
+            <div className={`grid ${nameEnd ? nameSideEnd : nameSide} items-center gap-6 px-8 py-3`}>
+              {nameEnd && plainActions}
+              {!nameEnd && <div className="flex min-w-0 items-center justify-start gap-3">{menuBtn}{brand}</div>}
               <nav aria-label={c.pages} className="flex items-center gap-9 text-[14px]">
                 {navLinks.map((l, i) => (
-                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}><bdi>{l.name}</bdi></a>
+                  <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-block text-[var(--sf-text)] transition duration-200 hover:-translate-y-0.5 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.at < 0 ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
                 ))}
               </nav>
-              {plainActions}
+              {!nameEnd && plainActions}
+              {nameEnd && <div className="flex min-w-0 flex-row-reverse items-center justify-start gap-3">{menuBtn}{brand}</div>}
             </div>
           )
         ) : centered ? (
-          /* Name in the middle: menu | name | account and cart, with the search bar on its own row */
+          /* Name in the middle: menu (and the full search bar, when he chose it) | name | search icon and cart, all in one row */
           <div className={`grid ${nameMid} items-center gap-3 ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
-            <div className="flex items-center justify-start">{menuBtn}</div>
+            <div className="flex min-w-0 items-center justify-start gap-3">
+              {menuBtn}
+              {!searchIcon && <div className="w-full min-w-0 max-w-xs">{search}</div>}
+            </div>
             <div className="min-w-0">{brand}</div>
             <div className="flex items-center justify-end">{actions}</div>
           </div>
         ) : (
-          /* a long name gives way first (it ends with "…"): the search keeps its room and the basket never wraps */
-          <div className={`flex items-center gap-3 ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
+          /* a long name gives way first (it ends with "…"): the search keeps its room and the basket never wraps; with the
+             name at the end the row is mirrored (the menu button at the outer edge, the buttons at the start) */
+          <div className={`flex items-center gap-3 ${nameEnd ? "flex-row-reverse" : ""} ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
             {menuBtn}
             <div className={`min-w-0 ${compact ? "flex-1" : "max-w-[40%] shrink"}`}>{brand}</div>
 
@@ -575,8 +664,6 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             {actions}
           </div>
         )}
-        {linksHeader && searchOpen && h.showSearch && <div className={compact ? "px-4 pb-3" : "mx-auto max-w-xl px-8 pb-4"}>{search}</div>}
-        {!linksHeader && !pillHeader && (searchIcon ? searchOpen : compact || centered) && h.showSearch && <div className={compact ? "px-4 pb-3" : "mx-auto max-w-xl px-8 pb-4"}>{search}</div>}
         {design && <span aria-hidden className={`pointer-events-none absolute inset-1 rounded-xl ring-2 ring-[#14b8a6] transition ${design.selected === "header" ? "opacity-100" : "opacity-0 group-hover/sel:opacity-100"}`} />}
       </header>
 
@@ -637,9 +724,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       <Footer config={config} data={data} compact={compact} lang={lang} design={design} logo={logo} namePlace={namePlace} onPage={openPage} onSection={(id) => { if (!design) showSection(id); }} />
 
       {menu && (
-        <div className="absolute inset-0 z-30 flex" role="dialog" aria-modal="true" aria-label={c.menu}>
+        /* the sidebar opens from the side its button is on (the end, when the name and the menu button sit there) */
+        <div className={`absolute inset-0 z-30 flex ${nameEnd ? "justify-end" : ""}`} role="dialog" aria-modal="true" aria-label={c.menu}>
           <button type="button" aria-label={c.close} onClick={() => setMenu(false)} className="absolute inset-0 bg-black/40" />
-          <nav className={`relative z-10 flex h-full w-80 max-w-[85%] flex-col gap-6 overflow-y-auto p-6 shadow-2xl ${config.theme.titleStyle === "pop" ? "border-e-2 border-[var(--sf-text)]" : ""}`} style={{ background: "var(--sf-bg)", color: "var(--sf-text)" }}>
+          <nav className={`relative z-10 flex h-full w-80 max-w-[85%] flex-col gap-6 overflow-y-auto p-6 shadow-2xl ${config.theme.titleStyle === "pop" ? (nameEnd ? "border-s-2 border-[var(--sf-text)]" : "border-e-2 border-[var(--sf-text)]") : ""}`} style={{ background: "var(--sf-bg)", color: "var(--sf-text)" }}>
             <div className="flex items-center justify-between">
               {config.nav.style === "pill" ? pillBrand : brand}
               <button type="button" onClick={() => setMenu(false)} aria-label={c.close} className={config.theme.titleStyle === "pop" ? "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[var(--sf-text)] bg-white transition hover:-translate-y-0.5" : iconBtn}>
@@ -708,7 +796,7 @@ function freeDeliveryText(fd: FreeDelivery, lang: "en" | "ar", total: number, pr
   return ar ? "طلبك يحصل على توصيل مجاني" : "Your order gets free delivery";
 }
 
-function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor, linkFor }: { config: StorefrontConfig; lang: "en" | "ar"; design?: Design; reduceMotion: boolean; offer: string; offerColor: string; linkFor: (link: string) => React.AnchorHTMLAttributes<HTMLAnchorElement> }) {
+function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor, linkFor, spotted = false }: { config: StorefrontConfig; lang: "en" | "ar"; design?: Design; reduceMotion: boolean; offer: string; offerColor: string; linkFor: (link: string) => React.AnchorHTMLAttributes<HTMLAnchorElement>; /* its settings are open in the designer: switched off, it shows where it would be */ spotted?: boolean }) {
   const a = config.announcement;
   /* only what he wrote in this language: an empty message is skipped (never the other language's words in its place) */
   const own = a.show ? a.messages.map((m) => ({ ...m, label: m.text[lang] ?? "" })).filter((m) => m.label.trim()) : [];
@@ -725,9 +813,10 @@ function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor
 
   if (!list.length) {
     /* turned on with nothing written yet: customers see no bar; the designer shows a dashed place that opens its settings */
+    if (design && !a.show && spotted) return <div className="flex justify-center px-4 py-1.5"><SpotHole spot="announcement" text={holeWords[lang].bar} className="w-full" /></div>;
     if (!design || !a.show) return null;
     return (
-      <button type="button" onClick={() => design.select("announcement")} className="block w-full border-y border-dashed border-fg/25 bg-fg/[0.03] py-2 text-center text-xs font-semibold text-sf-text/55">
+      <button type="button" data-spot="announcement" onClick={() => design.select("announcement")} className="block w-full border-y border-dashed border-fg/25 bg-fg/[0.03] py-2 text-center text-xs font-semibold text-sf-text/55">
         {lang === "ar" ? "اكتب رسالة الشريط الإعلاني في الإعدادات لتظهر هنا" : "Write the announcement bar's message in its settings to show it here"}
       </button>
     );
@@ -763,7 +852,7 @@ function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor
       </div>
     );
     return (
-      <div role="note" dir="ltr" onClick={() => design?.select("announcement")} className={`dk-ticker py-2 ${wrap}`} style={{ background: list[0].color }}>
+      <div role="note" data-spot="announcement" dir="ltr" onClick={() => design?.select("announcement")} className={`dk-ticker py-2 ${wrap}`} style={{ background: list[0].color }}>
         <div className={`dk-marquee flex w-max ${lang === "ar" ? "dk-marquee-rev" : ""}`} style={{ "--dk-d": `${Math.round(Math.max(20, chars * 0.9 * 3 / 2) * pace)}s` } as React.CSSProperties}>
           {copy("a")}
           {copy("b")}
@@ -776,6 +865,7 @@ function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor
   return (
     <div
       role="note"
+      data-spot="announcement"
       onClick={() => design?.select("announcement")}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
@@ -910,7 +1000,7 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
 
   const ownCols = new Map(footerColumns(f).filter((x) => x.kind === "custom").map((x) => [x.id, items(x.links)]));
   /* The columns, in the order the merchant chose. Visitors only see a column with something in it; the designer also shows empty ones. */
-  const shown = footerColumns(f).filter((col) => {
+  const isOn = (col: ReturnType<typeof footerColumns>[number]) => {
     if (col.visible === false) return false;
     if (col.kind === "about") return !!(f.showLogo || aboutText);
     if (col.kind === "pages") return f.showLinks && (pageItems.length > 0 || !!design);
@@ -918,7 +1008,11 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
     if (col.kind === "social") return f.showSocial && (socials.length > 0 || !!design);
     if (col.kind === "licenses") return hasCertificate;
     return (ownCols.get(col.id)?.length ?? 0) > 0 || !!design;
-  });
+  };
+  /* the designer's settings of a column that does not show (hidden, or nothing in it yet) are open: it gets a dashed place */
+  const spots = useSpots();
+  const spotted = (col: ReturnType<typeof footerColumns>[number]) => !!design && spots.some((s) => s.key === `footer:${col.kind}`);
+  const shown = footerColumns(f).filter((col) => isOn(col) || spotted(col));
 
   /* The parts both styles share */
   /* a long title breaks between words; inside a word only when one word alone is wider than the column */
@@ -963,7 +1057,7 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
           </>
         );
         return (
-          <li key={x.key} onClick={edit(x.key)} className={`flex min-w-0 items-center gap-2 ${hot}`}>
+          <li key={x.key} data-spot={`footer:${x.key}`} onClick={edit(x.key)} className={`flex min-w-0 items-center gap-2 ${hot}`}>
             {x.href && !design ? (
               <a href={x.href} {...(x.blank ? { target: "_blank", rel: "noreferrer" } : {})} className="flex min-w-0 items-center gap-2 transition hover:text-[var(--sf-primary)]">{body}{x.blank && newTab}</a>
             ) : body}
@@ -1018,17 +1112,30 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
   /* One column: its title and its content */
   const column = (col: (typeof shown)[number]) => {
     const cls = "min-w-0 [overflow-wrap:anywhere]";
+    /* each column says which part of the designer's footer settings fills it (see spotSignal) */
+    const spot = `footer:${col.kind}`;
+    if (!isOn(col)) {
+      const hw = holeWords[lang];
+      const title = col.kind === "about" ? "" : col.kind === "pages" ? word("pages") : col.kind === "contact" ? word("contact") : col.kind === "social" ? word("follow") : col.kind === "licenses" ? word("licenses") : bi(col.title);
+      return (
+        <div key={col.id} className={cls}>
+          {heading(title)}
+          <SpotHole spot={spot} text={col.visible === false ? hw.column : col.kind === "licenses" ? hw.license : col.kind === "about" ? hw.about : hw.column} />
+        </div>
+      );
+    }
     if (col.kind === "about")
       return (
-        <div key={col.id} className={`${cls} ${simple ? "max-w-xs" : ""}`} style={!simple && !compact ? { gridColumn: "span 2" } : undefined}>
+        <div key={col.id} data-spot={spot} className={`${cls} ${simple ? "max-w-xs" : ""}`} style={!simple && !compact ? { gridColumn: "span 2" } : undefined}>
           {brand}
-          {aboutText && <p onClick={edit("about")} className={`${simple ? "mt-2" : "mt-3 max-w-sm"} block whitespace-pre-line leading-relaxed ${hot}`} style={{ color: dim(simple ? 70 : 65), fontSize: textSize }}><bdi>{aboutText}</bdi></p>}
+          {aboutText && <p data-spot="footer:about" onClick={edit("about")} className={`${simple ? "mt-2" : "mt-3 max-w-sm"} block whitespace-pre-line leading-relaxed ${hot}`} style={{ color: dim(simple ? 70 : 65), fontSize: textSize }}><bdi>{aboutText}</bdi></p>}
+          {!aboutText && design && spots.some((s) => s.key === "footer:about") && <SpotHole spot="footer:about" text={holeWords[lang].about} className="mt-3" />}
         </div>
       );
     if (col.kind === "pages" || col.kind === "custom") {
       const title = col.kind === "pages" ? word("pages") : bi(col.title);
       return (
-        <div key={col.id} className={cls}>
+        <div key={col.id} data-spot={spot} className={cls}>
           {heading(title)}
           {linkList(title, col.kind === "pages" ? pageItems : ownCols.get(col.id) ?? [])}
         </div>
@@ -1036,20 +1143,20 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
     }
     if (col.kind === "contact")
       return (
-        <div key={col.id} className={cls}>
+        <div key={col.id} data-spot={spot} className={cls}>
           {heading(word("contact"))}
           {contactList}
         </div>
       );
     if (col.kind === "social")
       return (
-        <div key={col.id} className={cls}>
+        <div key={col.id} data-spot={spot} className={cls}>
           {heading(word("follow"))}
           {socialList}
         </div>
       );
     return (
-      <div key={col.id} onClick={edit("licenses")} className={cls}>
+      <div key={col.id} data-spot={spot} onClick={edit("licenses")} className={cls}>
         {heading(word("licenses"))}
         {certBadge}
       </div>

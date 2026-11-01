@@ -132,7 +132,7 @@ export type SectionConfig = (
   | { id: string; type: "collection"; visible: boolean; settings: { title: Bi; productIds: number[]; count: number; columns: 2 | 3 | 4; /* where "view all" leads ("" shows it without a link) */ link?: string; /* a band of its own color across the whole width ("" : none) */ background?: string; color?: string } }
   | { id: string; type: "reviews"; visible: boolean; settings: { title: Bi; items: Review[] } }
   | { id: string; type: "text"; visible: boolean; settings: { title: Bi; body: Bi; align: "start" | "center"; tint: boolean; /* "statement": a centered block with a small line above, a big title, a button and a row of short promises */ style?: "plain" | "statement"; eyebrow?: Bi; button?: Bi; link?: string; trust?: Bi[]; /* text sizes in pixels and colors of their own (empty: the theme's) */ sizes?: { title?: number; body?: number; eyebrow?: number; button?: number }; colors?: { title?: string; body?: string; eyebrow?: string; button?: string }; styles?: { title?: TextStyle; body?: TextStyle; eyebrow?: TextStyle } } }
-  | { id: string; type: "products"; visible: boolean; settings: { title: Bi; columns: 2 | 3 | 4; showFilters: boolean; limit?: number } }
+  | { id: string; type: "products"; visible: boolean; settings: { title: Bi; columns: 2 | 3 | 4; showFilters: boolean; limit?: number; /* which products it shows: all (default), the ones in his chosen categories, or the ones he picked, in his order. Ids and category names only, never copies of products */ source?: "all" | "categories" | "picked"; categories?: string[]; productIds?: number[] } }
 ) & { moves?: SectionMoves; titleLook?: TitleLook; /* the subtitle's own font (empty: the theme's) */ subFont?: HeroFont; /* by the picture's place in the section ("img:0") */ pics?: Record<string, PicEdit> };
 
 export type SectionType = SectionConfig["type"];
@@ -234,7 +234,9 @@ export type StorefrontConfig = {
   /* nameFont, nameColor: the store name in a font and a color of its own (header and footer). tagline: a small line under the name,
      with its own font and color (none: thin and slanted, in the accent color) */
   /* showName: the store name beside the logo (off: the logo stands alone; with no logo the name always shows) */
-  identity: { showLogo: boolean; showName?: boolean; align: "start" | "center"; logo: LogoConfig; favicon: string; nameFont?: HeroFont; nameColor?: string; /* the store name's size in the header, in px (none: the theme's) */ nameSize?: number; tagline?: Bi; taglineFont?: HeroFont; taglineColor?: string };
+  /* align: where the logo and name sit in the header. "start" is the side the language reads from (the right in Arabic, the left
+     in English), "end" the other side; the header's buttons move to the side the name leaves free */
+  identity: { showLogo: boolean; showName?: boolean; align: "start" | "center" | "end"; logo: LogoConfig; favicon: string; nameFont?: HeroFont; nameColor?: string; /* the store name's size in the header, in px (none: the theme's) */ nameSize?: number; tagline?: Bi; taglineFont?: HeroFont; taglineColor?: string };
   sections: SectionConfig[];
   /* A picture, GIF or looping video behind the whole page. The file itself is kept in the browser's
      media storage under `media`. `veil` is how much of the page color covers it, so text stays readable. */

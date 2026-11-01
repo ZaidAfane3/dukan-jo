@@ -220,7 +220,7 @@ const shapes: Shapes = {
     title: bi(), body: para, align: oneOf("start", "center"), tint: bool, style: oneOf("plain", "statement"), eyebrow: bi(), button: bi(), link, trust: list((v) => bi()(v ?? "", 0), 8),
     sizes: sizesOf("title", "body", "eyebrow", "button"), colors: colorsOf("title", "body", "eyebrow", "button"), styles: stylesOf("title", "body", "eyebrow"),
   },
-  products: { title: bi(), columns: oneOf(2, 3, 4), showFilters: bool, limit: num(0, 500, true) },
+  products: { title: bi(), columns: oneOf(2, 3, 4), showFilters: bool, limit: num(0, 500, true), source: oneOf("all", "categories", "picked"), categories: list(text(60), 30), productIds: list(productId, 100) },
 };
 
 /* A section of each kind as the designer adds it: what a saved section is missing comes from here */
@@ -322,7 +322,7 @@ const top: Top = {
   texture: obj({ pattern: (v) => (v === true ? "stars" : v === false ? "none" : oneOf("none", "stars", "dots", "lines", "diamonds", "waves")(v, 0)), watermark: bi(80), area: oneOf("all", "below", "top"), strength: oneOf("light", "medium", "strong"), fade: bool }),
   header: obj({ showMenu: bool, showSearch: bool, showUser: bool, showCart: bool, showLanguage: bool, sticky: bool }),
   identity: obj({
-    showLogo: bool, align: oneOf("start", "center"), logo: obj({ kind: oneOf("auto", "letter", "sample", "image"), sample: oneOf("shop", "bag", "star", "heart", "leaf", "bolt"), image: pic }),
+    showLogo: bool, align: oneOf("start", "center", "end"), logo: obj({ kind: oneOf("auto", "letter", "sample", "image"), sample: oneOf("shop", "bag", "star", "heart", "leaf", "bolt"), image: pic }),
     favicon: pic, showName: bool, nameFont: heroFont, nameColor: color, nameSize: num(12, 72, true), tagline: bi(160), taglineFont: heroFont, taglineColor: color,
   }),
   sections: sanitizeSections,

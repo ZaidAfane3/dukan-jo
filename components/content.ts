@@ -373,6 +373,11 @@ export type Content = {
     cols: string[];
     categories: string[];
     statuses: string[];
+    /* bug or idea: the badge on a ticket and the filter above the list */
+    kinds: { bug: string; idea: string };
+    filters: { all: string; bug: string; idea: string };
+    filterLabel: string;
+    noneOfKind: string;
     subject: string;
     subjectPh: string;
     category: string;
@@ -934,6 +939,10 @@ export const content: Record<Lang, Content> = {
       cols: ["Ticket", "Category", "Status", "Created", "Actions"],
       categories: ["Orders", "Payments", "Technical issue", "Store design", "Suggestions", "Other"],
       statuses: ["Open", "Closed"],
+      kinds: { bug: "Bug", idea: "Idea" },
+      filters: { all: "All", bug: "Bugs", idea: "Ideas" },
+      filterLabel: "Show",
+      noneOfKind: "No tickets of this kind yet.",
       subject: "Subject",
       subjectPh: "What do you need help with?",
       category: "Category",
@@ -1543,6 +1552,10 @@ export const content: Record<Lang, Content> = {
       cols: ["التذكرة", "التصنيف", "الحالة", "تاريخ الإنشاء", "إجراءات"],
       categories: ["الطلبات", "المدفوعات", "مشكلة تقنية", "تصميم المتجر", "اقتراحات", "أخرى"],
       statuses: ["مفتوحة", "مغلقة"],
+      kinds: { bug: "خطأ", idea: "اقتراح" },
+      filters: { all: "الكل", bug: "الأخطاء", idea: "الاقتراحات" },
+      filterLabel: "عرض",
+      noneOfKind: "لا توجد تذاكر من هذا النوع بعد.",
       subject: "الموضوع",
       subjectPh: "بماذا تحتاج المساعدة؟",
       category: "التصنيف",

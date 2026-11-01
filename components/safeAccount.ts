@@ -134,13 +134,23 @@ export function cleanDomains(v: unknown): CustomDomain[] {
 /* ---------------- support tickets ---------------- */
 
 /* pictures: up to 5 screenshots he attached (small data URLs in this prototype; the backend will keep them as uploaded files) */
-export type Ticket = { id: string; subject: string; category: number; message: string; status: 0 | 1; created: number; pictures?: string[] };
+/* kind: what the designer's "Bug or idea?" button sent (none: a ticket written in Support, or an older report) */
+export type Ticket = { id: string; subject: string; category: number; message: string; status: 0 | 1; created: number; pictures?: string[]; kind?: "bug" | "idea" };
 
 /** How many pictures a ticket can have */
 export const TICKET_PICTURES = 5;
 
 /** A ticket is sent only when the subject has 3 and the message 10 characters that can be seen. */
 export const TICKET_MIN = { subject: 3, message: 10 };
+
+/** Bug or idea, for the badge and the filter in Support: what the ticket says it is; else the "Suggestions" category is an idea,
+    and a "Technical issue" or an older designer report (sent before reports had a kind) is a bug; anything else is neither */
+export function ticketKind(t: Ticket): "bug" | "idea" | undefined {
+  if (t.kind) return t.kind;
+  if (t.category === 4) return "idea";
+  if (t.category === 2 || t.subject === "Bug in the theme designer" || t.subject === "خطأ في مصمم الثيم") return "bug";
+  return undefined;
+}
 
 export function cleanTickets(v: unknown, categories = 10): Ticket[] {
   if (!Array.isArray(v)) return [];
@@ -151,7 +161,7 @@ export function cleanTickets(v: unknown, categories = 10): Ticket[] {
     const id = typeof t.id === "string" && /^#\d{1,9}$/.test(t.id) ? t.id : "";
     const subject = cleanLine(t.subject, ACCOUNT_LIMITS.subject);
     if (!id || !subject || out.some((x) => x.id === id)) continue;
-    out.push({ id, subject, category: whole(t.category, 0, categories - 1, 0), message: cleanLines(t.message, ACCOUNT_LIMITS.message), status: t.status === 1 ? 1 : 0, created: time(t.created), pictures: (Array.isArray(t.pictures) ? t.pictures : []).filter((p): p is string => typeof p === "string" && !!safeImage(p)).slice(0, TICKET_PICTURES) });
+    out.push({ id, subject, category: whole(t.category, 0, categories - 1, 0), message: cleanLines(t.message, ACCOUNT_LIMITS.message), status: t.status === 1 ? 1 : 0, created: time(t.created), pictures: (Array.isArray(t.pictures) ? t.pictures : []).filter((p): p is string => typeof p === "string" && !!safeImage(p)).slice(0, TICKET_PICTURES), ...(t.kind === "bug" || t.kind === "idea" ? { kind: t.kind } : {}) });
   }
   return out;
 }

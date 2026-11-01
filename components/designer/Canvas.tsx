@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
 import { dc } from "./copy";
+import { useSpots, type Spot } from "../storefront/spotSignal";
 
 const BASE = 1100; /* the width of the store at 100% */
 const MIN = 0.25; /* the smallest zoom of the buttons and the wheel */
@@ -12,6 +13,47 @@ const MAX = 1.5;
 const clamp = (z: number, now = MIN) => Math.min(MAX, Math.max(Math.min(MIN, now), z));
 /* On a narrow screen the whole store is too small to read: a part being edited there is shown at this zoom */
 const READ = 0.6;
+
+/* Where each part the settings point at is drawn in the store (see spotSignal): the first one of these that is seen. A part
+   of its own carries data-spot; a block of the page is its data-sf, and one of its texts the data-pick inside it. */
+/* (in order: the first selector that finds something seen wins) */
+const SPOT_AT: Record<string, string[]> = {
+  /* the header's links, or with the sidebar style its button */
+  nav: ['header [data-spot="nav"]', "header nav", '[data-spot="menu"]'],
+  search: ['[data-spot="search"]', "[data-search-zone]", "header label:has(input)", "header button[aria-expanded]"],
+  sidebar: ['[role="dialog"] > nav'],
+  cards: ["main article"],
+  footer: ['footer[data-sf="footer"]'],
+};
+const seen = (el: HTMLElement) => {
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+};
+function spotEl(frame: HTMLElement, key: string): HTMLElement | null {
+  const sec = /^sec:([^:]+)(?::(.+))?$/.exec(key);
+  const inSec = sec ? `[data-sf="${CSS.escape(sec[1])}"]` : "";
+  /* a block's title drawn as its usual heading has no data-pick of its own: its h2 */
+  const at = SPOT_AT[key] ?? (sec ? (sec[2] ? [`${inSec} [data-pick="${CSS.escape(sec[2])}"]`, ...(sec[2] === "title" ? [`${inSec} h2`] : [])] : [inSec]) : [`[data-spot="${CSS.escape(key)}"]`]);
+  for (const sel of at) {
+    try {
+      const el = Array.from(frame.querySelectorAll<HTMLElement>(sel)).find(seen);
+      if (el) return el;
+    } catch {
+      /* a selector this browser does not know (:has) */
+    }
+  }
+  return null;
+}
+/* the newest settings that point at something the store shows (an older one when the newest has no place of its own) */
+function findSpot(frame: HTMLElement, spots: Spot[]): { el: HTMLElement; spot: Spot } | null {
+  for (const spot of spots) {
+    const el = spotEl(frame, spot.key);
+    if (el) return { el, spot };
+  }
+  return null;
+}
+/* the room between the outline and what it marks */
+const SPOT_GAP = 6;
 
 const ic = { viewBox: "0 0 24 24", className: "h-5 w-5", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 
@@ -87,33 +129,81 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
     return () => cancelAnimationFrame(id);
   }, [reveal]);
 
-  /* On a narrow screen (a phone), the part being edited is made big enough to read and scrolled into view.
-     When it is closed, the store goes back to fitting the width, unless the merchant picked a zoom of his own meanwhile. */
+  /* What the open settings change (spotSignal), and the part being edited on a phone (frameOn): the preview brings it into
+     view and outlines it with its name, like a selected block. */
+  const spots = useSpots();
+  const aims: Spot[] = frameOn ? [...spots, { key: frameOn === "footer" ? "footer" : `sec:${frameOn}`, label: "", ring: false }] : spots;
+  const aimKey = aims.map((s) => s.key).join("|");
+  const aimsNow = useRef(aims);
+  aimsNow.current = aims;
+  const zoomNow = useRef(zoom);
+  zoomNow.current = zoom;
+  /* the canvas hidden (a phone showing the settings) has no size: it brings the part into view once it shows again */
+  const [shownN, setShownN] = useState(0);
   useEffect(() => {
     const b = box.current;
     if (!b) return;
+    let was = b.clientWidth > 0;
+    const ro = new ResizeObserver(() => {
+      const is = b.clientWidth > 0;
+      if (is && !was) setShownN((n) => n + 1);
+      was = is;
+    });
+    ro.observe(b);
+    return () => ro.disconnect();
+  }, []);
+
+  /* On a narrow screen (a phone) the part is made big enough to read and kept in view while the store settles; on a wide one it
+     is scrolled into view once, only when it is not already seen. When nothing is pointed at, a narrow store goes back to
+     fitting the width, unless the merchant picked a zoom of his own meanwhile. */
+  useEffect(() => {
+    const b = box.current;
+    if (!b || b.clientWidth === 0) return;
     const narrow = (b.clientWidth - 40) / BASE < READ - 0.1;
-    if (!frameOn || !narrow) {
+    if (!aimKey) {
       if (framed.current && autoZoom.current) setZoom(clamp(Math.floor(Math.min(1, (b.clientWidth - 40) / BASE) * 100) / 100));
       framed.current = false;
       return;
     }
-    framed.current = true;
-    setZoom((z) => Math.max(z, READ));
-    /* The panel and the store change size for a moment after the part opens (the zoom, the panel's new form, pictures):
-       it is kept in view for a little while, until the merchant scrolls or touches the canvas himself */
+    if (narrow) {
+      framed.current = true;
+      setZoom((z) => Math.max(z, READ));
+    }
+    const smooth = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    /* The panel and the store change size for a moment after the part opens (the zoom, the panel's new form, a dashed place
+       for an empty part): it is looked for a little while, until the merchant scrolls or touches the canvas himself */
     let frames = 0;
+    let done = false;
     let id = 0;
     const go = () => {
-      const el = frame.current?.querySelector<HTMLElement>(`[data-sf="${CSS.escape(frameOn)}"]`);
-      if (el) {
-        /* the store is laid out left to right in the canvas: an Arabic store starts on the right */
-        const rtl = getComputedStyle(el).direction === "rtl";
-        const r = el.getBoundingClientRect();
+      const f = frame.current;
+      const hit = f ? findSpot(f, aimsNow.current) : null;
+      if (hit) {
+        const r = hit.el.getBoundingClientRect();
         const rb = b.getBoundingClientRect();
-        b.scrollTo({ top: Math.max(0, r.top - rb.top + b.scrollTop - 12), left: rtl ? b.scrollWidth : 0 });
+        if (narrow) {
+          /* the store is laid out left to right in the canvas: an Arabic store starts on the right. It stays at its start
+             edge when the part shows from there; a part further along (the links at the far end of the header, a "view
+             all") is brought in, its start first when it is wider than the screen */
+          const rtl = getComputedStyle(hit.el).direction === "rtl";
+          /* where the part would be with the canvas at its start edge (scroll 0: the left in English, the right in Arabic) */
+          const x0 = r.left - rb.left + b.scrollLeft;
+          const x1 = r.right - rb.left + b.scrollLeft;
+          const w = b.clientWidth;
+          const left = x1 - x0 > w - 32 ? (rtl ? x1 - (w - 16) : x0 - 16) : x1 > w - 16 ? x1 - (w - 16) : x0 < 16 ? x0 - 16 : 0;
+          b.scrollTo({ top: Math.max(0, r.top - rb.top + b.scrollTop - 40), left });
+        } else if (!done && frames > 2) {
+          done = true;
+          const seen = r.top >= rb.top + 8 && r.bottom <= rb.bottom - 8;
+          if (!seen) {
+            /* in the middle of the view, or its top a little under the view's top when it is taller than the view */
+            const room = rb.height - r.height;
+            const top = r.top - rb.top + b.scrollTop - (room > 120 ? room / 2 : 48);
+            b.scrollTo({ top: Math.max(0, top), behavior: smooth });
+          }
+        }
       }
-      if (frames++ < 45) id = requestAnimationFrame(go);
+      if (frames++ < 45 && !(done && !narrow)) id = requestAnimationFrame(go);
     };
     const stop = () => cancelAnimationFrame(id);
     id = requestAnimationFrame(go);
@@ -126,7 +216,34 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
       b.removeEventListener("pointerdown", stop);
       b.removeEventListener("touchstart", stop);
     };
-  }, [frameOn]);
+  }, [aimKey, shownN]);
+
+  /* The outline and name tag of what is pointed at, measured in the store's own pixels (the store may be shown smaller), and
+     measured again while it is pointed at: the store changes as he edits */
+  const [mark, setMark] = useState<{ top: number; left: number; width: number; height: number; label: string } | null>(null);
+  useEffect(() => {
+    if (!aimKey) return setMark(null);
+    const measure = () => {
+      const f = frame.current;
+      const hit = f ? findSpot(f, aimsNow.current) : null;
+      if (!f || !hit || hit.spot.ring === false) return setMark((m) => (m ? null : m));
+      const z = zoomNow.current || 1;
+      const r = hit.el.getBoundingClientRect();
+      const rf = f.getBoundingClientRect();
+      const left = Math.max(3, Math.round((r.left - rf.left) / z) - SPOT_GAP);
+      const right = Math.min(BASE - 3, Math.round((r.right - rf.left) / z) + SPOT_GAP);
+      const top = Math.max(3, Math.round((r.top - rf.top) / z) - SPOT_GAP);
+      const bottom = Math.round((r.bottom - rf.top) / z) + SPOT_GAP;
+      const next = { top, left, width: right - left, height: bottom - top, label: hit.spot.label };
+      setMark((m) => (m && m.top === next.top && m.left === next.left && m.width === next.width && m.height === next.height && m.label === next.label ? m : next));
+    };
+    const first = requestAnimationFrame(measure);
+    const every = setInterval(measure, 200);
+    return () => {
+      cancelAnimationFrame(first);
+      clearInterval(every);
+    };
+  }, [aimKey, zoom, shownN]);
 
   const fit = useCallback(() => {
     const b = box.current;
@@ -184,6 +301,17 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
           {/* The name tag of a selected element sits over the store's header, so the first element's tag is not hidden under it */}
           <div ref={frame} className="absolute start-0 top-0 overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/10 [&_[data-sf]>div>span:last-child]:z-30" style={{ width: BASE, transform: `scale(${zoom})`, transformOrigin: "top left" }}>
             {children}
+            {/* what the open settings change: the same teal outline and name tag as a selected block */}
+            {mark && (
+              <>
+                <span aria-hidden data-spot-mark className="pointer-events-none absolute z-40 rounded-[10px] ring-2 ring-[#14b8a6] transition-[top,left,width,height] duration-200" style={{ top: mark.top, left: mark.left, width: mark.width, height: mark.height }} />
+                {mark.label && (
+                  <span aria-hidden dir={lang === "ar" ? "rtl" : "ltr"} className="pointer-events-none absolute z-40 max-w-[60%] -translate-y-1/2 truncate rounded-md bg-[#14b8a6] px-2.5 py-1 text-[11px] font-bold text-white shadow" style={{ /* at the very top of the page the tag would cover what it names: it sits on the outline's lower edge instead */ top: mark.top >= 14 ? mark.top : mark.top + mark.height, /* at the reading start of the outline, unless that would push it off the page's edge */ ...((lang === "ar" ? mark.left + mark.width > 240 : mark.left > BASE - 240) ? { right: BASE - mark.left - mark.width + 8 } : { left: mark.left + 8 }) }}>
+                    {mark.label}
+                  </span>
+                )}
+              </>
+            )}
           </div>
           {/* With the hand tool on, a drag anywhere moves the page, and clicks do not edit */}
           {hand && <div className="absolute inset-0 z-20" data-pan />}

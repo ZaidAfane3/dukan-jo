@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, Fragment, useContext, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { latin } from "../digits";
 import type { Lang } from "../content";
 import { cartStyles, defaultConfig, productPageStyles, type ProductPageStyle, footerColumns, fontChoices, fontFamily, storeFonts, type CartStyle, heroTitleFamily, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, shopTarget, HERO_TITLE_MAX, HERO_TITLE_MIN, FOOTER_SIZES, ANNOUNCE_MESSAGES_MAX, ANNOUNCE_TEXT_MAX, TAGLINE_MAX, type Banner, type DisplayFont, type HeroBg, type FooterColumn, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type TextStyle, type StorefrontConfig, type TitleLook } from "../storefront/config";
@@ -17,16 +17,17 @@ import { checkImage, cleanFileName, hasStoreContact, imageRules, PICTURE_ACCEPT,
 import { RudeNote } from "../RudeNote";
 import { digitsOnlyError, isJordanNumber, numberError, typedAnyPhone, typedPhone } from "../phone";
 import { PicNoteLine } from "./PicNoteLine";
-import { readProducts, storeCategories } from "../storefront/useStoreData";
+import { countDiscounted, readProducts, storeCategories } from "../storefront/useStoreData";
 import { deleteMedia, putMedia, setLiveMedia, useMediaUrl } from "../storefront/mediaStore";
 import { showSlide } from "../storefront/slideSignal";
+import { useSpotWhile, type Spot } from "../storefront/spotSignal";
 import { ColorPicker, Field, input, SecondsPicker, Toggle } from "./controls";
 import { DeleteAsk } from "./DeleteAsk";
 import { dc, sampleTexts } from "./copy";
 import { LinkPicker, LinkTargets, PictureMover, useStorePages } from "./PageLink";
 import { readSubscribers } from "../storefront/sections";
 import { load as loadInfoPages } from "../InfoPages";
-import { bannerSurface, footerColors, footerNameSize, readsOn } from "../storefront/footerColors";
+import { bannerSurface, dimOn, footerColors, footerNameSize, inkOn, legibleOn, readsOn } from "../storefront/footerColors";
 
 export type Identity = { name: string; description: string; color: string; phone: string };
 export type Draft = { config: StorefrontConfig; identity: Identity };
@@ -195,6 +196,11 @@ const popT = {
     nameSize: "Size of the store name",
     showName: "Show the store name beside the logo",
     nameFontSame: "Like the titles",
+    namePlace: "Logo and name position",
+    placeRight: "Right",
+    placeCenter: "Center",
+    placeLeft: "Left",
+    namePlaceOther: "In the Arabic store it shows on the other side, because Arabic reads from right to left.",
     tagline: "Small line under the name",
     taglineWords: "Words of the line",
     taglinePh: "For example: Fresh coffee since 2010",
@@ -356,8 +362,9 @@ const popT = {
     colorAuto: "Auto",
     colorReset: "Reset",
     /* the sale color, the color of one menu link, the banner cover's text place and height, the promo banner in the middle */
-    saleColor: "Sale color",
-    saleColorHint: "Colors the discount badges, the sale prices and the number on the basket.",
+    saleColor: "Discount color",
+    saleColorHint: "Paints the discount badges, the prices after a discount and the number on the basket, as in the sample under the colors.",
+    saleSample: "Sample",
     saleColorAuto: "Reset (back to the store color)",
     linkColor: "Link color",
     heroTextPos: "Text position",
@@ -464,6 +471,11 @@ const popT = {
     nameSize: "حجم اسم المتجر",
     showName: "إظهار اسم المتجر بجانب الشعار",
     nameFontSame: "مثل العناوين",
+    namePlace: "موضع الشعار والاسم",
+    placeRight: "يمين",
+    placeCenter: "الوسط",
+    placeLeft: "يسار",
+    namePlaceOther: "في المتجر الإنجليزي يظهر في الجهة المقابلة، لأن الإنجليزية تُقرأ من اليسار إلى اليمين.",
     tagline: "سطر صغير تحت الاسم",
     taglineWords: "نص السطر",
     taglinePh: "مثال: قهوة طازجة منذ 2010",
@@ -624,8 +636,9 @@ const popT = {
     linkAsk: "هل تريد حذف هذا الرابط؟",
     colorAuto: "تلقائي",
     colorReset: "إعادة ضبط",
-    saleColor: "لون التخفيضات",
-    saleColorHint: "يلوّن شارات الخصم والأسعار المخفّضة والرقم على السلة.",
+    saleColor: "لون الخصم",
+    saleColorHint: "يلوّن شارات الخصم والسعر بعد الخصم والرقم على السلة، كما في المثال تحت الألوان.",
+    saleSample: "مثال",
     saleColorAuto: "إعادة ضبط (لون المتجر)",
     linkColor: "لون الرابط",
     heroTextPos: "مكان النص",
@@ -1035,6 +1048,9 @@ function Leads({ lang, label, value, onChange, warn = true }: { lang: Lang; labe
 const PartFocus = createContext<{ field?: string; n: number }>({ n: 0 });
 /* true: the Parts here are shown open with their names above, not folded (a panel with only a couple of things in it) */
 const PartFlat = createContext(false);
+/* What part of the store the settings here change (see spotSignal): a Part's field is looked for inside it ("sec:<id>" for a
+   block of the page, "footer" for the footer), so opening the Part outlines that text in the preview */
+const SpotScope = createContext<string | null>(null);
 
 /** One part of an element (the title, the text, a button...): closed at first, only its name and a ▾. A press opens it:
     its box, and under it the options of that part only (its size, color, font). */
@@ -1054,8 +1070,13 @@ const subscribeRoot = (l: () => void) => {
   return () => void rootListeners.delete(l);
 };
 
-function Part({ lang, label, hint, more, field, also, force = false, error, icon, preview, before, after, children }: { lang?: Lang; label: string; /* a small picture before the name (a banner's color) */ icon?: React.ReactNode; /* in the name's row, outside the button that folds it */ before?: React.ReactNode; after?: React.ReactNode; hint?: string; more?: React.ReactNode; field?: string; /* other fields that sit inside it and open it too */ also?: string[]; /* opened from outside: the tour points at it */ force?: boolean; error?: string; /* while closed, a short grey look at what is written in it */ preview?: string; children: React.ReactNode }) {
+function Part({ lang, label, hint, more, field, also, force = false, error, icon, preview, before, after, spot, children }: { lang?: Lang; label: string; /* a small picture before the name (a banner's color) */ icon?: React.ReactNode; /* in the name's row, outside the button that folds it */ before?: React.ReactNode; after?: React.ReactNode; hint?: string; more?: React.ReactNode; field?: string; /* other fields that sit inside it and open it too */ also?: string[]; /* opened from outside: the tour points at it */ force?: boolean; error?: string; /* while closed, a short grey look at what is written in it */ preview?: string; /* the part of the store it changes, when it is not its field (see SpotScope) */ spot?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  /* opened by him (its name pressed, or its text clicked in the preview), not by a mistake or the tour: the preview shows where it is */
+  const [aimed, setAimed] = useState(false);
+  const scope = useContext(SpotScope);
+  const spotKey = spot ?? (field ? (scope ? `${scope}:${field}` : field) : undefined);
+  useSpotWhile(open && aimed && spotKey ? { key: spotKey, label: label.replace(/ \*$/, "") } : null);
   /* what is inside is made the first time it opens, and then stays so it can slide closed again */
   const [made, setMade] = useState(false);
   const focus = useContext(PartFocus);
@@ -1081,7 +1102,10 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.open]);
   useEffect(() => {
-    if ((field && focus.field === field) || (focus.field && also?.includes(focus.field))) show();
+    if ((field && focus.field === field) || (focus.field && also?.includes(focus.field))) {
+      setAimed(true);
+      show();
+    }
   }, [field, focus.field, focus.n]);
   /* a part with a mistake in it, or one the tour points at, opens by itself */
   useEffect(() => {
@@ -1092,7 +1116,10 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
   const [settled, setSettled] = useState(false);
   useEffect(() => {
     if (open) setMade(true);
-    else setSettled(false);
+    else {
+      setSettled(false);
+      setAimed(false);
+    }
     box.current?.toggleAttribute("inert", !open);
   }, [open]);
   /* a name that ends with * must be filled: the star is red */
@@ -1122,7 +1149,7 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
       </div>
     );
   const head = (
-    <button type="button" onClick={() => (open ? hide() : show())} aria-expanded={open} className={`flex items-center justify-between gap-2 text-start ${before || after ? "min-w-0 flex-1" : "w-full"}`}>
+    <button type="button" onClick={() => { if (open) return hide(); setAimed(true); show(); }} aria-expanded={open} className={`flex items-center justify-between gap-2 text-start ${before || after ? "min-w-0 flex-1" : "w-full"}`}>
       <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg/80">
         {icon}
         <span className="truncate">{must ? label.slice(0, -2) : label}</span>
@@ -1410,7 +1437,7 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
 
   if (sub) {
     return (
-      <SubShell lang={lang} title={t.rows[sub]} onBack={() => { setSub(null); setFootAsk(null); }}>
+      <SubShell lang={lang} title={t.rows[sub]} spot={subSpot[sub]} onBack={() => { setSub(null); setFootAsk(null); }}>
         <PartFocus.Provider value={{ field: focus?.id === "footer" ? focus.field : undefined, n: focus?.n ?? 0 }}>
         {sub === "nameLogo" && <NameLogoForm lang={lang} cfg={cfg} setCfg={setCfg} draft={draft} update={update} />}
         {sub === "sidebarSettings" && <SidebarSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} />}
@@ -1644,6 +1671,8 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
     if (asking) askBox.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [asking]);
   const s = section;
+  /* the preview brings this block into view (it is already outlined as the selected one); its parts point at their own texts */
+  useSpotWhile({ key: `sec:${s.id}`, label: t.elements[s.type], ring: false });
 
   /* Opened by clicking a part of the store: put the cursor in that part's field. */
   useEffect(() => {
@@ -1838,6 +1867,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
     /* the title and how many, both shown open; Featured products also has its products to pick */
     body = (
       <PartFlat.Provider value={true}>
+        <ProductsPageNote lang={lang} kind={s.type} />
         {s.type === "featured" && (
           <ProductChecklist lang={lang} ids={s.settings.productIds ?? []} onChange={(productIds) => onChange({ ...s, settings: { ...s.settings, productIds } })} hint={t.form.featuredHint} empty={t.form.featuredEmpty} />
         )}
@@ -1857,6 +1887,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
     body = (
       <>
         {text(s.settings.title, (title) => onChange({ ...s, settings: { ...s.settings, title } }), t.form.title, false, "title", titleLook)}
+        <GridProducts lang={lang} s={s} onChange={onChange} />
         <Part lang={lang} label={t.form.columns}>
           <div className="flex gap-2">
             {([2, 3, 4] as const).map((n) => (
@@ -2077,7 +2108,9 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       </div>
       {/* every part of the element on its own, with a thin line between them */}
       <PartFocus.Provider value={{ field: focusField, n: nonce }}>
-        <div className="divide-y divide-fg/10 px-4 [&>*]:py-5">{body}</div>
+        <SpotScope.Provider value={`sec:${s.id}`}>
+          <div className="divide-y divide-fg/10 px-4 [&>*]:py-5">{body}</div>
+        </SpotScope.Provider>
       </PartFocus.Provider>
 
       {/* Deleting the element: the last thing in its form */}
@@ -2294,6 +2327,31 @@ function SampleSwitch({ lang }: { lang: Lang }) {
   );
 }
 
+/* What the discount color paints, drawn small under its colors: a discount badge, a price after a discount (with the old price
+   beside it, which keeps the text color) and the number on the basket. No color of his own: the store color, and the price
+   stays in the text color, like the store does. */
+function DiscountSample({ lang, color, store, text }: { lang: Lang; color?: string; store: string; text?: string }) {
+  const fill = color || store || "#004956";
+  const ink = legibleOn(text || "#1c1a17", "#ffffff");
+  const ar = lang === "ar";
+  return (
+    <div aria-hidden className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-line bg-white px-3 py-2.5 text-[#1c1a17]">
+      <span className="text-[11px] font-semibold text-muted">{popT[lang].saleSample}</span>
+      <span className="flex items-center gap-3">
+        <span className="rounded-full px-2 py-0.5 text-[11px] font-extrabold" style={{ background: fill, color: onColor(fill) }} dir="ltr">-20%</span>
+        <span dir="ltr" className="flex items-baseline gap-1.5">
+          <span className="text-sm font-extrabold" style={{ color: color ? inkOn(color, "#ffffff", ink) : ink }}>{ar ? "١٥ د.أ" : "15 JOD"}</span>
+          <s className="text-[13px] font-medium" style={{ color: dimOn(ink, "#ffffff", 70), textDecorationThickness: 1.5 }}>{ar ? "١٩ د.أ" : "19 JOD"}</s>
+        </span>
+        <span className="relative grid h-8 w-8 place-items-center rounded-full border border-line text-[#1c1a17]">
+          {storeIcons.bag}
+          <span className="absolute -end-1.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-extrabold" style={{ background: fill, color: onColor(fill) }}>{ar ? "٢" : "2"}</span>
+        </span>
+      </span>
+    </div>
+  );
+}
+
 export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft: Draft; update: Update; attn?: string | null }) {
   const t = dc[lang].options;
   const th = draft.config.theme;
@@ -2365,6 +2423,7 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
       </Part>}
       <Part lang={lang} label={popT[lang].saleColor} hint={popT[lang].saleColorHint}>
         <ColorPicker value={th.saleColor || (th.primary || draft.identity.color)} onChange={(saleColor) => set({ saleColor })} label={popT[lang].saleColor} bad={dc[lang].identity.hexBad} list={["#d9534f", "#e11d48", "#c0392b", "#e08a1e", "#161616", "#004956"]} />
+        <DiscountSample lang={lang} color={th.saleColor} store={th.primary || draft.identity.color} text={th.text} />
         {th.saleColor && (
           <button type="button" onClick={() => set({ saleColor: "" })} className="mt-3 text-sm font-semibold text-primary hover:underline">
             {popT[lang].saleColorAuto}
@@ -2467,6 +2526,9 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
   );
 }
 
+/* Where each wording shows in the store (the "no products" words show to customers only, in an empty store: no place to point at) */
+const wordingSpot: Partial<Record<keyof StorefrontConfig["texts"], string>> = { search: "search", viewAll: "viewall" };
+
 export function TextsPanel({ lang, draft, update }: { lang: Lang; draft: Draft; update: Update }) {
   const t = dc[lang].texts;
   const tx = draft.config.texts;
@@ -2479,7 +2541,7 @@ export function TextsPanel({ lang, draft, update }: { lang: Lang; draft: Draft; 
       </div>
       {/* An empty field shows the store's own wording faintly, so he sees what customers read. ("allFilter" is kept in saved designs but not offered: the store no longer has an "All" filter row.) */}
       {(["search", "viewAll", "noProducts"] as const).map((k) => (
-        <Part lang={lang} key={k} label={t[k]} preview={tx[k][lang] || storeCopy[lang][k]}>
+        <Part lang={lang} key={k} label={t[k]} preview={tx[k][lang] || storeCopy[lang][k]} spot={wordingSpot[k]}>
           <input value={tx[k][lang]} onChange={(e) => set(k, e.target.value)} placeholder={storeCopy[lang][k]} maxLength={60} className={`${input} h-11`} />
           <CharCount value={tx[k][lang] ?? ""} max={60} />
           <RudeNote lang={lang} text={tx[k][lang]} />
@@ -2644,12 +2706,12 @@ function FaviconChoice({ lang, draft, update }: { lang: Lang; draft: Draft; upda
   const t = dc[lang];
   const icon = draft.config.identity.favicon;
   const set = (favicon: string) => update((d) => ({ ...d, config: { ...d.config, identity: { ...d.config.identity, favicon } } }));
+  /* how the tab looks comes first, so it stays in sight while the picture is cut below it (the cutter shows each move in it) */
   return (
     <div className="space-y-3">
-      <UploadBox lang={lang} current={icon || undefined} onImage={set} onRemove={() => set("")} size={64} spec={t.form.sizes.favicon} words={t.form.ups.favicon} />
       <div>
         <p className="mb-1.5 text-xs text-muted">{t.identity.tabPreview}</p>
-        <div className="flex w-56 items-center gap-2 rounded-t-xl bg-soft px-3 py-2 text-xs">
+        <div className="flex w-56 max-w-full items-center gap-2 rounded-t-xl bg-soft px-3 py-2 text-xs">
           {icon ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={icon} alt="" className="h-4 w-4 shrink-0 object-contain" />
@@ -2659,6 +2721,7 @@ function FaviconChoice({ lang, draft, update }: { lang: Lang; draft: Draft; upda
           <span className="truncate font-medium">{draft.identity.name || "…"}</span>
         </div>
       </div>
+      <UploadBox lang={lang} current={icon || undefined} onImage={set} onRemove={() => set("")} size={64} spec={t.form.sizes.favicon} words={t.form.ups.favicon} />
     </div>
   );
 }
@@ -2945,20 +3008,147 @@ const nextColor = (list: HeroBg[]) => {
   return bgSwatches.find((c) => !used.includes(c)) ?? bgSwatches[list.length % bgSwatches.length];
 };
 
-/** The products of a section, picked from his own: a search box and a list to tick, numbered in the order he picks them.
-    Used by Pinned products and Featured products. `hint`/`empty` replace the usual words under the title and when none is picked. */
-function ProductChecklist({ lang, ids, onChange, hint, empty }: { lang: Lang; ids: number[]; onChange: (ids: number[]) => void; hint?: string; empty?: string }) {
+/** Which products the Product grid shows: all of them, the ones in categories he ticks, or the ones he picks (in his order) */
+function GridProducts({ lang, s, onChange }: { lang: Lang; s: Extract<SectionConfig, { type: "products" }>; onChange: (s: SectionConfig) => void }) {
   const t = dc[lang].form;
+  const set = (patch: Partial<typeof s.settings>) => onChange({ ...s, settings: { ...s.settings, ...patch } });
+  const source = s.settings.source ?? "all";
+  const chosen = (s.settings.categories ?? []).filter((c) => c.trim());
+  const ids = s.settings.productIds ?? [];
+  const [cats, setCats] = useState<string[] | null>(null);
+  const [live, setLive] = useState(0);
+  const idsKey = ids.join(",");
+  useEffect(() => {
+    const products = readProducts();
+    setCats(storeCategories(products, lang));
+    setLive(ids.filter((id) => products.some((p) => p.id === id)).length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang, idsKey]);
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  /* a ticked category that no product has any more stays listed, so it can be unticked */
+  const offered = [...(cats ?? []), ...chosen.filter((c) => !(cats ?? []).some((x) => same(x, c)))];
+  const tick = (c: string) => set({ categories: chosen.some((x) => same(x, c)) ? chosen.filter((x) => !same(x, c)) : [...chosen, c] });
+  const limit = s.settings.limit ?? 0;
+  return (
+    <Part lang={lang} label={t.gridSource}>
+      <div className="space-y-3">
+        <Seg value={source} cols={3} onChange={(v) => set({ source: v as "all" | "categories" | "picked" })} options={[{ key: "all", label: t.gridAll }, { key: "categories", label: t.gridCategories }, { key: "picked", label: t.gridPicked }]} />
+        {source === "all" && <p className="text-xs text-muted">{t.gridAllHint}</p>}
+        {source === "categories" && (
+          <div>
+            <p className="text-sm font-bold text-black dark:text-white">{t.gridCats}</p>
+            <p className="mt-0.5 text-xs text-muted">{t.gridCatsHint}</p>
+            {cats && offered.length === 0 ? (
+              <div className="mt-3 rounded-xl bg-soft px-4 py-4 text-sm text-muted">
+                <p>{t.gridCatsNone}</p>
+                <a href="/products" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-primary hover:underline">{t.addProducts}</a>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {offered.map((c) => {
+                  const on = chosen.some((x) => same(x, c));
+                  const gone = !(cats ?? []).some((x) => same(x, c));
+                  return (
+                    <button key={c} type="button" aria-pressed={on} onClick={() => tick(c)} className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold transition ${on ? "border-primary bg-primary text-white" : "border-fg/15 hover:bg-soft"} ${gone ? "line-through opacity-70" : ""}`}>
+                      <bdi>{c}</bdi>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {cats && offered.length > 0 && chosen.length === 0 && <p className="mt-2 text-xs text-muted">{t.gridCatsEmpty}</p>}
+          </div>
+        )}
+        {source === "picked" && (
+          <>
+            <ProductChecklist lang={lang} ids={ids} onChange={(productIds) => set({ productIds })} hint={t.gridPickedHint} empty={t.gridPickedEmpty} title={t.gridPickTitle} />
+            {limit > 0 && live > limit && <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">{t.gridLimitNote(limit, live)}</p>}
+          </>
+        )}
+      </div>
+    </Part>
+  );
+}
+
+/** The products of a section, picked from his own: a search box and a list to tick, numbered in the order he picks them.
+    Used by Pinned products, Featured products and the Product grid. `hint`/`empty` replace the usual words under the title and when none is picked.
+    The picked ones come first, in his order, with buttons to move them; a picked product that was deleted is named with a way to remove it. */
+/* Where the products of Deals / Featured products come from, with a link to the Products page (a new tab, so the design he
+   has not saved stays open here; the preview reloads the products when he comes back). Deals also says plainly when none of
+   his products has a discount, since customers then don't see the block. */
+const productsNote = {
+  en: {
+    discounts: "This block shows your products that have a discount. To add a discount, open the",
+    featured: "To mark products as featured, open the",
+    page: "Products page",
+    none: "None of your products has a discount yet, so customers don't see this block.",
+  },
+  ar: {
+    discounts: "يعرض هذا القسم منتجاتك التي عليها خصم. لإضافة خصم، افتح",
+    featured: "لتعليم منتجات كمميزة، افتح",
+    page: "صفحة المنتجات",
+    none: "لا توجد منتجات عليها خصم بعد، فلن يظهر هذا القسم للعملاء.",
+  },
+};
+function ProductsPageNote({ lang, kind }: { lang: Lang; kind: "discounts" | "featured" }) {
+  const w = productsNote[lang];
+  const [onSale, setOnSale] = useState<number | null>(null);
+  useEffect(() => {
+    if (kind !== "discounts") return;
+    const read = () => setOnSale(countDiscounted());
+    read();
+    window.addEventListener("storage", read);
+    window.addEventListener("focus", read);
+    return () => {
+      window.removeEventListener("storage", read);
+      window.removeEventListener("focus", read);
+    };
+  }, [kind]);
+  return (
+    <div className="mb-4 space-y-2">
+      <p className="text-xs leading-relaxed text-muted">
+        {w[kind]}{" "}
+        <a href="/products" target="_blank" rel="noopener" className="font-semibold text-primary underline underline-offset-2 hover:no-underline">{w.page}</a>.
+      </p>
+      {kind === "discounts" && onSale === 0 && (
+        <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">{w.none}</p>
+      )}
+    </div>
+  );
+}
+
+function ProductChecklist({ lang, ids, onChange, hint, empty, title }: { lang: Lang; ids: number[]; onChange: (ids: number[]) => void; hint?: string; empty?: string; title?: string }) {
+  const t = dc[lang].form;
+  const a = dc[lang].actions;
   const [q, setQ] = useState("");
-  const [products, setProducts] = useState<{ id: number; name: string; category: string }[]>([]);
+  const [products, setProducts] = useState<{ id: number; name: string; category: string }[] | null>(null);
   useEffect(() => setProducts(readProducts()), []);
+  const list = products ?? [];
   const toggle = (id: number) => onChange(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
-  const shown = products.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()) || p.category.toLowerCase().includes(q.trim().toLowerCase()));
+  const live = ids.filter((id) => list.some((p) => p.id === id));
+  const move = (id: number, d: -1 | 1) => {
+    const i = live.indexOf(id), j = i + d;
+    if (i < 0 || j < 0 || j >= live.length) return;
+    const next = [...live];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  /* only once his products are read, so a slow first read never calls them deleted */
+  const gone = products ? ids.length - live.length : 0;
+  const match = (p: { name: string; category: string }) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()) || p.category.toLowerCase().includes(q.trim().toLowerCase());
+  const shown = [...live.map((id) => list.find((p) => p.id === id)!), ...list.filter((p) => !ids.includes(p.id))].filter(match);
+  const orderBtnXs = "grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-fg/15 text-muted transition hover:bg-soft hover:text-fg disabled:opacity-30 [&_svg]:h-3.5 [&_svg]:w-3.5";
   return (
       <div>
-        <p className="text-sm font-bold text-black dark:text-white">{t.collection}</p>
+        <p className="text-sm font-bold text-black dark:text-white">{title ?? t.collection}</p>
         <p className="mt-0.5 text-xs text-muted">{hint ?? t.collectionHint}</p>
-        {products.length === 0 ? (
+        {gone > 0 && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+            <span>{t.pickedGone(gone)}</span>
+            <button type="button" onClick={() => onChange(live)} className="shrink-0 underline underline-offset-2 hover:no-underline">{t.pickedGoneRemove}</button>
+          </div>
+        )}
+        {!products ? null : list.length === 0 ? (
           <div className="mt-3 rounded-xl bg-soft px-4 py-4 text-sm text-muted">
             <p>{t.collectionNone}</p>
             <a href="/products" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-primary hover:underline">{t.addProducts}</a>
@@ -2967,14 +3157,14 @@ function ProductChecklist({ lang, ids, onChange, hint, empty }: { lang: Lang; id
           <>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.collectionSearch} aria-label={t.collectionSearch} className={`${input} mt-3 h-10`} />
             <p className="mt-2 text-xs font-semibold text-primary">
-              {ids.filter((id) => products.some((p) => p.id === id)).length} {t.collectionPicked}
+              {live.length} {t.collectionPicked}
             </p>
             <ul className="mt-2 max-h-64 divide-y divide-fg/10 overflow-y-auto rounded-xl border border-fg/10">
               {shown.map((p) => {
-                const order = ids.indexOf(p.id);
+                const order = live.indexOf(p.id);
                 return (
-                  <li key={p.id}>
-                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm transition hover:bg-fg/[0.04]">
+                  <li key={p.id} className="flex items-center gap-1 pe-2">
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-3 py-2.5 text-sm transition hover:bg-fg/[0.04]">
                       <input type="checkbox" checked={order >= 0} onChange={() => toggle(p.id)} className="peer sr-only" />
                       <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-fg/25 bg-card text-xs font-bold text-transparent transition peer-checked:border-primary peer-checked:bg-primary peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40">
                         {order >= 0 ? order + 1 : ""}
@@ -2984,6 +3174,12 @@ function ProductChecklist({ lang, ids, onChange, hint, empty }: { lang: Lang; id
                         {p.category && <span className="block truncate text-xs text-muted">{p.category}</span>}
                       </span>
                     </label>
+                    {order >= 0 && live.length > 1 && (
+                      <>
+                        <button type="button" className={orderBtnXs} disabled={order === 0} onClick={() => move(p.id, -1)} aria-label={`${a.up}: ${p.name}`} title={a.up}>{ic.up}</button>
+                        <button type="button" className={orderBtnXs} disabled={order === live.length - 1} onClick={() => move(p.id, 1)} aria-label={`${a.down}: ${p.name}`} title={a.down}>{ic.down}</button>
+                      </>
+                    )}
                   </li>
                 );
               })}
@@ -3051,6 +3247,15 @@ type SubKey = "nameLogo" | "sidebarSettings" | "navigation" | "announcement" | "
 /* The parts of the footer's screen */
 type FootBlock = "layout" | "links" | "contact" | "social" | "licenses" | "look";
 type SetCfg = (fn: (c: StorefrontConfig) => StorefrontConfig) => void;
+/* The part of the store each screen changes, outlined in the preview while it is open (see spotSignal) */
+const subSpot: Record<SubKey, string> = { nameLogo: "identity", sidebarSettings: "sidebar", navigation: "nav", announcement: "announcement", footerSettings: "footer" };
+/* the footer's column each part of its screen fills (its layout and colors are the whole footer) */
+const footSpot: Partial<Record<FootBlock, string>> = { links: "footer:pages", contact: "footer:contact", social: "footer:social", licenses: "footer:licenses" };
+/** Points the preview at a part of the store while it is given (for places that are not a Part or a screen) */
+function PointAt({ spot }: { spot: Spot | null }) {
+  useSpotWhile(spot);
+  return null;
+}
 
 /** A row that opens a form. The "‹" says it can be pressed. */
 function RowLink({ icon: ico, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
@@ -3067,8 +3272,9 @@ function RowLink({ icon: ico, label, onClick }: { icon: React.ReactNode; label: 
   );
 }
 
-function SubShell({ lang, title, onBack, children }: { lang: Lang; title: string; onBack: () => void; children: React.ReactNode }) {
+function SubShell({ lang, title, spot, onBack, children }: { lang: Lang; title: string; /* the part of the store it changes (see subSpot) */ spot?: string; onBack: () => void; children: React.ReactNode }) {
   const t = dc[lang];
+  useSpotWhile(spot ? { key: spot, label: title } : null);
   return (
     <div>
       <div className="flex items-center gap-3 border-b border-fg/10 px-4 py-3">
@@ -3078,8 +3284,10 @@ function SubShell({ lang, title, onBack, children }: { lang: Lang; title: string
           <p className="text-sm font-bold text-black dark:text-white">{title}</p>
         </div>
       </div>
-      {/* a thin line between every option, so the screen reads as a list */}
-      <div className="divide-y divide-fg/10 px-4 py-2 [&>*]:py-4">{children}</div>
+      {/* a thin line between every option, so the screen reads as a list; its parts point at their own places inside it */}
+      <SpotScope.Provider value={spot ?? null}>
+        <div className="divide-y divide-fg/10 px-4 py-2 [&>*]:py-4">{children}</div>
+      </SpotScope.Provider>
     </div>
   );
 }
@@ -3147,6 +3355,12 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
           <LogoChoice lang={lang} draft={draft} update={update} />
         </Part>
       )}
+      {/* where the logo and name sit in the header, named by the side he sees (in Arabic the start is the right); the theme's
+          own place until he picks one, and the header's buttons move to the free side */}
+      <Part lang={lang} label={pt.namePlace}>
+        <Seg value={id.align} onChange={(align) => setId({ align })} cols={3} options={[{ key: "start", label: lang === "ar" ? pt.placeRight : pt.placeLeft }, { key: "center", label: pt.placeCenter }, { key: "end", label: lang === "ar" ? pt.placeLeft : pt.placeRight }]} />
+        {id.align !== "center" && <p className="mt-2 text-[11px] leading-relaxed text-muted">{pt.namePlaceOther}</p>}
+      </Part>
       <Part lang={lang} label={pt.nameFont}>
         <FontGrid lang={lang} value={id.nameFont} onChange={(nameFont) => setId({ nameFont })} first={pt.nameFontSame} />
       </Part>
@@ -3156,7 +3370,7 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
         <Bad show={nameHardIn.length > 0} text={pt.lowContrastIn(nameHardIn.join(lang === "ar" ? "، " : ", "))} />
       </div>
       <Stepper lang={lang} label={pt.nameSize} value={id.nameSize ?? (id.nameFont ? 40 : 20)} auto={id.nameSize === undefined} min={12} max={72} onChange={(nameSize) => setId({ nameSize })} onReset={() => setId({ nameSize: undefined })} />
-      <Part lang={lang} label={pt.tagline} preview={id.tagline?.[lang]}>
+      <Part lang={lang} label={pt.tagline} preview={id.tagline?.[lang]} spot="identity:tagline">
         <div className="space-y-4">
           <div>
             <label className="mb-1.5 block text-xs font-semibold">
@@ -3173,7 +3387,7 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
           <ColorChip lang={lang} label={pt.taglineColor} value={id.taglineColor} auto={cfg.theme.accent || cfg.theme.primary} onChange={(taglineColor) => setId({ taglineColor })} onReset={() => setId({ taglineColor: undefined })} on={cfg.theme.background} />
         </div>
       </Part>
-      <Part lang={lang} label={t.identity.description} preview={draft.identity.description}>
+      <Part lang={lang} label={t.identity.description} preview={draft.identity.description} spot="footer:about">
         <textarea value={draft.identity.description} onChange={(e) => setStore({ description: e.target.value })} placeholder={t.identity.descriptionPh} rows={4} maxLength={200} className={`${input} resize-none py-3`} />
         <CharCount value={draft.identity.description} max={200} />
         <RudeNote lang={lang} text={draft.identity.description} />
@@ -3235,8 +3449,9 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
       </Part>
       {/* the search in this header: a full bar, or an icon beside the basket (the other styles always use an icon) */}
       {cfg.nav.style === "button" && (
-        <Part lang={lang} label={lang === "ar" ? "شكل البحث" : "Search look"}>
+        <Part lang={lang} label={lang === "ar" ? "شكل البحث" : "Search look"} spot="search">
           <Seg value={cfg.nav.searchLook ?? (cfg.identity.align === "center" ? "icon" : "bar")} onChange={(searchLook) => setCfg((c) => ({ ...c, nav: { ...c.nav, searchLook } }))} options={[{ key: "bar", label: lang === "ar" ? "شريط كامل" : "Full bar" }, { key: "icon", label: lang === "ar" ? "أيقونة بجانب السلة" : "Icon beside the cart" }]} />
+          <p className="mt-2 text-[11px] leading-relaxed text-muted">{lang === "ar" ? "الأيقونة تفتح خانة البحث بجانبها. على الجوال يظهر البحث دائمًا كأيقونة لضيق المساحة." : "The icon opens the search field right beside it. On phones the search is always an icon, as there is little room."}</p>
         </Part>
       )}
       {/* a style that would show nothing says why, instead of seeming to do nothing (outside the fold, so it shows while closed) */}
@@ -3534,8 +3749,12 @@ function FooterForm({ lang, draft, update, ask }: { lang: Lang; draft: Draft; up
     if (ask) go(ask.block);
   }, [ask?.block, ask?.n]);
   const toggle = (b: FootBlock) => setOpened((o) => (o.includes(b) ? o.filter((x) => x !== b) : [...o, b]));
+  /* an open part points the preview at its column (the newest one opened shows) */
   const block = (b: FootBlock, title: string, ico: React.ReactNode, preview: string | undefined, body: React.ReactNode) => (
-    <Block id={`foot-${b}`} title={title} icon={ico} preview={preview} open={opened.includes(b)} onToggle={() => toggle(b)}>{body}</Block>
+    <Fragment key={b}>
+      <PointAt spot={opened.includes(b) && footSpot[b] ? { key: footSpot[b]!, label: title } : null} />
+      <Block id={`foot-${b}`} title={title} icon={ico} preview={preview} open={opened.includes(b)} onToggle={() => toggle(b)}>{body}</Block>
+    </Fragment>
   );
   const other = lang === "ar" ? "en" : "ar";
   const off = (kind: FooterColumn["kind"]) => !colOn(f, colOf(f, kind));

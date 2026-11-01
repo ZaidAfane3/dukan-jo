@@ -150,10 +150,31 @@ export function footerColors(cfg: StorefrontConfig, storeColor?: string): Footer
 
 /** A dimmed text line: `pct`% of the text color, raised until it still reads (4.5:1 when the full color can) on every stop */
 export function footerDim(c: FooterColors, pct: number, target = 4.5): string {
-  const reach = Math.min(target, Math.min(...c.stops.map((s) => contrast(c.text, s))));
+  return dimOn(c.text, c.stops, pct, target);
+}
+
+/** `color` where it reads `target`:1 on `bg`; otherwise mixed toward `toward` (the readable text color) just as far as it then reads */
+export function inkOn(color: string, bg: string, toward: string, target = 4.5): string {
+  const c = hex(color), t = hex(toward);
+  const stops = stopsOf(bg);
+  if (!c || !t || !stops.length) return color;
+  const worst = (x: string) => Math.min(...stops.map((s) => contrast(x, s)));
+  for (let p = 1; p > 0; p -= 0.05) {
+    const m = mix(c, t, p);
+    if (worst(m) >= target) return m;
+  }
+  return t;
+}
+
+/** `pct`% of `text` over `bg` (a color, a gradient or its stops), raised until it still reads (4.5:1 when the full color can) */
+export function dimOn(text: string, bg: string | string[], pct: number, target = 4.5): string {
+  const t = hex(text);
+  const stops = Array.isArray(bg) ? bg.map(hex).filter(Boolean) : stopsOf(bg);
+  if (!t || !stops.length) return text;
+  const reach = Math.min(target, Math.min(...stops.map((s) => contrast(t, s))));
   let p = pct;
-  while (p < 100 && Math.min(...c.stops.map((s) => contrast(mix(c.text, s, p / 100), s))) < reach) p += 5;
-  return p >= 100 ? c.text : `color-mix(in srgb, ${c.text} ${p}%, transparent)`;
+  while (p < 100 && Math.min(...stops.map((s) => contrast(mix(t, s, p / 100), s))) < reach) p += 5;
+  return p >= 100 ? t : `color-mix(in srgb, ${t} ${p}%, transparent)`;
 }
 
 /** The size of the store name in the footer, in px (the merchant's size, or the default of that style) */

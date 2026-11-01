@@ -7,7 +7,7 @@ import { pushNotification } from "./notifications";
 import { usePrefs } from "./Prefs";
 import { cleanLine, cleanLines, visibleLength } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
-import { ACCOUNT_LIMITS, cleanTickets, TICKET_MIN, TICKET_PICTURES, type Ticket } from "./safeAccount";
+import { ACCOUNT_LIMITS, cleanTickets, ticketKind, TICKET_MIN, TICKET_PICTURES, type Ticket } from "./safeAccount";
 import { readPhoto } from "./designer/image";
 
 const KEY = "seen-tickets";
@@ -39,6 +39,8 @@ export function Support() {
   const [pictures, setPictures] = useState<string[]>([]);
   const [pictureNote, setPictureNote] = useState("");
   const [errors, setErrors] = useState<{ subject?: string; message?: string }>({});
+  /* bugs, ideas or every ticket (the filter shows once a ticket is one or the other) */
+  const [show, setShow] = useState<"all" | "bug" | "idea">("all");
   const fileRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
 
@@ -101,6 +103,9 @@ export function Support() {
 
   const toggle = (id: string) => setTickets((list) => list.map((t) => (t.id === id ? { ...t, status: t.status === 0 ? 1 : 0 } : t)));
 
+  const kinded = tickets.some((t) => ticketKind(t));
+  const shown = show === "all" || !kinded ? tickets : tickets.filter((t) => ticketKind(t) === show);
+
   const th = "px-4 py-3 text-start text-xs font-bold text-muted";
   const td = "px-4 py-4 text-sm";
 
@@ -117,16 +122,33 @@ export function Support() {
           <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-extrabold">{s.title}</h1><button type="button" onClick={() => setCreating(true)} className="shrink-0 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-onink transition hover:bg-deep"> + {s.newTicket} </button></div>
           <p className="mt-1 text-xs text-muted">{s.note}</p>
 
+          {kinded && (
+            <div role="radiogroup" aria-label={s.filterLabel} className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-muted">{s.filterLabel}</span>
+              {(["all", "bug", "idea"] as const).map((k) => (
+                <button key={k} type="button" role="radio" aria-checked={show === k} onClick={() => setShow(k)} className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${show === k ? "bg-ink text-onink" : "bg-soft text-fg hover:bg-fg/10"}`}>
+                  {s.filters[k]}
+                  <span dir="ltr" className="ms-1.5 tabular-nums opacity-70">{k === "all" ? tickets.length : tickets.filter((t) => ticketKind(t) === k).length}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="mt-5 overflow-x-auto rounded-xl border border-fg/10">
             <table className="w-full min-w-[40rem] border-collapse">
               <thead className="bg-soft/70">
                 <tr>{s.cols.map((c) => <th key={c} className={th}>{c}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-fg/10">
-                {tickets.map((t) => (
+                {shown.map((t) => {
+                  const kind = ticketKind(t);
+                  return (
                   <tr key={t.id} className="transition-colors hover:bg-soft/40">
                     <td className={td}>
-                      <p className="font-semibold">{t.subject}</p>
+                      <p className="flex flex-wrap items-center gap-2 font-semibold">
+                        {t.subject}
+                        {kind && <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${kind === "bug" ? "bg-rose-500/10 text-rose-700 dark:text-rose-400" : "bg-amber-500/15 text-amber-800 dark:text-amber-400"}`}>{s.kinds[kind]}</span>}
+                      </p>
                       <p className="mt-0.5 line-clamp-1 text-xs text-muted"><span dir="ltr">{t.id}</span> · {t.message}</p>
                       {!!t.pictures?.length && (
                         <div className="mt-2 flex gap-1.5" aria-label={`${t.pictures.length} ${s.picturesCount}`}>
@@ -149,9 +171,11 @@ export function Support() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
+            {tickets.length > 0 && shown.length === 0 && <p className="px-4 py-10 text-center text-sm text-muted">{s.noneOfKind}</p>}
             {tickets.length === 0 && (
               <div className="px-4 py-14 text-center">
                 <p className="font-bold">{s.empty}</p>
