@@ -84,12 +84,12 @@ const cartT: Record<"en" | "ar", { title: string; hint: string; kinds: Record<Ca
   en: {
     title: "Cart design",
     hint: "How the cart and checkout look when a customer opens them. It uses your colors and fonts.",
-    kinds: { drawer: ["Side panel", "Soft cards, two steps"], editorial: ["Fashion bag", "Sharp, small capitals"], luxe: ["Full page", "Summary beside items"], pop: ["Playful card", "Bold lines, hard shadow"] },
+    kinds: { drawer: ["Side panel", "Soft cards, two steps"], editorial: ["Dukkan Founders", "Sharp, small capitals"], luxe: ["Misk", "Full page, summary beside items"], pop: ["Lamma", "Bold lines, hard shadow"] },
   },
   ar: {
     title: "تصميم السلة",
     hint: "شكل السلة وإتمام الطلب عندما يفتحها العميل. تستخدم ألوانك وخطوطك.",
-    kinds: { drawer: ["لوحة جانبية", "بطاقات ناعمة وخطوتان"], editorial: ["حقيبة أزياء", "حادة وبأحرف صغيرة"], luxe: ["صفحة كاملة", "الملخص بجانب المنتجات"], pop: ["بطاقة مرحة", "خطوط عريضة وظل صلب"] },
+    kinds: { drawer: ["لوحة جانبية", "بطاقات ناعمة وخطوتان"], editorial: ["مؤسسو دكان", "حادة وبأحرف صغيرة"], luxe: ["مِسك", "صفحة كاملة، الملخص بجانب المنتجات"], pop: ["لَمّة", "خطوط عريضة وظل صلب"] },
   },
 };
 
@@ -98,26 +98,26 @@ const productPageT: Record<"en" | "ar", { title: string; hint: string; kinds: Re
   en: {
     title: "Product page design",
     hint: "How a product's own page looks when a customer opens it. It uses your colors and fonts.",
-    kinds: { classic: ["Classic", "Soft panels, clean and modern"], editorial: ["Fashion", "Tall photo, small capitals"], luxe: ["Luxury", "Framed photo, centered, airy"], pop: ["Playful", "Bold lines, hard shadow"] },
+    kinds: { classic: ["Classic", "Soft panels, clean and modern"], editorial: ["Dukkan Founders", "Tall photo, small capitals"], luxe: ["Misk", "Framed photo, centered, airy"], pop: ["Lamma", "Bold lines, hard shadow"] },
   },
   ar: {
     title: "تصميم صفحة المنتج",
     hint: "شكل صفحة المنتج عندما يفتحها العميل. تستخدم ألوانك وخطوطك.",
-    kinds: { classic: ["كلاسيكي", "لوحات ناعمة، نظيف وعصري"], editorial: ["أزياء", "صورة طويلة وخطوط رفيعة"], luxe: ["فاخر", "صورة بإطار، في المنتصف، واسع"], pop: ["مرح", "خطوط عريضة وظل صلب"] },
+    kinds: { classic: ["كلاسيكي", "لوحات ناعمة، نظيف وعصري"], editorial: ["مؤسسو دكان", "صورة طويلة وخطوط رفيعة"], luxe: ["مِسك", "صورة بإطار، في المنتصف، واسع"], pop: ["لَمّة", "خطوط عريضة وظل صلب"] },
   },
 };
 
 /* The words of the playful ("pop") features: the hero layout, colored chips, the newsletter, round "+" cards, the pill header */
 const popT = {
   en: {
-    layoutPop: "Playful",
+    layoutPop: "Lamma",
     chip: "Small chip above the title",
     accentWord: "Colored word of the title",
-    accentWordHint: "A word of the title that is shown in the pop color",
+    accentWordHint: "A word of the title that is shown in a color of its own",
     sticker: "Round sticker",
     photo1: "Main photo (arch)",
     photo2: "Second photo (tilted)",
-    colorAccent: "Pop color",
+    colorAccent: "Highlight color",
     colorBlob: "Shape behind the photos",
     colorSticker: "Sticker color",
     chipsHint: "Small colored buttons, a little tilted. Under each button, choose from the list where it goes: a part of this page, another page of your store, or a web address.",
@@ -260,7 +260,7 @@ const popT = {
     dName: "Heading in the sidebar",
     dIncludes: { categories: "Categories it shows", pages: "Pages it shows", links: "Header links it shows", custom: "Links it shows" },
     dEmpty: "Nothing here yet.",
-    dEmptyLinks: "No header links yet. Add them in Navigation design.",
+    dEmptyLinks: "No header links yet. Add them in Navigation links.",
     menuLinkAdd: "Add a sidebar link",
     menuLinksTitle: "Sidebar-only links",
     menuLinksHint: "Choose what else the sidebar has and where each link goes: a page of the store or a part of the page. Each one has its own switch.",
@@ -303,7 +303,7 @@ const popT = {
     drawerHint: "Turn each group on or off, and drag a group up or down to change its order.",
     dCategories: "Product categories: from your products",
     dPages: "Store pages: from Pages",
-    dLinks: "The header's links: set in Navigation design",
+    dLinks: "The header's links: set in Navigation links",
     buttonLeads: "Where this button leads",
     button2Leads: "Where the second button leads",
     titleFont: "Title font",
@@ -335,15 +335,16 @@ const popT = {
     nBg: "Block color",
     nAccentColor: "Colored word color",
     nButtonColor: "Button color",
-    stylePop: "Playful",
+    stylePop: "Lamma",
     cardAdd: "Add to basket button",
     addWide: "Wide button",
     addPlus: "Round +",
     priceColor: "Price color",
     addColor: "Round + button color",
-    titlePop: "Playful",
-    navPill: "Pill buttons",
-    navSidebarOff: "The sidebar is hidden, so customers see no way to move around. Show it in Sidebar settings, or pick links in the header.",
+    titlePop: "Lamma",
+    navPill: "Lamma",
+    navBarHint: "Your links show in a bar under the header, above the first section (like Men, Women, Kids). Each one takes the visitor to a page of your store or a part of this page.",
+    navSidebarOff: "The sidebar is hidden, so customers see no way to move around. Show it in Sidebar settings, or add links below.",
     navNoLinks: "No link is ready yet, so customers see none in the header. Add a link below, write its name and choose where it leads.",
     navActive: "Chosen link color",
     navCart: "Basket button color",
@@ -352,7 +353,7 @@ const popT = {
     footerSimple: "Simple (no tint, in a row)",
     bannerVariant: "Banner look",
     variantPhoto: "Photo",
-    variantCard: "Color card",
+    variantCard: "Lamma",
     cardColor: "Card color",
     shape: "Picture shape",
     shapeArch: "Arch",
@@ -368,9 +369,10 @@ const popT = {
     saleColorAuto: "Reset (back to the store color)",
     linkColor: "Link color",
     heroTextPos: "Text position",
-    textPosCenter: "Center",
-    textPosBottomStart: "Bottom start",
+    textPosCenter: "Side",
+    textPosBottomStart: "Bottom side",
     textPosBottomCenter: "Bottom center",
+    textPosHint: "Bottom center hides the product pictures.",
     heroHeight: "Cover height",
     heightNormal: "Normal",
     heightTall: "Tall",
@@ -385,14 +387,14 @@ const popT = {
     sampleMarks: { shop: "Shop sign", bag: "Shopping bag", star: "Star", heart: "Heart", leaf: "Leaf", bolt: "Lightning" },
   },
   ar: {
-    layoutPop: "مرح",
+    layoutPop: "لَمّة",
     chip: "الشارة الصغيرة فوق العنوان",
     accentWord: "الكلمة الملوّنة من العنوان",
-    accentWordHint: "كلمة من العنوان تظهر بلون المرح",
+    accentWordHint: "كلمة من العنوان تظهر بلون مميز",
     sticker: "الملصق الدائري",
     photo1: "الصورة الرئيسية (قوس)",
     photo2: "الصورة الثانية (مائلة)",
-    colorAccent: "لون المرح",
+    colorAccent: "اللون المميز",
     colorBlob: "الشكل خلف الصور",
     colorSticker: "لون الملصق",
     chipsHint: "أزرار صغيرة ملوّنة ومائلة قليلًا. تحت كل زر اختر من القائمة إلى أين يذهب: جزء من هذه الصفحة، أو صفحة أخرى من متجرك، أو عنوان موقع.",
@@ -535,7 +537,7 @@ const popT = {
     dName: "العنوان في القائمة الجانبية",
     dIncludes: { categories: "التصنيفات التي تظهر فيها", pages: "الصفحات التي تظهر فيها", links: "روابط الهيدر التي تظهر فيها", custom: "الروابط التي تظهر فيها" },
     dEmpty: "لا يوجد شيء بعد.",
-    dEmptyLinks: "لا روابط في الهيدر بعد. أضفها من «تصميم التنقل».",
+    dEmptyLinks: "لا روابط في الهيدر بعد. أضفها من «روابط التنقل».",
     menuLinkAdd: "إضافة رابط في القائمة الجانبية",
     menuLinksTitle: "روابط القائمة الجانبية فقط",
     menuLinksHint: "اختر ماذا تضم القائمة الجانبية أيضًا وإلى أين يذهب كل رابط: صفحة من المتجر أو جزء من الصفحة. لكل واحد مفتاحه الخاص.",
@@ -578,7 +580,7 @@ const popT = {
     drawerHint: "فعّل أو ألغِ كل مجموعة، واسحب المجموعة لأعلى أو أسفل لتغير ترتيبها.",
     dCategories: "أقسام المنتجات: من منتجاتك",
     dPages: "صفحات المتجر: من «الصفحات»",
-    dLinks: "روابط الهيدر: تُضبط في «تصميم التنقل»",
+    dLinks: "روابط الهيدر: تُضبط في «روابط التنقل»",
     buttonLeads: "إلى أين يذهب هذا الزر",
     button2Leads: "إلى أين يذهب الزر الثاني",
     titleFont: "خط العنوان",
@@ -610,15 +612,16 @@ const popT = {
     nBg: "لون الكتلة",
     nAccentColor: "لون الكلمة الملوّنة",
     nButtonColor: "لون الزر",
-    stylePop: "مرح",
+    stylePop: "لَمّة",
     cardAdd: "زر الإضافة للسلة",
     addWide: "زر عريض",
     addPlus: "+ دائري",
     priceColor: "لون السعر",
     addColor: "لون زر + الدائري",
-    titlePop: "مرح",
-    navPill: "أزرار كبسولة",
-    navSidebarOff: "القائمة الجانبية مخفية، فلا يجد العملاء طريقة للتنقل. أظهرها من إعدادات القائمة الجانبية، أو اختر روابط في رأس الصفحة.",
+    titlePop: "لَمّة",
+    navPill: "لَمّة",
+    navBarHint: "تظهر روابطك في شريط تحت رأس الصفحة وفوق أول قسم (مثل: رجالي، نسائي، أطفال). كل رابط ينقل الزائر إلى صفحة في متجرك أو إلى جزء من هذه الصفحة.",
+    navSidebarOff: "القائمة الجانبية مخفية، فلا يجد العملاء طريقة للتنقل. أظهرها من إعدادات القائمة الجانبية، أو أضف روابط في الأسفل.",
     navNoLinks: "لا رابط جاهزًا بعد، فلا يرى العملاء أي رابط في رأس الصفحة. أضف رابطًا في الأسفل، واكتب اسمه واختر وجهته.",
     navActive: "لون الرابط المختار",
     navCart: "لون زر السلة",
@@ -627,7 +630,7 @@ const popT = {
     footerSimple: "بسيط (بلا تلوين، في صف)",
     bannerVariant: "شكل البنر",
     variantPhoto: "صورة",
-    variantCard: "بطاقة ملوّنة",
+    variantCard: "لَمّة",
     cardColor: "لون البطاقة",
     shape: "شكل الصورة",
     shapeArch: "قوس",
@@ -642,9 +645,10 @@ const popT = {
     saleColorAuto: "إعادة ضبط (لون المتجر)",
     linkColor: "لون الرابط",
     heroTextPos: "مكان النص",
-    textPosCenter: "وسط",
-    textPosBottomStart: "أسفل البداية",
+    textPosCenter: "على الجانب",
+    textPosBottomStart: "أسفل الجانب",
     textPosBottomCenter: "أسفل الوسط",
+    textPosHint: "«أسفل الوسط» يخفي صور المنتجات.",
     heroHeight: "ارتفاع الغلاف",
     heightNormal: "عادي",
     heightTall: "طويل",
@@ -1070,7 +1074,7 @@ const subscribeRoot = (l: () => void) => {
   return () => void rootListeners.delete(l);
 };
 
-function Part({ lang, label, hint, more, field, also, force = false, error, icon, preview, before, after, spot, children }: { lang?: Lang; label: string; /* a small picture before the name (a banner's color) */ icon?: React.ReactNode; /* in the name's row, outside the button that folds it */ before?: React.ReactNode; after?: React.ReactNode; hint?: string; more?: React.ReactNode; field?: string; /* other fields that sit inside it and open it too */ also?: string[]; /* opened from outside: the tour points at it */ force?: boolean; error?: string; /* while closed, a short grey look at what is written in it */ preview?: string; /* the part of the store it changes, when it is not its field (see SpotScope) */ spot?: string; children: React.ReactNode }) {
+function Part({ lang, label, hint, more, field, also, force = false, error, icon, preview, before, after, spot, onOpen, onClose, children }: { lang?: Lang; label: string; /* told when he opens or closes it himself (the cart design shows the cart while open) */ onOpen?: () => void; onClose?: () => void; /* a small picture before the name (a banner's color) */ icon?: React.ReactNode; /* in the name's row, outside the button that folds it */ before?: React.ReactNode; after?: React.ReactNode; hint?: string; more?: React.ReactNode; field?: string; /* other fields that sit inside it and open it too */ also?: string[]; /* opened from outside: the tour points at it */ force?: boolean; error?: string; /* while closed, a short grey look at what is written in it */ preview?: string; /* the part of the store it changes, when it is not its field (see SpotScope) */ spot?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   /* opened by him (its name pressed, or its text clicked in the preview), not by a mistake or the tour: the preview shows where it is */
   const [aimed, setAimed] = useState(false);
@@ -1098,7 +1102,10 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
   };
   /* another block of the same group opened: this one closes */
   useEffect(() => {
-    if (open && group.open !== id && !error) setOpen(false);
+    if (open && group.open !== id && !error) {
+      setOpen(false);
+      onClose?.();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.open]);
   useEffect(() => {
@@ -1149,7 +1156,7 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
       </div>
     );
   const head = (
-    <button type="button" onClick={() => { if (open) return hide(); setAimed(true); show(); }} aria-expanded={open} className={`flex items-center justify-between gap-2 text-start ${before || after ? "min-w-0 flex-1" : "w-full"}`}>
+    <button type="button" onClick={() => { if (open) { hide(); onClose?.(); return; } setAimed(true); show(); onOpen?.(); }} aria-expanded={open} className={`flex items-center justify-between gap-2 text-start ${before || after ? "min-w-0 flex-1" : "w-full"}`}>
       <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg/80">
         {icon}
         <span className="truncate">{must ? label.slice(0, -2) : label}</span>
@@ -1386,10 +1393,6 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
       setOpen({ header: true, elements: false, footer: false });
       setSub("announcement");
     }
-    if (focus?.id === "identity") {
-      setOpen({ header: true, elements: false, footer: false });
-      setSub("nameLogo");
-    }
     if (focus?.id === "footer") {
       setOpen({ header: false, elements: false, footer: true });
       /* A text of the footer was clicked: the footer's screen opens on the part that owns it, its field's part opens (PartFocus)
@@ -1454,7 +1457,7 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
       {!onlyElements && (
       <Accordion title={t.sectionsTitle.header} info={t.sectionsInfo.header} open={open.header} onToggle={() => setOpen((o) => ({ ...o, header: !o.header }))}>
         <ul>
-          <RowLink icon={nameLogoIcon} label={t.rows.nameLogo} onClick={() => setSub("nameLogo")} />
+          {/* Store identity lives in the design options (OptionsPanel) */}
           <RowLink icon={sidebarIcon} label={t.rows.sidebarSettings} onClick={() => setSub("sidebarSettings")} />
           <RowLink icon={navIcon} label={t.rows.navigation} onClick={() => setSub("navigation")} />
           <RowLink icon={ic.megaphone} label={t.rows.announcement} onClick={() => setSub("announcement")} />
@@ -1830,7 +1833,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
         {/* the plain banner: where the words sit, how big it is and edge to edge */}
         {!split && !pop && !orbit && (
           <>
-            <Part lang={lang} label={pp.heroTextPos}>
+            <Part lang={lang} label={pp.heroTextPos} hint={pp.textPosHint}>
               <Seg value={s.settings.textPos ?? "center"} cols={3} onChange={(textPos) => set({ textPos })} options={[{ key: "center", label: pp.textPosCenter }, { key: "bottom-start", label: pp.textPosBottomStart }, { key: "bottom-center", label: pp.textPosBottomCenter }]} />
             </Part>
             <Part lang={lang} label={pp.heroSize}>
@@ -2352,62 +2355,29 @@ function DiscountSample({ lang, color, store, text }: { lang: Lang; color?: stri
   );
 }
 
-export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft: Draft; update: Update; attn?: string | null }) {
+export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: { lang: Lang; draft: Draft; update: Update; attn?: string | null; /* the preview shows the cart open (on), and a way to open or close it there */ cart?: { on: boolean; show: (on: boolean) => void }; /* the same for the product page */ product?: (on: boolean) => void; /* a screen something asked for: Store identity (a click on the logo or name in the preview, a save problem) or Product card (a click on a card) */ ask?: OptionsScreen | null }) {
   const t = dc[lang].options;
   const th = draft.config.theme;
   const lx = dc[lang].luxe;
   const set = (patch: Partial<StorefrontConfig["theme"]>) => update((d) => ({ ...d, config: { ...d.config, theme: { ...d.config.theme, ...patch } } }));
-  return (
-    <div className="divide-y divide-fg/10 px-4 [&>*]:py-5">
-      <h2 className="font-bold text-black dark:text-white">{t.title}</h2>
-      {/* The page background: a color, or a picture / GIF / video he attaches (the color still shows through its veil) */}
-      <div data-attn="background" className={attn === "background" ? "attention" : ""}>
-      <Part lang={lang} force={attn === "background"} label={popT[lang].pageBgTitle}>
-        <PageBgChoice lang={lang} draft={draft} update={update} color={<ColorPicker value={th.background} onChange={(background) => set({ background })} label={t.background} bad={dc[lang].identity.hexBad} list={["#ffffff", "#f4f1ea", "#ead7b8", "#b9e3d4", "#b6d3f4", "#f6bfca", "#d3d6dc"]} />} />
-      </Part>
-      </div>
-      <div data-attn="text" className={attn === "text" ? "attention" : ""}>
-      <Part lang={lang} force={attn === "text"} label={t.text}>
-        <ColorPicker value={th.text} onChange={(text) => set({ text })} label={t.text} bad={dc[lang].identity.hexBad} list={["#12262b", "#1f2937", "#111111", "#2b2118", "#1b2a41", "#3b1f2b"]} />
-      </Part>
-      {/* outside the boxes, so it shows while he changes the background too */}
-      <Bad show={!readsOn(th.text, th.background)} text={popT[lang].lowContrastText} />
-      </div>
+  const setCfg: SetCfg = (fn) => update((d) => ({ ...d, config: fn(d.config) }));
+  /* Store identity (name, logo, store color...) is the first screen of the design options */
+  const [screen, setScreen] = useState<OptionsScreen | "sections" | null>(ask ?? null);
+  useEffect(() => {
+    if (ask) setScreen(ask);
+  }, [ask]);
+  if (screen === "identity") {
+    return (
+      <SubShell lang={lang} title={dc[lang].rows.nameLogo} spot={subSpot.nameLogo} onBack={() => setScreen(null)}>
+        <NameLogoForm lang={lang} cfg={draft.config} setCfg={setCfg} draft={draft} update={update} />
+      </SubShell>
+    );
+  }
+  /* Product card: everything about how a product shows in a list, in one screen */
+  if (screen === "cards") {
+    return (
+      <SubShell lang={lang} title={cardWord[lang]} onBack={() => setScreen(null)}>
       <div>
-      <Part lang={lang} label={t.titles}>
-        <ColorPicker value={th.titleColor || th.text} onChange={(titleColor) => set({ titleColor })} label={t.titles} bad={dc[lang].identity.hexBad} list={["#004956", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#e08a1e", "#7a3ea1", "#161616"]} />
-        {th.titleColor && (
-          <button type="button" onClick={() => set({ titleColor: "" })} className="mt-3 text-sm font-semibold text-primary hover:underline">
-            {t.sameAsText}
-          </button>
-        )}
-      </Part>
-      <Bad show={!!th.titleColor && !readsOn(th.titleColor, th.background)} text={popT[lang].lowContrast} />
-      </div>
-      <Part lang={lang} label={t.font}>
-        <FontGrid lang={lang} value={th.font ?? "readex"} onChange={(k) => k && set({ font: k as ThemeFont })} text />
-      </Part>
-      <Part lang={lang} label={lx.headingFont}>
-        <FontGrid lang={lang} value={th.headingFont} onChange={(k) => set({ headingFont: k ?? "" })} first={lx.sameAsFont} firstFamily={fontFamily[th.font] ?? fontFamily.readex} />
-      </Part>
-      {/* the ornament titles came with a theme that was removed: offered only to a design that already uses them */}
-      <Part lang={lang} label={lx.titleStyle}>
-        <Seg lang={lang} value={th.titleStyle ?? "bold"} onChange={(titleStyle) => set({ titleStyle })} cols={2} options={[{ key: "bold", label: lx.titleBold }, { key: "light", label: lx.titleLight }, { key: "pop", label: popT[lang].titlePop, theme: "lamma" }, ...(th.titleStyle === "ornament" ? [{ key: "ornament" as const, label: popT[lang].titleOrnament }] : [])]} />
-      </Part>
-      {/* the ornament look always centers its titles */}
-      {th.titleStyle !== "ornament" && (
-        <Part lang={lang} label={lx.titleAlign}>
-          <Seg value={th.titleAlign ?? "start"} onChange={(titleAlign) => set({ titleAlign })} options={[{ key: "start", label: lx.alignStart }, { key: "center", label: lx.alignCenter }]} />
-        </Part>
-      )}
-      <Toggle on={!!th.hairlines} onChange={(hairlines) => set({ hairlines })} label={popT[lang].hairlines} />
-      <Part lang={lang} label={lx.sectionTitleSize}>
-        <Stepper lang={lang} label={lx.textSize} value={th.sectionTitleSize ?? (th.titleStyle === "light" ? 34 : th.titleStyle === "pop" || th.titleStyle === "ornament" ? 44 : 24)} auto={th.sectionTitleSize === undefined} min={14} max={80} onChange={(sectionTitleSize) => set({ sectionTitleSize })} onReset={() => set({ sectionTitleSize: undefined })} />
-      </Part>
-      <Part lang={lang} label={lx.spacing}>
-        <Seg value={th.spacing ?? "normal"} onChange={(spacing) => set({ spacing })} options={[{ key: "normal", label: lx.spaceNormal }, { key: "airy", label: lx.spaceAiry }]} />
-      </Part>
-      <div data-section="cards">
         <SampleSwitch lang={lang} />
         <p className="mb-2 text-sm font-semibold">{t.cards}</p>
         {(["showName", "showCategory", "showPrice", "showOldPrice", "showBadge", "showStock", "showAdd"] as const).map((k) => (
@@ -2452,7 +2422,73 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
           ))}
         </div>
       </Part>
-      <Part lang={lang} label={cartT[lang].title} hint={cartT[lang].hint}>
+      </SubShell>
+    );
+  }
+  /* Sections: everything that changes the sections' titles, in one screen */
+  if (screen === "sections") {
+    return (
+      <SubShell lang={lang} title={sectionsWord[lang]} onBack={() => setScreen(null)}>
+      <Part lang={lang} label={lx.headingFont}>
+        <FontGrid lang={lang} value={th.headingFont} onChange={(k) => set({ headingFont: k ?? "" })} first={lx.sameAsFont} firstFamily={fontFamily[th.font] ?? fontFamily.readex} />
+      </Part>
+      {/* the ornament titles came with a theme that was removed: offered only to a design that already uses them */}
+      <Part lang={lang} label={lx.titleStyle}>
+        <Seg lang={lang} value={th.titleStyle ?? "bold"} onChange={(titleStyle) => set({ titleStyle })} cols={2} options={[{ key: "bold", label: lx.titleBold }, { key: "light", label: lx.titleLight }, { key: "pop", label: popT[lang].titlePop, theme: "lamma" }, ...(th.titleStyle === "ornament" ? [{ key: "ornament" as const, label: popT[lang].titleOrnament }] : [])]} />
+      </Part>
+      {/* the ornament look always centers its titles */}
+      {th.titleStyle !== "ornament" && (
+        <Part lang={lang} label={lx.titleAlign}>
+          <Seg value={th.titleAlign ?? "start"} onChange={(titleAlign) => set({ titleAlign })} options={[{ key: "start", label: lx.alignStart }, { key: "center", label: lx.alignCenter }]} />
+        </Part>
+      )}
+      <div>
+      <Part lang={lang} label={t.titles}>
+        <ColorPicker value={th.titleColor || th.text} onChange={(titleColor) => set({ titleColor })} label={t.titles} bad={dc[lang].identity.hexBad} list={["#004956", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#e08a1e", "#7a3ea1", "#161616"]} />
+        {th.titleColor && (
+          <button type="button" onClick={() => set({ titleColor: "" })} className="mt-3 text-sm font-semibold text-primary hover:underline">
+            {t.sameAsText}
+          </button>
+        )}
+      </Part>
+      <Bad show={!!th.titleColor && !readsOn(th.titleColor, th.background)} text={popT[lang].lowContrast} />
+      </div>
+      <Part lang={lang} label={lx.sectionTitleSize}>
+        <Stepper lang={lang} label={lx.textSize} value={th.sectionTitleSize ?? (th.titleStyle === "light" ? 34 : th.titleStyle === "pop" || th.titleStyle === "ornament" ? 44 : 24)} auto={th.sectionTitleSize === undefined} min={14} max={80} onChange={(sectionTitleSize) => set({ sectionTitleSize })} onReset={() => set({ sectionTitleSize: undefined })} />
+      </Part>
+      </SubShell>
+    );
+  }
+  return (
+    <div className="divide-y divide-fg/10 px-4 [&>*]:py-5">
+      <h2 className="font-bold text-black dark:text-white">{t.title}</h2>
+      <ul className="!py-2">
+        <RowLink icon={nameLogoIcon} label={dc[lang].rows.nameLogo} onClick={() => setScreen("identity")} />
+        <RowLink icon={sectionsIcon} label={sectionsWord[lang]} onClick={() => setScreen("sections")} />
+        <RowLink icon={cardIcon} label={cardWord[lang]} onClick={() => setScreen("cards")} />
+      </ul>
+      {/* The page background: a color, or a picture / GIF / video he attaches (the color still shows through its veil) */}
+      <div data-attn="background" className={attn === "background" ? "attention" : ""}>
+      <Part lang={lang} force={attn === "background"} label={popT[lang].pageBgTitle}>
+        <PageBgChoice lang={lang} draft={draft} update={update} color={<ColorPicker value={th.background} onChange={(background) => set({ background })} label={t.background} bad={dc[lang].identity.hexBad} list={["#ffffff", "#f4f1ea", "#ead7b8", "#b9e3d4", "#b6d3f4", "#f6bfca", "#d3d6dc"]} />} />
+      </Part>
+      </div>
+      <div data-attn="text" className={attn === "text" ? "attention" : ""}>
+      <Part lang={lang} force={attn === "text"} label={t.text}>
+        <ColorPicker value={th.text} onChange={(text) => set({ text })} label={t.text} bad={dc[lang].identity.hexBad} list={["#12262b", "#1f2937", "#111111", "#2b2118", "#1b2a41", "#3b1f2b"]} />
+      </Part>
+      {/* outside the boxes, so it shows while he changes the background too */}
+      <Bad show={!readsOn(th.text, th.background)} text={popT[lang].lowContrastText} />
+      </div>
+      <Part lang={lang} label={t.font}>
+        <FontGrid lang={lang} value={th.font ?? "readex"} onChange={(k) => k && set({ font: k as ThemeFont })} text />
+      </Part>
+      <Toggle on={!!th.hairlines} onChange={(hairlines) => set({ hairlines })} label={popT[lang].hairlines} />
+      <Part lang={lang} label={lx.spacing}>
+        <Seg value={th.spacing ?? "normal"} onChange={(spacing) => set({ spacing })} options={[{ key: "normal", label: lx.spaceNormal }, { key: "airy", label: lx.spaceAiry }]} />
+      </Part>
+      {/* opening the cart design opens the cart in the preview, so he sees what he changes; and it opens by itself when the preview shows the cart */}
+      <Part lang={lang} label={cartT[lang].title} hint={cartT[lang].hint} force={!!cart?.on} onOpen={() => cart?.show(true)} onClose={() => cart?.show(false)}>
         <div className="grid grid-cols-2 gap-2">
           {cartStyles.map((r) => (
             <button key={r} type="button" onClick={() => update((d) => ({ ...d, config: { ...d.config, cart: { style: r } } }))} aria-pressed={(draft.config.cart?.style ?? "drawer") === r} className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-start text-xs font-semibold transition ${(draft.config.cart?.style ?? "drawer") === r ? "border-primary bg-primary text-white [&_.text-muted]:!text-white/80" : "border-fg/15 hover:bg-soft"}`}>
@@ -2464,7 +2500,7 @@ export function OptionsPanel({ lang, draft, update, attn }: { lang: Lang; draft:
       </Part>
       <div data-section="productPage">
       {/* opens by itself when the page menu shows the product page */}
-      <Part lang={lang} force={attn === "productPage"} label={productPageT[lang].title} hint={productPageT[lang].hint}>
+      <Part lang={lang} force={attn === "productPage"} label={productPageT[lang].title} hint={productPageT[lang].hint} onOpen={() => product?.(true)} onClose={() => product?.(false)}>
         <div className="grid grid-cols-2 gap-2">
           {productPageStyles.map((r) => (
             <button key={r} type="button" onClick={() => update((d) => ({ ...d, config: { ...d.config, productPage: { style: r } } }))} aria-pressed={(draft.config.productPage?.style ?? "classic") === r} className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-start text-xs font-semibold transition ${(draft.config.productPage?.style ?? "classic") === r ? "border-primary bg-primary text-white [&_.text-muted]:!text-white/80" : "border-fg/15 hover:bg-soft"}`}>
@@ -3294,6 +3330,14 @@ function SubShell({ lang, title, spot, onBack, children }: { lang: Lang; title: 
 
 const nameLogoIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="7.500" cy="12" r="3.500" /><path d="M14 10h7M14 14h5" /></svg>;
 const navIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="5" rx="1.500" /><path d="M6.500 6.500h2M11 6.500h2M15.500 6.500h2M4 14h16M4 18h10" /></svg>;
+const sectionsIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 5h10M4 10h16M4 14h16M4 19h10" /></svg>;
+/* the design options' screen for the sections' titles (font, style, place, color, size) */
+const sectionsWord = { ar: "الأقسام", en: "Sections" } as const;
+const cardIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M5 13h14M8 16.500h5M8 19h3" /></svg>;
+/* the design options' screen for the product card (what it shows, its look, its colors) */
+const cardWord = { ar: "بطاقة المنتج", en: "Product card" } as const;
+/** The screens of the design options that something outside can ask for */
+export type OptionsScreen = "identity" | "cards";
 const sidebarIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M5.500 8h1.500M5.500 11h1.500M5.500 14h1.500" /></svg>;
 
 /** The sidebar (the button at the top that opens the store's side list): whether it shows, what it lists and his own links in it */
@@ -3467,7 +3511,7 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
         </Part>
       )}
       {/* a style that would show nothing says why, instead of seeming to do nothing (outside the fold, so it shows while closed) */}
-      {cfg.nav.style === "button" && !cfg.header.showMenu && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navSidebarOff}</p>}
+      {cfg.nav.style === "button" && !cfg.header.showMenu && !cfg.nav.links.some((l) => (l.en.trim() || l.ar.trim()) && l.to?.trim()) && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navSidebarOff}</p>}
       {cfg.nav.style !== "button" && !cfg.nav.links.some((l) => (l.en.trim() || l.ar.trim()) && l.to?.trim()) && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navNoLinks}</p>}
       {cfg.nav.style === "links" && cfg.identity.align === "center" && (
         <Part lang={lang} label={popT[lang].navPlace}>
@@ -3485,9 +3529,8 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
           <ColorChip lang={lang} label={popT[lang].navCart} value={cfg.nav.cartColor} onChange={(cartColor) => setCfg((c) => ({ ...c, nav: { ...c.nav, cartColor } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, cartColor: undefined } }))} />
         </div>
       )}
-      {cfg.nav.style !== "button" && (
-        <div className="space-y-3.5">
-          <p className="text-xs text-muted">{lx.navHint}</p>
+      <div className="space-y-3.5">
+          <p className="text-xs text-muted">{cfg.nav.style === "button" ? popT[lang].navBarHint : lx.navHint}</p>
           {/* each link folds up under its own words, in its own color */}
           <ItemList>
             {cfg.nav.links.map((l, i) => (
@@ -3524,8 +3567,7 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
             ))}
           </ItemList>
           <AddLimited compact count={cfg.nav.links.length} max={8} label={lx.navAdd} words={limitWords[lang].links} onAdd={() => { setAdded(cfg.nav.links.length); setCfg((c) => ({ ...c, nav: { ...c.nav, links: [...c.nav.links, { en: "", ar: "" }] } })); }} />
-        </div>
-      )}
+      </div>
     </>
   );
 }

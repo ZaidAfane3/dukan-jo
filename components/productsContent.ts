@@ -275,7 +275,7 @@ export const productsCopy: Record<Lang, Copy> = {
       featured: "منتجات مثبتة",
       hidden: "منتجات مخفية",
       discounted: "منتجات مخفضة",
-      soldOut: "منتجات نفذت",
+      soldOut: "منتجات نفدت",
       forSale: "منتجات للبيع",
       uncategorized: "منتجات بلا تصنيف (تظهر تحت أخرى)",
       shipping: "منتجات تتطلب شحن",

@@ -337,6 +337,10 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               </span>
             )
           ))}
+        {/* no stock left: said on the picture, so it shows even when the add button is off */}
+        {out && (
+          <span className="absolute end-2.5 top-2.5 rounded-full bg-black/75 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm">{c.soldOutTag}</span>
+        )}
       </div>
 
       <div className={`relative px-1.5 pb-1.5 ${centered ? "pt-4 text-center" : "pt-3"}`}>
@@ -1466,6 +1470,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   const pos = s.textPos ?? "center";
   const low = pos !== "center";
   const mid = pos === "bottom-center";
+  /* a cover of normal height is only as tall as its words, so words "at the bottom" get some room to sink into (see min-h below) */
   /* the size he gave the cover in px; on a phone it keeps 70% of its height */
   const boxW = !s.fullWidth ? s.box?.width : undefined;
   const boxH = s.box?.height ? Math.round(s.box.height * (ctx.compact ? 0.7 : 1)) : undefined;
@@ -1478,7 +1483,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   return (
     <section className={full ? "" : ctx.compact ? "px-4 pt-4" : "px-8 pt-6"}>
       <div
-        className={`relative isolate flex flex-col overflow-hidden transition-colors duration-700 ${full ? "" : "rounded-[var(--sf-r)]"} ${low ? "justify-end" : "justify-center"} ${tall ? (ctx.compact ? "min-h-[520px]" : "min-h-[720px]") : ""} ${ctx.compact ? "px-6 py-9" : tall || full ? "px-14 py-14" : "px-10 py-11"} ${bgs.length > 1 ? "pb-16" : ""}`}
+        className={`relative isolate flex flex-col overflow-hidden transition-colors duration-700 ${full ? "" : "rounded-[var(--sf-r)]"} ${low ? "justify-end" : "justify-center"} ${tall ? (ctx.compact ? "min-h-[520px]" : "min-h-[720px]") : low && !boxH ? (ctx.compact ? "min-h-[420px]" : "min-h-[580px]") : ""} ${ctx.compact ? "px-6 py-9" : tall || full ? "px-14 py-14" : "px-10 py-11"} ${bgs.length > 1 ? "pb-16" : ""}`}
         style={{ color: heroOn, ...(boxW ? { maxWidth: boxW, marginInline: "auto" } : {}), ...(boxH ? { minHeight: boxH } : {}) }}
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}

@@ -391,15 +391,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
      is left out of their header; the designer keeps it, so he can still find and edit it */
   /* customers only get links that have words and somewhere to go; the designer keeps a link he has just added (no words yet)
      as a dashed "New link" in its place, so he sees where it lands */
-  const navOwn = config.nav.style === "links" || config.nav.style === "pill"
-    ? config.nav.links
-        .map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to?.trim() || undefined, color: l.color as string | undefined, hole: false }))
-        .filter((l) => (design ? true : !!l.name && !!l.to && !emptyParts.includes(l.to)))
-        .map((l) => (l.name ? l : { ...l, name: holeWords[lang].newLink, hole: true }))
-    : [];
+  /* every navigation style has links: in the header row (links, pill) or in a bar under it (sidebar button) */
+  const navOwn = config.nav.links
+    .map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to?.trim() || undefined, color: l.color as string | undefined, hole: false }))
+    .filter((l) => (design ? true : !!l.name && !!l.to && !emptyParts.includes(l.to)))
+    .map((l) => (l.name ? l : { ...l, name: holeWords[lang].newLink, hole: true }));
   /* in the designer, his navigation settings open with no links yet: the header is drawn as it will be, with one link that
      says where his links will show */
-  const navLinks = navOwn.length || !spotted("nav") || config.nav.style === "button" ? navOwn : [{ at: -1, name: holeWords[lang].links, to: undefined, color: undefined, hole: true }];
+  const navLinks = navOwn.length || !spotted("nav") ? navOwn : [{ at: -1, name: holeWords[lang].links, to: undefined, color: undefined, hole: true }];
   /* with his navigation settings open, the search gives the links their place back (an open search hides the pill of links) */
   const navSpotted = spotted("nav");
   useEffect(() => {
@@ -682,6 +681,15 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
 
             {actions}
           </div>
+        )}
+        {/* with the sidebar button, his links sit in a bar of their own under the header, above the first section
+            (like "Men, Women, Kids"); on a phone the bar slides sideways */}
+        {config.nav.style === "button" && navLinks.length > 0 && (
+          <nav aria-label={c.pages} className={`flex items-center gap-7 overflow-x-auto whitespace-nowrap border-t text-[14px] font-semibold [scrollbar-width:none] ${compact ? "px-4 py-2" : "px-8 py-2.5"} ${centered && !compact ? "justify-center" : ""}`} style={{ borderTopColor: "color-mix(in srgb, var(--sf-text) 10%, transparent)" }}>
+            {navLinks.map((l, i) => (
+              <a key={i} href={l.to ? `#${l.to}` : "#"} onClick={(e) => goTo(e, l.to)} className="inline-flex min-h-[36px] shrink-0 items-center text-[var(--sf-text)] transition duration-200 hover:text-[var(--sf-primary)]" style={linkColor(l.color, config.theme.background) ? { color: l.color } : undefined}>{l.hole ? <SpotHole spot="nav" text={l.name ?? ""} /> : <bdi>{l.name}</bdi>}</a>
+            ))}
+          </nav>
         )}
         {design && <span aria-hidden className={`pointer-events-none absolute inset-1 rounded-xl ring-2 ring-[#14b8a6] transition ${design.selected === "header" ? "opacity-100" : "opacity-0 group-hover/sel:opacity-100"}`} />}
       </header>
