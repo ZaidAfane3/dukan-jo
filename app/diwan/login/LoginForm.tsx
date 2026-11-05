@@ -2,14 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { LangSwitch, ThemeToggle } from "@/components/Prefs";
-import { passwordWords, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
+import { passwordWords, STAFF_2FA_REQUIRED, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
 import { Btn, card, field, useT } from "@/components/diwan/ui";
 
 /* The staff sign-in: email and password, then the 6-digit code of an authenticator app. On the first sign-in the app is
    set up here (the secret to type in, or the otpauth link), and a temporary password given by an owner is replaced.
-   While Diwan has no staff at all, the first owner can be made here with the server's setup key. */
+   While Diwan has no staff at all, the first owner can be made here with the server's setup key.
+   TODO(2FA): while STAFF_2FA_REQUIRED is off, the password is enough ("done"), or a temporary one is replaced first
+   ("new-password"); the "new-password" step goes once it is on. */
 
-type Step = "password" | "enroll" | "code" | "setup";
+type Step = "password" | "enroll" | "code" | "new-password" | "setup";
 type Reply = { status: number; data: Record<string, any> | null };
 
 async function post(url: string, body: unknown): Promise<Reply> {
@@ -62,7 +64,12 @@ export function LoginForm() {
     if (r.data?.result === "ok") {
       setMustChange(!!r.data.mustChange);
       setCode("");
-      if (r.data.step === "enroll") {
+      if (r.data.step === "done") {
+        window.location.href = "/diwan";
+        return;
+      }
+      if (r.data.step === "new-password") setStep("new-password");
+      else if (r.data.step === "enroll") {
         setSecret(r.data.secret ?? "");
         setLink(r.data.link ?? "");
         setStep("enroll");
@@ -80,7 +87,7 @@ export function LoginForm() {
       if (newPassword !== newPassword2) return setError(t("The two new passwords are not the same.", "كلمتا المرور الجديدتان غير متطابقتين."));
     }
     setBusy(true);
-    const r = await post("/api/diwan/auth/totp", { code: code.replace(/\s/g, ""), ...(mustChange ? { newPassword } : {}) });
+    const r = await post("/api/diwan/auth/totp", { ...(step === "new-password" ? {} : { code: code.replace(/\s/g, "") }), ...(mustChange ? { newPassword } : {}) });
     if (r.data?.result === "ok") {
       window.location.href = "/diwan";
       return;
@@ -113,7 +120,9 @@ export function LoginForm() {
       setEmail(setup.email.trim().toLowerCase());
       setPassword("");
       setStep("password");
-      setNote(t("The first owner is ready. Sign in now to set up your 2-step code.", "المالك الأول جاهز. سجّل الدخول الآن لإعداد رمز التحقق بخطوتين."));
+      setNote(STAFF_2FA_REQUIRED
+        ? t("The first owner is ready. Sign in now to set up your 2-step code.", "المالك الأول جاهز. سجّل الدخول الآن لإعداد رمز التحقق بخطوتين.")
+        : t("The first owner is ready. Sign in now.", "المالك الأول جاهز. سجّل الدخول الآن."));
       return;
     }
     const w = passwordWords[r.data?.problem as keyof typeof passwordWords];
@@ -182,6 +191,7 @@ export function LoginForm() {
             {step === "setup" ? t("Create the first owner", "إنشاء المالك الأول")
               : step === "enroll" ? t("Set up your 2-step code", "إعداد رمز التحقق بخطوتين")
                 : step === "code" ? t("Enter your 2-step code", "أدخل رمز التحقق")
+                  : step === "new-password" ? t("Choose your password", "اختر كلمة مرورك")
                   : t("Sign in to Diwan", "الدخول إلى الديوان")}
           </h1>
           <p className="mt-1 text-sm text-muted">
@@ -246,6 +256,14 @@ export function LoginForm() {
               {newPasswordFields}
               <Btn type="submit" disabled={busy} className="w-full">{busy ? t("Checking…", "جارٍ التحقق…") : t("Sign in", "دخول")}</Btn>
               <p className="text-xs text-muted">{t("Lost your phone? Ask an owner to reset your 2-step code.", "فقدت هاتفك؟ اطلب من المالك إعادة ضبط رمز التحقق.")}</p>
+              <BackLink onClick={() => { setStep("password"); setError(""); }} />
+            </form>
+          )}
+
+          {step === "new-password" && (
+            <form onSubmit={verify} className="mt-6 space-y-4">
+              {newPasswordFields}
+              <Btn type="submit" disabled={busy} className="w-full">{busy ? t("Saving…", "جارٍ الحفظ…") : t("Save and sign in", "حفظ والدخول")}</Btn>
               <BackLink onClick={() => { setStep("password"); setError(""); }} />
             </form>
           )}

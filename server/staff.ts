@@ -21,12 +21,13 @@ const isHttps = (req: NextRequest) => (req.headers.get("x-forwarded-proto") ?? r
 /* ---------------- sessions ---------------- */
 
 /** Starts a staff session (not verified until the 2-step code is given) and sets the cookie */
-export async function startStaffSession(res: NextResponse, req: NextRequest, staffId: string): Promise<void> {
+export async function startStaffSession(res: NextResponse, req: NextRequest, staffId: string, verified = false): Promise<void> {
   const token = randomBytes(32).toString("base64url");
   const pool = await db();
+  /* verified from the start only while 2-step codes are not required (STAFF_2FA_REQUIRED) and none is set up */
   await pool.query(
-    `INSERT INTO staff_sessions (token_hash, staff_id, ip, expires_at) VALUES ($1, $2, $3, now() + make_interval(hours => $4))`,
-    [tokenHash(token), staffId, ipOf(req), HOURS],
+    `INSERT INTO staff_sessions (token_hash, staff_id, ip, verified, expires_at) VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5))`,
+    [tokenHash(token), staffId, ipOf(req), verified, HOURS],
   );
   if (Math.random() < 0.1) pool.query(`DELETE FROM staff_sessions WHERE expires_at < now()`).catch(() => {});
   res.cookies.set(STAFF_COOKIE, token, { httpOnly: true, sameSite: "strict", secure: isHttps(req), path: "/", maxAge: HOURS * 3600 });
