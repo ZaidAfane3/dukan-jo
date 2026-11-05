@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
 import { REPORT_LIMITS, REPORT_REASONS, type ReportReason } from "@/components/storeReports";
 import { answer, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { ipOf } from "@/server/staff";
 
@@ -28,7 +29,7 @@ export const POST = guarded(async (req: NextRequest) => {
   if (rows[0]) {
     await pool.query(
       `INSERT INTO store_reports (account_id, reporter_kind, reporter_contact, reason, body, ip) VALUES ($1, 'customer', $2, $3, $4, $5)`,
-      [rows[0].account_id, contact, reason, text, ipOf(req)],
+      [rows[0].account_id, seal(contact), reason, seal(text), seal(ipOf(req))],
     );
   }
   return answer({ result: "ok" });

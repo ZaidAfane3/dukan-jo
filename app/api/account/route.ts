@@ -3,6 +3,7 @@ import { isJordanMobile, savedMobile } from "@/components/phone";
 import { cleanDate, cleanLine, emailOf, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS, DOB_MIN } from "@/components/safeAccount";
 import { answer, currentAccount, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { emailKey, phoneKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,8 @@ export const dynamic = "force-dynamic";
    optional date of birth, gender and city. An email or mobile another account has is refused: "taken" (email) or
    "taken-phone". Answers "ok" with the profile, "invalid", "none" (signed out). */
 
-const PROFILE = `name, email, phone, city, gender, COALESCE(to_char(dob, 'YYYY-MM-DD'), '') AS dob`;
+/* all stored encrypted (server/crypto.ts) and opened by db(); dob is kept as "YYYY-MM-DD" text */
+const PROFILE = `name, email, phone, city, gender, COALESCE(dob, '') AS dob`;
 const shape = (r: Record<string, string>) => ({ name: r.name, email: r.email, phone: r.phone, dob: r.dob, gender: r.gender, city: r.city });
 
 export const GET = guarded(async (req: NextRequest) => {
@@ -39,13 +41,14 @@ export const PUT = guarded(async (req: NextRequest) => {
 
   try {
     const { rows } = await (await db()).query(
-      `UPDATE accounts SET name = $2, email = $3, phone = $4, dob = $5, gender = $6, city = $7 WHERE id = $1 RETURNING ${PROFILE}`,
-      [a.id, name, email, phone, dob || null, gender, city],
+      `UPDATE accounts SET name = $2, email = $3, phone = $4, dob = $5, gender = $6, city = $7, email_hash = $8, phone_hash = $9
+        WHERE id = $1 RETURNING ${PROFILE}`,
+      [a.id, seal(name), seal(email), seal(phone), seal(dob || null), seal(gender), seal(city), emailKey(email), phoneKey(phone)],
     );
     return answer({ result: "ok", profile: shape(rows[0]) });
   } catch (e) {
     const err = e as { code?: string; constraint?: string };
-    if (err.code === "23505") return answer({ result: err.constraint === "accounts_phone" ? "taken-phone" : "taken" }, 409);
+    if (err.code === "23505") return answer({ result: err.constraint === "accounts_phone_hash" ? "taken-phone" : "taken" }, 409);
     throw e;
   }
 });

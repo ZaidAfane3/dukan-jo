@@ -3,6 +3,7 @@ import { isJordanMobile, savedMobile } from "@/components/phone";
 import { cleanLine, emailOf, passwordProblem, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS } from "@/components/safeAccount";
 import { answer, guarded, hashPassword, noteLogin, readJson, sameOrigin, startSession, tooMany } from "@/server/auth";
+import { emailKey, phoneKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { startTrial, touchShop } from "@/server/shops";
 
@@ -26,16 +27,15 @@ export const POST = guarded(async (req: NextRequest) => {
   const pool = await db();
   let id: string;
   try {
-    const { rows } = await pool.query(`INSERT INTO accounts (email, name, phone, password_hash) VALUES ($1, $2, $3, $4) RETURNING id`, [
-      email,
-      name,
-      phone,
-      await hashPassword(password),
-    ]);
+    /* email, name and mobile are stored encrypted; their fingerprints keep them unique (server/crypto.ts) */
+    const { rows } = await pool.query(
+      `INSERT INTO accounts (email, name, phone, email_hash, phone_hash, password_hash) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [seal(email), seal(name), seal(phone), emailKey(email), phoneKey(phone), await hashPassword(password)],
+    );
     id = String(rows[0].id);
   } catch (e) {
     const err = e as { code?: string; constraint?: string };
-    if (err.code === "23505") return answer({ result: err.constraint === "accounts_phone" ? "taken-phone" : "taken" }, 409);
+    if (err.code === "23505") return answer({ result: err.constraint === "accounts_phone_hash" ? "taken-phone" : "taken" }, 409);
     throw e;
   }
   await pool.query(`INSERT INTO shops (account_id) VALUES ($1) ON CONFLICT DO NOTHING`, [id]);

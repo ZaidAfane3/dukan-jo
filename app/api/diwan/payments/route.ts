@@ -1,4 +1,5 @@
 import { answer } from "@/server/auth";
+import { lookupKeys } from "@/server/crypto";
 import { db } from "@/server/db";
 import { dayOf } from "@/server/shopActions";
 import { likeText } from "@/server/shops";
@@ -26,7 +27,9 @@ export const GET = staffRoute("billing", async (req, staff) => {
   const q = (p.get("q") ?? "").trim().slice(0, 100);
   if (q) {
     const like = add(likeText(q));
-    where.push(`(s.name ILIKE ${like} OR a.name ILIKE ${like} OR a.email ILIKE ${like} OR pay.reference ILIKE ${like})`);
+    const [e, m] = lookupKeys(q);
+    /* the owner's email and mobile are encrypted: found only when typed in full */
+    where.push(`(s.name ILIKE ${like} OR s.slug ILIKE ${like} OR pay.reference ILIKE ${like} OR a.email_hash = ${add(e)} OR a.phone_hash = ${add(m)})`);
   }
   const fromSql = `FROM payments pay JOIN accounts a ON a.id = pay.account_id LEFT JOIN shops s ON s.account_id = pay.account_id
                    LEFT JOIN staff st ON st.id = pay.marked_by ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;

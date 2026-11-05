@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit } from "@/server/staff";
 
@@ -51,7 +52,7 @@ export const POST = guarded(async (req: NextRequest) => {
       await c.query("ROLLBACK");
       return answer({ result: "closed" }, 409);
     }
-    const r = await c.query(`INSERT INTO staff (email, name, role, password_hash) VALUES ($1, $2, 'owner', $3) RETURNING id`, [who.email, who.name, hash]);
+    const r = await c.query(`INSERT INTO staff (email, email_hash, name, role, password_hash) VALUES ($1, $2, $3, 'owner', $4) RETURNING id`, [seal(who.email), emailKey(who.email), who.name, hash]);
     id = String(r.rows[0].id);
     await c.query("COMMIT");
   } catch (e) {

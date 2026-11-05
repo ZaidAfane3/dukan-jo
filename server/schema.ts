@@ -351,4 +351,14 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS documents_status ON documents (status, created_at DESC);
   CREATE INDEX IF NOT EXISTS store_reports_status ON store_reports (status, created_at DESC);
   CREATE INDEX IF NOT EXISTS store_reports_account ON store_reports (account_id, created_at DESC);
+
+  /* encryption (server/crypto.ts): private columns hold sealed text, so they must be TEXT without value checks, and
+     emails and mobiles are found by their fingerprints. The unique indexes on the fingerprints are made by
+     encryptOldRows (server/encryptData.ts) once every row has one. */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_hash TEXT;
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS phone_hash TEXT;
+  ALTER TABLE staff    ADD COLUMN IF NOT EXISTS email_hash TEXT;
+  ALTER TABLE accounts ALTER COLUMN dob TYPE TEXT USING dob::text;
+  ALTER TABLE accounts DROP CONSTRAINT IF EXISTS accounts_gender_check;
+  ALTER TABLE store_data ADD COLUMN IF NOT EXISTS plain_len INT;
 `;

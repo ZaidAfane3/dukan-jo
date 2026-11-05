@@ -1,4 +1,5 @@
 import { answer } from "@/server/auth";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { notify } from "@/server/notify";
 import { body, changeSubscription, dayOf, jodOf, lengthOf, notFound, shopId, textOf } from "@/server/shopActions";
@@ -55,7 +56,7 @@ export const POST = staffRoute("billing", async (req, staff, ctx) => {
       : ((await client.query(`SELECT id FROM subscriptions WHERE account_id = $1 AND status IN ('trial', 'active')`, [id])).rows[0]?.id ?? null);
     const { rows } = await client.query(
       `INSERT INTO payments (account_id, subscription_id, amount, method, reference, paid_on, marked_by, note) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-      [id, subId, amount, method, reference, paidOn, staff.id, note],
+      [id, subId, amount, method, reference, paidOn, staff.id, seal(note)],
     );
     paymentId = String(rows[0].id);
     await client.query("COMMIT");

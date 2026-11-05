@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { answer } from "@/server/auth";
+import { lookupKeys } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 
@@ -30,7 +31,8 @@ export const GET = staffRoute("domains", async (req: NextRequest, me) => {
   if (papers) where.push(`d.papers_needed`);
   if (q) {
     const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-    where.push(`(d.name ILIKE $${args.push(like)} OR s.name ILIKE $${args.length} OR a.name ILIKE $${args.length} OR a.email ILIKE $${args.length})`);
+    const [e, m] = lookupKeys(q);
+    where.push(`(d.name ILIKE $${args.push(like)} OR s.name ILIKE $${args.length} OR a.email_hash = $${args.push(e)} OR a.phone_hash = $${args.push(m)})`);
   }
 
   const pool = await db();

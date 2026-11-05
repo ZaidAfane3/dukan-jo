@@ -1,4 +1,5 @@
 import { answer, startSession } from "@/server/auth";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { notify } from "@/server/notify";
 import { body, notFound, reasonOf, shopId } from "@/server/shopActions";
@@ -26,7 +27,7 @@ export const POST = staffRoute("shops.impersonate", async (req, staff, ctx) => {
   const { rows } = await pool.query(
     `INSERT INTO impersonations (staff_id, account_id, reason, view_only, ip, ends_at) VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6))
      RETURNING id, ends_at`,
-    [staff.id, id, reason, viewOnly, ipOf(req), MINUTES],
+    [staff.id, id, seal(reason), viewOnly, seal(ipOf(req)), MINUTES],
   );
   const imp = rows[0];
   const res = answer({ result: "ok", endsAt: new Date(imp.ends_at).toISOString(), viewOnly });

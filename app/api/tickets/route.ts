@@ -1,4 +1,5 @@
 import { answer, readJson, tooMany } from "@/server/auth";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { addMessage, checkPictures, inTransaction, merchantRoute, merchantStatus } from "@/server/tickets";
 import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
@@ -63,7 +64,7 @@ export const POST = merchantRoute(async (req, me) => {
   const number = await inTransaction(async (c) => {
     const { rows } = await c.query(
       `INSERT INTO tickets (account_id, kind, category, subject, where_text) VALUES ($1, $2, $3, $4, $5) RETURNING id, number`,
-      [me.id, kind, category, subject, where],
+      [me.id, kind, category, seal(subject), seal(where)],
     );
     await addMessage(c, String(rows[0].id), { author: "merchant", body: message, pictures });
     return Number(rows[0].number);

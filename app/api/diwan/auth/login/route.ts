@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { emailOf } from "@/components/safe";
 import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, newTotpSecret, startStaffSession, totpLink } from "@/server/staff";
 
@@ -23,13 +24,13 @@ export const POST = guarded(async (req: NextRequest) => {
 
   const pool = await db();
   const { rows } = await pool.query(
-    `SELECT id, password_hash, active, totp_on, totp_secret, must_change_password FROM staff WHERE email = $1`,
-    [email],
+    `SELECT id, password_hash, active, totp_on, totp_secret, must_change_password FROM staff WHERE email_hash = $1`,
+    [emailKey(email)],
   );
   const s = rows[0];
   const ok = await checkPassword(password, s?.password_hash ?? (await dummyHash()));
   if (!s || !s.active || !ok) {
-    await audit(req, s ? String(s.id) : null, "staff.login_failed", s ? { type: "staff", id: s.id } : undefined, null, s ? (s.active ? undefined : { inactive: true }) : { email });
+    await audit(req, s ? String(s.id) : null, "staff.login_failed", s ? { type: "staff", id: s.id } : undefined, null, s ? (s.active ? undefined : { inactive: true }) : undefined);
     return answer({ result: "wrong" }, 401);
   }
 
@@ -38,7 +39,7 @@ export const POST = guarded(async (req: NextRequest) => {
   /* first sign-in (or after an owner reset the code): a secret to add to the app; kept until it is confirmed */
   if (!s.totp_on && !secret) {
     secret = newTotpSecret();
-    await pool.query(`UPDATE staff SET totp_secret = $2 WHERE id = $1 AND NOT totp_on`, [id, secret]);
+    await pool.query(`UPDATE staff SET totp_secret = $2 WHERE id = $1 AND NOT totp_on`, [id, seal(secret)]);
   }
   const res = answer({
     result: "ok",

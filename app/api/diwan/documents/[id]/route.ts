@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cleanLines } from "@/components/safe";
 import { answer, readJson } from "@/server/auth";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { notify } from "@/server/notify";
 import { audit, staffRoute } from "@/server/staff";
@@ -21,7 +22,7 @@ export const POST = staffRoute("documents", async (req: NextRequest, me, { param
   const before = await pool.query(`SELECT account_id, name, status, note FROM documents WHERE id = $1`, [id]);
   const b = before.rows[0];
   if (!b) return answer({ result: "missing" }, 404);
-  await pool.query(`UPDATE documents SET status = $2, note = $3, reviewed_by = $4 WHERE id = $1`, [id, status, note, me.id]);
+  await pool.query(`UPDATE documents SET status = $2, note = $3, reviewed_by = $4 WHERE id = $1`, [id, status, seal(note), me.id]);
   await notify(b.account_id, "documentStatus", { name: b.name, status, note });
   await audit(req, me.id, "document.review", { type: "document", id }, note || null, {
     shop: String(b.account_id),
