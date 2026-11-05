@@ -19,6 +19,7 @@ import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
 import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
 import { merchantCall, onServer } from "./merchantApi";
+import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
 
 /* ====================================================================
    Types and constants
@@ -39,6 +40,8 @@ type Store = {
   logoData: string;
   color: string;
   phone: string;
+  /* WhatsApp for customers (+9627XXXXXXXX), "" for none, null while the step was never answered */
+  whatsapp: string | null;
   slug: string;
   product: { type: number; name: string; price: string; quantity?: number; image: string | null; /* the product it became in the product list */ id?: number } | null;
   shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string } | null;
@@ -52,6 +55,7 @@ const EMPTY_STORE: Store = {
   logoData: "",
   color: "#004956",
   phone: "",
+  whatsapp: null,
   slug: "",
   product: null,
   shipping: null,
@@ -564,9 +568,13 @@ function ServiceStep({ store, onSave }: StepProps) {
 
   /* The number he signed up with, if he created an account in this session. */
   const [account, setAccount] = useState("");
-  const [useSame, setUseSame] = useState(true);
-  const [phone, setPhone] = useState(shownMobile(store.phone));
   const [tried, setTried] = useState(false);
+  /* WhatsApp (required): the account's number by default, or another one */
+  const [useAccount, setUseAccount] = useState(true);
+  const [waField, setWaField] = useState("");
+  /* Phone for calls (optional): the WhatsApp number by default, another one, or none (left empty) */
+  const [callSame, setCallSame] = useState(true);
+  const [callField, setCallField] = useState("");
 
   useEffect(() => {
     let registered = "";
@@ -576,42 +584,75 @@ function ServiceStep({ store, onSave }: StepProps) {
       /* ignore */
     }
     setAccount(registered);
-    /* Reopening a saved step: keep "same number" on only if it matches. */
-    if (registered) setUseSame(!store.phone || jordanMobile(store.phone) === registered);
-    else setUseSame(false);
-  }, [store.phone]);
-
-  const hasAccount = account !== "";
-  const usingAccount = hasAccount && useSame;
-  const shown = usingAccount ? account : phone.trim();
-  const valid = isJordanMobile(shown);
-  /* Wrong number while typing, or still empty after he pressed Save */
-  const showError = !usingAccount && !isJordanMobile(phone) && (phone.trim() !== "" || tried);
-
-  const save = () => {
-    if (!valid) {
-      setTried(true);
-      focusFirst(["ob-service-phone"]);
+    if (store.whatsapp === null) {
+      /* never answered: WhatsApp starts from the account's number (or the phone an older setup saved), calls on the same number */
+      setUseAccount(registered !== "");
+      setWaField(registered ? "" : shownMobile(store.phone));
+      setCallSame(true);
+      setCallField("");
       return;
     }
-    onSave({ phone: savedMobile(shown) });
+    /* reopening a saved step: show what he chose */
+    const w = jordanMobile(store.whatsapp);
+    const p = jordanMobile(store.phone);
+    const same = registered !== "" && w === registered;
+    setUseAccount(same);
+    setWaField(same ? "" : w);
+    setCallSame(p !== "" && p === w);
+    setCallField(p !== "" && p !== w ? p : "");
+  }, [store.phone, store.whatsapp]);
+
+  const hasAccount = account !== "";
+  const usingAccount = hasAccount && useAccount;
+  /* At least one way to reach him: WhatsApp (filled in by default), a phone for calls, or both */
+  const waNumber = usingAccount ? account : waField.trim();
+  const waOk = isJordanMobile(waNumber);
+  const waError = !usingAccount && waField.trim() !== "" && !isJordanMobile(waField);
+  /* "Same number as WhatsApp" only makes sense while there is a WhatsApp number; otherwise the phone field shows */
+  const callOwn = !callSame || !waOk;
+  const callNumber = callOwn ? callField.trim() : waNumber;
+  const callBad = callOwn && callField.trim() !== "" && !isJordanMobile(callField);
+  const none = !waOk && !isJordanMobile(callNumber);
+  const noneError = tried && none && !waError && !callBad;
+
+  const save = () => {
+    if (waError || callBad || none) {
+      setTried(true);
+      focusFirst([...(waError || (none && !usingAccount) ? ["ob-service-wa"] : []), ...(callBad || none ? ["ob-service-phone"] : [])]);
+      return;
+    }
+    const whatsapp = waOk ? savedMobile(waNumber) : "";
+    /* A store that is already open shows the design's own WhatsApp, so it changes there too */
+    if (storeIsLive()) {
+      const cfg = loadConfig();
+      saveConfig({ ...cfg, footer: { ...cfg.footer, whatsapp: whatsapp ? `+962 ${jordanMobile(whatsapp)}` : "" } });
+    }
+    onSave({ whatsapp, phone: isJordanMobile(callNumber) ? savedMobile(callNumber) : "" });
   };
+
+  const box = "mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--primary))]";
+  const waIcon = <svg {...icon} className="h-3.5 w-3.5"><path d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.7-1.2A9 9 0 1 0 12 3Z" /><path d="M9 8.5c.3 2.8 2.7 5.2 5.5 5.5l1.2-1.3-1.8-1-.9.8c-.9-.4-1.7-1.2-2.1-2.1l.8-.9-1-1.8L9 8.5Z" /></svg>;
+  const phoneIcon = <svg {...icon} className="h-3.5 w-3.5"><path d="M5 5h4l1.5 4-2 1.2a11 11 0 0 0 5.3 5.3l1.2-2 4 1.5v4a2 2 0 0 1-2 2A15 15 0 0 1 3 7a2 2 0 0 1 2-2Z" /></svg>;
+  const placeholderRow = (
+    <div className="flex items-center justify-between gap-3 opacity-70">
+      <span className="h-2 flex-1 rounded-full bg-fg/25" />
+      <span className="h-4 w-4 rounded-full bg-fg/20" />
+    </div>
+  );
 
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-6 lg:order-2">
-        <RequiredNote text={c.requiredNote} show={tried && showError} />
-        <div className="!mt-4">
-          <Label title={sv.phoneLabel} hint={sv.hint} required htmlFor={usingAccount ? undefined : "ob-service-phone"} />
+        {/* One of the two is needed; WhatsApp is the one filled in by default */}
+        <p className={`!mt-4 rounded-xl px-3 py-2 text-sm ${noneError ? "bg-rose-500/10 font-semibold text-rose-600" : "bg-primary/10 text-deep dark:text-primary"}`} role={noneError ? "alert" : undefined}>{sv.oneNeeded}</p>
+
+        {/* WhatsApp */}
+        <div>
+          <Label title={sv.waLabel} hint={sv.waHint} htmlFor={usingAccount ? undefined : "ob-service-wa"} />
 
           {hasAccount && (
             <label className="flex cursor-pointer items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                checked={useSame}
-                onChange={(e) => setUseSame(e.target.checked)}
-                className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--primary))]"
-              />
+              <input type="checkbox" checked={useAccount} onChange={(e) => setUseAccount(e.target.checked)} className={box} />
               <span>
                 {sv.useSame} <span dir="ltr" className="font-bold">(+962 {account})</span>
                 <span className="ms-2 inline-block rounded-full bg-primary/15 px-2.5 py-0.5 align-middle text-[11px] font-bold text-deep dark:text-primary">{sv.registered}</span>
@@ -622,12 +663,30 @@ function ServiceStep({ store, onSave }: StepProps) {
           {/* Another number: shown when "same number" is off, or when there is no account number */}
           {!usingAccount && (
             <div className={hasAccount ? "mt-5" : ""}>
-              {hasAccount && <p className="mb-2 text-sm font-semibold">{sv.otherLabel}</p>}
-              <PhoneField id="ob-service-phone" value={phone} onChange={(v) => { setPhone(v); setTried(false); }} placeholder={sv.phonePh} label={sv.otherLabel} invalid={showError} />
-              {showError && <FieldError id="ob-service-phone-err">{sv.invalid}</FieldError>}
+              {hasAccount && <p className="mb-2 text-sm font-semibold">{sv.waOther}</p>}
+              <PhoneField id="ob-service-wa" value={waField} onChange={(v) => { setWaField(v); setTried(false); }} placeholder={sv.phonePh} label={sv.waOther} invalid={waError || noneError} />
+              {waError ? <FieldError id="ob-service-wa-err">{sv.waInvalid}</FieldError> : <p className="mt-2 text-xs text-muted">{sv.waEmpty}</p>}
             </div>
           )}
         </div>
+
+        {/* Phone for calls */}
+        <div>
+          <Label title={sv.callLabel} hint={sv.callHint} htmlFor={callOwn ? "ob-service-phone" : "ob-service-call-same"} />
+          {waOk && (
+            <label className="flex cursor-pointer items-start gap-3 text-sm">
+              <input id="ob-service-call-same" type="checkbox" checked={callSame} onChange={(e) => setCallSame(e.target.checked)} className={box} />
+              <span>{sv.callSame}</span>
+            </label>
+          )}
+          {callOwn && (
+            <div className={waOk ? "mt-4" : ""}>
+              <PhoneField id="ob-service-phone" value={callField} onChange={(v) => { setCallField(v); setTried(false); }} placeholder={sv.phonePh} label={sv.callOther} invalid={callBad || noneError} />
+              {callBad ? <FieldError id="ob-service-phone-err">{sv.invalid}</FieldError> : waOk ? <p className="mt-2 text-xs text-muted">{sv.callEmpty}</p> : null}
+            </div>
+          )}
+        </div>
+
         <SaveButton onClick={save}>{c.save}</SaveButton>
       </div>
 
@@ -636,26 +695,28 @@ function ServiceStep({ store, onSave }: StepProps) {
           <div style={{ transformStyle: "preserve-3d" }}>
             <div className={`p-5 ${card3d}`} style={{ transform: "translateZ(15px)", transformStyle: "preserve-3d" }}>
               <p className="font-bold" style={{ color: store.color }}>{store.name || c.defaultName}</p>
-              <p className="mt-1 line-clamp-2 min-h-[2.5rem] whitespace-pre-line text-sm text-muted">{store.description || "\u00A0"}</p>
+              <p className="mt-1 line-clamp-2 min-h-[2.5rem] whitespace-pre-line text-sm text-muted">{store.description || " "}</p>
 
-              {/* Contact card: the support number sits in the middle, other contact lines are placeholders */}
+              {/* Contact card: WhatsApp in its green, then the phone for calls when there is one; other lines are placeholders */}
               <div className="mx-auto mt-5 max-w-[15rem] space-y-3 rounded-xl bg-soft p-4" style={{ transform: "translateZ(40px)" }}>
-                {[0, 1].map((i) => (
-                  <div key={i} className="flex items-center justify-between gap-3 opacity-70">
-                    <span className="h-2 flex-1 rounded-full bg-fg/25" />
-                    <span className="h-4 w-4 rounded-full bg-fg/20" />
+                {placeholderRow}
+                {waNumber ? (
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-card px-2 py-2 shadow-sm">
+                    <span dir="ltr" className="min-w-0 flex-1 truncate text-start text-sm font-bold text-fg">+962 {waNumber}</span>
+                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#1fa855] text-white" aria-label="WhatsApp">{waIcon}</span>
                   </div>
-                ))}
-                <div className="flex items-center justify-between gap-3 rounded-lg bg-card px-2 py-2 shadow-sm">
-                  <span dir="ltr" className="min-w-0 flex-1 truncate text-start text-sm font-bold">{shown ? `+962 ${shown}` : "+962 7X XXX XXXX"}</span>
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-white" style={{ backgroundColor: store.color }}>
-                    <svg {...icon} className="h-3.5 w-3.5"><path d="M5 5h4l1.5 4-2 1.2a11 11 0 0 0 5.3 5.3l1.2-2 4 1.5v4a2 2 0 0 1-2 2A15 15 0 0 1 3 7a2 2 0 0 1 2-2Z" /></svg>
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3 opacity-70">
-                  <span className="h-2 flex-1 rounded-full bg-fg/25" />
-                  <span className="h-4 w-4 rounded-full bg-fg/20" />
-                </div>
+                ) : (
+                  placeholderRow
+                )}
+                {callNumber ? (
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-card px-2 py-2 shadow-sm">
+                    <span dir="ltr" className="min-w-0 flex-1 truncate text-start text-sm font-bold text-fg">+962 {callNumber}</span>
+                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-white" style={{ backgroundColor: store.color }}>{phoneIcon}</span>
+                  </div>
+                ) : (
+                  placeholderRow
+                )}
+                {placeholderRow}
               </div>
 
               <div className="mt-5 flex justify-center gap-2" aria-hidden>
@@ -1447,6 +1508,7 @@ export function Onboarding() {
         description: s.description,
         color: s.color,
         phone: s.phone,
+        whatsapp: s.whatsapp ?? null,
         slug: s.slug,
         product: s.product ? { ...s.product, image: s.product.image ?? null } : null,
         pickup: s.pickup === true,
@@ -1468,6 +1530,7 @@ export function Onboarding() {
       description: store.description,
       color: store.color,
       phone: store.phone,
+      ...(store.whatsapp !== null ? { whatsapp: store.whatsapp } : {}),
       slug: store.slug,
       done,
       pickup: store.pickup,

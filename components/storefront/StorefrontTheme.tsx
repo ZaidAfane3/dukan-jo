@@ -74,6 +74,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     description: sDescription ?? saved.description,
     color: sColor || saved.color,
     phone: sPhone !== undefined ? (sPhone ? `+962 ${shownMobile(sPhone)}` : "") : saved.phone,
+    /* the designer (it passes the store) shows only the design's own WhatsApp, which it fills from setup when it opens */
+    whatsapp: sPhone !== undefined ? "" : saved.whatsapp,
   }), [saved, products, sName, sDescription, sColor, sPhone]);
 
   const root = useRef<HTMLDivElement>(null);
@@ -700,7 +702,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               <a href="/products" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-bold text-[var(--sf-primary)] underline underline-offset-2">{lang === "ar" ? "أضف منتجًا" : "Add a product"}</a>
             </p>
           )}
-          <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} sections={config.sections} ask={whatsappHref(config.footer.whatsapp ?? "")} />
+          <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} sections={config.sections} ask={whatsappHref(config.footer.whatsapp?.trim() || data.whatsapp)} />
           </>
         ) : shownPage ? (
           <>
@@ -997,10 +999,12 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
   type Line = { key: string; icon: React.ReactNode; text: string; ltr: boolean; href: string; blank?: boolean };
   const tel = resolveLink(data.phone);
   const mail = resolveLink(f.email);
+  /* the design's own WhatsApp, or the one given in setup */
+  const whatsapp = f.whatsapp?.trim() || data.whatsapp;
   const address = bi(f.address);
   const contactLines: Line[] = ([
     data.phone && { key: "phone", icon: icons.phone, text: data.phone, ltr: true, href: tel?.kind === "url" && tel.href.startsWith("tel:") ? tel.href : "" },
-    f.whatsapp?.trim() && { key: "whatsapp", icon: icons.whatsapp, text: f.whatsapp, ltr: true, href: whatsappHref(f.whatsapp), blank: true },
+    whatsapp && { key: "whatsapp", icon: icons.whatsapp, text: whatsapp, ltr: true, href: whatsappHref(whatsapp), blank: true },
     f.telegram?.trim() && { key: "telegram", icon: icons.telegram, text: f.telegram, ltr: true, href: telegramHref(f.telegram), blank: true },
     f.email?.trim() && { key: "email", icon: icons.mail, text: f.email, ltr: true, href: mail?.kind === "url" && mail.href.startsWith("mailto:") ? mail.href : "" },
     address && { key: "address", icon: icons.pin, text: address, ltr: false, href: "" },

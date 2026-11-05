@@ -116,9 +116,12 @@ const TASKS = 6; /* the store design task is the last one of the setup list */
 
 function initial(): Draft {
   const s = loadSetup();
+  const config = loadConfig();
+  /* the WhatsApp number given in setup fills the footer's, until the design has one of its own */
+  const wa = s?.whatsapp ? `+962 ${shownMobile(s.whatsapp)}` : "";
   return {
-    config: loadConfig(),
-    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#004956", phone: shownMobile(s?.phone || accountPhone()) },
+    config: wa && !config.footer.whatsapp?.trim() ? { ...config, footer: { ...config.footer, whatsapp: wa } } : config,
+    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#004956", phone: shownMobile(s?.phone || (s?.whatsapp === undefined ? accountPhone() : "")) },
   };
 }
 
@@ -758,6 +761,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
       description: draft.identity.description.trim(),
       color: draft.identity.color,
       phone: savedPhone(draft.identity.phone),
+      /* the footer's WhatsApp is now the one: setup follows it, so a number removed here does not come back from setup */
+      whatsapp: savedPhone(kept.config.footer.whatsapp ?? ""),
       slug: prev?.slug ?? "",
       done: prev && prev.done.length === TASKS ? prev.done.map((v, i) => (i === TASKS - 1 ? true : v)) : Array.from({ length: TASKS }, (_, i) => i === TASKS - 1),
       pickup: prev?.pickup,

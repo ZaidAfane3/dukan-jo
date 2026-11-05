@@ -49,6 +49,8 @@ export type StoreData = {
   description: string;
   color: string;
   phone: string;
+  /* The WhatsApp number from setup ("+962 7…" or ""): the footer uses it while the design has no WhatsApp of its own */
+  whatsapp: string;
   slug: string;
   logo: string;
   products: StoreProduct[];
@@ -168,7 +170,7 @@ export function storeCategories(products: { category: string; categories?: strin
 }
 
 function build(lang: Lang, sample: boolean): StoreData {
-  const setup = read<{ name?: string; description?: string; color?: string; phone?: string; slug?: string; logo?: string; pickup?: unknown }>("seen-setup");
+  const setup = read<{ name?: string; description?: string; color?: string; phone?: string; whatsapp?: string; slug?: string; logo?: string; pickup?: unknown }>("seen-setup");
   /* Only products with a real id, each id once (a damaged list must not break the store or sell twice) */
   const seen = new Set<number>();
   const saved = savedList("seen-products").filter((p) => !p.deletedAt && !p.hidden).map(toStoreProduct).filter((p) => !Number.isNaN(p.id) && !seen.has(p.id) && !!seen.add(p.id));
@@ -187,7 +189,12 @@ function build(lang: Lang, sample: boolean): StoreData {
     name: setup?.name?.trim() || accountName() || (lang === "ar" ? "متجرك" : "Your store"),
     description: setup?.description?.trim() || "",
     color: setup?.color || "#004956",
-    phone: setup?.phone || accountPhone() ? `+962 ${shownMobile(setup?.phone || accountPhone())}` : "",
+    /* the phone is optional once the contact step is answered (it has a WhatsApp then): empty stays empty */
+    phone: (() => {
+      const p = setup?.phone || (setup?.whatsapp === undefined ? accountPhone() : "");
+      return p ? `+962 ${shownMobile(p)}` : "";
+    })(),
+    whatsapp: typeof setup?.whatsapp === "string" && setup.whatsapp ? `+962 ${shownMobile(setup.whatsapp)}` : "",
     slug: setup?.slug || "",
     /* read straight from storage: only picture data or the site's own files, never a link to another site */
     logo: safeStoredImage(setup?.logo),
@@ -200,7 +207,7 @@ function build(lang: Lang, sample: boolean): StoreData {
   };
 }
 
-const empty: StoreData = { name: "", description: "", color: "#004956", phone: "", slug: "", logo: "", products: [], categories: [], links: [], pages: [], pickup: false, isDemo: true };
+const empty: StoreData = { name: "", description: "", color: "#004956", phone: "", whatsapp: "", slug: "", logo: "", products: [], categories: [], links: [], pages: [], pickup: false, isDemo: true };
 
 export function useStoreData(lang: Lang, sample = false): StoreData {
   const [data, setData] = useState<StoreData>(empty);

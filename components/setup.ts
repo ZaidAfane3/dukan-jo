@@ -10,6 +10,8 @@ export type SavedSetup = {
   description: string;
   color: string;
   phone: string;
+  /* The store's WhatsApp number from setup (+9627XXXXXXXX), or "" for none. The footer shows it until the design has its own. */
+  whatsapp?: string;
   slug: string;
   done: boolean[];
   pickup?: boolean;
