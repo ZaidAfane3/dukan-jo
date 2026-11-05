@@ -354,7 +354,7 @@ function Payments() {
   return (
     <div className="space-y-4">
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <input type="search" maxLength={100} value={q} onChange={(e) => (setQ(e.target.value), setPage(1))} placeholder={t("Store, owner, email or reference", "المتجر أو المالك أو البريد أو المرجع")} className={`${field} lg:col-span-2`} />
+        <input type="search" maxLength={100} value={q} onChange={(e) => (setQ(e.target.value), setPage(1))} placeholder={t("Store, reference, or the full email or mobile", "المتجر أو المرجع، أو البريد أو الهاتف كاملًا")} className={`${field} lg:col-span-2`} />
         <Select
           label={t("Method", "الطريقة")}
           value={method}

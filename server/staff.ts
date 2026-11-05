@@ -47,7 +47,7 @@ export async function verifyStaffSession(req: NextRequest): Promise<void> {
 
 /** The staff member behind a cookie token, and whether the 2-step code was given. Also usable from server components. */
 export async function staffFromToken(token: string | undefined): Promise<(Staff & { verified: boolean }) | null> {
-  if (!token || token.length > 100) return null;
+  if (!token || token.length > 100) return LOCAL_DEV ? devOwner() : null;
   const pool = await db();
   const { rows } = await pool.query(
     `UPDATE staff_sessions ss SET last_used_at = now()
@@ -58,8 +58,35 @@ export async function staffFromToken(token: string | undefined): Promise<(Staff 
     [tokenHash(token), IDLE_MIN],
   );
   const s = rows[0];
-  if (!s) return null;
+  /* locally, a sign-in left halfway (no code given yet) doesn't stop the dev owner either */
+  if (!s || (LOCAL_DEV && !s.verified)) return LOCAL_DEV ? devOwner() : null;
   return { id: String(s.id), email: s.email, name: s.name, role: s.role, totpOn: s.totp_on, verified: s.verified };
+}
+
+/* ---------------- local development: no sign-in ---------------- */
+
+/* On the local dev server only (`next dev`, NODE_ENV=development), Diwan opens without signing in, as an owner called
+   "Local dev". The live server runs the production build (NODE_ENV=production), where this is always off. To try the
+   real sign-in locally anyway, start the dev server with DIWAN_DEV_LOGIN=off. Someone who did sign in stays themselves. */
+const LOCAL_DEV = process.env.NODE_ENV === "development" && process.env.DIWAN_DEV_LOGIN !== "off";
+const DEV_EMAIL = "local-dev@diwan.local";
+const gDev = globalThis as unknown as { diwanDevOwner?: Promise<Staff & { verified: boolean }> };
+
+/** The local dev owner (a real staff row, so the activity log can name it; it has no password, so it can't sign in) */
+function devOwner(): Promise<Staff & { verified: boolean }> {
+  gDev.diwanDevOwner ??= (async () => {
+    const { emailKey, seal } = await import("./crypto");
+    const { rows } = await (await db()).query(
+      `INSERT INTO staff (email, email_hash, name, role, password_hash) VALUES ($1, $2, 'Local dev', 'owner', 'none')
+       ON CONFLICT (email_hash) DO UPDATE SET role = 'owner', active = true RETURNING id`,
+      [seal(DEV_EMAIL), emailKey(DEV_EMAIL)],
+    );
+    return { id: String(rows[0].id), email: DEV_EMAIL, name: "Local dev", role: "owner" as Role, totpOn: false, verified: true };
+  })().catch((e) => {
+    gDev.diwanDevOwner = undefined;
+    throw e;
+  });
+  return gDev.diwanDevOwner;
 }
 
 export const currentStaff = (req: NextRequest) => staffFromToken(req.cookies.get(STAFF_COOKIE)?.value);

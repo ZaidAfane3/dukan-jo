@@ -108,7 +108,7 @@ export default function ShopsPage() {
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
           maxLength={100}
-          placeholder={t("Store, owner, email, phone or link", "المتجر أو المالك أو البريد أو الهاتف أو الرابط")}
+          placeholder={t("Store name or link, or the full email or mobile", "اسم المتجر أو رابطه، أو البريد أو الهاتف كاملًا")}
           aria-label={t("Search shops", "البحث في المتاجر")}
           className={`${field} sm:col-span-2 lg:col-span-4 xl:col-span-2`}
         />
