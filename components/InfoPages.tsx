@@ -23,12 +23,8 @@ export type InfoPage = {
 };
 
 const KEY = "seen-pages";
-/* Which list of pages is in use: the store's own, or the list of one of Saad's copies of a theme (/saad/<theme>). Each copy has its own
-   pages, so the pages of one theme never show in another theme or in the store. */
-let scope = KEY;
-export const setPagesScope = (key: string | null) => {
-  scope = key || KEY;
-};
+/* The list of pages in use: the store's own */
+const scope = KEY;
 export const pagesScope = () => scope;
 /* The pages a ready theme brings (9101 and up) were once saved in the store's own list; they belong to their theme only */
 const themePage = (id: number) => id >= 9100 && id < 9300;

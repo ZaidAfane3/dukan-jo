@@ -57,24 +57,24 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
 
   return (
     <div className="min-h-screen bg-page text-fg">
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-fg/10 bg-bar px-4">
-        <button className="rounded-lg p-2 hover:bg-soft lg:hidden" onClick={() => setOpen((v) => !v)} aria-label={t("Menu", "القائمة")} aria-expanded={open} aria-controls="diwan-menu">
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-white/10 bg-bar px-4 text-white">
+        <button className="rounded-lg p-2 hover:bg-white/10 lg:hidden" onClick={() => setOpen((v) => !v)} aria-label={t("Menu", "القائمة")} aria-expanded={open} aria-controls="diwan-menu">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
         <Link href="/diwan" className="flex items-baseline gap-2 font-bold">
-          <span className="text-lg text-primary">{t("Diwan", "الديوان")}</span>
-          <span className="hidden text-xs font-medium text-muted sm:inline">{t("Dukkan staff", "فريق دكّان")}</span>
+          <span className="text-lg text-white">{t("Diwan", "الديوان")}</span>
+          <span className="hidden text-xs font-medium text-white/70 sm:inline">{t("Dukkan staff", "فريق دكّان")}</span>
         </Link>
         <div className="ms-auto flex items-center gap-2">
-          <LangSwitch iconOnly />
-          <ThemeToggle />
+          <LangSwitch iconOnly onDark />
+          <ThemeToggle onDark />
           <span className="hidden text-end text-xs leading-tight md:block">
             <span className="block font-semibold">{staff.name}</span>
-            <span className="text-muted">{staff.role === "owner" ? t("Owner", "المالك") : t("Support", "الدعم")}</span>
+            <span className="text-white/70">{staff.role === "owner" ? t("Owner", "المالك") : t("Support", "الدعم")}</span>
           </span>
-          <button onClick={signOut} className="rounded-xl border border-fg/15 px-3 py-1.5 text-sm font-semibold hover:bg-soft">
+          <button onClick={signOut} className="rounded-xl border border-white/25 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/10">
             {t("Sign out", "خروج")}
           </button>
         </div>

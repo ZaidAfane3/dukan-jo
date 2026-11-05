@@ -201,6 +201,3 @@ export function clearTemplate() {
   }
 }
 
-/* Reading and writing a design under any key (used by the private /saad template) */
-export const readConfigKey = read;
-export const writeConfigKey = write;
