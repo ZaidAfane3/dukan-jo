@@ -1,0 +1,48 @@
+import { answer } from "@/server/auth";
+import { db } from "@/server/db";
+import { dayOf } from "@/server/shopActions";
+import { likeText } from "@/server/shops";
+import { audit, staffRoute } from "@/server/staff";
+
+export const dynamic = "force-dynamic";
+
+const PAGE = 50;
+const METHODS = ["bank", "cliq", "cash", "card"];
+
+/* Payments marked as received, newest first. Filters: method, from/to (paid on, yyyy-mm-dd), q (store name, owner,
+   email or the payment's reference). Gives the total of what matches. export=1 gives up to 20,000 rows for a CSV file
+   and is logged. */
+export const GET = staffRoute("billing", async (req, staff) => {
+  const p = req.nextUrl.searchParams;
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const add = (v: unknown) => `$${params.push(v)}`;
+  const method = p.get("method");
+  if (method && METHODS.includes(method)) where.push(`pay.method = ${add(method)}`);
+  const from = dayOf(p.get("from"));
+  if (from) where.push(`pay.paid_on >= ${add(from)}::date`);
+  const to = dayOf(p.get("to"));
+  if (to) where.push(`pay.paid_on <= ${add(to)}::date`);
+  const q = (p.get("q") ?? "").trim().slice(0, 100);
+  if (q) {
+    const like = add(likeText(q));
+    where.push(`(s.name ILIKE ${like} OR a.name ILIKE ${like} OR a.email ILIKE ${like} OR pay.reference ILIKE ${like})`);
+  }
+  const fromSql = `FROM payments pay JOIN accounts a ON a.id = pay.account_id LEFT JOIN shops s ON s.account_id = pay.account_id
+                   LEFT JOIN staff st ON st.id = pay.marked_by ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
+  const exporting = p.get("export") === "1";
+  const page = Math.max(1, Math.min(10_000, Number.parseInt(p.get("page") ?? "1", 10) || 1));
+  const pool = await db();
+  const [rows, sum] = await Promise.all([
+    pool.query(
+      `SELECT pay.id, pay.account_id AS shop_id, s.name AS shop, a.name AS owner, a.email, pay.amount, pay.method, pay.reference, pay.paid_on::text AS paid_on,
+              pay.note, st.name AS marked_by, pay.created_at
+         ${fromSql} ORDER BY pay.paid_on DESC, pay.id DESC LIMIT ${exporting ? 20_000 : PAGE} OFFSET ${exporting ? 0 : (page - 1) * PAGE}`,
+      params,
+    ),
+    pool.query(`SELECT count(*)::int AS n, COALESCE(sum(pay.amount), 0)::numeric(14, 3) AS total ${fromSql}`, params),
+  ]);
+  if (exporting) await audit(req, staff.id, "payments.export", undefined, null, { rows: rows.rows.length, filters: Object.fromEntries(p) });
+  const n = sum.rows[0].n;
+  return answer({ result: "ok", rows: rows.rows, count: n, total: sum.rows[0].total, page, pages: Math.max(1, Math.ceil(n / PAGE)) });
+});

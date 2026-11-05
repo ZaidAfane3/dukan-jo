@@ -16,6 +16,7 @@ import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./f
 import { shownMobile } from "../phone";
 import { hasArabic } from "../safe";
 import { useSpots } from "./spotSignal";
+import { ReportStore } from "./ReportStore";
 
 /* In the designer: the open settings point at a part of the store that is empty or hidden. It gets a dashed place with what
    will show there, so he sees where his change goes (customers never see it). */
@@ -737,7 +738,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         )}
       </main>
 
-      <Footer config={config} data={data} compact={compact} lang={lang} design={design} logo={logo} namePlace={namePlace} onPage={openPage} onSection={(id) => { if (!design) showSection(id); }} />
+      {/* "Report this store" is for customers on a live store: never in the designer, a static or theme preview, or the owner's own look */}
+      <Footer config={config} data={data} compact={compact} lang={lang} design={design} logo={logo} namePlace={namePlace} onPage={openPage} onSection={(id) => { if (!design) showSection(id); }} reportSlug={!design && interactive && !owner && !products && !data.isDemo ? data.slug : ""} />
 
       {menu && (
         /* the sidebar opens from the side its button is on (the end, when the name and the menu button sit there) */
@@ -935,7 +937,7 @@ const telegramHref = (s: string) => {
   return /^\w{3,}$/.test(h) ? `https://t.me/${h}` : "";
 };
 
-function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, onSection }: { config: StorefrontConfig; data: ReturnType<typeof useStoreData>; compact: boolean; lang: "en" | "ar"; design?: Design; logo: LogoConfig; /* the designer's empty place for the store name (none: the name) */ namePlace?: React.ReactNode; onPage: (id: number) => void; onSection: (id: string) => void }) {
+function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, onSection, reportSlug = "" }: { config: StorefrontConfig; data: ReturnType<typeof useStoreData>; compact: boolean; lang: "en" | "ar"; design?: Design; logo: LogoConfig; /* the designer's empty place for the store name (none: the name) */ namePlace?: React.ReactNode; onPage: (id: number) => void; onSection: (id: string) => void; /* the store link "Report this store" is about (none: the link is not shown) */ reportSlug?: string }) {
   const c = copy[lang];
   const f = config.footer;
   const simple = f.style === "simple";
@@ -1180,11 +1182,15 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
   };
 
   const ring = design && <span aria-hidden className={`pointer-events-none absolute inset-1 rounded-xl ring-2 ring-[#14b8a6] transition ${design.selected === "footer" ? "opacity-100" : "opacity-0 group-hover/sel:opacity-100"}`} />;
-  /* The copyright line and "Made with Dukkan" are fixed. The merchant can neither change nor remove them. */
+  /* The copyright line and "Made with Dukkan" are fixed. The merchant can neither change nor remove them, nor the
+     "Report this store" link beside it (ReportStore.tsx) that customers of a live store get. */
   const bottom = (
     <div className={`flex flex-wrap items-center justify-between gap-2 border-t text-xs ${simple ? "border-sf-text/10" : fc.dark ? "border-white/10" : "border-black/[0.06]"} ${compact ? "px-4 py-4" : "px-8 py-5"}`} style={{ color: dim(55) }}>
       <span>© {new Date().getFullYear()} <bdi>{data.name}</bdi>. {c.rights}</span>
-      <span>{c.made}</span>
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span>{c.made}</span>
+        {reportSlug && <ReportStore slug={reportSlug} lang={lang} />}
+      </span>
     </div>
   );
 

@@ -9,8 +9,58 @@ import { usePrefs } from "./Prefs";
 import { isJordanMobile, jordanMobile, phoneError, savedMobile, shownMobile, typedPhone } from "./phone";
 import { cleanDate, cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
 import { ACCOUNT_LIMITS, cleanProfile, DOB_MIN, dobError, passwordError, type Profile } from "./safeAccount";
+import { accountData, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
+import { merchantCall, onServer } from "./merchantApi";
+import { flushSaves } from "./serverSync";
+import { TwoStepSettings } from "./TwoStepSettings";
 
 const PROFILE_KEY = "seen-account-profile";
+
+/* A signed-in account saves to Dukkan's server (/api/account and /api/account/password); signed out or in the tour,
+   the page keeps the profile in this tab only, as before. */
+const live = {
+  en: {
+    saved: "Settings saved.",
+    savedPassword: "Settings saved. Your password was changed and your other devices were signed out.",
+    note: "Changing your password signs you out on your other devices.",
+    takenEmail: "Another account already uses this email.",
+    takenPhone: "Another account already uses this number.",
+    wrongCurrent: "This isn't your current password.",
+    slow: "Too many tries. Wait a few minutes and try again.",
+    failed: "Couldn't save. Check your connection and try again.",
+    saving: "Saving…",
+  },
+  ar: {
+    saved: "تم حفظ الإعدادات.",
+    savedPassword: "تم حفظ الإعدادات. تغيّرت كلمة المرور وتم تسجيل خروجك من أجهزتك الأخرى.",
+    note: "تغيير كلمة المرور يسجّل خروجك من أجهزتك الأخرى.",
+    takenEmail: "هذا البريد مستخدم في حساب آخر.",
+    takenPhone: "هذا الرقم مستخدم في حساب آخر.",
+    wrongCurrent: "هذه ليست كلمة المرور الحالية.",
+    slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مجددًا.",
+    failed: "تعذّر الحفظ. تحقق من اتصالك وحاول مجددًا.",
+    saving: "جارٍ الحفظ…",
+  },
+};
+
+function keepProfile(clean: Profile) {
+  try {
+    sessionStorage.setItem(PROFILE_KEY, JSON.stringify(clean));
+    sessionStorage.setItem("seen-account-phone", clean.phone);
+  } catch {
+    /* storage unavailable: the page still behaves, nothing is kept */
+  }
+}
+
+/* The browser keeps a signed-in account's store under its email (demoSandbox.ts): a new email moves it there, so the
+   pages keep finding it. The server keeps the store under the account itself, so nothing changes there. */
+async function moveStoreTo(email: string) {
+  await flushSaves();
+  const data = accountData();
+  replaceAccountData({});
+  signInAs(email);
+  replaceAccountData(data);
+}
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 const field =
   "h-12 w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
@@ -61,6 +111,10 @@ export function Settings() {
   const [confirm, setConfirm] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState("");
+  /* signed in (not the tour): the profile is Dukkan's, saved on the server */
+  const [server, setServer] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const l = live[lang];
   /* The profile as last loaded or saved, to know if there are unsaved changes */
   const [kept, setKept] = useState(JSON.stringify(EMPTY));
   /* The profile as the fields show it: the 9 digits after the fixed +962, and the city in the language of the page */
@@ -78,6 +132,23 @@ export function Settings() {
     const shown = forFields(loaded);
     setP(shown);
     setKept(JSON.stringify(shown));
+    if (!onServer()) return;
+    setServer(true);
+    /* the profile as the server has it (another device may have changed it) */
+    let alive = true;
+    void merchantCall("/api/account", "GET").then((r) => {
+      if (!alive || r?.status !== 200 || !r.data.profile) return;
+      const fresh = cleanProfile(r.data.profile);
+      keepProfile(fresh);
+      const view = forFields(fresh);
+      /* the fields follow it only while he has not started typing */
+      const before = JSON.stringify(shown);
+      setP((cur) => (JSON.stringify(cur) === before ? view : cur));
+      setKept(JSON.stringify(view));
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   /* the page language can arrive after the profile is loaded: the city follows it, saved or not */
@@ -100,7 +171,8 @@ export function Settings() {
 
   const set = <K extends keyof Profile>(key: K, value: Profile[K]) => setP((old) => ({ ...old, [key]: value }));
 
-  const save = () => {
+  const save = async () => {
+    if (saving) return;
     const e: Record<string, string> = {};
     if (visibleLength(p.name) < 2) e.name = s.errors.name;
     if (!emailOf(p.email)) e.email = s.errors.email;
@@ -108,7 +180,7 @@ export function Settings() {
     if (p.dob && p.dob > today) e.dob = s.errors.dob;
     else if (p.dob && !cleanDate(p.dob, DOB_MIN, today)) e.dob = dobError[lang];
 
-    /* Passwords are only checked, never stored. */
+    /* Signed out or in the tour, passwords are only checked, never stored. Signed in, the server changes it. */
     const changing = current !== "" || next !== "" || confirm !== "";
     if (changing) {
       if (isBlank(current)) e.current = s.errors.current;
@@ -116,31 +188,62 @@ export function Settings() {
       if (pw) e.next = pw === "short" ? s.errors.short : passwordError[pw][lang];
       else if (next !== confirm) e.confirm = s.errors.mismatch;
     }
-    setErrors(e);
     /* the first field with a mistake comes into view with the cursor in it */
-    const first = (["name", "phone", "email", "dob", "current", "next", "confirm"] as const).find((k) => e[k]);
-    if (first) {
+    const showErrors = (found: Record<string, string>) => {
+      setErrors(found);
+      const first = (["name", "phone", "email", "dob", "current", "next", "confirm"] as const).find((k) => found[k]);
+      if (!first) return false;
       const el = document.getElementById(`set-${first}`);
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
       el?.focus({ preventScroll: true });
-      return;
-    }
+      return true;
+    };
+    if (showErrors(e)) return;
+    const flash = (text: string, ms = 3000) => {
+      setToast(text);
+      window.setTimeout(() => setToast(""), ms);
+    };
 
     /* what is kept: the name cleaned, the email in lower case and the mobile as +9627XXXXXXXX */
-    const clean: Profile = { ...cleanProfile(p), name: cleanLine(p.name, ACCOUNT_LIMITS.name), email: emailOf(p.email), phone: savedMobile(p.phone) };
-    try {
-      sessionStorage.setItem(PROFILE_KEY, JSON.stringify(clean));
-      sessionStorage.setItem("seen-account-phone", clean.phone);
-    } catch {
-      /* storage unavailable: the page still behaves, nothing is kept */
+    let clean: Profile = { ...cleanProfile(p), name: cleanLine(p.name, ACCOUNT_LIMITS.name), email: emailOf(p.email), phone: savedMobile(p.phone) };
+
+    /* signed in: the server checks it all again and keeps it. The password first, so a wrong current password
+       changes nothing; then the profile. */
+    if (server) {
+      setSaving(true);
+      try {
+        if (changing) {
+          const r = await merchantCall("/api/account/password", "POST", { current, next });
+          if (r?.data.result === "wrong") return void showErrors({ current: l.wrongCurrent });
+          if (r?.data.result === "invalid") return void showErrors({ next: s.errors.short });
+          if (r?.status === 429) return flash(l.slow, 5000);
+          if (r?.status !== 200) return flash(l.failed, 5000);
+          /* changed: the fields are emptied now, so a problem with the profile below never sends it again */
+          setCurrent("");
+          setNext("");
+          setConfirm("");
+        }
+        const before = signedInAs();
+        const r = await merchantCall("/api/account", "PUT", clean);
+        if (r?.data.result === "taken") return void showErrors({ email: l.takenEmail });
+        if (r?.data.result === "taken-phone") return void showErrors({ phone: l.takenPhone });
+        if (r?.data.result === "invalid") return void showErrors({ name: s.errors.name });
+        if (r?.status === 429) return flash(l.slow, 5000);
+        if (r?.status !== 200 || !r.data.profile) return flash(l.failed, 5000);
+        clean = cleanProfile(r.data.profile);
+        if (before && clean.email !== before) await moveStoreTo(clean.email);
+      } finally {
+        setSaving(false);
+      }
     }
+
+    keepProfile(clean);
     setP(forFields(clean));
     setKept(JSON.stringify(forFields(clean)));
     setCurrent("");
     setNext("");
     setConfirm("");
-    setToast(s.saved);
-    window.setTimeout(() => setToast(""), 3000);
+    flash(server ? (changing ? l.savedPassword : l.saved) : s.saved, server && changing ? 5000 : 3000);
   };
 
   return (
@@ -158,8 +261,8 @@ export function Settings() {
             </a>
             <h1 className="text-2xl font-extrabold">{s.tab}</h1>
           </div>
-          <button type="button" onClick={save} className="h-12 rounded-full bg-ink px-10 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep">
-            {s.save}
+          <button type="button" onClick={() => void save()} disabled={saving} className="h-12 rounded-full bg-ink px-10 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep disabled:opacity-60">
+            {saving ? l.saving : s.save}
           </button>
         </div>
 
@@ -232,9 +335,10 @@ export function Settings() {
                 <input id="set-confirm" aria-invalid={!!errors.confirm} type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={s.password.ph} autoComplete="new-password" className={`${field} ${errors.confirm ? bad : ""}`} />
               </Field>
             </div>
-            <p className="text-xs text-muted">{s.password.note}</p>
+            <p className="text-xs text-muted">{server ? l.note : s.password.note}</p>
           </div>
         </section>
+        <TwoStepSettings />
       </main>
 
       {toast && (

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { DemoStrip } from "./DemoBoot";
 import { demoActive } from "./demoSandbox";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content, dateLocale } from "./content";
 import { Logo } from "./Nav";
@@ -12,8 +12,12 @@ import {
   getNotifications,
   markAllRead,
   markRead,
+  notificationLink,
   onNotificationsChange,
   pushNotification,
+  refreshServerNotifications,
+  serverNotificationText,
+  serverMode,
   type AppNotification,
 } from "./notifications";
 import { GlobalSearch } from "./GlobalSearch";
@@ -21,6 +25,7 @@ import { usePrefs } from "./Prefs";
 import { ordersCopy } from "./ordersContent";
 import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
+import { AccountBanners } from "./SupportBanner";
 
 type Section = "home" | "pages" | "domain" | "orders" | "products" | "marketing" | "reports" | "support" | "settings";
 
@@ -96,6 +101,25 @@ function NotificationBell() {
     return onNotificationsChange(sync);
   }, []);
 
+  /* Signed in: what Dukkan sent this shop comes from the server, now, every minute while the page is in view, and
+     each time the bell opens */
+  useEffect(() => {
+    if (!serverMode()) return;
+    void refreshServerNotifications();
+    const tick = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshServerNotifications();
+    }, 60_000);
+    const onShow = () => document.visibilityState === "visible" && void refreshServerNotifications();
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      window.clearInterval(tick);
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, []);
+  useEffect(() => {
+    if (open) void refreshServerNotifications();
+  }, [open]);
+
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       if (wrapper.current && !wrapper.current.contains(e.target as Node)) setOpen(false);
@@ -112,8 +136,22 @@ function NotificationBell() {
   const unread = list.filter((x) => !x.read).length;
   const shown = list.filter((x) => tab === 0 || NOTIFICATION_TAB[x.kind] === tab);
 
+  const router = useRouter();
+  const pick = (item: AppNotification) => {
+    markRead(item.id);
+    const href = notificationLink(item);
+    if (!href) return;
+    setOpen(false);
+    /* Support is already open: it opens the ticket without loading the page again */
+    if (href.startsWith("/support?") && window.location.pathname === "/support") {
+      window.dispatchEvent(new CustomEvent("dukkan-open-ticket", { detail: Number(item.params.number) }));
+      window.history.replaceState(null, "", href);
+    } else router.push(href);
+  };
+
   const textOf = (item: AppNotification) => {
-    let t = n.templates[item.kind].replace("{brand}", brandName(lang));
+    if (!(item.kind in n.templates)) return serverNotificationText(item, lang);
+    let t = n.templates[item.kind as keyof typeof n.templates].replace("{brand}", brandName(lang));
     if (item.kind === "taskDone") {
       t = t.replace("{task}", content[lang].onboarding.tasks[Number(item.params.task)]?.title ?? "");
     } else {
@@ -170,13 +208,15 @@ function NotificationBell() {
           <ul className="mt-3 max-h-72 divide-y divide-fg/10 overflow-y-auto">
             {shown.map((item) => (
               <li key={item.id}>
-                <button type="button" onClick={() => markRead(item.id)} className={`flex w-full items-center gap-3 px-5 py-4 text-start transition-colors hover:bg-soft/60 ${item.read ? "" : "bg-primary/5"}`}>
+                <button type="button" onClick={() => pick(item)} className={`flex w-full items-center gap-3 px-5 py-4 text-start transition-colors hover:bg-soft/60 ${item.read ? "" : "bg-primary/5"}`}>
                   <span className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-soft text-primary">
                     {icons.bell}
                     {!item.read && <span className="absolute -start-1 bottom-0 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-card" />}
                   </span>
                   <span className="min-w-0 flex-1">
+                    {item.kind === "announcement" && <span className="mb-0.5 block text-[11px] font-bold uppercase tracking-wide text-primary">{n.server.announcement}</span>}
                     <span className={`block text-sm ${item.read ? "font-medium" : "font-bold"}`}>{textOf(item)}</span>
+                    {item.kind === "announcement" && <span className="mt-1 block whitespace-pre-line text-xs text-muted">{lang === "ar" ? item.params.bodyAr : item.params.bodyEn}</span>}
                     <span className="mt-1 block text-xs text-muted">{ago(item.ts)}</span>
                   </span>
                 </button>
@@ -469,6 +509,7 @@ export function DashboardBar({
 
       {/* Header strip: tabs on one side, tools on the other */}
       <header className="sticky top-0 z-30 border-b border-fg/10 bg-card/90 backdrop-blur">
+        <AccountBanners />
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 md:flex-nowrap md:gap-4 md:px-10">
           <div className="flex min-w-0 items-center gap-3">
             <button type="button" onClick={() => setMobileOpen(true)} aria-label={sb.open} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-fg/15 lg:hidden">

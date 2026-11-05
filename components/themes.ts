@@ -1,6 +1,8 @@
 import type { Lang } from "./content";
 import { demoSeed } from "./demoData";
 import { demoActive, isOwnCopy } from "./demoSandbox";
+import { merchantCall, onServer } from "./merchantApi";
+import { THEME_PRICES } from "./themePrices";
 import { loadSetup } from "./setup";
 import { atelierConfig } from "./storefront/atelierTheme";
 import { load as loadPages, type InfoPage } from "./InfoPages";
@@ -117,7 +119,7 @@ export const themes: ThemeInfo[] = [
       "A warm page with a big photo beside the title, a ribbon, collections and two large banners, set in elegant Arabic type. Change the words and the pictures and it fits any store.",
       "صفحة دافئة بصورة كبيرة بجانب العنوان، وشريط، ومجموعات وبنرين كبيرين، بخطوط عربية أنيقة. غيّر الكلمات والصور فتناسب أي متجر.",
     ),
-    price: 19.99,
+    price: THEME_PRICES.atelier,
     tags: [bi("Dukkan design", "تصميم دكان")],
     shot: "/themes/atelier.jpg?v=2x",
     features: [
@@ -140,7 +142,7 @@ export const themes: ThemeInfo[] = [
       "A bright page with a bold title, a collage of photos, colored quick buttons, round-corner product cards and color banner cards, in a friendly rounded font. Change the words, the pictures and the colors and it fits any lively store.",
       "صفحة مشرقة بعنوان عريض، وكولاج من الصور، وأزرار سريعة ملوّنة، وبطاقات منتجات بحواف دائرية، وبنرات بطاقات ملوّنة، بخط مدوّر ودود. غيّر الكلمات والصور والألوان فتناسب أي متجر مرح.",
     ),
-    price: 39,
+    price: THEME_PRICES.lamma,
     tags: [bi("Dukkan design", "تصميم دكان")],
     shot: "/themes/lamma.jpg?v=3",
     features: [
@@ -258,6 +260,8 @@ export function buyTheme(t: ThemeInfo): ThemeState {
   const s = loadThemeState();
   if (!s.owned.some((o) => o.id === t.id)) s.owned = [...s.owned, { id: t.id, at: Date.now(), paid: t.price }];
   saveThemeState(s);
+  /* a signed-in account also tells Dukkan (/api/themes/purchase takes the price from this file's list, not from the page) */
+  if (onServer()) void merchantCall("/api/themes/purchase", "POST", { themeId: t.id });
   return s;
 }
 

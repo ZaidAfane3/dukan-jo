@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { DIWAN_SCHEMA } from "./schema";
 
 /* The database. Accounts, their sign-in sessions and every store's saved data live here, so a merchant can close the
    site, come back days later (on any device) and carry on. The tables are made on the first request, so a new server
@@ -29,7 +30,7 @@ const SCHEMA = `
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (account_id, key)
   );
-`;
+` + DIWAN_SCHEMA;
 
 /* one pool for the whole server (kept on globalThis so the dev server's reloads don't open new ones) */
 const g = globalThis as unknown as { dukkanPool?: Pool; dukkanReady?: Promise<void> };

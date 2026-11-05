@@ -8,9 +8,9 @@ import { ANNOUNCE_MESSAGES_MAX, defaultConfig, relinkPages, type Bi, type PageRe
 
    There are two starter versions:
    - the ORIGINAL design, which is the one written in the code (`defaultConfig`) and never changes;
-   - the TEMPLATE, an editable copy the platform admin can change and save (in /design?template=1).
+   - the TEMPLATE, an editable copy Dukkan's staff change and save on the server (from Diwan, in /design?template=1).
      A store that has not saved a design of its own starts from the template, if there is one:
-     the template is the default design of every new store. The admin edits it at /design?template=1. */
+     the template is the default design of every new store. This browser keeps a copy of it (see refreshTemplate). */
 const KEY = "seen-storefront";
 const TEMPLATE_KEY = "dukkan-template";
 
@@ -92,6 +92,43 @@ function read(key: string): StorefrontConfig | null {
 /** The platform's template: what new stores start from. Null when the admin has not made one. */
 export const loadTemplate = () => read(TEMPLATE_KEY);
 
+/* The template itself is kept on Dukkan's server (staff edit it from Diwan); this browser keeps a copy under TEMPLATE_KEY so a
+   design can be read at once. The copy is brought up to date once per page load (or right now, with force). */
+let templateAsked: Promise<void> | null = null;
+export function refreshTemplate(force = false): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (templateAsked && !force) return templateAsked;
+  return (templateAsked = fetch("/api/platform/template", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j: { template?: unknown } | null) => {
+      if (!j || !("template" in j)) return;
+      if (j.template && typeof j.template === "object") write(TEMPLATE_KEY, j.template as StorefrontConfig);
+      else clearTemplate();
+    })
+    .catch(() => {
+      /* offline: the copy this browser has */
+    }));
+}
+
+/** Saves the starter template on the server (Dukkan staff only: the route checks the Diwan session). False when it was not kept. */
+export async function sendTemplate(config: StorefrontConfig): Promise<boolean> {
+  try {
+    const r = await fetch("/api/diwan/settings/template", { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** New stores start from the original design again (staff only, like sendTemplate) */
+export async function dropServerTemplate(): Promise<boolean> {
+  try {
+    return (await fetch("/api/diwan/settings/template", { method: "DELETE", credentials: "same-origin" })).ok;
+  } catch {
+    return false;
+  }
+}
+
 /* The store's own pages as saved (see InfoPages). Null when he has none saved yet: then only a theme's sample pages count as missing. */
 function savedPages(): PageRef[] | null {
   try {
@@ -105,6 +142,7 @@ function savedPages(): PageRef[] | null {
 /** A merchant's own design, or the template (or original) when he has not saved one. A design saved with links to pages his store
     does not have (a theme's sample pages, a page he deleted) has them led to his own pages, or to his products (see relinkPages). */
 export function loadConfig(): StorefrontConfig {
+  void refreshTemplate();
   const own = read(KEY);
   return withDeliveryLine(own ? relinkPages(own, savedPages()) : loadTemplate() ?? defaultConfig);
 }
@@ -146,6 +184,7 @@ export function storeIsLive(): boolean {
 
 /** Forgets the store's own design, so the store starts again from the starter template. Used when a new account is created. */
 export function resetToStarterDesign() {
+  void refreshTemplate(true);
   try {
     localStorage.removeItem(KEY);
   } catch {

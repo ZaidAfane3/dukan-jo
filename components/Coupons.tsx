@@ -70,8 +70,19 @@ const OLD_SAMPLES = new Set(["s1", "s2", "s3", "s4"]);
 
 function loadCoupons(): Coupon[] {
   try {
+    /* Coupons live in localStorage, where the store's cart reads them (storefront/Cart.tsx) and where a signed-in
+       account's data is sent to the server. An older version kept them in sessionStorage: those move over once. */
+    let raw = localStorage.getItem(KEY);
+    const old = sessionStorage.getItem(KEY);
+    if (old !== null) {
+      if (raw === null) {
+        localStorage.setItem(KEY, old);
+        raw = old;
+      }
+      sessionStorage.removeItem(KEY);
+    }
     /* What is saved is checked again when it is read: storage can hold old, broken or hand-changed coupons */
-    return parseList(sessionStorage.getItem(KEY), cleanCoupon).filter((c) => !OLD_SAMPLES.has(c.id));
+    return parseList(raw, cleanCoupon).filter((c) => !OLD_SAMPLES.has(c.id));
   } catch {
     return [];
   }
@@ -301,11 +312,11 @@ export function Coupons() {
     setReady(true);
   }, []);
 
-  /* Coupons are kept for this browser session only. */
+  /* Coupons are kept in localStorage, like the rest of the store (and on the server for a signed-in account). */
   useEffect(() => {
     if (!ready) return;
     try {
-      sessionStorage.setItem(KEY, JSON.stringify(coupons));
+      localStorage.setItem(KEY, JSON.stringify(coupons));
     } catch {
       /* storage unavailable: coupons just won't survive a reload */
     }

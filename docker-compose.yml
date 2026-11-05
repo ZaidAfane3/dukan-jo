@@ -9,6 +9,9 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgres://dukkan:${POSTGRES_PASSWORD:-dukkan-local-only}@db:5432/dukkan
+      # Diwan (staff console): the key that lets /diwan/login create the first owner while there is no staff yet.
+      # Put DIWAN_SETUP_KEY=a-long-random-key in .env; once the owner exists it does nothing (and can be removed).
+      DIWAN_SETUP_KEY: ${DIWAN_SETUP_KEY:-}
     depends_on:
       db:
         condition: service_healthy

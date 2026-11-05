@@ -2,14 +2,15 @@ import type { NextRequest } from "next/server";
 import { isJordanMobile, savedMobile } from "@/components/phone";
 import { cleanLine, emailOf, passwordProblem, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS } from "@/components/safeAccount";
-import { answer, guarded, hashPassword, readJson, sameOrigin, startSession, tooMany } from "@/server/auth";
+import { answer, guarded, hashPassword, noteLogin, readJson, sameOrigin, startSession, tooMany } from "@/server/auth";
 import { db } from "@/server/db";
+import { startTrial, touchShop } from "@/server/shops";
 
 export const dynamic = "force-dynamic";
 
 /* Makes an account and signs in to it. The same rules as the sign-up form (SignupForm.tsx), checked again here because
    anything in the browser can be skipped. Answers: "ok", "taken" (the email has an account), "taken-phone" (the
-   mobile has one), "invalid". */
+   mobile has one), "invalid". The new shop gets its row in shops (for Diwan) and its free trial. */
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   if (tooMany(req, "signup", 10, 60)) return answer({ result: "slow-down" }, 429);
@@ -37,7 +38,11 @@ export const POST = guarded(async (req: NextRequest) => {
     if (err.code === "23505") return answer({ result: err.constraint === "accounts_phone" ? "taken-phone" : "taken" }, 409);
     throw e;
   }
-  const res = answer({ result: "ok", account: { email, name, phone } });
+  await pool.query(`INSERT INTO shops (account_id) VALUES ($1) ON CONFLICT DO NOTHING`, [id]);
+  await startTrial(id, pool);
+  const res = answer({ result: "ok", account: { email, name, phone }, totpOn: false });
   await startSession(res, req, id);
+  await noteLogin(id);
+  touchShop(id);
   return res;
 });

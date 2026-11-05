@@ -14,7 +14,7 @@ import { oneSided, startingWords, textsNow, TRANSLATE_WORDS } from "./translatio
 import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
 import { StorefrontTheme } from "../storefront/StorefrontTheme";
 import { DesignerSkeleton } from "../StoreSkeletons";
-import { clearTemplate, loadConfig, loadTemplate, saveConfig, saveTemplate, storeIsLive } from "../storefront/storage";
+import { clearTemplate, dropServerTemplate, loadConfig, loadTemplate, refreshTemplate, saveConfig, saveTemplate, sendTemplate, storeIsLive } from "../storefront/storage";
 import { defaultConfig, headingFamily, type PicEdit, type SectionMove } from "../storefront/config";
 import { Canvas } from "./Canvas";
 import { HEX, input } from "./controls";
@@ -129,7 +129,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const mine = !!mineProp;
   /* Saad's copies keep their own pages (each theme its own list), and are never locked by the tour. Set before anything reads them. */
   setPagesScope(mine ? `saad-pages-${themeId ?? "demo"}` : null);
-  setOwnCopy(mine);
+  /* the starter template (/design?template=1) is staff work, never locked by the tour either */
+  setOwnCopy(mine || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("template") === "1"));
   useEffect(() => () => {
     setPagesScope(null);
     setOwnCopy(false);
@@ -259,6 +260,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   }, []);
   /* /design?template=1: the admin edits the starter template, the default design that every new store begins with */
   const [templateMode, setTemplateMode] = useState(false);
+  /* the server did not keep the last save of the starter template */
+  const [templateErr, setTemplateErr] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [attn, setAttn] = useState<{ id: Problem; tab: Tab; n: number } | null>(null);
@@ -297,9 +300,10 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    const ro = mine ? false : demoActive();
+    /* the starter template is staff work (checked below and by the server), never locked by the platform tour */
+    const template = !mine && q.get("template") === "1";
+    const ro = mine || template ? false : demoActive();
     setReadOnly(ro);
-    const template = !ro && !mine && q.get("template") === "1";
     const d = initial();
     if (mine) {
       const m = loadMine(lang, themeId);
@@ -317,6 +321,19 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     setTemplateMode(template);
     /* Without his own products the template would look empty, so it is shown with sample products */
     setSample(template || q.get("sample") === "1");
+    if (template) {
+      /* Dukkan's staff only (a Diwan session with the settings permission); the template itself comes from the server */
+      void (async () => {
+        const me = await fetch("/api/diwan/auth/me", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        if (!me?.staff?.verified) return window.location.replace("/diwan/login");
+        if (!me.staff.settings) return window.location.replace("/diwan");
+        await refreshTemplate(true);
+        d.config = loadTemplate() ?? defaultConfig;
+        setDraft(d);
+        setSaved(JSON.stringify(d));
+      })();
+      return;
+    }
     setDraft(d);
     setSaved(tryTheme ? baseline : JSON.stringify(d));
   }, []);
@@ -710,7 +727,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     emptyOk.current = false;
     /* A look of a theme he has not bought can be tried in the preview, but the store keeps only what he owns */
     const kept = mine || templateMode ? draft : { ...draft, config: withoutUnboughtLooks(draft.config) };
-    if (!(mine ? saveMine(draft.config, themeId) : templateMode ? saveTemplate(draft.config) : saveConfig(kept.config))) {
+    /* the starter template's own copy is on the server (sent below); this browser's copy is only a cache, so a full storage doesn't stop it */
+    if (!(mine ? saveMine(draft.config, themeId) : templateMode ? saveTemplate(draft.config) || true : saveConfig(kept.config))) {
       setFlash("full");
       setTimeout(() => setFlash(null), 4000);
       return false;
@@ -718,6 +736,17 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     setIsOpen(storeIsLive());
     if (templateMode || mine) {
       /* The template belongs to the platform, not to any store, so the store's own data stays as it is */
+      if (templateMode) {
+        const before = saved;
+        setTemplateErr(false);
+        /* not kept by the server (signed out, or no right to): the changes show as unsaved again */
+        void sendTemplate(draft.config).then((ok) => {
+          if (ok) return;
+          setSaved(before);
+          setFlash(null);
+          setTemplateErr(true);
+        });
+      }
       setSaved(JSON.stringify(draft));
       setFlash("saved");
       setTimeout(() => setFlash((f) => (f === "saved" ? null : f)), 3000);
@@ -970,12 +999,18 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
               if (!window.confirm(t.restoreMainAsk)) return;
               setDraft((d) => d && { ...d, config: defaultConfig });
               clearTemplate();
+              void dropServerTemplate();
               setEditing(null);
             }}
             className="h-9 rounded-xl border border-amber-500/50 px-4 text-sm font-semibold text-amber-800 transition hover:bg-amber-500/15 dark:text-amber-300"
           >
             {t.restoreMain}
           </button>
+        )}
+        {templateMode && templateErr && (
+          <span role="alert" className="text-xs font-semibold text-rose-600">
+            {lang === "ar" ? "لم يُحفظ القالب في الخادم. سجّل الدخول إلى الديوان ثم احفظ مجددًا." : "The template was not saved on the server. Sign in to Diwan, then save again."}
+          </span>
         )}
         <div className="flex items-center">
           <button type="button" onClick={() => travel(false)} disabled={readOnly || hist.current.past.length === 0} aria-label={tb.undo} title={tb.undo} className="grid h-9 w-8 place-items-center sm:w-9 rounded-lg text-muted transition hover:bg-fg/10 hover:text-fg disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent">

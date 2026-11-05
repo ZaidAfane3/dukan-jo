@@ -76,3 +76,12 @@ export async function buyDomain(offer: DomainOffer, years: number, autoRenew: bo
   renews.setFullYear(renews.getFullYear() + y);
   return { ok: true, name, bought: { years: y, renews: renews.getTime(), autoRenew, paid: offer.price * y } };
 }
+
+/** The ending Dukkan sells that a whole domain has ("olive.com.jo" → .com.jo), or null for one Dukkan does not sell.
+    The server uses it for the price and for whether papers are needed, so it never trusts what the page says. */
+export function endingOf(domain: string): (typeof ENDINGS)[number] | null {
+  return ENDINGS.find((e) => domain.endsWith(e.ending) && domain.length > e.ending.length && !domain.slice(0, -e.ending.length).includes(".")) ?? null;
+}
+
+/** .jo and .com.jo need the commercial registration */
+export const needsPapers = (domain: string) => !!endingOf(domain)?.needsPapers;

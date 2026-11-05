@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { demoActive } from "./demoSandbox";
+import { isStaffPage } from "./diwan/nav";
 import { usePrefs } from "./Prefs";
 import { applyTheme, madaTheme, type ThemeInfo } from "./themes";
 
@@ -86,7 +87,7 @@ export function FoundersGift() {
   const [open, setOpen] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   useEffect(() => {
-    if (path.startsWith("/signup") || path.startsWith("/store") || demoActive()) return;
+    if (path.startsWith("/signup") || path.startsWith("/store") || isStaffPage(path, window.location.search) || demoActive()) return;
     try {
       if (sessionStorage.getItem(GIFT_FLAG) === "1" && localStorage.getItem(GIFT_SEEN) !== "1") setOpen(true);
     } catch {

@@ -26,6 +26,9 @@ function schedule(ms: number) {
   timer = setTimeout(() => void flushSaves(), ms);
 }
 
+/** Fired on window when the server refused a save for good; detail is its answer ("view-only", "slug-taken"...) */
+export const SAVE_REFUSED = "dukkan-save-refused";
+
 /** True while some changes have not reached the server yet */
 export const savesPending = () => pending.size > 0;
 
@@ -46,8 +49,14 @@ export async function flushSaves(): Promise<void> {
     /* keepalive lets the request finish after the tab closes, but only for small bodies */
     const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60_000, credentials: "same-origin" });
     ok = r.ok;
-    /* signed out, or refused for its size or form: sending it again would not help */
-    retry = !(r.status === 401 || r.status === 400 || r.status === 413);
+    /* signed out, refused for its size or form, or refused by Dukkan (a support view, a taken store link, a suspended
+       store): sending it again would not help */
+    retry = !(r.status === 401 || r.status === 400 || r.status === 413 || r.status === 403 || r.status === 409 || r.status === 423);
+    /* the page already shows the change, so say it was not kept (SupportBanner listens for a view-only visit) */
+    if (r.status === 403 || r.status === 409 || r.status === 423) {
+      const why = ((await r.json().catch(() => null)) as { result?: string } | null)?.result ?? "refused";
+      window.dispatchEvent(new CustomEvent(SAVE_REFUSED, { detail: why }));
+    }
   } catch {
     /* offline or the server is restarting */
   }

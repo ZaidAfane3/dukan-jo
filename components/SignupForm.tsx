@@ -15,6 +15,7 @@ import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required"
 import { ACCOUNT_LIMITS, passwordError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { resetToStarterDesign } from "./storefront/storage";
+import { TwoStepCodeStep } from "./TwoStepSettings";
 
 type Tab = "create" | "login";
 
@@ -107,6 +108,8 @@ export function SignupForm() {
   const [errors, setErrors] = useState<Errors>({});
   /* while the server answers, the button can't be pressed twice */
   const [busy, setBusy] = useState(false);
+  /* signing in to an account with 2-step codes: the code step is open, and tells the sign-in how it ended */
+  const [codeStep, setCodeStep] = useState<((r: "ok" | "cancel") => void) | null>(null);
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
     /* a field's mistake goes away as soon as he edits it */
@@ -176,10 +179,16 @@ export function SignupForm() {
     let goTo = "/onboarding";
     if (valid && tab === "login" && !tour) {
       setBusy(true);
-      const r = await logIn(form.loginId, form.password);
+      let r: Awaited<ReturnType<typeof logIn>> | "cancel" = await logIn(form.loginId, form.password);
+      if (r === "code") {
+        r = await new Promise<"ok" | "cancel">((done) => setCodeStep(() => done));
+        setCodeStep(null);
+      }
       setBusy(false);
+      if (r === "cancel") return;
       if (r !== "ok") {
-        setErrors(r === "none" ? { loginId: c.errNoAccount } : r === "wrong" ? { password: c.errWrongPassword } : { password: c.errServer });
+        const suspended = lang === "ar" ? "أوقف فريق دكّان هذا المتجر مؤقتًا. تواصل مع الدعم لمعرفة السبب." : "Dukkan has suspended this store. Contact support to find out why.";
+        setErrors(r === "none" ? { loginId: c.errNoAccount } : r === "wrong" ? { password: c.errWrongPassword } : r === "suspended" ? { password: suspended } : { password: c.errServer });
         document.getElementById(r === "none" ? "s-loginId" : "s-password")?.focus();
         return;
       }
@@ -347,6 +356,7 @@ export function SignupForm() {
             </button>
 
           </form>
+          {codeStep && <TwoStepCodeStep onDone={codeStep} />}
 
 
           {/* Prototype shortcut: go in without creating an account (also for the platform tour) */}

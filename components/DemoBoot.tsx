@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { syncOnOpen } from "./accounts";
+import { isStaffPage } from "./diwan/nav";
 import { demoActive, endDemo, installAccounts, installDemoIfActive, reseedDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
 
@@ -76,18 +77,20 @@ const end = "rounded-lg border border-white/30 px-3.5 py-1.5 text-xs font-semibo
    reads its data. It sits first in the layout. On pages without a dashboard header it also shows
    a small floating bar. */
 export function DemoBoot() {
-  if (typeof window !== "undefined") {
+  /* Diwan and the starter template designer are staff pages: no tour, no merchant storage, no sync there */
+  const staff = typeof window !== "undefined" && isStaffPage(window.location.pathname, window.location.search);
+  if (typeof window !== "undefined" && !staff) {
     installDemoIfActive();
     /* each account's own store (not while the tour runs) */
     installAccounts();
   }
   const { on, lang, w } = useTour();
-  useFormLock(on, lang);
+  useFormLock(on && !staff, lang);
   /* a signed-in account: check its session and bring in its store from the server (accounts.ts) */
-  useEffect(() => void syncOnOpen(), []);
+  useEffect(() => void (isStaffPage(window.location.pathname, window.location.search) || syncOnOpen()), []);
   /* In the store designer the bar sits higher, so it does not cover the zoom controls at the bottom of the canvas */
   const inDesigner = (usePathname() ?? "").startsWith("/design");
-  if (!on) return null;
+  if (!on || staff) return null;
   return (
     <div role="status" className={`demo-pill dash fixed ${inDesigner ? "bottom-20" : "bottom-4"} start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-[#00323b] px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2`}>
       <span className="text-xs font-semibold sm:text-sm">{w.label}</span>

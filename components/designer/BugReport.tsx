@@ -3,16 +3,19 @@
 /* "Bug or idea?" in the theme designer: a small button in the corner opens a side tab where the merchant first says whether
    something is not working or he has an idea, then writes it and adds pictures: snaps of the screen (as many as he wants, up to
    the ticket's limit) or pictures he uploads. It is sent as a support ticket (components/Support.tsx keeps them), in "Store
-   design", with its kind (bug or idea) and where he was in the designer.
+   design", with its kind (bug or idea) and where he was in the designer. Signed in (not in the tour) it goes to Dukkan
+   (POST /api/tickets, with "where" kept apart from the text) and the number shown is the real ticket number; in the tour
+   or signed out it is kept in this browser as before.
    The snap uses the browser's own screen capture (getDisplayMedia): the browser asks once each time, and the tab is hidden
    while the picture is taken so it shows the page, not the form. */
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
-import { pushNotification } from "../notifications";
+import { pushNotification, serverMode } from "../notifications";
 import { cleanLine, cleanLines, visibleLength } from "../safe";
 import { ACCOUNT_LIMITS, cleanTickets, TICKET_MIN, TICKET_PICTURES, type Ticket } from "../safeAccount";
+import { createTicket, sendable } from "../ticketsApi";
 import { readPhoto } from "./image";
 
 const KEY = "seen-tickets";
@@ -50,6 +53,10 @@ const words = {
     another: { bug: "Report another one", idea: "Send another idea" },
     subject: { bug: "Bug in the theme designer", idea: "Idea for the theme designer" },
     where: "Where",
+    sending: "Sending…",
+    failed: "It could not be sent. Check your connection and try again.",
+    tooMany: "You have sent a lot in a short time. Please try again in a little while.",
+    badPics: "One of the pictures could not be sent. Remove it and try again.",
   },
   ar: {
     open: "خطأ أو اقتراح؟",
@@ -79,6 +86,10 @@ const words = {
     another: { bug: "الإبلاغ عن خطأ آخر", idea: "إرسال اقتراح آخر" },
     subject: { bug: "خطأ في مصمم الثيم", idea: "اقتراح لمصمم الثيم" },
     where: "المكان",
+    sending: "جارٍ الإرسال…",
+    failed: "تعذّر الإرسال. تحقق من الاتصال وحاول مرة أخرى.",
+    tooMany: "أرسلت كثيرًا في وقت قصير. حاول مرة أخرى بعد قليل.",
+    badPics: "تعذّر إرسال إحدى الصور. احذفها وحاول مرة أخرى.",
   },
 };
 
@@ -144,6 +155,8 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
   /* while a snap is taken the tab steps out of the way */
   const [hidden, setHidden] = useState(false);
   const [sentId, setSentId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sendError, setSendError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -175,11 +188,40 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
     const list = Array.from(files);
     setNote(list.length > room ? w.full : "");
     const read = (await Promise.all(list.slice(0, Math.max(0, room)).map((f) => readPhoto(f, 1600)))).filter((u): u is string => !!u);
-    add(read);
+    /* Dukkan's server takes JPEG, PNG and WebP: an animated GIF (kept as it is by readPhoto) is left out */
+    const ok = serverMode() ? sendable(read) : read;
+    if (ok.length < read.length) setNote(w.badPics);
+    add(ok);
   };
 
-  const send = () => {
+  const done = (id: string) => {
+    pushNotification("ticketCreated", { id });
+    setSentId(id);
+    setText("");
+    setPics([]);
+    setNote("");
+    setError(false);
+    setSendError("");
+  };
+
+  const send = async () => {
     if (visibleLength(text) < TICKET_MIN.message) return setError(true);
+    if (serverMode()) {
+      if (busy) return;
+      setBusy(true);
+      setSendError("");
+      const r = await createTicket({
+        subject: cleanLine(w.subject[kind], ACCOUNT_LIMITS.subject),
+        category: DESIGN_CATEGORY,
+        message: cleanLines(text, ACCOUNT_LIMITS.message),
+        pictures: sendable(pics),
+        kind,
+        where: cleanLine(where, 200),
+      });
+      setBusy(false);
+      if (!r.ok) return setSendError(r.why === "too-many" ? w.tooMany : r.field === "pictures" ? w.badPics : w.failed);
+      return done(`#${r.data.number}`);
+    }
     let tickets: Ticket[] = [];
     try {
       const raw = sessionStorage.getItem(KEY);
@@ -201,12 +243,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
         /* storage unavailable */
       }
     }
-    pushNotification("ticketCreated", { id });
-    setSentId(id);
-    setText("");
-    setPics([]);
-    setNote("");
-    setError(false);
+    done(id);
   };
 
   return (
@@ -309,8 +346,9 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
                     )}
                   </div>
                 </div>
+                {sendError && <p role="alert" className="mx-5 mb-0 mt-3 rounded-xl bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">{sendError}</p>}
                 <div className="flex gap-3 border-t border-fg/10 px-5 py-4">
-                  <button type="button" onClick={send} className="h-11 flex-1 rounded-xl bg-ink text-sm font-semibold text-onink transition hover:bg-deep">{w.send[kind]}</button>
+                  <button type="button" onClick={() => void send()} disabled={busy} className="h-11 flex-1 rounded-xl bg-ink text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-60">{busy ? w.sending : w.send[kind]}</button>
                   <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-xl border border-fg/20 px-5 text-sm font-semibold transition hover:bg-soft">{w.cancel}</button>
                 </div>
               </>

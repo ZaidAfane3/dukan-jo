@@ -366,6 +366,21 @@ export type Content = {
     empty: string;
     viewAll: string;
     templates: Record<"welcome" | "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated", string>;
+    /* what Dukkan's side sends to the bell (server/notify.ts); {name} parts come from the notification, {note} and
+       {reason} already start with `sep` when there is one */
+    server: {
+      ticketReplied: string; ticketSolved: string; ticketClosed: string;
+      domainActive: string; domainFailed: string; domainOther: string;
+      documentApproved: string; documentRejected: string; documentOther: string;
+      shopSuspended: string; shopReactivated: string;
+      planChanged: string; until: string;
+      paymentReceived: string; methods: { bank: string; cliq: string; cash: string; card: string };
+      supportViewed: string;
+      statusWords: Record<string, string>;
+      sep: string;
+      announcement: string;
+      dismiss: string;
+    };
   };
   support: {
     title: string;
@@ -399,6 +414,32 @@ export type Content = {
     note: string;
     errSubject: string;
     errMessage: string;
+    /* signed in: tickets go to Dukkan and are answered in a conversation */
+    server: {
+      note: string;
+      cols: string[];
+      statuses: { open: string; reply: string; solved: string; closed: string };
+      newReply: string;
+      view: string;
+      loading: string;
+      loadFailed: string;
+      sendFailed: string;
+      tooMany: string;
+      picturesBad: string;
+      you: string;
+      dukkan: string;
+      where: string;
+      replyLabel: string;
+      replyPh: string;
+      sendReply: string;
+      sending: string;
+      back: string;
+      closedNote: string;
+      enlarge: string;
+      retry: string;
+      notFound: string;
+      system: { closedByYou: string; reopenedByYou: string; solved: string; closed: string };
+    };
   };
   settings: {
     tab: string;
@@ -932,6 +973,28 @@ export const content: Record<Lang, Content> = {
         reminderSent: "A reminder was sent to {name}",
         ticketCreated: "Support ticket {id} was created",
       },
+      server: {
+        ticketReplied: "Dukkan replied to your ticket #{number}: {subject}",
+        ticketSolved: "Your ticket #{number} was marked as solved: {subject}",
+        ticketClosed: "Your ticket #{number} was closed: {subject}",
+        domainActive: "Your domain {domain} is connected and working",
+        domainFailed: "Your domain {domain} could not be connected{note}",
+        domainOther: "Your domain {domain}: {status}{note}",
+        documentApproved: "Your document “{name}” was approved",
+        documentRejected: "Your document “{name}” was not accepted{note}",
+        documentOther: "Your document “{name}”: {status}{note}",
+        shopSuspended: "Your store was suspended{reason}",
+        shopReactivated: "Your store is open again",
+        planChanged: "Your plan is now {plan}{ends}",
+        until: ", until {date}",
+        paymentReceived: "Dukkan received your payment of {amount} JOD by {method}",
+        methods: { bank: "bank transfer", cliq: "CliQ", cash: "cash", card: "card" },
+        supportViewed: "Dukkan support opened your store to help you",
+        statusWords: { active: "connected", failed: "failed", awaiting: "waiting", checking: "being checked", removed: "removed", approved: "approved", rejected: "not accepted", waiting: "waiting" },
+        sep: ": ",
+        announcement: "From Dukkan",
+        dismiss: "Dismiss",
+      },
     },
     support: {
       title: "Support tickets",
@@ -964,6 +1027,31 @@ export const content: Record<Lang, Content> = {
       note: "Prototype: tickets stay on this device and are not sent to anyone.",
       errSubject: "Enter a subject.",
       errMessage: "Describe your problem in at least 10 characters.",
+      server: {
+        note: "Dukkan's support team reads every ticket and answers you here.",
+        cols: ["Ticket", "Category", "Status", "Last activity", "Actions"],
+        statuses: { open: "Open", reply: "Waiting for your reply", solved: "Solved", closed: "Closed" },
+        newReply: "New reply",
+        view: "Open",
+        loading: "Loading your tickets…",
+        loadFailed: "Your tickets could not be loaded. Check your connection and try again.",
+        sendFailed: "It could not be sent. Check your connection and try again.",
+        tooMany: "You have sent a lot in a short time. Please try again in a little while.",
+        picturesBad: "One of the pictures could not be sent. Remove it and try again.",
+        you: "You",
+        dukkan: "Dukkan support",
+        where: "Where",
+        replyLabel: "Your reply",
+        replyPh: "Write your reply…",
+        sendReply: "Send reply",
+        sending: "Sending…",
+        back: "Back to tickets",
+        closedNote: "This ticket is closed. Sending a reply opens it again.",
+        enlarge: "Open the picture",
+        retry: "Try again",
+        notFound: "This ticket could not be found.",
+        system: { closedByYou: "You closed this ticket", reopenedByYou: "You reopened this ticket", solved: "Dukkan marked this ticket as solved", closed: "Dukkan closed this ticket" },
+      },
     },
     settings: {
       tab: "Account settings",
@@ -1545,6 +1633,28 @@ export const content: Record<Lang, Content> = {
         reminderSent: "أُرسل تذكير إلى {name}",
         ticketCreated: "تم إنشاء تذكرة الدعم {id}",
       },
+      server: {
+        ticketReplied: "ردّ دكّان على تذكرتك رقم {number}: {subject}",
+        ticketSolved: "تم حل تذكرتك رقم {number}: {subject}",
+        ticketClosed: "أُغلقت تذكرتك رقم {number}: {subject}",
+        domainActive: "نطاقك {domain} متصل ويعمل",
+        domainFailed: "تعذّر ربط نطاقك {domain}{note}",
+        domainOther: "نطاقك {domain}: {status}{note}",
+        documentApproved: "تمت الموافقة على مستندك «{name}»",
+        documentRejected: "لم يُقبل مستندك «{name}»{note}",
+        documentOther: "مستندك «{name}»: {status}{note}",
+        shopSuspended: "تم إيقاف متجرك{reason}",
+        shopReactivated: "عاد متجرك للعمل",
+        planChanged: "باقتك الآن {plan}{ends}",
+        until: "، حتى {date}",
+        paymentReceived: "استلم دكّان دفعتك بقيمة {amount} د.أ عبر {method}",
+        methods: { bank: "تحويل بنكي", cliq: "كليك", cash: "نقدًا", card: "بطاقة" },
+        supportViewed: "فتح فريق دعم دكّان متجرك لمساعدتك",
+        statusWords: { active: "متصل", failed: "تعذّر", awaiting: "بالانتظار", checking: "قيد التحقق", removed: "محذوف", approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
+        sep: ": ",
+        announcement: "من دكّان",
+        dismiss: "إخفاء",
+      },
     },
     support: {
       title: "تذاكر الدعم",
@@ -1577,6 +1687,31 @@ export const content: Record<Lang, Content> = {
       note: "هذا نموذج أولي: تبقى التذاكر على جهازك ولا تُرسل إلى أحد.",
       errSubject: "أدخل موضوع التذكرة.",
       errMessage: "اشرح مشكلتك في 10 أحرف على الأقل.",
+      server: {
+        note: "يقرأ فريق دعم دكّان كل تذكرة ويرد عليك هنا.",
+        cols: ["التذكرة", "التصنيف", "الحالة", "آخر نشاط", "إجراءات"],
+        statuses: { open: "مفتوحة", reply: "بانتظار ردّك", solved: "تم الحل", closed: "مغلقة" },
+        newReply: "رد جديد",
+        view: "فتح",
+        loading: "جارٍ تحميل تذاكرك…",
+        loadFailed: "تعذّر تحميل تذاكرك. تحقق من الاتصال وحاول مرة أخرى.",
+        sendFailed: "تعذّر الإرسال. تحقق من الاتصال وحاول مرة أخرى.",
+        tooMany: "أرسلت كثيرًا في وقت قصير. حاول مرة أخرى بعد قليل.",
+        picturesBad: "تعذّر إرسال إحدى الصور. احذفها وحاول مرة أخرى.",
+        you: "أنت",
+        dukkan: "دعم دكّان",
+        where: "المكان",
+        replyLabel: "ردّك",
+        replyPh: "اكتب ردّك…",
+        sendReply: "إرسال الرد",
+        sending: "جارٍ الإرسال…",
+        back: "العودة إلى التذاكر",
+        closedNote: "هذه التذكرة مغلقة. إرسال رد يعيد فتحها.",
+        enlarge: "فتح الصورة",
+        retry: "حاول مرة أخرى",
+        notFound: "لم نجد هذه التذكرة.",
+        system: { closedByYou: "أغلقت هذه التذكرة", reopenedByYou: "أعدت فتح هذه التذكرة", solved: "حدّد دكّان هذه التذكرة كمحلولة", closed: "أغلق دكّان هذه التذكرة" },
+      },
     },
     settings: {
       tab: "إعدادات الحساب",

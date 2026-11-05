@@ -1,12 +1,15 @@
 import type { NextRequest } from "next/server";
 import { savedMobile } from "@/components/phone";
-import { answer, checkPassword, guarded, readJson, sameOrigin, startSession, tooMany } from "@/server/auth";
+import { answer, checkPassword, guarded, noteLogin, readJson, sameOrigin, startSession, tooMany } from "@/server/auth";
 import { db } from "@/server/db";
+import { touchShop } from "@/server/shops";
 
 export const dynamic = "force-dynamic";
 
 /* Signs in with an email or the mobile number the account signed up with. Answers: "ok", "none" (no such account),
-   "wrong" (the password does not match), as the sign-in form expects. */
+   "wrong" (the password does not match), as the sign-in form expects; "suspended" (Dukkan suspended the store: no
+   sign-in until it is back); "code" (the account has 2-step codes on: the session waits for the code, given to
+   /api/auth/totp within 10 minutes). */
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   if (tooMany(req, "login", 20, 15)) return answer({ result: "slow-down" }, 429);
@@ -16,15 +19,26 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!id || typeof password !== "string" || password.length > 128) return answer({ result: "invalid" }, 400);
 
   const pool = await db();
-  const { rows } = await pool.query(`SELECT id, email, name, phone, password_hash FROM accounts WHERE email = $1 OR (phone <> '' AND phone = $2) LIMIT 1`, [
-    id,
-    savedMobile(id),
-  ]);
+  const { rows } = await pool.query(
+    `SELECT a.id, a.email, a.name, a.phone, a.password_hash, a.totp_on, COALESCE(s.status = 'suspended', false) AS suspended
+       FROM accounts a LEFT JOIN shops s ON s.account_id = a.id
+      WHERE a.email = $1 OR (a.phone <> '' AND a.phone = $2) LIMIT 1`,
+    [id, savedMobile(id)],
+  );
   const a = rows[0];
   if (!a) return answer({ result: "none" }, 401);
   if (!(await checkPassword(password, a.password_hash))) return answer({ result: "wrong" }, 401);
+  /* told only to someone who knows the password */
+  if (a.suspended) return answer({ result: "suspended" }, 403);
 
-  const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone } });
+  if (a.totp_on) {
+    const res = answer({ result: "code" });
+    await startSession(res, req, String(a.id), { minutes: 10, pendingTotp: true });
+    return res;
+  }
+  const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone }, totpOn: false });
   await startSession(res, req, String(a.id));
+  await noteLogin(String(a.id));
+  touchShop(a.id);
   return res;
 });

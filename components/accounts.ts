@@ -67,22 +67,50 @@ export async function createAccount(a: { email: string; name: string; phone: str
   /* a new account starts with an empty store, even if this browser kept something under the same email before */
   replaceAccountData({});
   markSynced();
+  askTwoStep();
   return "ok";
 }
 
 /** Signs in with an email (or mobile) and password, and brings back that account's store. "none": no account;
-    "wrong": the password does not match; "error": the server could not be reached. */
-export async function logIn(id: string, password: string): Promise<"ok" | "none" | "wrong" | "error"> {
+    "wrong": the password does not match; "suspended": Dukkan suspended the store; "code": the account has 2-step codes
+    on, so logInCode must follow; "error": the server could not be reached. */
+export async function logIn(id: string, password: string): Promise<"ok" | "none" | "wrong" | "suspended" | "code" | "error"> {
   const r = await call("/api/auth/login", "POST", { id, password });
   const result = r?.reply.result;
-  if (result === "none" || result === "wrong") return result;
+  if (result === "none" || result === "wrong" || result === "suspended" || result === "code") return result;
   if (result !== "ok" || !r?.reply.account) return "error";
+  await signedIn(r.reply.account);
+  askTwoStep();
+  return "ok";
+}
+
+/** The 6-digit code from the authenticator app, after logIn answered "code". "expired": more than 10 minutes went by
+    (sign in again); "slow-down": too many wrong codes. */
+export async function logInCode(code: string): Promise<"ok" | "wrong" | "expired" | "slow-down" | "error"> {
+  const r = await call("/api/auth/totp", "POST", { code });
+  const result = r?.reply.result;
+  if (result === "wrong" || result === "expired" || result === "slow-down") return result;
+  if (result !== "ok" || !r?.reply.account) return "error";
+  await signedIn(r.reply.account);
+  return "ok";
+}
+
+async function signedIn(a: PublicAccount) {
   dropSaves();
-  signInAs(r.reply.account.email);
-  rememberProfile(r.reply.account);
+  signInAs(a.email);
+  rememberProfile(a);
   /* if the store can't be loaded right now, what this browser has is used, and the next page load tries again */
   await loadStore();
-  return "ok";
+}
+
+/* Just signed in or up without 2-step codes: the dashboard offers them once (TwoStepPrompt in TwoStepSettings.tsx) */
+export const TWO_STEP_ASK = "dukkan-2fa-ask";
+function askTwoStep() {
+  try {
+    sessionStorage.setItem(TWO_STEP_ASK, "1");
+  } catch {
+    /* storage blocked */
+  }
 }
 
 /** Logging out: what is left is sent first, then the session ends, and the next visitor sees no one's store */
@@ -106,7 +134,8 @@ export async function logOut(): Promise<void> {
    store has on the server, in case it was changed on another device. If anything differs, the page loads again with it. */
 let checked = false;
 export async function syncOnOpen() {
-  if (checked || demoActive()) return;
+  /* Diwan's pages are staff pages: never a merchant's (its "log in as merchant" page loads the store itself) */
+  if (checked || demoActive() || window.location.pathname.startsWith("/diwan")) return;
   checked = true;
   const email = signedInAs();
   if (!email) return;
@@ -123,9 +152,9 @@ export async function syncOnOpen() {
     } catch {
       /* storage blocked */
     }
-    /* on a dashboard page, send them to sign in again rather than show an empty store */
+    /* on a dashboard page, send them to sign in again rather than show an empty store (never from Diwan, the staff console) */
     const path = window.location.pathname;
-    if (path !== "/" && !path.startsWith("/signup") && !path.startsWith("/demo")) window.location.href = "/signup";
+    if (path !== "/" && !path.startsWith("/signup") && !path.startsWith("/demo") && !path.startsWith("/diwan")) window.location.href = "/signup";
     return;
   }
   /* a new tab: the settings page and setup need the profile (an open tab keeps the one it has) */
@@ -152,4 +181,43 @@ export async function syncOnOpen() {
   if (same) return;
   replaceAccountData(server);
   window.location.reload();
+}
+
+/* ---------------- Dukkan support looking at a store ("log in as merchant" in Diwan) ---------------- */
+
+/* The support visit of this tab, for the banner (SupportBanner.tsx): who, until when, view only or not */
+export const SUPPORT_VIEW = "dukkan-support";
+export type SupportView = { staffName: string; endsAt: string; viewOnly: boolean };
+
+/** Loads the store Diwan just opened (its session cookie is already set) into this browser, like a sign-in. */
+export async function enterSupportView(): Promise<boolean> {
+  const me = await call("/api/auth/me", "GET");
+  const acct = me?.reply.account;
+  const imp = (me?.reply as { impersonation?: SupportView | null } | undefined)?.impersonation;
+  if (me?.status !== 200 || !acct || !imp) return false;
+  dropSaves();
+  signInAs(acct.email);
+  rememberProfile(acct);
+  try {
+    sessionStorage.setItem(SUPPORT_VIEW, JSON.stringify(imp));
+  } catch {
+    /* storage blocked */
+  }
+  return loadStore();
+}
+
+/** Ends the support visit: Diwan logs the end, and the store is taken out of this browser. Gives the shop's id. */
+export async function leaveSupportView(): Promise<string | null> {
+  const r = await call("/api/auth/support-end", "POST");
+  dropSaves();
+  /* nothing of the merchant's store stays in the staff member's browser */
+  replaceAccountData({});
+  signInAs(null);
+  try {
+    [SUPPORT_VIEW, SYNCED, "seen-signed-in", "seen-account-profile", "seen-account-phone"].forEach((k) => sessionStorage.removeItem(k));
+  } catch {
+    /* storage blocked */
+  }
+  const shop = (r?.reply as { shop?: string | null } | undefined)?.shop;
+  return shop ?? null;
 }

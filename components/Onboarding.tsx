@@ -18,6 +18,7 @@ import { checkImage, cleanFileName, cleanLine, cleanLines, cleanMoney, imageRule
 import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
 import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
+import { merchantCall, onServer } from "./merchantApi";
 
 /* ====================================================================
    Types and constants
@@ -680,9 +681,11 @@ function DomainStep({ store, onSave }: StepProps) {
   const [slug, setSlug] = useState(store.slug);
   const [touched, setTouched] = useState(false);
   const [tried, setTried] = useState(false);
+  /* the link Dukkan said belongs to another store (asked on Save, like the Domain page) */
+  const [taken, setTaken] = useState("");
   const valid = isSlug(slug);
   /* Wrong after he leaves the field, or still empty after he pressed Save */
-  const showError = !valid && ((touched && slug !== "") || tried);
+  const showError = (!valid && ((touched && slug !== "") || tried)) || (taken !== "" && taken === slug);
   const suggestion = slugify(store.name);
   const canSuggest = isSlug(suggestion) && suggestion !== slug;
 
@@ -711,7 +714,17 @@ function DomainStep({ store, onSave }: StepProps) {
             />
           </div>
           {showError ? (
-            <FieldError id="ob-domain-err">{!slug ? c.domain.errEmpty : SLUG_RULE.test(slug) ? reservedSlugError[lang] : c.domain.invalid}</FieldError>
+            <FieldError id="ob-domain-err">
+              {taken !== "" && taken === slug
+                ? lang === "ar"
+                  ? "هذا الرابط مستخدم لمتجر آخر. اختر رابطًا غيره."
+                  : "This link is taken by another store. Choose another one."
+                : !slug
+                  ? c.domain.errEmpty
+                  : SLUG_RULE.test(slug)
+                    ? reservedSlugError[lang]
+                    : c.domain.invalid}
+            </FieldError>
           ) : (
             <p dir="ltr" className="mt-2 text-xs text-muted">{c.domain.examples}</p>
           )}
@@ -722,11 +735,20 @@ function DomainStep({ store, onSave }: StepProps) {
           )}
         </div>
         <SaveButton
-          onClick={() => {
+          onClick={async () => {
             if (!valid) {
               setTried(true);
               focusFirst(["ob-domain"]);
               return;
+            }
+            /* a store link belongs to one store: a signed-in account asks Dukkan first (the save is refused anyway if taken) */
+            if (onServer() && slug !== store.slug) {
+              const r = await merchantCall(`/api/shop/slug?slug=${encodeURIComponent(slug)}`, "GET");
+              if (r?.data.result === "taken") {
+                setTaken(slug);
+                focusFirst(["ob-domain"]);
+                return;
+              }
             }
             onSave({ slug });
           }}
