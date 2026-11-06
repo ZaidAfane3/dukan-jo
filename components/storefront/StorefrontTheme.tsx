@@ -287,8 +287,20 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const searchIcon = compact || (config.nav.searchLook ?? (centered ? "icon" : "bar")) === "icon";
   /* the field opened from a search icon: focused at once; Escape or a press anywhere else closes it */
   const searchField = useRef<HTMLInputElement>(null);
+  /* in the designer, while his search settings are open, the search field stays open so he sees what he changes (it closes when
+     he leaves them); it does not take the cursor or close on a press in the settings */
+  const searchSpotted = spotted("search");
   useEffect(() => {
-    if (!searchOpen) return;
+    /* only a search behind an icon has a field to open (an always-open box is already there) */
+    const zone = searchSpotted ? root.current?.querySelector("header [data-search-zone]") : null;
+    if (!zone) return setSearchOpen(false);
+    setSearchOpen(true);
+    /* measured once the preview has settled (right after a screen opens it can still be moving into place) */
+    const t = setTimeout(() => measureAt(zone), 80);
+    return () => clearTimeout(t);
+  }, [searchSpotted, config.nav.searchLook, config.nav.style, config.nav.searchSize, config.identity.align, compact]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!searchOpen || searchSpotted) return;
     searchField.current?.focus({ preventScroll: true });
     const away = (e: PointerEvent) => { if (!(e.target as Element | null)?.closest?.("[data-search-zone]")) setSearchOpen(false); };
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setSearchOpen(false); };
@@ -298,24 +310,27 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       document.removeEventListener("pointerdown", away);
       document.removeEventListener("keydown", esc);
     };
-  }, [searchOpen]);
+  }, [searchOpen, searchSpotted]);
   /* where the pressed search button sits in the header (its half of the row, and the room from it to the far side), so the
      field opens toward the middle and never past the edge, whichever side the name and buttons are on */
   const [searchAt, setSearchAt] = useState<{ right: boolean; room: number }>({ right: true, room: 288 });
-  const measureSearch = (e: React.PointerEvent<HTMLElement>) => {
-    const row = e.currentTarget.closest("header")?.getBoundingClientRect();
-    const r = e.currentTarget.getBoundingClientRect();
-    if (!row) return;
+  const measureSearch = (e: React.PointerEvent<HTMLElement>) => measureAt(e.currentTarget);
+  function measureAt(el: Element) {
+    const row = el.closest("header")?.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    if (!row || !row.width) return;
     const right = r.left + r.width / 2 > row.left + row.width / 2;
     setSearchAt({ right, room: Math.round(right ? r.right - row.left - 16 : row.right - r.left - 16) });
   };
   /* A search button with its field right beside it, in the header row (never on a row of its own): on a wide screen it
      opens toward the middle of the row, on a phone just under the button */
+  /* the field a search icon opens: as wide as he chose (small, medium, large), never past the row */
+  const popWidth = { small: 200, medium: 288, large: 420 }[config.nav.searchSize ?? "medium"];
   const searchPop = (trigger: React.ReactNode) => (
     <span data-search-zone onPointerDownCapture={measureSearch} className="relative inline-flex shrink-0">
       {trigger}
       {searchOpen && h.showSearch && (
-        <span className={`absolute z-30 ${compact ? `top-full mt-2 ${searchAt.right ? "right-0" : "left-0"}` : `top-1/2 -translate-y-1/2 ${searchAt.right ? "right-full mr-2" : "left-full ml-2"}`}`} style={{ width: Math.max(160, Math.min(compact ? 256 : Math.min(288, Math.max(176, Math.round(width * 0.24))), searchAt.room)) }}>
+        <span className={`absolute z-30 ${compact ? `top-full mt-2 ${searchAt.right ? "right-0" : "left-0"}` : `top-1/2 -translate-y-1/2 ${searchAt.right ? "right-full mr-2" : "left-full ml-2"}`}`} style={{ width: Math.max(160, Math.min(compact ? 256 : popWidth, searchAt.room)) }}>
           <input
             ref={searchField}
             value={query}
@@ -350,6 +365,11 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
 
 
+  /* the full search bar's width and place (beside the basket, or in the middle of the header) */
+  const searchSize = config.nav.searchSize ?? "medium";
+  const searchByCart = config.nav.searchPlace === "cart";
+  const searchWidth = { small: "max-w-xs", medium: "max-w-xl", large: "max-w-3xl" }[searchSize];
+  const searchWidthMid = { small: "w-44", medium: "w-64", large: "w-80" }[searchSize];
   const actions = (
     <div className={`flex shrink-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>
               {searchIcon && searchPop(
@@ -367,7 +387,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
                       </span>
                     )}
                   </span>
-                  {!compact && (
+                  {!compact && config.nav.cartTotal !== false && (
                     <span dir="ltr">
                       {moneyIn(cart.total, priceLang(config.theme.prices, lang))} <small className="font-semibold opacity-60">{currency(priceLang(config.theme.prices, lang))}</small>
                     </span>
@@ -447,7 +467,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
   /* With the search open, the pill of links turns into the search field in the same place, and the links are hidden until it closes */
   const pillSearch = (
-    <label data-search-zone onClick={(e) => e.stopPropagation()} className="flex h-[46px] w-full min-w-[16rem] max-w-md items-center gap-2 border-2 border-[var(--sf-text)] bg-white px-4" style={{ borderRadius: "var(--sf-pill)" }}>
+    <label data-search-zone onClick={(e) => e.stopPropagation()} className={`flex h-[46px] w-full min-w-[16rem] ${{ small: "max-w-xs", medium: "max-w-md", large: "max-w-xl" }[config.nav.searchSize ?? "medium"]} items-center gap-2 border-2 border-[var(--sf-text)] bg-white px-4`} style={{ borderRadius: "var(--sf-pill)" }}>
       <span className="shrink-0 text-sf-text/60">{icons.search}</span>
       <input
         autoFocus={!design}
@@ -484,9 +504,19 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       {icons.menu}
     </button>
   );
+  /* the links and pill headers: the search box open all the time when he asks for it (an icon otherwise); on a phone always the icon */
+  const searchAlways = !compact && config.nav.style !== "button" && config.nav.searchLook === "bar";
+  /* the pill header's always-open search: a white pill with a thick line, like its buttons */
+  const pillBar = (
+    <label className={`flex h-11 shrink-0 items-center gap-2 border-2 border-[var(--sf-text)] bg-white px-4 ${searchWidthMid}`} style={{ borderRadius: "var(--sf-pill)" }}>
+      <span className="shrink-0 text-sf-text/60">{icons.search}</span>
+      <input value={query} onChange={(e) => interactive && setQuery(e.target.value)} placeholder={config.texts.search[lang] || c.search} aria-label={config.texts.search[lang] || c.search} className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-sf-text/50" />
+    </label>
+  );
   const pillExtras = (
     <>
-      {h.showSearch && (
+      {h.showSearch && searchAlways && pillBar}
+      {h.showSearch && !searchAlways && (
         <button type="button" data-search-zone onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={`${pillIcon} ${searchOpen ? "!bg-[var(--sf-text)] !text-[var(--sf-bg)]" : ""}`}>
           {icons.search}
         </button>
@@ -507,24 +537,30 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const plainRow = nameEnd ? "flex-row-reverse justify-end" : "justify-end";
   const plainActions = textCart ? (
     <div className={`flex items-center gap-3 ${plainRow}`}>
-      {h.showSearch && (
+      {h.showSearch && searchAlways && <div className={`shrink-0 ${searchWidthMid}`}>{search}</div>}
+      {h.showSearch && !searchAlways && (
         <>
           {searchPop(<button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-expanded={searchOpen} className={wordBtn}>{config.texts.search[lang] || c.search}</button>)}
           <span aria-hidden className="opacity-50">·</span>
         </>
       )}
-      <button type="button" className={wordBtn}>{lang === "ar" ? "المفضلة" : "Saved"}</button>
-      <span aria-hidden className="opacity-50">·</span>
+      {config.nav.showSaved !== false && (
+        <>
+          <button type="button" className={wordBtn}>{lang === "ar" ? "المفضلة" : "Saved"}</button>
+          <span aria-hidden className="opacity-50">·</span>
+        </>
+      )}
       {h.showCart && <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className={wordBtn}>{c.cart} <span className="ms-1" style={config.theme.saleColor ? { color: "var(--sf-sale)" } : undefined}>({digits(cart.count)})</span></button>}
     </div>
   ) : (
     <div className={`flex items-center ${plainRow}`}>
-      {h.showSearch && searchPop(
+      {h.showSearch && searchAlways && <div className={`me-1 shrink-0 ${searchWidthMid}`}>{search}</div>}
+      {h.showSearch && !searchAlways && searchPop(
         <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={plain}>
           {icons.search}
         </button>
       )}
-      <button type="button" aria-label={c.like} className={plain}>{icons.heart}</button>
+      {config.nav.showSaved !== false && <button type="button" aria-label={c.like} className={plain}>{icons.heart}</button>}
       {h.showCart && (
         <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className={plain}>
           {icons.bag}
@@ -664,20 +700,24 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <div className={`grid ${nameMid} items-center gap-3 ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
             <div className="flex min-w-0 items-center justify-start gap-3">
               {menuBtn}
-              {!searchIcon && <div className="w-full min-w-0 max-w-xs">{search}</div>}
+              {!searchIcon && !searchByCart && <div className={`min-w-0 ${searchWidthMid}`}>{search}</div>}
             </div>
             <div className="min-w-0">{brand}</div>
-            <div className="flex items-center justify-end">{actions}</div>
+            <div className="flex items-center justify-end gap-3">
+              {!searchIcon && searchByCart && <div className={`min-w-0 ${searchWidthMid}`}>{search}</div>}
+              {actions}
+            </div>
           </div>
         ) : (
           /* a long name gives way first (it ends with "…"): the search keeps its room and the basket never wraps; with the
              name at the end the row is mirrored (the menu button at the outer edge, the buttons at the start) */
           <div className={`flex items-center gap-3 ${nameEnd ? "flex-row-reverse" : ""} ${compact ? "px-4 py-3" : "px-8 py-4"}`}>
             {menuBtn}
-            <div className={`min-w-0 ${compact ? "flex-1" : "max-w-[40%] shrink"}`}>{brand}</div>
+            <div className={`min-w-0 ${compact ? "flex-1" : searchIcon ? "max-w-[40%] shrink" : "max-w-[40%] shrink-0"}`}>{brand}</div>
 
-            {!compact && !searchIcon && <div className="mx-auto w-full min-w-0 max-w-xl">{search}</div>}
-            {!compact && searchIcon && <div className="flex-1" />}
+            {!compact && !searchIcon && !searchByCart && <div className={`mx-auto w-full min-w-0 shrink-[4] ${searchWidth}`}>{search}</div>}
+            {!compact && (searchIcon || searchByCart) && <div className="flex-1" />}
+            {!compact && !searchIcon && searchByCart && <div className={`w-full min-w-0 shrink-[4] ${searchWidth}`}>{search}</div>}
 
             {actions}
           </div>

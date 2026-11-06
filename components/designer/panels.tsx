@@ -21,7 +21,10 @@ import { countDiscounted, readProducts, storeCategories } from "../storefront/us
 import { deleteMedia, putMedia, setLiveMedia, useMediaUrl } from "../storefront/mediaStore";
 import { showSlide } from "../storefront/slideSignal";
 import { useSpotWhile, type Spot } from "../storefront/spotSignal";
-import { ColorPicker, Field, input, SecondsPicker, Toggle } from "./controls";
+import { Blocked, ColorPicker, Field, input, SecondsPicker, Toggle } from "./controls";
+
+/* the reason a setting is greyed out (see Blocked), in his language */
+const why = (lang: Lang, ar: string, en: string) => (lang === "ar" ? ar : en);
 import { DeleteAsk } from "./DeleteAsk";
 import { dc, sampleTexts } from "./copy";
 import { LinkPicker, LinkTargets, PictureMover, useStorePages } from "./PageLink";
@@ -1440,11 +1443,12 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
 
   if (sub) {
     return (
-      <SubShell lang={lang} title={t.rows[sub]} spot={subSpot[sub]} onBack={() => { setSub(null); setFootAsk(null); }}>
+      <SubShell lang={lang} title={t.rows[sub]} spot={subSpot[sub]} tag={sub !== "searchCart"} onBack={() => { setSub(null); setFootAsk(null); }}>
         <PartFocus.Provider value={{ field: focus?.id === "footer" ? focus.field : undefined, n: focus?.n ?? 0 }}>
         {sub === "nameLogo" && <NameLogoForm lang={lang} cfg={cfg} setCfg={setCfg} draft={draft} update={update} />}
         {sub === "sidebarSettings" && <SidebarSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} />}
         {sub === "navigation" && <LinkTargets.Provider value={[...cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) })), { id: "footer", name: t.luxe.navFooter }]}><NavigationForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
+        {sub === "searchCart" && <SearchCartForm lang={lang} cfg={cfg} setCfg={setCfg} />}
         {sub === "announcement" && <LinkTargets.Provider value={cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) }))}><AnnouncementForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
         {sub === "footerSettings" && <LinkTargets.Provider value={cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) }))}><FooterForm lang={lang} draft={draft} update={update} ask={footAsk} /></LinkTargets.Provider>}
         </PartFocus.Provider>
@@ -1460,6 +1464,7 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
           {/* Store identity lives in the design options (OptionsPanel) */}
           <RowLink icon={sidebarIcon} label={t.rows.sidebarSettings} onClick={() => setSub("sidebarSettings")} />
           <RowLink icon={navIcon} label={t.rows.navigation} onClick={() => setSub("navigation")} />
+          <RowLink icon={searchCartIcon} label={t.rows.searchCart} onClick={() => setSub("searchCart")} />
           <RowLink icon={ic.megaphone} label={t.rows.announcement} onClick={() => setSub("announcement")} />
         </ul>
       </Accordion>
@@ -1830,26 +1835,37 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
             <HeroBackgrounds lang={lang} id={s.id} settings={s.settings} onChange={(settings) => onChange({ ...s, settings })} />
           </Part>
         )}
-        {/* the plain banner: where the words sit, how big it is and edge to edge */}
-        {!split && !pop && !orbit && (
-          <>
-            <Part lang={lang} label={pp.heroTextPos} hint={pp.textPosHint}>
-              <Seg value={s.settings.textPos ?? "center"} cols={3} onChange={(textPos) => set({ textPos })} options={[{ key: "center", label: pp.textPosCenter }, { key: "bottom-start", label: pp.textPosBottomStart }, { key: "bottom-center", label: pp.textPosBottomCenter }]} />
-            </Part>
-            <Part lang={lang} label={pp.heroSize}>
-              <CoverSize lang={lang} box={s.settings.box} tall={s.settings.height === "tall"} full={!!s.settings.fullWidth} onChange={(box) => set({ box })} />
-            </Part>
-          </>
-        )}
-        {!pop && !orbit && <Toggle on={full} onChange={(fullWidth) => set({ fullWidth })} label={pp.heroFullWidth} />}
-        {/* the product cards show only on the plain banner with its words at the side (the same test as the storefront's Hero):
-            with the words at the bottom center there is no room, so the options are replaced by one line saying so */}
-        {!split && !pop && !orbit && s.settings.textPos === "bottom-center" && (
-          <p className="rounded-lg bg-fg/[0.04] px-3 py-2.5 text-xs leading-relaxed text-muted">{lang === "ar" ? "بطاقات المنتجات لا تظهر في هذا الشكل (الكلام في أسفل المنتصف)." : "Product cards don't show in this layout (words at the bottom center)."}</p>
-        )}
-        {!split && !pop && !orbit && s.settings.textPos !== "bottom-center" && <Toggle on={s.settings.showCards ?? true} onChange={(showCards) => set({ showCards })} label={t.form.showCards} />}
-        {!split && !pop && !orbit && s.settings.textPos !== "bottom-center" && (s.settings.showCards ?? true) && (
-          <>
+        {/* the plain banner: where the words sit, how big it is and edge to edge. With another layout they stay, greyed out, saying why */}
+        {(() => {
+          const notBanner = split || pop || orbit;
+          const onlyBanner = why(lang, `غير متاح لأن «${t.form.heroLayout}» ليس «${t.form.layoutBanner}».`, `Not available because “${t.form.heroLayout}” isn't “${t.form.layoutBanner}”.`);
+          const bottomMid = s.settings.textPos === "bottom-center";
+          const cardsWhy = notBanner ? onlyBanner : bottomMid ? why(lang, `غير متاح لأن «${pp.heroTextPos}» هو «${pp.textPosBottomCenter}».`, `Not available because “${pp.heroTextPos}” is “${pp.textPosBottomCenter}”.`) : "";
+          return (
+            <>
+              <Blocked when={notBanner} why={onlyBanner}>
+                <Part lang={lang} label={pp.heroTextPos} hint={pp.textPosHint}>
+                  <Seg value={s.settings.textPos ?? "center"} cols={3} onChange={(textPos) => set({ textPos })} options={[{ key: "center", label: pp.textPosCenter }, { key: "bottom-start", label: pp.textPosBottomStart }, { key: "bottom-center", label: pp.textPosBottomCenter }]} />
+                </Part>
+              </Blocked>
+              <Blocked when={notBanner} why={onlyBanner}>
+                <Part lang={lang} label={pp.heroSize}>
+                  <CoverSize lang={lang} box={s.settings.box} tall={s.settings.height === "tall"} full={!!s.settings.fullWidth} onChange={(box) => set({ box })} />
+                </Part>
+              </Blocked>
+              <Blocked when={pop || orbit} why={why(lang, `غير متاح لأن «${t.form.heroLayout}» هو «${pop ? pp.layoutPop : pp.layoutOrbit}».`, `Not available because “${t.form.heroLayout}” is “${pop ? pp.layoutPop : pp.layoutOrbit}”.`)}>
+                <Toggle on={full} onChange={(fullWidth) => set({ fullWidth })} label={pp.heroFullWidth} />
+              </Blocked>
+              {/* the product cards show only on the plain banner with its words at the side (the same test as the storefront's Hero) */}
+              <Blocked when={notBanner || bottomMid} why={cardsWhy}>
+                <Toggle on={s.settings.showCards ?? true} onChange={(showCards) => set({ showCards })} label={t.form.showCards} />
+              </Blocked>
+            </>
+          );
+        })()}
+        {/* the cards' own settings: under their switch (greyed out with it when it can't apply), greyed out while the switch is off */}
+        {!split && !pop && !orbit && s.settings.textPos !== "bottom-center" && (
+          <Blocked when={!(s.settings.showCards ?? true)} why={why(lang, `غير متاح لأن «${t.form.showCards}» مُطفأ.`, `Not available because “${t.form.showCards}” is off.`)}>
             {/* everything about the product cards beside the words, in one place (how they sit and their frame were taken
                 out: he moves the cards himself in the preview) */}
             <Part lang={lang} label={pp.productsCard} field="cards">
@@ -1862,7 +1878,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
                 <Toggle on={s.settings.cardLook?.showName ?? true} onChange={(showName) => set({ cardLook: { ...s.settings.cardLook, showName } })} label={t.form.cardsName} />
               </div>
             </Part>
-          </>
+          </Blocked>
         )}
       </>
     );
@@ -2023,7 +2039,9 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
             </Part>
           </>
         )}
-        {s.settings.style !== "statement" && <Toggle on={s.settings.tint} onChange={(tint) => set({ tint })} label={t.form.tint} />}
+        <Blocked when={s.settings.style === "statement"} why={why(lang, `غير متاح لأن «${popT[lang].textStyle}» هو «${popT[lang].textStatement}».`, `Not available because “${popT[lang].textStyle}” is “${popT[lang].textStatement}”.`)}>
+          <Toggle on={s.settings.tint} onChange={(tint) => set({ tint })} label={t.form.tint} />
+        </Blocked>
         <Part lang={lang} label={t.form.samples} hint={t.form.samplesHint}>
           <ul className="space-y-2">
             {sampleTexts.map((x) => (
@@ -2091,7 +2109,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
             <Field label={popT[lang].perksBorder}>
               <Seg value={s.settings.border ?? "thin"} cols={3} onChange={(border) => onChange({ ...s, settings: { ...s.settings, border } })} options={[{ key: "none", label: popT[lang].borderNone }, { key: "thin", label: popT[lang].borderThin }, { key: "thick", label: popT[lang].borderThick }]} />
             </Field>
-            {s.settings.border !== "none" && <ColorChip lang={lang} label={popT[lang].borderColor} value={s.settings.borderColor} auto={storeColor} onChange={(borderColor) => onChange({ ...s, settings: { ...s.settings, borderColor } })} onReset={() => onChange({ ...s, settings: { ...s.settings, borderColor: undefined } })} />}
+            <Blocked when={s.settings.border === "none"} why={why(lang, `غير متاح لأن «${popT[lang].perksBorder}» هو «${popT[lang].borderNone}».`, `Not available because “${popT[lang].perksBorder}” is “${popT[lang].borderNone}”.`)}><ColorChip lang={lang} label={popT[lang].borderColor} value={s.settings.borderColor} auto={storeColor} onChange={(borderColor) => onChange({ ...s, settings: { ...s.settings, borderColor } })} onReset={() => onChange({ ...s, settings: { ...s.settings, borderColor: undefined } })} /></Blocked>
           </div>
         </Part>
       </>
@@ -2388,9 +2406,11 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
       <Part lang={lang} label={lx.cardInfo}>
         <Seg value={draft.config.cards.info ?? "stack"} onChange={(info) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, info } } }))} cols={3} options={[{ key: "stack", label: lx.infoStack }, { key: "row", label: lx.infoRow }, { key: "center", label: popT[lang].infoCenter }]} />
       </Part>
-      {(draft.config.cards.showAdd ?? true) && <Part lang={lang} label={popT[lang].cardAdd}>
-        <Seg value={draft.config.cards.add ?? "wide"} onChange={(add) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, add } } }))} options={[{ key: "wide", label: popT[lang].addWide }, { key: "plus", label: popT[lang].addPlus }]} />
-      </Part>}
+      <Blocked when={!(draft.config.cards.showAdd ?? true)} why={why(lang, `غير متاح لأن «${t.showAdd}» مُطفأ.`, `Not available because “${t.showAdd}” is off.`)}>
+        <Part lang={lang} label={popT[lang].cardAdd}>
+          <Seg value={draft.config.cards.add ?? "wide"} onChange={(add) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, add } } }))} options={[{ key: "wide", label: popT[lang].addWide }, { key: "plus", label: popT[lang].addPlus }]} />
+        </Part>
+      </Blocked>
       <Part lang={lang} label={popT[lang].saleColor} hint={popT[lang].saleColorHint}>
         <ColorPicker value={th.saleColor || (th.primary || draft.identity.color)} onChange={(saleColor) => set({ saleColor })} label={popT[lang].saleColor} bad={dc[lang].identity.hexBad} list={["#d9534f", "#e11d48", "#c0392b", "#e08a1e", "#161616", "#004956"]} />
         <DiscountSample lang={lang} color={th.saleColor} store={th.primary || draft.identity.color} text={th.text} />
@@ -2401,7 +2421,7 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
         )}
       </Part>
       <ColorChip lang={lang} label={popT[lang].priceColor} value={draft.config.cards.priceColor || undefined} onChange={(priceColor) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, priceColor } } }))} onReset={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, priceColor: "" } } }))} />
-      {(draft.config.cards.showAdd ?? true) && draft.config.cards.add === "plus" && <ColorChip lang={lang} label={popT[lang].addColor} value={draft.config.cards.addColor} auto="#b9f3d0" onChange={(addColor) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, addColor } } }))} onReset={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, addColor: undefined } } }))} />}
+      <Blocked when={!(draft.config.cards.showAdd ?? true) || draft.config.cards.add !== "plus"} why={!(draft.config.cards.showAdd ?? true) ? why(lang, `غير متاح لأن «${t.showAdd}» مُطفأ.`, `Not available because “${t.showAdd}” is off.`) : why(lang, `غير متاح لأن «${popT[lang].cardAdd}» ليس «${popT[lang].addPlus}».`, `Not available because “${popT[lang].cardAdd}” isn't “${popT[lang].addPlus}”.`)}><ColorChip lang={lang} label={popT[lang].addColor} value={draft.config.cards.addColor} auto="#b9f3d0" onChange={(addColor) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, addColor } } }))} onReset={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, addColor: undefined } } }))} /></Blocked>
       <Part lang={lang} label={t.cardImage}>
         <div className="grid grid-cols-3 gap-2">
           {(["portrait", "square", "wide"] as const).map((r) => (
@@ -2437,11 +2457,11 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
         <Seg lang={lang} value={th.titleStyle ?? "bold"} onChange={(titleStyle) => set({ titleStyle })} cols={2} options={[{ key: "bold", label: lx.titleBold }, { key: "light", label: lx.titleLight }, { key: "pop", label: popT[lang].titlePop, theme: "lamma" }, ...(th.titleStyle === "ornament" ? [{ key: "ornament" as const, label: popT[lang].titleOrnament }] : [])]} />
       </Part>
       {/* the ornament look always centers its titles */}
-      {th.titleStyle !== "ornament" && (
+      <Blocked when={th.titleStyle === "ornament"} why={why(lang, `غير متاح لأن «${lx.titleStyle}» هو «${popT[lang].titleOrnament}».`, `Not available because “${lx.titleStyle}” is “${popT[lang].titleOrnament}”.`)}>
         <Part lang={lang} label={lx.titleAlign}>
           <Seg value={th.titleAlign ?? "start"} onChange={(titleAlign) => set({ titleAlign })} options={[{ key: "start", label: lx.alignStart }, { key: "center", label: lx.alignCenter }]} />
         </Part>
-      )}
+      </Blocked>
       <div>
       <Part lang={lang} label={t.titles}>
         <ColorPicker value={th.titleColor || th.text} onChange={(titleColor) => set({ titleColor })} label={t.titles} bad={dc[lang].identity.hexBad} list={["#004956", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#e08a1e", "#7a3ea1", "#161616"]} />
@@ -3025,11 +3045,11 @@ function HeroBackgrounds({ lang, id, settings, onChange }: { lang: Lang; id: str
       {list.length > 1 && (
         <div className="space-y-3 rounded-xl bg-soft/70 p-3">
           <Toggle on={settings.autoplay ?? true} onChange={(autoplay) => onChange({ ...settings, autoplay })} label={t.autoplay} />
-          {(settings.autoplay ?? true) && (
+          <Blocked when={!(settings.autoplay ?? true)} why={why(lang, `غير متاح لأن «${t.autoplay}» مُطفأ.`, `Not available because “${t.autoplay}” is off.`)}>
             <Field label={t.every}>
               <SecondsPicker value={settings.seconds || 5} onChange={(n) => onChange({ ...settings, seconds: n })} unit={t.seconds} />
             </Field>
-          )}
+          </Blocked>
         </div>
       )}
     </div>
@@ -3245,12 +3265,12 @@ function CollectionForm({ lang, s, onChange, text }: { lang: Lang; s: Collection
         <LinkPicker lang={lang} value={s.settings.link ?? ""} onChange={(link) => set({ link })} label={popT[lang].viewAllLeads} />
       </Part>
       <Toggle on={!!s.settings.background} onChange={(on) => set(on ? { background: "#f2eee6", color: "#0f2a22" } : { background: "", color: "" })} label={popT[lang].bandOn} />
-      {!!s.settings.background && (
+      <Blocked when={!s.settings.background} why={why(lang, `غير متاح لأن «${popT[lang].bandOn}» مُطفأ.`, `Not available because “${popT[lang].bandOn}” is off.`)}>
         <div className="space-y-2">
           <FillPicker lang={lang} label={popT[lang].bandBg} value={s.settings.background ?? ""} fallback="#f2eee6" onChange={(background) => set({ background })} />
           <ColorChip lang={lang} label={popT[lang].bandText} value={s.settings.color || undefined} onChange={(color) => set({ color })} />
         </div>
-      )}
+      </Blocked>
       <Part lang={lang} label={t.collectionLimit}>
         <div className="flex gap-2">
           {[2, 3, 4, 6, 8, 12].map((n) => (
@@ -3279,12 +3299,12 @@ function CollectionForm({ lang, s, onChange, text }: { lang: Lang; s: Collection
 /*  Header and footer: rows that open their own small forms            */
 /* ------------------------------------------------------------------ */
 
-type SubKey = "nameLogo" | "sidebarSettings" | "navigation" | "announcement" | "footerSettings";
+type SubKey = "nameLogo" | "sidebarSettings" | "navigation" | "searchCart" | "announcement" | "footerSettings";
 /* The parts of the footer's screen */
 type FootBlock = "layout" | "links" | "contact" | "social" | "licenses" | "look";
 type SetCfg = (fn: (c: StorefrontConfig) => StorefrontConfig) => void;
 /* The part of the store each screen changes, outlined in the preview while it is open (see spotSignal) */
-const subSpot: Record<SubKey, string> = { nameLogo: "identity", sidebarSettings: "sidebar", navigation: "nav", announcement: "announcement", footerSettings: "footer" };
+const subSpot: Record<SubKey, string> = { nameLogo: "identity", sidebarSettings: "sidebar", navigation: "nav", searchCart: "search", announcement: "announcement", footerSettings: "footer" };
 /* the footer's column each part of its screen fills (its layout and colors are the whole footer) */
 const footSpot: Partial<Record<FootBlock, string>> = { links: "footer:pages", contact: "footer:contact", social: "footer:social", licenses: "footer:licenses" };
 /** Points the preview at a part of the store while it is given (for places that are not a Part or a screen) */
@@ -3308,9 +3328,9 @@ function RowLink({ icon: ico, label, onClick }: { icon: React.ReactNode; label: 
   );
 }
 
-function SubShell({ lang, title, spot, onBack, children }: { lang: Lang; title: string; /* the part of the store it changes (see subSpot) */ spot?: string; onBack: () => void; children: React.ReactNode }) {
+function SubShell({ lang, title, spot, tag = true, onBack, children }: { lang: Lang; title: string; /* the part of the store it changes (see subSpot) */ spot?: string; /* the screen's name on the outline in the preview (off: the outline alone) */ tag?: boolean; onBack: () => void; children: React.ReactNode }) {
   const t = dc[lang];
-  useSpotWhile(spot ? { key: spot, label: title } : null);
+  useSpotWhile(spot ? { key: spot, label: tag ? title : "" } : null);
   return (
     <div>
       <div className="flex items-center gap-3 border-b border-fg/10 px-4 py-3">
@@ -3338,6 +3358,7 @@ const cardIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke
 const cardWord = { ar: "بطاقة المنتج", en: "Product card" } as const;
 /** The screens of the design options that something outside can ask for */
 export type OptionsScreen = "identity" | "cards";
+const searchCartIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="8" cy="8" r="4.500" /><path d="M11.300 11.300 14 14M13 15h8l-1 6h-6zM15 15v-1a2 2 0 0 1 4 0v1" /></svg>;
 const sidebarIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M5.500 8h1.500M5.500 11h1.500M5.500 14h1.500" /></svg>;
 
 /** The sidebar (the button at the top that opens the store's side list): whether it shows, what it lists and his own links in it */
@@ -3349,7 +3370,9 @@ function SidebarSettingsForm({ lang, cfg, setCfg }: { lang: Lang; cfg: Storefron
         <Toggle on={cfg.header.showMenu} onChange={(v) => setCfg((c) => ({ ...c, header: { ...c.header, showMenu: v } }))} label={t.header.showMenu} />
         {!cfg.header.showMenu && <Tip text={t.header.tipMenu} />}
       </div>
-      {cfg.header.showMenu && <DrawerItemsForm lang={lang} cfg={cfg} setCfg={setCfg} />}
+      <Blocked when={!cfg.header.showMenu} why={why(lang, `غير متاح لأن «${t.header.showMenu}» مُطفأ.`, `Not available because “${t.header.showMenu}” is off.`)}>
+        <DrawerItemsForm lang={lang} cfg={cfg} setCfg={setCfg} />
+      </Blocked>
     </>
   );
 }
@@ -3393,12 +3416,14 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
         {visibleLength(draft.identity.name) < 2 && <span className="mt-1 block text-xs font-semibold text-rose-600">{t.identity.errName}</span>}
       </label>
       <Toggle on={id.showLogo} onChange={(v) => setId({ showLogo: v })} label={t.header.showLogo} />
-      {id.showLogo && <Toggle on={id.showName !== false} onChange={(v) => setId({ showName: v })} label={pt.showName} />}
-      {id.showLogo && (
+      <Blocked when={!id.showLogo} why={why(lang, `غير متاح لأن «${t.header.showLogo}» مُطفأ.`, `Not available because “${t.header.showLogo}” is off.`)}>
+        <Toggle on={id.showName !== false} onChange={(v) => setId({ showName: v })} label={pt.showName} />
+      </Blocked>
+      <Blocked when={!id.showLogo} why={why(lang, `غير متاح لأن «${t.header.showLogo}» مُطفأ.`, `Not available because “${t.header.showLogo}” is off.`)}>
         <Part lang={lang} label={t.identity.logo}>
           <LogoChoice lang={lang} draft={draft} update={update} />
         </Part>
-      )}
+      </Blocked>
       {/* where the logo and name sit in the header, named by the side he sees (in Arabic the start is the right); the theme's
           own place until he picks one, and the header's buttons move to the free side */}
       <Part lang={lang} label={pt.namePlace}>
@@ -3478,6 +3503,118 @@ function FontGrid({ lang, value, onChange, first, firstFamily, text }: { lang: L
   );
 }
 
+/* The words of the Search and cart screen */
+const scT = {
+  ar: {
+    search: "البحث",
+    cart: "السلة",
+    searchLook: "البحث مفتوح دائمًا",
+    barOn: "خانة البحث ظاهرة دائمًا في رأس الصفحة.",
+    barOff: "تظهر أيقونة بحث، وتفتح الخانة عند الضغط عليها.",
+    bar: "ظاهر دائمًا",
+    icon: "أيقونة تفتح عند الضغط",
+    size: "عرض خانة البحث",
+    sizeIcon: "عرض الخانة عندما تُفتح بالضغط على الأيقونة.",
+    small: "صغير",
+    medium: "متوسط",
+    large: "كبير",
+    place: "مكان شريط البحث",
+    middle: "في الوسط",
+    byMenu: "بجانب زر القائمة",
+    byCart: "بجانب السلة",
+    words: "نص خانة البحث",
+    phone: "على الجوال يظهر البحث كأيقونة دائمًا لضيق المساحة.",
+    cartLook: "شكل السلة",
+    saved: "زر المفضلة",
+    withTotal: "أيقونة ومبلغ السلة",
+    iconAlone: "أيقونة فقط",
+    pillCart: "زر دائري (شكل «لَمّة»)",
+  },
+  en: {
+    search: "Search",
+    cart: "Cart",
+    searchLook: "Search always open",
+    barOn: "The search box always shows in the header.",
+    barOff: "A search icon shows, and the box opens when it is pressed.",
+    bar: "Always open",
+    icon: "Icon that opens when pressed",
+    size: "Search width",
+    sizeIcon: "How wide the field is when it opens from the icon.",
+    small: "Small",
+    medium: "Medium",
+    large: "Large",
+    place: "Search bar place",
+    middle: "In the middle",
+    byMenu: "Beside the menu button",
+    byCart: "Beside the cart",
+    words: "Search field text",
+    phone: "On phones the search is always an icon, as there is little room.",
+    cartLook: "Cart look",
+    saved: "Favourites button",
+    withTotal: "Icon and cart total",
+    iconAlone: "Icon only",
+    pillCart: "Round button (Lamma style)",
+  },
+} as const;
+
+/** Search and cart: how the header's search and cart look, their size and where they sit, in one screen */
+function SearchCartForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg }) {
+  const w = scT[lang];
+  const nav = cfg.nav;
+  const setNav = (patch: Partial<StorefrontConfig["nav"]>) => setCfg((c) => ({ ...c, nav: { ...c.nav, ...patch } }));
+  const centered = cfg.identity.align === "center";
+  /* the search box open all the time, or an icon (with none chosen: open beside a name at the side in the sidebar-button header) */
+  const bar = (nav.searchLook ?? (nav.style === "button" && !centered ? "bar" : "icon")) === "bar";
+  const words = cfg.texts.search[lang] ?? "";
+  const heading = "text-xs font-bold uppercase tracking-wide text-muted";
+  return (
+    <div className="space-y-5">
+      <div className="space-y-3">
+        <h3 className={heading}>{w.search}</h3>
+        {(
+          /* on: the search box is open all the time; off: an icon that opens it when pressed */
+          <div>
+            <Toggle on={bar} onChange={(on) => setNav({ searchLook: on ? "bar" : "icon" })} label={w.searchLook} />
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">{bar ? w.barOn : w.barOff}</p>
+          </div>
+        )}
+        {/* the width of the always-open bar, or of the field the icon opens */}
+        {(
+          <Part lang={lang} label={w.size} hint={bar ? undefined : w.sizeIcon}>
+            <Seg value={nav.searchSize ?? "medium"} onChange={(searchSize) => setNav({ searchSize })} cols={3} options={[{ key: "small", label: w.small }, { key: "medium", label: w.medium }, { key: "large", label: w.large }]} />
+          </Part>
+        )}
+        {/* the place is a choice only in the sidebar-button header (in the others it sits with the buttons) */}
+        {(
+          <Blocked when={!bar || nav.style !== "button"} why={!bar ? why(lang, `غير متاح لأن «${w.searchLook}» مُطفأ.`, `Not available because “${w.searchLook}” is off.`) : why(lang, `غير متاح لأن رأس الصفحة فيه روابط من «${dc[lang].rows.navigation}»، فتبقى خانة البحث بجانب السلة.`, `Not available because your header has links from “${dc[lang].rows.navigation}”, so the search box stays beside the cart.`)}>
+          <Part lang={lang} label={w.place}>
+            <Seg value={nav.searchPlace ?? "middle"} onChange={(searchPlace) => setNav({ searchPlace })} options={[{ key: "middle", label: centered ? w.byMenu : w.middle }, { key: "cart", label: w.byCart }]} />
+          </Part>
+          </Blocked>
+        )}
+        <Part lang={lang} label={w.words} preview={words || storeCopy[lang].search}>
+          <input value={words} onChange={(e) => { const v = e.target.value; setCfg((c) => ({ ...c, texts: { ...c.texts, search: { ...c.texts.search, [lang]: v } } })); }} placeholder={storeCopy[lang].search} maxLength={60} className={`${input} h-11`} />
+          <CharCount value={words} max={60} />
+          <RudeNote lang={lang} text={words} />
+        </Part>
+        <p className="text-[11px] leading-relaxed text-muted">{w.phone}</p>
+      </div>
+      <div className="space-y-3 border-t border-fg/10 pt-4">
+        <h3 className={heading}>{w.cart}</h3>
+        <Part lang={lang} label={w.cartLook}>
+          {nav.style === "button" && <Seg value={nav.cartTotal === false ? "icon" : "total"} onChange={(v) => setNav({ cartTotal: v === "total" })} options={[{ key: "total", label: w.withTotal }, { key: "icon", label: w.iconAlone }]} />}
+          {nav.style === "links" && <Seg value={nav.cartLook ?? "icon"} onChange={(cartLook) => setNav({ cartLook })} options={[{ key: "icon", label: popT[lang].cartIcon }, { key: "text", label: popT[lang].cartText }]} />}
+          {nav.style === "pill" && <p className="text-xs text-muted">{w.pillCart}</p>}
+        </Part>
+        {/* the heart (or the word "Saved") beside the basket: only the links header has one */}
+        <Blocked when={nav.style !== "links"} why={why(lang, `غير متاح لأن «${dc[lang].luxe.navStyle}» ليس «${dc[lang].luxe.navLinks}».`, `Not available because “${dc[lang].luxe.navStyle}” isn't “${dc[lang].luxe.navLinks}”.`)}>
+          <Toggle on={nav.showSaved !== false} onChange={(showSaved) => setNav({ showSaved })} label={w.saved} />
+        </Blocked>
+      </div>
+    </div>
+  );
+}
+
 /** Navigation design: how visitors move around the store from the top of the page (a sidebar button, links in the header or
     pill buttons), the header links themselves and their colors */
 /* what a header link still needs before customers see it */
@@ -3503,32 +3640,19 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
       <Part lang={lang} label={lx.navStyle}>
         <Seg value={cfg.nav.style} onChange={(style) => setCfg((c) => ({ ...c, nav: { ...c.nav, style } }))} cols={3} options={[{ key: "button", label: lx.navButton }, { key: "links", label: lx.navLinks }, { key: "pill", label: popT[lang].navPill }]} />
       </Part>
-      {/* the search in this header: a full bar, or an icon beside the basket (the other styles always use an icon) */}
-      {cfg.nav.style === "button" && (
-        <Part lang={lang} label={lang === "ar" ? "شكل البحث" : "Search look"} spot="search">
-          <Seg value={cfg.nav.searchLook ?? (cfg.identity.align === "center" ? "icon" : "bar")} onChange={(searchLook) => setCfg((c) => ({ ...c, nav: { ...c.nav, searchLook } }))} options={[{ key: "bar", label: lang === "ar" ? "شريط كامل" : "Full bar" }, { key: "icon", label: lang === "ar" ? "أيقونة بجانب السلة" : "Icon beside the cart" }]} />
-          <p className="mt-2 text-[11px] leading-relaxed text-muted">{lang === "ar" ? "الأيقونة تفتح خانة البحث بجانبها. على الجوال يظهر البحث دائمًا كأيقونة لضيق المساحة." : "The icon opens the search field right beside it. On phones the search is always an icon, as there is little room."}</p>
-        </Part>
-      )}
       {/* a style that would show nothing says why, instead of seeming to do nothing (outside the fold, so it shows while closed) */}
       {cfg.nav.style === "button" && !cfg.header.showMenu && !cfg.nav.links.some((l) => (l.en.trim() || l.ar.trim()) && l.to?.trim()) && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navSidebarOff}</p>}
       {cfg.nav.style !== "button" && !cfg.nav.links.some((l) => (l.en.trim() || l.ar.trim()) && l.to?.trim()) && <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">{popT[lang].navNoLinks}</p>}
-      {cfg.nav.style === "links" && cfg.identity.align === "center" && (
+      <Blocked when={cfg.nav.style !== "links" || cfg.identity.align !== "center"} why={cfg.nav.style !== "links" ? why(lang, `غير متاح لأن «${lx.navStyle}» ليس «${lx.navLinks}».`, `Not available because “${lx.navStyle}” isn't “${lx.navLinks}”.`) : why(lang, `غير متاح لأن «${popT[lang].namePlace}» ليس «${popT[lang].placeCenter}».`, `Not available because “${popT[lang].namePlace}” isn't “${popT[lang].placeCenter}”.`)}>
         <Part lang={lang} label={popT[lang].navPlace}>
           <Seg value={cfg.nav.place ?? "below"} onChange={(place) => setCfg((c) => ({ ...c, nav: { ...c.nav, place } }))} options={[{ key: "below", label: popT[lang].navBelow }, { key: "start", label: popT[lang].navStart }]} />
         </Part>
-      )}
-      {cfg.nav.style === "links" && (
-        <Part lang={lang} label={popT[lang].cartLook}>
-          <Seg value={cfg.nav.cartLook ?? "icon"} onChange={(cartLook) => setCfg((c) => ({ ...c, nav: { ...c.nav, cartLook } }))} options={[{ key: "icon", label: popT[lang].cartIcon }, { key: "text", label: popT[lang].cartText }]} />
-        </Part>
-      )}
-      {cfg.nav.style === "pill" && (
+      </Blocked>
+      <Blocked when={cfg.nav.style !== "pill"} why={why(lang, `غير متاح لأن «${lx.navStyle}» ليس «${popT[lang].navPill}».`, `Not available because “${lx.navStyle}” isn't “${popT[lang].navPill}”.`)}>
         <div className="space-y-3">
           <ColorChip lang={lang} label={popT[lang].navActive} value={cfg.nav.activeColor} onChange={(activeColor) => setCfg((c) => ({ ...c, nav: { ...c.nav, activeColor } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, activeColor: undefined } }))} />
-          <ColorChip lang={lang} label={popT[lang].navCart} value={cfg.nav.cartColor} onChange={(cartColor) => setCfg((c) => ({ ...c, nav: { ...c.nav, cartColor } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, cartColor: undefined } }))} />
         </div>
-      )}
+      </Blocked>
       <div className="space-y-3.5">
           <p className="text-xs text-muted">{cfg.nav.style === "button" ? popT[lang].navBarHint : lx.navHint}</p>
           {/* each link folds up under its own words, in its own color */}
@@ -3601,8 +3725,8 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
   return (
     <>
       <Toggle on={a.show} onChange={(show) => set({ show })} label={t.show} />
-      {a.show && (
-      <>
+      <Blocked when={!a.show} why={why(lang, `غير متاح لأن «${t.show}» مُطفأ.`, `Not available because “${t.show}” is off.`)}>
+      <div className="space-y-4">
 
       <Part lang={lang} label={t.motion}>
         <div className="flex gap-1 rounded-xl border border-fg/15 bg-card p-1">
@@ -3612,15 +3736,15 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
         <p className="mt-1.5 text-xs text-muted">{a.motion === "ticker" ? t.tickerHint : t.fadeHint}</p>
       </Part>
 
-      {a.motion === "fade" && a.messages.length > 1 && (
+      <Blocked when={a.motion !== "fade" || a.messages.length < 2} why={a.motion !== "fade" ? why(lang, `غير متاح لأن «${t.motion}» ليس «${t.fade}».`, `Not available because “${t.motion}” isn't “${t.fade}”.`) : why(lang, "غير متاح لأن عندك رسالة واحدة فقط.", "Not available because you have only one message.")}>
         <Part lang={lang} label={t.every}>
           <SecondsPicker value={a.seconds} onChange={(seconds) => set({ seconds })} unit={t.sec} presets={[3, 4, 6, 8]} />
         </Part>
-      )}
+      </Blocked>
 
       {/* a scrolling bar: its speed, and one pair of colors for the whole bar (kept on every message, so fading keeps them too) */}
-      {a.motion === "ticker" && (
-        <>
+      <Blocked when={a.motion !== "ticker"} why={why(lang, `غير متاح لأن «${t.motion}» ليس «${t.ticker}».`, `Not available because “${t.motion}” isn't “${t.ticker}”.`)}>
+        <div className="space-y-4">
           <Part lang={lang} label={t.speed}>
             <Seg lang={lang} value={a.speed ?? "normal"} onChange={(speed) => set({ speed })} cols={3} options={[{ key: "slow", label: t.slow }, { key: "normal", label: t.normal }, { key: "fast", label: t.fast }]} />
           </Part>
@@ -3628,8 +3752,8 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
             <p className="mb-3 text-xs text-muted">{t.barColorsHint}</p>
             {msgColors(a.messages[0], (patch) => set({ messages: a.messages.map((m) => ({ ...m, ...patch })) }))}
           </Part>
-        </>
-      )}
+        </div>
+      </Blocked>
 
       {/* each message folds up under its own words, with its color beside them */}
       <ItemList>
@@ -3652,7 +3776,9 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
             <Field label={t.linkLabel} hint={t.linkHint}>
               <LinkPicker lang={lang} value={m.link} onChange={(link) => edit(i, { link })} label={t.linkLabel} web={false} />
             </Field>
-            {a.motion !== "ticker" && msgColors(m, (patch) => edit(i, patch))}
+            <Blocked when={a.motion === "ticker"} why={why(lang, `غير متاح لأن «${t.motion}» هو «${t.ticker}».`, `Not available because “${t.motion}” is “${t.ticker}”.`)}>
+              <div className="space-y-3">{msgColors(m, (patch) => edit(i, patch))}</div>
+            </Blocked>
           </ItemCard>
         ))}
       </ItemList>
@@ -3664,8 +3790,8 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
         words={limitWords[lang].messages}
         onAdd={() => { setAdded(a.messages.length); set({ messages: [...a.messages, { text: { en: "", ar: "" }, link: "", color: last.color, textColor: last.textColor }] }); }}
       />
-      </>
-      )}
+      </div>
+      </Blocked>
     </>
   );
 }
@@ -4167,11 +4293,11 @@ function SlidesForm({ lang, s, onChange }: { lang: Lang; s: SlidesEl; onChange: 
       {slides.length > 1 && (
         <div className="space-y-3 rounded-xl bg-soft/70 p-3">
           <Toggle on={s.settings.autoplay ?? true} onChange={(autoplay) => set({ autoplay })} label={t.autoplay} />
-          {(s.settings.autoplay ?? true) && (
+          <Blocked when={!(s.settings.autoplay ?? true)} why={why(lang, `غير متاح لأن «${t.autoplay}» مُطفأ.`, `Not available because “${t.autoplay}” is off.`)}>
             <Part lang={lang} label={t.every}>
               <SecondsPicker value={s.settings.seconds || 5} onChange={(n) => set({ seconds: n })} unit={t.seconds} />
             </Part>
-          )}
+          </Blocked>
         </div>
       )}
     </>
@@ -4362,11 +4488,11 @@ function TilesForm({ lang, s, onChange, text }: { lang: Lang; s: TilesEl; onChan
                   <PictureMover lang={lang} image={x.image} value={x.pos} onChange={(pos) => edit(i, { pos })} fill ratio={s.settings.style === "circles" ? "1 / 1" : s.settings.style === "editorial" ? "4 / 3" : "4 / 5"} radius={s.settings.style === "circles" ? "999px" : "12px"} />
                 </Field>
               )}
-              {s.settings.style === "editorial" && (
+              <Blocked when={s.settings.style !== "editorial"} why={why(lang, `غير متاح لأن «${lx.tilesStyle}» ليس «${lx.tilesEditorial}».`, `Not available because “${lx.tilesStyle}” isn't “${lx.tilesEditorial}”.`)}>
                 <Field label={lx.tileChip}>
                   <Seg value={x.chip ?? "light"} onChange={(chip) => edit(i, { chip })} options={[{ key: "light", label: lx.chipLight }, { key: "dark", label: lx.chipDark }]} />
                 </Field>
-              )}
+              </Blocked>
             </ItemCard>
           ))}
         </ItemList>
@@ -4421,11 +4547,11 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
   return (
     <>
       <p className="text-xs leading-relaxed text-muted">{t.bannersHint}</p>
-{anyPhoto && (
+      <Blocked when={!anyPhoto} why={why(lang, `غير متاح لأن لا يوجد بنر «${popT[lang].bannerVariant}» فيه «${popT[lang].variantPhoto}».`, `Not available because no banner has “${popT[lang].bannerVariant}” set to “${popT[lang].variantPhoto}”.`)}>
       <Part lang={lang} label={lx.bannerHeight}>
         <Seg value={s.settings.height ?? "normal"} onChange={(height) => onChange({ ...s, settings: { ...s.settings, height } })} options={[{ key: "normal", label: lx.heightNormal }, { key: "tall", label: lx.heightTall }]} />
       </Part>
-)}
+      </Blocked>
       <ItemList>
       {items.map((x, i) => (
         <ItemCard
@@ -4511,11 +4637,11 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
             </Part>
             <Part lang={lang} label={t.bannerButton} more={
               <>
-                {x.variant !== "card" && (
+                <Blocked when={x.variant === "card"} why={why(lang, `غير متاح لأن «${popT[lang].bannerVariant}» ليس «${popT[lang].variantPhoto}».`, `Not available because “${popT[lang].bannerVariant}” isn't “${popT[lang].variantPhoto}”.`)}>
                   <Field label={lx.bannerButtonStyle}>
                     <Seg value={x.buttonStyle ?? "filled"} onChange={(buttonStyle) => edit(i, { buttonStyle })} options={[{ key: "filled", label: lx.btnFilled }, { key: "outline", label: lx.btnOutline }]} />
                   </Field>
-                )}
+                </Blocked>
                 <ColorChip lang={lang} label={lx.bannerButtonColor} value={x.accent} onChange={(accent) => edit(i, { accent })} onReset={() => edit(i, { accent: undefined })} on={x.variant !== "card" && x.buttonStyle === "outline" ? bannerSurface(x, page.primary, storeColor) : undefined} />
               </>
             }>
@@ -4524,13 +4650,13 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
               <RudeNote lang={lang} text={x.button?.[lang]} />
               <Leads lang={lang} label={t.bannerLink} value={x.link} onChange={(link) => edit(i, { link })} />
             </Part>
-            {x.variant !== "card" && (
+            <Blocked when={x.variant === "card"} why={why(lang, `غير متاح لأن «${popT[lang].bannerVariant}» ليس «${popT[lang].variantPhoto}».`, `Not available because “${popT[lang].bannerVariant}” isn't “${popT[lang].variantPhoto}”.`)}>
               <div className="space-y-3">
                 <Part lang={lang} label={lx.bannerPanel}>
                   <Seg value={x.panel ?? "none"} cols={3} onChange={(panel) => edit(i, { panel })} options={[{ key: "none", label: lx.panelNone }, { key: "light", label: lx.panelLight }, { key: "dark", label: lx.panelDark }]} />
                 </Part>
-                {(x.panel === "light" || x.panel === "dark") && (
-                  <>
+                <Blocked when={!(x.panel === "light" || x.panel === "dark")} why={why(lang, `غير متاح لأن «${lx.bannerPanel}» هو «${lx.panelNone}».`, `Not available because “${lx.bannerPanel}” is “${lx.panelNone}”.`)}>
+                  <div className="space-y-3">
                     <Part lang={lang} label={lx.bannerPanelColor}>
                       <ColorPicker value={x.panelColor || (x.panel === "dark" ? "#12100d" : "#fff5f8")} onChange={(panelColor) => edit(i, { panelColor })} label={lx.bannerPanelColor} bad={dc[lang].identity.hexBad} list={["#fff5f8", "#ffffff", "#f4efe6", "#12100d", "#16120f", "#004956", "#b03a5b"]} />
                       {x.panelColor && (
@@ -4540,16 +4666,16 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
                     <Part lang={lang} label={lx.bannerPosition}>
                       <Seg value={x.position ?? "top-start"} onChange={(position) => edit(i, { position })} options={[{ key: "top-start", label: lx.posTopStart }, { key: "top-end", label: lx.posTopEnd }, { key: "bottom-start", label: lx.posBottomStart }, { key: "bottom-end", label: lx.posBottomEnd }, { key: "center", label: popT[lang].bannerCenter }]} />
                     </Part>
-                  </>
-                )}
+                  </div>
+                </Blocked>
                 {/* with no panel the words sit at the bottom of the picture, or in the middle */}
-                {(x.panel ?? "none") === "none" && (
+                <Blocked when={(x.panel ?? "none") !== "none"} why={why(lang, `غير متاح لأن «${lx.bannerPanel}» ليس «${lx.panelNone}».`, `Not available because “${lx.bannerPanel}” isn't “${lx.panelNone}”.`)}>
                   <Part lang={lang} label={popT[lang].heroTextPos}>
                     <Seg value={x.position === "center" ? "center" : "bottom-start"} onChange={(position) => edit(i, { position })} options={[{ key: "bottom-start", label: lx.posBottomStart }, { key: "center", label: popT[lang].bannerCenter }]} />
                   </Part>
-                )}
+                </Blocked>
               </div>
-            )}
+            </Blocked>
           </div>
         </ItemCard>
       ))}
@@ -4748,16 +4874,16 @@ function NewsletterForm({ lang, s, onChange, text }: { lang: Lang; s: NewsEl; on
         return (
           <div className="space-y-4 rounded-xl bg-soft/70 p-3">
             <p className="text-xs leading-relaxed text-muted">{pp.popHint}</p>
-            {text(pop.title, (title) => setPop({ title }), pp.popTitle)}
-            {text(pop.text, (t) => setPop({ text: t }), pp.popText, true, undefined, <SubFontField lang={lang} value={pop.textFont} onChange={(textFont) => setPop({ textFont })} />)}
-            {text(pop.button, (button) => setPop({ button }), pp.popButton)}
-            <Part lang={lang} label={pp.popBg}>
+            {text(pop.title, (title) => setPop({ title }), pp.popTitle, false, "popup")}
+            {text(pop.text, (t) => setPop({ text: t }), pp.popText, true, "popup", <SubFontField lang={lang} value={pop.textFont} onChange={(textFont) => setPop({ textFont })} />)}
+            {text(pop.button, (button) => setPop({ button }), pp.popButton, false, "popup")}
+            <Part lang={lang} label={pp.popBg} field="popup">
               <FillPicker lang={lang} value={pop.background} fallback="#ffffff" onChange={(background) => setPop({ background })} label={pp.popBg} list={["#ffffff", "#fff6ea", "#b9f3d0", "#ffe36e", "#2b1b47"]} />
             </Part>
-            <Part lang={lang} label={pp.popAccent}>
+            <Part lang={lang} label={pp.popAccent} field="popup">
               <ColorPicker value={pop.accent} onChange={(accent) => setPop({ accent })} label={pp.popAccent} bad={dc[lang].identity.hexBad} list={["#ffe36e", "#ff8fb1", "#b9f3d0", "#c9b6ff", "#ffffff"]} />
             </Part>
-            <Part lang={lang} label={pp.popPic}>
+            <Part lang={lang} label={pp.popPic} field="popup">
               <PhotoPicker lang={lang} value={pop.image ?? ""} onChange={(image) => setPop({ image, imagePos: undefined })} max={1000} />
               <PictureMover lang={lang} image={pop.image ?? ""} value={pop.imagePos} onChange={(imagePos) => setPop({ imagePos })} fill ratio="12 / 5" radius="12px" />
             </Part>

@@ -2517,6 +2517,9 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
   const [done, setDone] = useState(false);
   /* The pop-up after subscribing (when the merchant chose it): in the designer pressing the button shows it, to see and adjust it */
   const [pop, setPop] = useState(false);
+  /* while one of the pop-up's settings is open in the designer, the pop-up shows, so he sees what he changes */
+  const spots = useSpots();
+  const popEdited = !!ctx.design && s.after === "popup" && spots.some((x) => x.key === `sec:${id}:popup`);
   const l = ctx.lang;
   const other = l === "ar" ? "en" : "ar";
   const pick = (b?: { en: string; ar: string }) => b?.[l] || b?.[other] || "";
@@ -2606,7 +2609,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
           </form>
         )}
       </div>
-      {pop && (
+      {(pop || popEdited) && (
         /* A real pop-up on the store; in the designer it sits over the block itself, so it is seen where it is edited */
         <div className={`${ctx.design ? "absolute" : "fixed"} inset-0 z-50 grid place-items-center bg-black/55 p-4`} role="dialog" aria-modal="true" aria-label={popTitle} onClick={(e) => { e.stopPropagation(); setPop(false); }}>
           <div className="relative w-full max-w-md overflow-hidden text-center" onClick={(e) => e.stopPropagation()} style={{ background: pp?.background || "#ffffff", color: onColor(pp?.background || "#ffffff") === "#ffffff" ? "#ffffff" : "#1c1a17", border: "2px solid var(--sf-text)", borderRadius: "var(--sf-r2)", boxShadow: "6px 6px 0 var(--sf-text)" }}>

@@ -111,7 +111,7 @@ export const icons = {
   search: <svg {...base} className="h-5 w-5"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>,
   user: <svg {...base} className="h-5 w-5"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>,
   bag: <svg {...base} className="h-5 w-5"><path d="M5 8h14l-1 12H6L5 8Z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg>,
-  heart: <svg {...base} className="h-4 w-4"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.600-7 10-7 10Z" /></svg>,
+  heart: <svg {...base} className="h-5 w-5"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.600-7 10-7 10Z" /></svg>,
   plus: <svg {...base} className="h-4 w-4" strokeWidth={2.2}><path d="M12 5v14M5 12h14" /></svg>,
   check: <svg {...base} className="h-4 w-4" strokeWidth={2.4}><path d="m5 12 5 5 9-10" /></svg>,
   truck: <svg {...base} className="h-5 w-5"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7M7 19a1.500 1.500 0 1 0 0-.01M17 19a1.500 1.500 0 1 0 0-.01" /></svg>,

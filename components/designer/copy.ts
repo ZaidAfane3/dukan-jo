@@ -76,7 +76,7 @@ export const dc = {
     dashboard: "Back to dashboard",
     rail: { phoneSettings: "Settings", phonePreview: "Preview", phoneSwitch: "Show the settings or the preview", collapse: "Hide panel", expand: "Show panel", resize: "Drag to make the panel wider or narrower (double-click: back to its size)", pages: "Store pages", identity: "Store identity", options: "Design options", texts: "Store wording" },
     sectionsTitle: { header: "Page header", elements: "Page elements", footer: "Page footer" },
-    rows: { nameLogo: "Store identity", sidebarSettings: "Sidebar settings", navigation: "Navigation links", announcement: "Announcement bar", footerSettings: "Footer settings", service: "Customer service channels", certificate: "Store licenses", social: "Social media accounts" },
+    rows: { nameLogo: "Store identity", sidebarSettings: "Sidebar settings", navigation: "Navigation links", searchCart: "Search and cart", announcement: "Announcement bar", footerSettings: "Footer settings", service: "Customer service channels", certificate: "Store licenses", social: "Social media accounts" },
     /* The footer's one screen: its parts open and close, several at a time */
     footBlocks: {
       hint: "Open a part to edit it. Inside each column, \"Edit what this column shows\" opens the part that fills it.",
@@ -255,7 +255,7 @@ export const dc = {
     dashboard: "العودة للوحة التحكم",
     rail: { phoneSettings: "الإعدادات", phonePreview: "المعاينة", phoneSwitch: "اعرض الإعدادات أو المعاينة", collapse: "إخفاء القائمة الجانبية", expand: "إظهار القائمة الجانبية", resize: "اسحب لتوسيع اللوحة أو تضييقها (نقرتان: حجمها الأصلي)", pages: "صفحات المتجر", identity: "هوية المتجر", options: "خيارات التصميم", texts: "كلمات المتجر" },
     sectionsTitle: { header: "رأس الصفحة", elements: "عناصر الصفحة", footer: "تذييل الصفحة" },
-    rows: { nameLogo: "هوية المتجر", sidebarSettings: "إعدادات القائمة الجانبية", navigation: "روابط التنقل", announcement: "الشريط الإعلاني", footerSettings: "إعدادات تذييل الصفحة", service: "قنوات خدمة العملاء", certificate: "رُخَص المتجر", social: "حسابات التواصل الاجتماعي" },
+    rows: { nameLogo: "هوية المتجر", searchCart: "البحث والسلة", sidebarSettings: "إعدادات القائمة الجانبية", navigation: "روابط التنقل", announcement: "الشريط الإعلاني", footerSettings: "إعدادات تذييل الصفحة", service: "قنوات خدمة العملاء", certificate: "رُخَص المتجر", social: "حسابات التواصل الاجتماعي" },
     footBlocks: {
       hint: "افتح أي جزء لتعديله. داخل كل عمود، يفتح «تعديل ما يعرضه هذا العمود» الجزء الذي يملؤه.",
       layout: "الأعمدة والشكل", links: "روابط التذييل", look: "الألوان وأحجام النصوص",
