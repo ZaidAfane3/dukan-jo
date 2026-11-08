@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
-import { centsFor, copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { centsFor, copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage, wide } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { bannerSurface, dimOn, inkOn, legibleOn, readsOn } from "./footerColors";
 import { onShowSlide } from "./slideSignal";
@@ -615,7 +615,7 @@ function Gallery({ p, ctx, look }: { p: StoreProduct; ctx: Ctx; look: ProductPag
   const thumbs = many && (
     <div role="group" aria-label={w.picture(i + 1, pics.length)} className={side ? "flex w-16 shrink-0 flex-col gap-2.5" : `mt-3 flex gap-2.5 overflow-x-auto pb-1 ${look === "luxe" ? "justify-center" : ""}`}>
       {pics.map((src, n) => (
-        <button key={src + n} type="button" onClick={() => setAt(n)} aria-label={w.picture(n + 1, pics.length)} aria-pressed={n === i} className={`shrink-0 transition ${side ? "w-16" : "w-16 sm:w-[72px]"} ${s.thumb} ${n === i ? s.thumbOn : ""}`}>
+        <button key={src + n} type="button" onClick={() => setAt(n)} aria-label={w.picture(n + 1, pics.length)} aria-pressed={n === i} className={`shrink-0 transition ${side ? "w-16" : wide(ctx.compact, "w-16 sm:w-[72px]")} ${s.thumb} ${n === i ? s.thumbOn : ""}`}>
           <ProductImage p={{ ...pic(n), name: "" }} flat={flat} className={s.ratio} />
         </button>
       ))}
@@ -1078,7 +1078,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
 
         <div className={`mt-5 grid items-start ${ctx.compact ? "gap-7" : s.grid}`}>
           {luxe ? (
-            <div className="rounded-[var(--sf-r2)] border p-2.5 sm:p-3" style={{ borderColor: tint("--sf-accent", 40) }}>
+            <div className={wide(ctx.compact, "rounded-[var(--sf-r2)] border p-2.5 sm:p-3")} style={{ borderColor: tint("--sf-accent", 40) }}>
               <Gallery p={p} ctx={ctx} look={look} />
             </div>
           ) : (
@@ -1620,7 +1620,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           className={`grid overflow-hidden ${full ? "" : "rounded-[var(--sf-r)]"} ${ctx.compact ? "" : photoFirst ? "md:grid-cols-[1.15fr_1fr]" : "md:grid-cols-[1fr_1.15fr]"}`}
           style={{ background: panel, color: light ? "var(--sf-text)" : "#ffffff" }}
         >
-          <div className={`relative overflow-hidden ${ctx.compact ? "aspect-[4/3]" : full ? "min-h-[720px]" : "min-h-[26rem]"} ${photoFirst ? "" : "md:order-2"}`}>
+          <div className={`relative overflow-hidden ${ctx.compact ? "aspect-[4/3]" : full ? "min-h-[720px]" : "min-h-[26rem]"} ${photoFirst ? "" : wide(ctx.compact, "md:order-2")}`}>
             {s.photo ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={s.photo} alt="" className="absolute inset-0 h-full w-full object-cover" style={picFill(s.photoPos)} />
@@ -2426,7 +2426,7 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
   return (
     <section className={section(ctx.compact)}>
       <div
-        className={`rounded-[var(--sf-r)] ${s.tint ? "px-6 py-9 sm:px-12" : ""}`}
+        className={`rounded-[var(--sf-r)] ${s.tint ? wide(ctx.compact, "px-6 py-9 sm:px-12") : ""}`}
         style={s.tint ? { background: "color-mix(in srgb, var(--sf-primary) 8%, var(--sf-bg))" } : undefined}
       >
         <div className={box}>

@@ -273,3 +273,12 @@ export function resolveLogo(logo: LogoConfig, setupLogo: string): LogoConfig {
   if (logo.kind !== "auto") return logo;
   return setupLogo ? { ...logo, kind: "image", image: setupLogo } : { ...logo, kind: "letter" };
 }
+
+/**
+ * Classes that follow the browser window's size (sm:, md:, lg:…) are dropped when the store itself is narrow (`compact`).
+ * The store decides "phone or not" from its own width, so it looks right in the designer's phone view on a computer and
+ * inside any narrow box, not only when the whole window is a phone's.
+ */
+export function wide(compact: boolean, cls: string): string {
+  return compact ? cls.split(/\s+/).filter((c) => !/^(sm|md|lg|xl|2xl):/.test(c)).join(" ") : cls;
+}

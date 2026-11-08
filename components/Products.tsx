@@ -427,6 +427,12 @@ export function Products() {
   const [cropAt, setCropAt] = useState<number | null>(null);
   /* the photo as it is being cropped, shown in its place right away (back to the old one on Cancel) */
   const [photoLive, setPhotoLive] = useState<string | null>(null);
+  /* the photo the cropper is working on; cleared when the cropper closes, so a crop finishing late changes nothing */
+  const cropSrc = useRef<string | null>(null);
+  useEffect(() => {
+    cropSrc.current = cropAt !== null ? photos[cropAt] ?? null : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cropAt]);
   const [focus, setFocus] = useState({ x: 50, y: 50 });
   const fileInput = useRef<HTMLInputElement>(null);
   /* The editor as it was when opened or last saved, to know if there are unsaved changes */
@@ -906,7 +912,7 @@ export function Products() {
                     </div>
                     {cropAt !== null && photos[cropAt] && (
                       <div className="mt-3">
-                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onLive={setPhotoLive} onCancel={() => { setCropAt(null); setPhotoLive(null); }} onDone={(url) => { const at = cropAt; setPhotos((cur) => cur.map((x, j) => (j === at ? url : x))); setCropAt(null); setPhotoLive(null); }} />
+                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onLive={setPhotoLive} onCancel={() => { setCropAt(null); setPhotoLive(null); }} onDone={(url) => { /* the photo that was being cropped, found by itself (not by its place: it may have moved, or the cropper closed) */ const was = cropSrc.current; if (!was) return; setPhotos((cur) => cur.map((x) => (x === was ? url : x))); cropSrc.current = null; setCropAt(null); setPhotoLive(null); }} />
                       </div>
                     )}
                     <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
