@@ -5,7 +5,7 @@ import type { Lang } from "../content";
 import { accountName, accountPhone } from "../setup";
 import { load as loadPages, pagesScope } from "../InfoPages";
 import type { SectionConfig } from "./config";
-import { isUnlimited, money, productId, salePrice, sellableStock } from "../safeOrder";
+import { isUnlimited, money, productId, productSizes, salePrice, sellableStock, type SizeStock } from "../safeOrder";
 import { safeStoredImage } from "../safe";
 import { productCategories } from "../records";
 import { shownMobile } from "../phone";
@@ -28,6 +28,10 @@ export type StoreProduct = {
   /* What can be sold: an unlimited product gets UNLIMITED_STOCK, so it is never sold out or "only a few left" */
   quantity: number;
   unlimited?: boolean;
+  /* Clothing and shoes: each size and how many of it (the customer picks one before adding it to the cart) */
+  sizes?: SizeStock[];
+  /* Clothing and shoes: a picture of the size chart, opened from the product page */
+  sizeChart?: string;
   /* Sample products get a color so their picture is not a gray box */
   hue?: number;
   /* A picture of the product (the platform tour uses real files in /public/demo) */
@@ -120,6 +124,8 @@ export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
     sale: salePrice(price, p.sale),
     featured: p.featured === true,
     quantity: sellableStock(p),
+    ...(productSizes(p).length ? { sizes: productSizes(p) } : {}),
+    ...(productSizes(p).length && safeStoredImage(p.sizeChart) ? { sizeChart: safeStoredImage(p.sizeChart) } : {}),
     ...(isUnlimited(p) ? { unlimited: true } : {}),
     hue: (Number(p.id) * 47) % 360,
     /* a picture saved in this browser, never a link to another site (it could track the visitors) */

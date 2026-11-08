@@ -7,7 +7,7 @@
 import { STATUS_KEYS, defaultInvoice, type InvoiceSettings, type StatusKey } from "./ordersContent";
 import { latin } from "./digits";
 import { cleanCount, cleanDate, cleanLine, cleanLines, cleanMoney, safeColor, safeImage, visibleLength } from "./safe";
-import { isKnownCity, isUnlimited, visitorEmail } from "./safeOrder";
+import { isKnownCity, isUnlimited, kindHasSizes, productKind, productSizes, visitorEmail, type ProductKind, type SizeStock } from "./safeOrder";
 
 /* ============================== shared ============================== */
 
@@ -90,6 +90,12 @@ export type Product = {
   /* The part of the main picture that stays visible when the store crops it (percent from the left and the top) */
   focus?: { x: number; y: number; zoom?: number };
   name: string;
+  /* What kind of product it is (none: "standard"): clothing and shoes are sold in sizes, digital codes and services are not shipped */
+  kind?: ProductKind;
+  /* Clothing and shoes: each size and its own stock. The product's `quantity` is then all of them together */
+  sizes?: SizeStock[];
+  /* Clothing and shoes: a picture of his size chart, opened from the product page beside the sizes */
+  sizeChart?: string;
   price: number | null;
   sale: number | null;
   cost: number | null;
@@ -122,19 +128,22 @@ export type Product = {
 /** The limits of each product field, shared by the form and the checks. */
 export const PRODUCT_MAX = { name: 80, category: 40, categories: 10, brand: 40, notes: 60, badge: 20, description: 2000 };
 
-export type ProductProblem = "name" | "price" | "sale" | "images" | "quantity";
+export type ProductProblem = "name" | "price" | "sale" | "images" | "quantity" | "sizes";
 
 /** What is wrong with a product before it is saved, field by field (empty when nothing is).
     The category is optional (an empty one shows under "Other" in the store). At least one photo is required: only
     pictures that are really there count (one still uploading or that failed to load is not in `images`).
     The quantity is required unless the stock is unlimited; `quantity` null means the field was left empty. */
-export function productProblems(p: Pick<Product, "name" | "price" | "sale"> & { images?: unknown[]; quantity: number | null; unlimited?: boolean }): ProductProblem[] {
+export function productProblems(p: Pick<Product, "name" | "price" | "sale"> & { images?: unknown[]; quantity: number | null; unlimited?: boolean; kind?: ProductKind; sizes?: { name: string; quantity: unknown }[] }): ProductProblem[] {
   const out: ProductProblem[] = [];
   if (visibleLength(cleanLine(p.name, PRODUCT_MAX.name)) < 2) out.push("name");
   if (p.price === null || money(p.price) === null) out.push("price");
   if (p.sale !== null && (p.price === null || money(p.sale) === null || !(p.sale < p.price))) out.push("sale");
   if (!(Array.isArray(p.images) && p.images.some((x) => !!picture(x)))) out.push("images");
-  if (p.unlimited !== true && (p.quantity === null || count(p.quantity, -1) < 0)) out.push("quantity");
+  /* clothing and shoes need at least one size with a name (their stock is the sizes'); the others need their quantity */
+  if (kindHasSizes(productKind(p.kind))) {
+    if (!(p.sizes ?? []).some((s) => s.name.trim())) out.push("sizes");
+  } else if (p.unlimited !== true && (p.quantity === null || count(p.quantity, -1) < 0)) out.push("quantity");
   return out;
 }
 
@@ -153,6 +162,12 @@ export function cleanProduct(x: Record<string, unknown>): Product | null {
     images,
     focus: f ? { x: percent(f.x), y: percent(f.y), ...(typeof f.zoom === "number" && Number.isFinite(f.zoom) ? { zoom: Math.max(1, Math.min(4, f.zoom)) } : {}) } : undefined,
     name: cleanLine(x.name, PRODUCT_MAX.name) || "—",
+    ...(() => {
+      const kind = productKind(x.kind);
+      const sizes = productSizes(x);
+      const chart = kindHasSizes(kind) ? picture(x.sizeChart) : "";
+      return kind === "standard" ? {} : { kind, ...(kindHasSizes(kind) ? { sizes } : {}), ...(chart ? { sizeChart: chart } : {}) };
+    })(),
     price,
     /* a sale price that is not below the price is no sale */
     sale: sale !== null && price !== null && sale < price ? sale : null,
@@ -164,8 +179,9 @@ export function cleanProduct(x: Record<string, unknown>): Product | null {
     notes: cleanLine(x.notes, PRODUCT_MAX.notes),
     badge: cleanLine(x.badge, PRODUCT_MAX.badge),
     /* an old product whose 9999 meant "unlimited" keeps no fake count */
-    quantity: isUnlimited(x) && x.unlimited === undefined ? 0 : count(x.quantity),
-    unlimited: isUnlimited(x),
+    /* a product in sizes counts all of its sizes, and is never "unlimited" */
+    quantity: productSizes(x).length ? productSizes(x).reduce((n, s) => n + s.quantity, 0) : isUnlimited(x) && x.unlimited === undefined ? 0 : count(x.quantity),
+    unlimited: kindHasSizes(productKind(x.kind)) ? false : isUnlimited(x),
     hidden: x.hidden === true,
     featured: x.featured === true,
     shipping: x.shipping !== false,
@@ -191,7 +207,7 @@ export function productCategories(x: { categories?: unknown; category?: unknown 
 
 /* ============================== orders ============================== */
 
-export type OrderItem = { id?: number; name: string; qty: number; price: number; image?: string };
+export type OrderItem = { id?: number; name: string; qty: number; price: number; image?: string; /* the size chosen (clothing and shoes) */ size?: string };
 
 export type Order = {
   id: number;
@@ -228,7 +244,8 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     const price = money(i.price);
     const image = picture(i.image);
     const id = recordId(i.id);
-    return name && price !== null ? { ...(id ? { id } : {}), name, qty: count(i.qty, 1, 9999, 1), price, ...(image ? { image } : {}) } : null;
+    const size = cleanLine(i.size, 12);
+    return name && price !== null ? { ...(id ? { id } : {}), name, qty: count(i.qty, 1, 9999, 1), price, ...(image ? { image } : {}), ...(size ? { size } : {}) } : null;
   });
   return {
     id,

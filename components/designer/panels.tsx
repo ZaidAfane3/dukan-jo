@@ -2401,7 +2401,6 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
         {(["showName", "showCategory", "showPrice", "showOldPrice", "showBadge", "showStock", "showAdd"] as const).map((k) => (
           <Toggle key={k} on={draft.config.cards[k]} onChange={(v) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, [k]: v } } }))} label={t[k]} />
         ))}
-        <Toggle on={draft.config.cards.showNotes} onChange={(v) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, showNotes: v } } }))} label={lx.showNotes} />
       </div>
       <Part lang={lang} label={lx.cardInfo}>
         <Seg value={draft.config.cards.info ?? "stack"} onChange={(info) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, info } } }))} cols={3} options={[{ key: "stack", label: lx.infoStack }, { key: "row", label: lx.infoRow }, { key: "center", label: popT[lang].infoCenter }]} />

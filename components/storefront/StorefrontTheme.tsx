@@ -5,7 +5,7 @@ import { usePrefs } from "../Prefs";
 import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, shopTarget, type LogoConfig, type StorefrontConfig } from "./config";
 import { copy, currency, icons, LogoMark, money, moneyIn, onColor, picFill, priceLang, priceOf, readableOn, resolveLogo, drawerHeading } from "./parts";
 import { patterns } from "./patterns";
-import { linkProps, ProductPage, renderSection, type Ctx, type Design } from "./sections";
+import { basketKey, linkProps, ProductPage, renderSection, type Ctx, type Design } from "./sections";
 import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
 import { fontFamily, headingFamily } from "./config";
@@ -91,7 +91,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* What is in the basket: how many of each product (by product id) */
   const [fd, setFd] = useState<FreeDelivery>({ on: false, min: 25 });
   useEffect(() => setFd(loadFreeDelivery()), []);
-  const [qty, setQtyMap] = useState<Record<number, number>>({});
+  /* by product id, or "id|size" for clothing and shoes (one entry per size) */
+  const [qty, setQtyMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const el = root.current;
@@ -110,15 +111,22 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const compact = device === "mobile" || (device === "auto" && width < 720);
   const primary = config.theme.primary || data.color;
 
-  const setQty = useCallback((p: StoreProduct, n: number) =>
+  const setQty = useCallback((p: StoreProduct, n: number, size?: string) => {
+    /* a product in sizes needs its size first: an add without one (a card's button) opens its page to choose it */
+    if (p.sizes?.length && !size) {
+      if (n > 0) latest.current.openProduct(p.id);
+      return;
+    }
     setQtyMap((m) => {
       const next = { ...m };
-      /* Never more than the store has, and a quantity of 0 takes it out of the basket */
-      const v = cartQty(n, p.quantity);
-      if (v === 0) delete next[p.id];
-      else next[p.id] = v;
+      const key = basketKey(p.id, size);
+      /* Never more than the store has (of that size), and a quantity of 0 takes it out of the basket */
+      const v = cartQty(n, size ? p.sizes?.find((z) => z.name === size)?.quantity ?? 0 : p.quantity);
+      if (v === 0) delete next[key];
+      else next[key] = v;
       return next;
-    }), []);
+    });
+  }, []);
   /* The basket panel: the cart button opens it (not in the designer, where a click edits the header) */
   const [cartOpen, setCartOpen] = useState(false);
   const openCart = (e?: React.MouseEvent) => {
@@ -155,8 +163,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     window.addEventListener("resize", place);
     return () => { on.removeEventListener("scroll", place); window.removeEventListener("resize", place); };
   }, [design, showCart]);
-  const cartLines = data.products.filter((p) => qty[p.id]).map((p) => ({ p, qty: qty[p.id] }));
-  const cart = data.products.reduce((k, p) => ({ count: k.count + (qty[p.id] ?? 0), total: k.total + (qty[p.id] ?? 0) * priceOf(p) }), { count: 0, total: 0 });
+  const cartLines = Object.entries(qty).flatMap(([key, n]) => {
+    const [id, size] = key.split("|");
+    const p = data.products.find((x) => String(x.id) === id);
+    return p && n > 0 ? [{ p, qty: n, ...(size ? { size } : {}) }] : [];
+  });
+  /* every entry of the basket (each size of a product counts on its own) */
+  const cart = cartLines.reduce((k, l) => ({ count: k.count + l.qty, total: k.total + l.qty * priceOf(l.p) }), { count: 0, total: 0 });
   /* A page of the store (an info page) shown in place of the home page */
   const [ownPage, setPageId] = useState<number | null>(null);
   /* In the designer the page shown is chosen by the designer (its page menu, or a button that leads to a page) */

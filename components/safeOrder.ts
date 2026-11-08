@@ -80,9 +80,46 @@ export function isUnlimited(p: { unlimited?: unknown; quantity?: unknown }): boo
   return p.unlimited === undefined && Number(p.quantity) === 9999;
 }
 
-/** How many can be sold: the stock, or UNLIMITED_STOCK when it has no limit. */
-export function sellableStock(p: { unlimited?: unknown; quantity?: unknown }): number {
+/** What kind of product it is. It decides what the product form asks: clothing and shoes have sizes (with a stock for
+    each size), digital codes / gift cards and services are not shipped. Old products have none: "standard". */
+export const PRODUCT_KINDS = ["standard", "clothing", "shoes", "digital", "service"] as const;
+export type ProductKind = (typeof PRODUCT_KINDS)[number];
+export const productKind = (v: unknown): ProductKind => (PRODUCT_KINDS.includes(v as ProductKind) ? (v as ProductKind) : "standard");
+/** The kind is sold in sizes, each with its own stock */
+export const kindHasSizes = (k: ProductKind) => k === "clothing" || k === "shoes";
+/** The kind is something delivered to an address (a code, a gift card or a service is not) */
+export const kindShips = (k: ProductKind) => k !== "digital" && k !== "service";
+
+/** One size of a product and how many of it the store has */
+export type SizeStock = { name: string; quantity: number };
+export const SIZE_MAX = { name: 12, count: 30 };
+/** A size's name as it is saved: one short line, or "" */
+export const sizeName = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, SIZE_MAX.name) : "");
+/** The sizes of a product (only a kind sold in sizes has them): each named once, with a whole stock */
+export function productSizes(p: { kind?: unknown; sizes?: unknown }): SizeStock[] {
+  if (!kindHasSizes(productKind(p.kind)) || !Array.isArray(p.sizes)) return [];
+  const seen = new Set<string>();
+  const out: SizeStock[] = [];
+  for (const x of p.sizes) {
+    if (!x || typeof x !== "object") continue;
+    const name = sizeName((x as { name?: unknown }).name);
+    if (!name || seen.has(name.toLowerCase()) || out.length >= SIZE_MAX.count) continue;
+    seen.add(name.toLowerCase());
+    out.push({ name, quantity: stock((x as { quantity?: unknown }).quantity) });
+  }
+  return out;
+}
+
+/** How many can be sold: the stock, or UNLIMITED_STOCK when it has no limit. A product in sizes: all its sizes together. */
+export function sellableStock(p: { unlimited?: unknown; quantity?: unknown; kind?: unknown; sizes?: unknown }): number {
+  const sizes = productSizes(p);
+  if (sizes.length) return sizes.reduce((n, s) => n + s.quantity, 0);
   return isUnlimited(p) ? UNLIMITED_STOCK : stock(p.quantity);
+}
+
+/** How many of one size can be sold (0 for a size it does not have) */
+export function sizeStock(p: { kind?: unknown; sizes?: unknown }, size: string): number {
+  return productSizes(p).find((s) => s.name === size)?.quantity ?? 0;
 }
 
 /** A product id: a whole number (sample products use negative ones). */
@@ -97,7 +134,7 @@ export function salePrice(price: number | null, sale: unknown): number | null {
   return price !== null && s !== null && s < price ? s : null;
 }
 
-export type Sellable = { id: number; name: string; price: number | null; sale: number | null; quantity: number };
+export type Sellable = { id: number; name: string; price: number | null; sale: number | null; quantity: number; /* clothing and shoes: each size and its stock */ sizes?: SizeStock[] };
 
 /** What one piece costs: the sale price when there is a valid one, otherwise the price. null: it cannot be sold. */
 export function unitPrice(p: { price: unknown; sale?: unknown }): number | null {
@@ -111,36 +148,42 @@ export function cartQty(n: unknown, available: unknown): number {
   return Math.max(0, Math.min(v, stock(available), ORDER_LIMITS.qty));
 }
 
-export type PricedLine = { id: number; name: string; qty: number; price: number };
+export type PricedLine = { id: number; name: string; qty: number; price: number; /* the size chosen (clothing and shoes) */ size?: string };
 
 /** The cart rebuilt from the catalog: unknown, unsellable and sold out products are left out, quantities are cut to
     the stock, and every price is the catalog's. `changed` tells that what the visitor asked for could not all be kept,
     so he should look at his cart again before the order is placed. */
-export function priceCart(lines: { id: unknown; qty: unknown }[], catalog: Sellable[]): { items: PricedLine[]; subtotal: number; changed: boolean } {
+export function priceCart(lines: { id: unknown; qty: unknown; size?: unknown }[], catalog: Sellable[]): { items: PricedLine[]; subtotal: number; changed: boolean } {
   const byId = new Map<number, Sellable>();
   for (const p of catalog) if (!byId.has(p.id)) byId.set(p.id, p);
-  const wanted = new Map<number, number>();
+  /* one line per product, and per size for a product in sizes */
+  const wanted = new Map<string, { id: number; size: string; q: number }>();
   let changed = false;
   for (const l of Array.isArray(lines) ? lines : []) {
     const id = productId(l?.id);
     const q = typeof l?.qty === "number" && Number.isFinite(l.qty) ? Math.floor(l.qty) : 0;
+    const size = sizeName(l?.size);
     if (id === null || q <= 0) {
       changed = true;
       continue;
     }
-    wanted.set(id, (wanted.get(id) ?? 0) + q);
+    const key = `${id}|${size}`;
+    wanted.set(key, { id, size, q: (wanted.get(key)?.q ?? 0) + q });
   }
   const items: PricedLine[] = [];
-  for (const [id, q] of Array.from(wanted)) {
+  for (const { id, size, q } of Array.from(wanted.values())) {
     const p = byId.get(id);
     const price = p ? unitPrice(p) : null;
-    const qty = p ? cartQty(q, p.quantity) : 0;
+    /* a product in sizes is sold by size (a size it does not have, or none chosen, cannot be bought); the others ignore a size */
+    const sized = !!p?.sizes?.length;
+    const has = sized ? p?.sizes?.find((z) => z.name === size) : undefined;
+    const qty = !p ? 0 : sized ? (has ? cartQty(q, has.quantity) : 0) : cartQty(q, p.quantity);
     if (!p || price === null || qty === 0 || items.length >= ORDER_LIMITS.lines) {
       changed = true;
       continue;
     }
     if (qty !== q) changed = true;
-    items.push({ id, name: cleanText(p.name, 120), qty, price });
+    items.push({ id, name: cleanText(p.name, 120), qty, price, ...(sized ? { size } : {}) });
   }
   return { items, subtotal: toFils(items.reduce((s, it) => s + it.qty * it.price, 0)), changed };
 }
