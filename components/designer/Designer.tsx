@@ -260,6 +260,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [cartView, setCartView] = useState(false);
   /* the all-products page in the preview (its page menu); any other page shown takes its place */
   const [shopView, setShopView] = useState(false);
+  /* the preview at a phone's width (the switch beside the zoom), to check the store on phones */
+  const [phoneView, setPhoneView] = useState(false);
   useEffect(() => {
     if (openedPage !== null || productView || cartView) setShopView(false);
   }, [openedPage, productView, cartView]);
@@ -1385,6 +1387,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           showProduct={productView}
           showCart={cartView}
           showShop={shopView}
+          phoneView={phoneView}
+          setPhoneView={setPhoneView}
           showMenu={menuView && tab === "pages"}
           openCart={showCartPage}
           acts={acts}
@@ -1434,7 +1438,7 @@ type Acts = Required<Omit<Design, "selected">>;
  * (a menu, a message, a panel opening). While a text is being typed it follows a moment later: when typing pauses, and at
  * least every quarter of a second, so the side panel keeps up with the keys.
  */
-const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, name, description, color, phone, selected, sample, products, showPage, showProduct, showShop, showCart, showMenu, openCart, acts }: {
+const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, name, description, color, phone, selected, sample, products, showPage, showProduct, showShop, showCart, showMenu, openCart, acts, phoneView, setPhoneView }: {
   lang: Lang;
   reveal: { id: string; n: number } | null;
   frameOn: string | null;
@@ -1451,6 +1455,9 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
   showProduct: boolean;
   showCart: boolean;
   showShop: boolean;
+  /* the preview at a phone's width */
+  phoneView: boolean;
+  setPhoneView: (on: boolean) => void;
   showMenu: boolean;
   openCart: () => void;
   acts: React.MutableRefObject<Acts>;
@@ -1478,11 +1485,11 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
   );
   const closeCart = useCallback(() => acts.current.openPage(null), [acts]);
   const store = useMemo(
-    () => <StorefrontTheme config={now.config} device="auto" interactive={false} sample={sample} products={products} owner showPage={showPage} showProduct={showProduct} showShop={showShop} showCart={showCart} showMenu={showMenu} onCartClose={closeCart} onCartOpen={openCart} design={design} store={now.store} />,
-    [now, sample, products, showPage, showProduct, showShop, showCart, showMenu, closeCart, openCart, design],
+    () => <StorefrontTheme config={now.config} device={phoneView ? "mobile" : "auto"} interactive={false} sample={sample} products={products} owner showPage={showPage} showProduct={showProduct} showShop={showShop} showCart={showCart} showMenu={showMenu} onCartClose={closeCart} onCartOpen={openCart} design={design} store={now.store} />,
+    [now, phoneView, sample, products, showPage, showProduct, showShop, showCart, showMenu, closeCart, openCart, design],
   );
   return (
-    <Canvas lang={lang} reveal={reveal} frameOn={frameOn}>
+    <Canvas lang={lang} reveal={reveal} frameOn={frameOn} phone={phoneView} onPhone={setPhoneView}>
       {store}
     </Canvas>
   );

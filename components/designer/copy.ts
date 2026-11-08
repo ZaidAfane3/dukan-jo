@@ -4,7 +4,7 @@ import type { Lang } from "../content";
 export const dc = {
   en: {
     title: "Store design",
-    canvas: { in: "Zoom in", out: "Zoom out", reset: "Back to 100%", fit: "Whole page", hand: "Move the page by dragging" },
+    canvas: { in: "Zoom in", out: "Zoom out", reset: "Back to 100%", fit: "Whole page", hand: "Move the page by dragging", view: "Preview size", desktop: "Computer view", phone: "Phone view" },
     problems: {
       name: "Write your store name (at least 2 letters)",
       color: "The store color code is not valid",
@@ -183,7 +183,7 @@ export const dc = {
   },
   ar: {
     title: "تصميم المتجر",
-    canvas: { in: "تكبير", out: "تصغير", reset: "العودة إلى 100%", fit: "الصفحة كاملة", hand: "تحريك الصفحة بالسحب" },
+    canvas: { in: "تكبير", out: "تصغير", reset: "العودة إلى 100%", fit: "الصفحة كاملة", hand: "تحريك الصفحة بالسحب", view: "حجم المعاينة", desktop: "عرض الكمبيوتر", phone: "عرض الجوال" },
     problems: {
       name: "اكتب اسم المتجر (حرفان على الأقل)",
       color: "رمز لون المتجر غير صحيح",
