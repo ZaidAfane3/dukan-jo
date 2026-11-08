@@ -96,6 +96,15 @@ function useCategories() {
   return list;
 }
 
+/* a category's name from its link; a link that does not decode shows as written instead of breaking the form */
+const safeDecode = (v: string) => {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+};
+
 /** One button's destination */
 export function LinkPicker({ lang, value, onChange, label, web = true }: { lang: Lang; value: string; onChange: (v: string) => void; label: string; /* false: no "web address" choice (a link he already had still shows) */ web?: boolean }) {
   const w = words[lang];
@@ -142,7 +151,7 @@ export function LinkPicker({ lang, value, onChange, label, web = true }: { lang:
             <option key={c} value={catLink(c)}>{w.shopCat(c)}</option>
           ))}
           {/* a category he linked before that no product has any more still shows, so the choice is not lost */}
-          {isShop && value !== "shop" && !cats.some((c) => catLink(c) === value) && <option value={value}>{w.shopCat(decodeURIComponent(value.slice(5)))}</option>}
+          {isShop && value !== "shop" && !cats.some((c) => catLink(c) === value) && <option value={value}>{w.shopCat(safeDecode(value.slice(5)))}</option>}
         </optgroup>
         <optgroup label={w.pages}>
           {pages.map((p) => (

@@ -849,7 +849,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
 
   saveRef.current = save;
   /* What a click in the preview does. The preview keeps one set of these (see Preview), and they always call the latest ones. */
-  acts.current = { select, selectProduct, moveBit, editPic, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); if (id !== null) setPanelOpen(true); }, sampleProducts: setSample };
+  acts.current = { select, selectProduct, moveBit, editPic, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); setShopView(false); if (id !== null) setPanelOpen(true); }, sampleProducts: setSample };
   /* the preview with sample products: offered while the store has no products of its own (a theme try-out and his own copy of a
      theme already show the theme's sample products, the starter template always shows them); it is only on screen, never saved */
   const sampleChoice = !trying && !mine && !templateMode && (!hasOwnProducts || sample) ? { on: sample, set: setSample } : null;

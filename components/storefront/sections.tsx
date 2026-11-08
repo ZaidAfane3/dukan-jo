@@ -679,13 +679,18 @@ export function ShopPage({ ctx, category, onBack, onCategory }: { ctx: Ctx; cate
   const all = ctx.data.products.filter((p) => p.price !== null || ctx.design);
   /* the categories that have products, in the store's order */
   const cats = ctx.data.categories.filter((c) => all.some((p) => categoriesOf(p).includes(c)));
+  /* the header's search narrows this page too */
+  const q = ctx.query.trim().toLowerCase();
   const inCat = (cat && sp.cats !== false ? all.filter((p) => categoriesOf(p).includes(cat)) : all)
+    .filter((p) => !q || p.name.toLowerCase().includes(q))
     /* in stock only, and the price range, when he offers them and the customer uses them */
     .filter((p) => !(sp.inStock !== false && stockOnly) || p.quantity > 0)
     .filter((p) => !sp.price || ((!from || priceOf(p) >= Number(from)) && (!to || priceOf(p) <= Number(to))));
   /* the sizes of the products shown (only when some are sold in sizes) */
   const sizes = Array.from(new Set(inCat.flatMap((p) => (p.sizes ?? []).map((z) => z.name))));
-  const shown = (size && sp.sizes !== false ? inCat.filter((p) => p.sizes?.some((z) => z.name === size && z.quantity > 0)) : inCat).slice();
+  /* a size picked before another filter took it away no longer filters (and the list offers it no more) */
+  const sizeOn = sizes.includes(size) ? size : "";
+  const shown = (sizeOn && sp.sizes !== false ? inCat.filter((p) => p.sizes?.some((z) => z.name === sizeOn && z.quantity > 0)) : inCat).slice();
   if (sort !== "newest") shown.sort((a, b) => (sort === "low" ? priceOf(a) - priceOf(b) : priceOf(b) - priceOf(a)));
   /* the chosen filter: his own color when the page has its own look, otherwise the text color */
   const chipOn = own && sp.chipColor ? sp.chipColor : undefined;
@@ -732,7 +737,7 @@ export function ShopPage({ ctx, category, onBack, onCategory }: { ctx: Ctx; cate
           {sp.sizes !== false && sizes.length > 0 && (
             <label className="flex items-center gap-2 text-sm font-semibold">
               {w.size}
-              <select value={size} onChange={(e) => setSize(e.target.value)} className={field}>
+              <select value={sizeOn} onChange={(e) => setSize(e.target.value)} className={field}>
                 <option value="">{w.anySize}</option>
                 {sizes.map((z) => <option key={z} value={z}>{z}</option>)}
               </select>
@@ -753,7 +758,7 @@ export function ShopPage({ ctx, category, onBack, onCategory }: { ctx: Ctx; cate
             <Grid items={shown} ctx={ctx} columns={sp.cols ?? 4} />
           ) : (
             <div className="rounded-[var(--sf-r)] border-2 border-dashed border-black/10 px-4 py-14 text-center">
-              <p className="font-semibold">{w.empty}</p>
+              <p className="font-semibold">{ctx.config.texts.noProducts[ctx.lang]?.trim() || w.empty}</p>
               {(cat || size || stockOnly || from || to) && <button type="button" onClick={() => { setCat(""); setSize(""); setStockOnly(false); setFrom(""); setTo(""); }} className="mt-3 text-sm font-bold text-[var(--sf-primary)] underline underline-offset-4">{w.clear}</button>}
             </div>
           )}
@@ -2623,6 +2628,8 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
       return;
     }
     if (!link.trim()) { e.preventDefault(); return; }
+    const shop = shopOf(link);
+    if (shop !== undefined) { e.preventDefault(); ctx.openShop?.(shop || undefined); return; }
     const pg = pageOf(link);
     if (pg !== null) { e.preventDefault(); ctx.openPage?.(pg); return; }
     if (/^https?:\/\//i.test(link.trim()) || link.includes(".")) return;
@@ -2914,7 +2921,7 @@ export function sectionEmptyFor(sec: SectionConfig, products: { id: number; feat
     case "perks":
       return !(sec.settings.items ?? []).length;
     case "collection":
-      return !has(sec.settings.productIds);
+      return !sec.settings.count || !has(sec.settings.productIds);
     case "tiles":
       return !(sec.settings.items ?? []).some((x) => x.image);
     case "banners":
@@ -2926,9 +2933,9 @@ export function sectionEmptyFor(sec: SectionConfig, products: { id: number; feat
     case "text":
       return !words(sec.settings.title) && !words(sec.settings.body);
     case "featured":
-      return !products.length;
+      return !sec.settings.count || !products.length;
     case "discounts":
-      return !products.some((p) => p.sale !== null);
+      return !sec.settings.count || !products.some((p) => p.sale !== null);
     case "ribbon":
       return !(sec.settings.items ?? []).some((x) => words(x));
     case "chips":

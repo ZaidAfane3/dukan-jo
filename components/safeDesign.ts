@@ -92,7 +92,14 @@ export function safeDesignLink(v: unknown): string | undefined {
   if (!t) return "";
   if (/^page:\d{1,12}$/.test(t)) return t;
   /* the all-products page, or it filtered by a category (its name written as a link part: %D8%B1…) */
-  if (/^shop(:[\w%.~-]{1,200})?$/.test(t)) return t;
+  if (/^shop(:[\w%.~!'()*-]{1,480})?$/.test(t)) {
+    try {
+      decodeURIComponent(t.slice(5));
+      return t;
+    } catch {
+      return "";
+    }
+  }
   if (/^[\w-]{1,60}$/.test(t)) return t;
   if (/^(?:mailto|tel|sms|whatsapp):[^\s<>"'`]+$/i.test(t)) return t;
   if (/^[^\s@:/]+@[^\s@:/]+\.[^\s@:/]+$/.test(t)) return t;

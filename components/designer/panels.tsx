@@ -5338,7 +5338,7 @@ export function ownLinkProblem(raw: string, pages: number[] | null, sections: st
   const pg = /^page:(\d+)$/.exec(l);
   if (pg) return pages && !pages.includes(Number(pg[1])) ? "page" : null;
   /* the all-products page, or it on one category */
-  if (/^shop(:[\w%.~-]+)?$/.test(l)) return null;
+  if (/^shop(:[\w%.~!'()*-]+)?$/.test(l)) return null;
   if (sections.includes(l)) return null;
   if (/^(javascript|data|vbscript|file):/i.test(l)) return "web";
   if (/^(mailto|tel|sms|whatsapp):\S+$/i.test(l)) return null;
