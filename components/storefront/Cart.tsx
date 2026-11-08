@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, useMemo } from "react";
+import { fillMessage, loadMessages, messageIn } from "../messageTemplates";
 import type { Lang } from "../content";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
@@ -216,7 +217,7 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
 }
 
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, look = "drawer", contained = false, compact = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ compact?: boolean; contained?: boolean }) {
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, look = "drawer", contained = false, compact = false, storeName }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ storeName?: string; compact?: boolean; contained?: boolean }) {
   const w = words[lang];
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", city: "", address: "", note: "" });
@@ -226,6 +227,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
   const fulfil: Fulfil = pickup ? fulfilRaw : "delivery";
   const [errors, setErrors] = useState<Partial<Record<"name" | "phone" | "city" | "address", string>>>({});
   const [doneId, setDoneId] = useState(0);
+  /* the order just placed: who ordered and its total (for the thank-you words) */
+  const [doneInfo, setDoneInfo] = useState({ name: "", total: 0 });
   /* the cart had to change at checkout (stock ran out or a price changed): he sees it before ordering */
   const [changed, setChanged] = useState(false);
   /* one order per press, even when the button is pressed again before the page updates */
@@ -322,6 +325,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
     }
     pushNotification("orderCreated", { id: String(id), name: checked.value.customer, total: amount(sum) });
     setDoneId(id);
+    setDoneInfo({ name: checked.value.customer, total: sum });
     setStep("done");
     setChanged(false);
     setCoupon("");
@@ -539,7 +543,14 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       </div>
     </div>
   );
-  const doneView = centered(check, w.doneTitle, w.doneText.replace("{id}", String(doneId)).replace("{phone}", jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase()), w.done);
+  /* his thank-you words (Customer messages), filled in for this order, before the order number and how he will be reached */
+  const thanks = (() => {
+    const msgs = loadMessages();
+    if (!msgs.screen.on) return "";
+    return fillMessage(messageIn(msgs.screen.text, lang), { name: doneInfo.name, order: String(doneId), total: amount(doneInfo.total), store: storeName ?? "" }).trim();
+  })();
+  const doneText = w.doneText.replace("{id}", String(doneId)).replace("{phone}", jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase());
+  const doneView = centered(check, w.doneTitle, thanks ? `${thanks} ${doneText}` : doneText, w.done);
   const emptyView = centered(icons.bag, w.empty, w.emptyHint, w.keepShopping);
 
   const back = (
