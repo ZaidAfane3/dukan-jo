@@ -14,7 +14,7 @@ import { input } from "./controls";
 export const OpenPage = createContext<((id: number) => void) | null>(null);
 
 /** The parts of the page being designed (the list is given by the designer around the forms) */
-export const LinkTargets = createContext<{ id: string; name: string }[]>([]);
+export const LinkTargets = createContext<{ id: string; name: string; /* switched off in Page elements: customers do not see it */ hidden?: boolean; /* shows nothing to customers yet (no reviews, no pictures…) */ empty?: boolean }[]>([]);
 
 const words = {
   en: {
@@ -35,6 +35,11 @@ const words = {
     demo: "Pages cannot be made in the demo",
     full: "The browser has no room to save the page",
     open: "Open this page to design it",
+    hidden: "(hidden)",
+    empty: "(empty for now)",
+    shop: "All products page",
+    shopAll: "All products",
+    shopCat: (c: string) => `All products: ${c}`,
   },
   ar: {
     nowhere: "لا شيء",
@@ -54,6 +59,11 @@ const words = {
     demo: "لا يمكن إنشاء صفحات في النسخة التجريبية",
     full: "لا توجد مساحة في المتصفح لحفظ الصفحة",
     open: "افتح هذه الصفحة لتصميمها",
+    hidden: "(مخفي)",
+    empty: "(فارغ حاليًا)",
+    shop: "صفحة كل المنتجات",
+    shopAll: "كل المنتجات",
+    shopCat: (c: string) => `كل المنتجات: ${c}`,
   },
 };
 
@@ -67,6 +77,25 @@ export function useStorePages(lang: Lang, version = 0) {
   return list;
 }
 
+/** The categories of his products (they can be links: the all-products page on that category) */
+function useCategories() {
+  const [list, setList] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const all = JSON.parse(localStorage.getItem("seen-products") || "[]") as { categories?: unknown; category?: unknown; deletedAt?: unknown }[];
+      const seen = new Set<string>();
+      for (const p of Array.isArray(all) ? all : []) {
+        if (p.deletedAt) continue;
+        for (const c of Array.isArray(p.categories) ? p.categories : [p.category]) if (typeof c === "string" && c.trim()) seen.add(c.trim());
+      }
+      setList(Array.from(seen));
+    } catch {
+      setList([]);
+    }
+  }, []);
+  return list;
+}
+
 /** One button's destination */
 export function LinkPicker({ lang, value, onChange, label, web = true }: { lang: Lang; value: string; onChange: (v: string) => void; label: string; /* false: no "web address" choice (a link he already had still shows) */ web?: boolean }) {
   const w = words[lang];
@@ -76,9 +105,13 @@ export function LinkPicker({ lang, value, onChange, label, web = true }: { lang:
   const pages = useStorePages(lang, version);
   const [making, setMaking] = useState(false);
   const isPage = /^page:\d+$/.test(value);
+  const isShop = /^shop(:.+)?$/.test(value);
   const isSection = sections.some((s) => s.id === value);
   const [webMode, setWebMode] = useState(false);
-  const kind = value === "" && !webMode ? "" : isPage ? value : isSection ? `section:${value}` : "web";
+  const cats = useCategories();
+  const kind = value === "" && !webMode ? "" : isPage || isShop ? value : isSection ? `section:${value}` : "web";
+  /* a category's link: its name written as a link part (Arabic letters and spaces stay safe) */
+  const catLink = (c: string) => `shop:${encodeURIComponent(c)}`;
 
   return (
     <div className="space-y-2">
@@ -89,19 +122,28 @@ export function LinkPicker({ lang, value, onChange, label, web = true }: { lang:
           const v = e.target.value;
           if (v === "__new") return setMaking(true);
           setWebMode(v === "web");
-          if (v === "web") onChange(isPage || isSection ? "" : value);
+          if (v === "web") onChange(isPage || isShop || isSection ? "" : value);
           else onChange(v.startsWith("section:") ? v.slice(8) : v);
         }}
         className={`${input} h-10`}
       >
         <option value="">{w.nowhere}</option>
-        {sections.length > 0 && (
+        {/* only the parts customers see; a hidden one stays listed (marked) while a link already leads there */}
+        {sections.some((s) => !(s.hidden || s.empty) || s.id === value) && (
           <optgroup label={w.here}>
-            {sections.map((s) => (
-              <option key={s.id} value={`section:${s.id}`}>{s.name}</option>
+            {sections.filter((s) => !(s.hidden || s.empty) || s.id === value).map((s) => (
+              <option key={s.id} value={`section:${s.id}`}>{s.hidden ? `${s.name} ${w.hidden}` : s.empty ? `${s.name} ${w.empty}` : s.name}</option>
             ))}
           </optgroup>
         )}
+        <optgroup label={w.shop}>
+          <option value="shop">{w.shopAll}</option>
+          {cats.map((c) => (
+            <option key={c} value={catLink(c)}>{w.shopCat(c)}</option>
+          ))}
+          {/* a category he linked before that no product has any more still shows, so the choice is not lost */}
+          {isShop && value !== "shop" && !cats.some((c) => catLink(c) === value) && <option value={value}>{w.shopCat(decodeURIComponent(value.slice(5)))}</option>}
+        </optgroup>
         <optgroup label={w.pages}>
           {pages.map((p) => (
             <option key={p.id} value={`page:${p.id}`}>{p.title}</option>

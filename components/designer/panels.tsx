@@ -1,9 +1,9 @@
 "use client";
 
-import { createContext, Fragment, useContext, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { latin } from "../digits";
 import type { Lang } from "../content";
-import { cartStyles, defaultConfig, productPageStyles, type ProductPageStyle, footerColumns, fontChoices, fontFamily, storeFonts, type CartStyle, heroTitleFamily, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, shopTarget, HERO_TITLE_MAX, HERO_TITLE_MIN, FOOTER_SIZES, ANNOUNCE_MESSAGES_MAX, ANNOUNCE_TEXT_MAX, TAGLINE_MAX, type Banner, type DisplayFont, type HeroBg, type FooterColumn, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type TextStyle, type StorefrontConfig, type TitleLook } from "../storefront/config";
+import { cartStyles, defaultConfig, productPageStyles, shopSorts, type ProductPageStyle, footerColumns, fontChoices, fontFamily, storeFonts, type CartStyle, heroTitleFamily, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, shopTarget, HERO_TITLE_MAX, HERO_TITLE_MIN, FOOTER_SIZES, ANNOUNCE_MESSAGES_MAX, ANNOUNCE_TEXT_MAX, TAGLINE_MAX, type Banner, type DisplayFont, type HeroBg, type FooterColumn, type PatternKey, type HeroFont, type ThemeFont, type Tile, type Slide, type MarkKey, type Perk, type Review, type PerkIcon, type SectionConfig, type SectionType, type TextStyle, type StorefrontConfig, type TitleLook } from "../storefront/config";
 import { copy as storeCopy, drawerHeading, fillColors, flowingOf, gradientOf, icons as storeIcons, isFlowing, isGradient, LogoMark, markKeys, onColor, resolveLogo, sampleMarks } from "../storefront/parts";
 import { editLocked } from "../demoSandbox";
 import { findTheme, loadThemeState, ownsLook, type ThemeInfo } from "../themes";
@@ -28,7 +28,7 @@ const why = (lang: Lang, ar: string, en: string) => (lang === "ar" ? ar : en);
 import { DeleteAsk } from "./DeleteAsk";
 import { dc, sampleTexts } from "./copy";
 import { LinkPicker, LinkTargets, PictureMover, useStorePages } from "./PageLink";
-import { readSubscribers } from "../storefront/sections";
+import { readSubscribers, sectionEmptyFor } from "../storefront/sections";
 import { load as loadInfoPages } from "../InfoPages";
 import { bannerSurface, dimOn, footerColors, footerNameSize, inkOn, legibleOn, readsOn } from "../storefront/footerColors";
 
@@ -1141,7 +1141,7 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
       <div data-part-flat>
         <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg/80">
           {icon}
-          <span className="truncate">{must ? label.slice(0, -2) : label}</span>
+          <span dir="auto" className="truncate">{must ? label.slice(0, -2) : label}</span>
           {must && <span className="ms-1 text-rose-600">*</span>}
           <ThemeMark lang={lang} theme={fromTheme} />
         </p>
@@ -1162,7 +1162,7 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
     <button type="button" onClick={() => { if (open) { hide(); onClose?.(); return; } setAimed(true); show(); onOpen?.(); }} aria-expanded={open} className={`flex items-center justify-between gap-2 text-start ${before || after ? "min-w-0 flex-1" : "w-full"}`}>
       <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg/80">
         {icon}
-        <span className="truncate">{must ? label.slice(0, -2) : label}</span>
+        <span dir="auto" className="truncate">{must ? label.slice(0, -2) : label}</span>
         {must && <span className="ms-1 text-rose-600">*</span>}
         <ThemeMark lang={lang} theme={fromTheme} />
       </span>
@@ -1269,11 +1269,17 @@ function AddLimited({ count, max, label, words, onAdd, onPick, multiple, compact
 /** One thing of a list. Its frame is thicker than the boxes inside it (teal while open), and it folds: closed, it shows its
     own name (what he wrote as its title, or "New …" while empty) and a small picture of it. Inside, each field has its name
     above it and an example in it (see Field), and the remove button comes last. */
-function ItemCard({ lang, name, empty, icon, force, extra, end, onRemove, removeLabel, children }: { lang: Lang; /* what he wrote as its title (or link text, message...) */ name?: string; /* shown while that is empty: "New perk" */ empty: string; icon?: React.ReactNode; /* opened from outside (just added) */ force?: boolean; /* beside the name, outside the fold (a drag handle, a show/hide switch) */ extra?: React.ReactNode; /* at the other end of the name row, outside the fold (an on/off switch) */ end?: React.ReactNode; onRemove?: () => void; removeLabel?: string; children: React.ReactNode }) {
+/* an item's title written only in the other language */
+const otherOnly = {
+  ar: { short: "بالإنجليزية فقط", long: "مكتوب بالإنجليزية فقط. افتحه واكتب النص العربي ليظهر للزوار بالعربية." },
+  en: { short: "Arabic only", long: "Written in Arabic only. Open it and write the English text for visitors in English." },
+};
+
+function ItemCard({ lang, name, other = false, empty, icon, force, extra, end, onRemove, removeLabel, children }: { lang: Lang; /* what he wrote as its title (or link text, message...) */ name?: string; /* the title is only written in the other language (shown here, marked) */ other?: boolean; /* shown while that is empty: "New perk" */ empty: string; icon?: React.ReactNode; /* opened from outside (just added) */ force?: boolean; /* beside the name, outside the fold (a drag handle, a show/hide switch) */ extra?: React.ReactNode; /* at the other end of the name row, outside the fold (an on/off switch) */ end?: React.ReactNode; onRemove?: () => void; removeLabel?: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border-2 border-fg/15 bg-card px-3 py-2.5 shadow-sm transition has-[>div>button[aria-expanded=true]]:border-primary/45 has-[>div>div>button[aria-expanded=true]]:border-primary/45">
       {/* the grip and the switch sit in the name's row; what opens below has the whole width of the card */}
-      <Part lang={lang} label={name?.trim() || empty} icon={icon} force={force} before={extra} after={end}>
+      <Part lang={lang} label={name?.trim() || empty} icon={icon} force={force} after={end} before={other ? <>{extra}<span title={otherOnly[lang].long} className="shrink-0 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">{otherOnly[lang].short}</span></> : extra}>
         <div className="space-y-4">
           {children}
           {onRemove && (
@@ -1438,7 +1444,7 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
 
   if (editing) {
     const s = cfg.sections.find((x) => x.id === editing);
-    if (s) return <LinkTargets.Provider value={cfg.sections.filter((x) => x.id !== s.id).map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) }))}><ShopNow.Provider value={shopTarget(cfg)}><ElementForm lang={lang} section={s} focusField={focus?.id === s.id ? focus.field : undefined} nonce={focus?.n ?? 0} onBack={() => setEditing(null)} onChange={(next) => setSections((all) => all.map((x) => (x.id === s.id ? next : x)))} onDelete={() => { setSections((all) => all.filter((x) => x.id !== s.id)); setEditing(null); }} /></ShopNow.Provider></LinkTargets.Provider>;
+    if (s) return <LinkTargets.Provider value={cfg.sections.filter((x) => x.id !== s.id).map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang), hidden: x.visible === false, empty: sectionEmptyFor(x, shopProducts()) }))}><ShopNow.Provider value={shopTarget(cfg)}><ElementForm lang={lang} section={s} focusField={focus?.id === s.id ? focus.field : undefined} nonce={focus?.n ?? 0} onBack={() => setEditing(null)} onChange={(next) => setSections((all) => all.map((x) => (x.id === s.id ? next : x)))} onDelete={() => { setSections((all) => all.filter((x) => x.id !== s.id)); setEditing(null); }} /></ShopNow.Provider></LinkTargets.Provider>;
   }
 
   if (sub) {
@@ -1447,10 +1453,10 @@ export function PagesPanel({ lang, draft, update, editing, setEditing, focus, on
         <PartFocus.Provider value={{ field: focus?.id === "footer" ? focus.field : undefined, n: focus?.n ?? 0 }}>
         {sub === "nameLogo" && <NameLogoForm lang={lang} cfg={cfg} setCfg={setCfg} draft={draft} update={update} />}
         {sub === "sidebarSettings" && <SidebarSettingsForm lang={lang} cfg={cfg} setCfg={setCfg} />}
-        {sub === "navigation" && <LinkTargets.Provider value={[...cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) })), { id: "footer", name: t.luxe.navFooter }]}><NavigationForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
+        {sub === "navigation" && <LinkTargets.Provider value={[...cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang), hidden: x.visible === false, empty: sectionEmptyFor(x, shopProducts()) })), { id: "footer", name: t.luxe.navFooter }]}><NavigationForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
         {sub === "searchCart" && <SearchCartForm lang={lang} cfg={cfg} setCfg={setCfg} />}
-        {sub === "announcement" && <LinkTargets.Provider value={cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) }))}><AnnouncementForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
-        {sub === "footerSettings" && <LinkTargets.Provider value={cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang) }))}><FooterForm lang={lang} draft={draft} update={update} ask={footAsk} /></LinkTargets.Provider>}
+        {sub === "announcement" && <LinkTargets.Provider value={cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang), hidden: x.visible === false, empty: sectionEmptyFor(x, shopProducts()) }))}><AnnouncementForm lang={lang} cfg={cfg} setCfg={setCfg} /></LinkTargets.Provider>}
+        {sub === "footerSettings" && <LinkTargets.Provider value={cfg.sections.map((x) => ({ id: x.id, name: blockName(x, cfg.sections, lang), hidden: x.visible === false, empty: sectionEmptyFor(x, shopProducts()) }))}><FooterForm lang={lang} draft={draft} update={update} ask={footAsk} /></LinkTargets.Provider>}
         </PartFocus.Provider>
       </SubShell>
     );
@@ -2021,7 +2027,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
                     <ItemCard
                       key={i}
                       lang={lang}
-                      name={x[lang]?.trim() || x[lang === "ar" ? "en" : "ar"]}
+                      name={x[lang]?.trim() || x[lang === "ar" ? "en" : "ar"]} other={!x[lang]?.trim() && !!x[lang === "ar" ? "en" : "ar"]?.trim()}
                       empty={itemWords[lang].newPromise}
                       onRemove={() => set({ trust: (s.settings.trust ?? []).filter((_, j) => j !== i) })}
                       removeLabel={popT[lang].trustRemove}
@@ -2069,7 +2075,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
             <ItemCard
               key={i}
               lang={lang}
-              name={p.title[lang]?.trim() || p.title[lang === "ar" ? "en" : "ar"]}
+              name={p.title[lang]?.trim() || p.title[lang === "ar" ? "en" : "ar"]} other={!p.title[lang]?.trim() && !!p.title[lang === "ar" ? "en" : "ar"]?.trim()}
               empty={popT[lang].perkNew}
               icon={<span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-lg bg-primary/10 text-primary [&_svg]:h-4 [&_svg]:w-4">{p.icon === "image" && p.image ? <img src={p.image} alt="" className="h-full w-full object-cover" /> : storeIcons[p.icon as PerkIcon]}</span>}
               onRemove={() => onChange({ ...s, settings: { ...s.settings, items: items.filter((_, j) => j !== i) } })}
@@ -2373,7 +2379,7 @@ function DiscountSample({ lang, color, store, text }: { lang: Lang; color?: stri
   );
 }
 
-export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: { lang: Lang; draft: Draft; update: Update; attn?: string | null; /* the preview shows the cart open (on), and a way to open or close it there */ cart?: { on: boolean; show: (on: boolean) => void }; /* the same for the product page */ product?: (on: boolean) => void; /* a screen something asked for: Store identity (a click on the logo or name in the preview, a save problem) or Product card (a click on a card) */ ask?: OptionsScreen | null }) {
+export function OptionsPanel({ lang, draft, update, attn, ask, cart, product, productOn, shop, shopOn }: { lang: Lang; draft: Draft; update: Update; attn?: string | null; /* the preview shows a product page */ productOn?: boolean; /* the preview shows the all-products page (on), and a way to show it */ shop?: (on: boolean) => void; shopOn?: boolean; /* the preview shows the cart open (on), and a way to open or close it there */ cart?: { on: boolean; show: (on: boolean) => void }; /* the same for the product page */ product?: (on: boolean) => void; /* a screen something asked for: Store identity (a click on the logo or name in the preview, a save problem) or Product card (a click on a card) */ ask?: OptionsScreen | null }) {
   const t = dc[lang].options;
   const th = draft.config.theme;
   const lx = dc[lang].luxe;
@@ -2384,10 +2390,27 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
   useEffect(() => {
     if (ask) setScreen(ask);
   }, [ask]);
+  const leaveScreen = useCallback(() => setScreen(null), []);
   if (screen === "identity") {
     return (
       <SubShell lang={lang} title={dc[lang].rows.nameLogo} spot={subSpot.nameLogo} onBack={() => setScreen(null)}>
         <NameLogoForm lang={lang} cfg={draft.config} setCfg={setCfg} draft={draft} update={update} />
+      </SubShell>
+    );
+  }
+  /* All products: filters, sorting, layout, title, look */
+  if (screen === "shopPage") {
+    return (
+      <SubShell lang={lang} title={shopWordD[lang]} onBack={() => setScreen(null)}>
+        <ShopPageForm lang={lang} draft={draft} update={update} shop={shop} shown={shopOn} onLeave={leaveScreen} />
+      </SubShell>
+    );
+  }
+  /* Product page: its look, its parts, its words */
+  if (screen === "productPage") {
+    return (
+      <SubShell lang={lang} title={pageWord[lang]} onBack={() => setScreen(null)}>
+        <ProductPageForm lang={lang} draft={draft} update={update} product={product} shown={productOn} onLeave={leaveScreen} />
       </SubShell>
     );
   }
@@ -2475,6 +2498,7 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
       <Part lang={lang} label={lx.sectionTitleSize}>
         <Stepper lang={lang} label={lx.textSize} value={th.sectionTitleSize ?? (th.titleStyle === "light" ? 34 : th.titleStyle === "pop" || th.titleStyle === "ornament" ? 44 : 24)} auto={th.sectionTitleSize === undefined} min={14} max={80} onChange={(sectionTitleSize) => set({ sectionTitleSize })} onReset={() => set({ sectionTitleSize: undefined })} />
       </Part>
+      <WordField lang={lang} draft={draft} update={update} k="viewAll" />
       </SubShell>
     );
   }
@@ -2485,6 +2509,8 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
         <RowLink icon={nameLogoIcon} label={dc[lang].rows.nameLogo} onClick={() => setScreen("identity")} />
         <RowLink icon={sectionsIcon} label={sectionsWord[lang]} onClick={() => setScreen("sections")} />
         <RowLink icon={cardIcon} label={cardWord[lang]} onClick={() => setScreen("cards")} />
+        <RowLink icon={pageIcon} label={pageWord[lang]} onClick={() => setScreen("productPage")} />
+        <RowLink icon={shopIcon} label={shopWordD[lang]} onClick={() => setScreen("shopPage")} />
       </ul>
       {/* The page background: a color, or a picture / GIF / video he attaches (the color still shows through its veil) */}
       <div data-attn="background" className={attn === "background" ? "attention" : ""}>
@@ -2507,6 +2533,7 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
         <Seg value={th.spacing ?? "normal"} onChange={(spacing) => set({ spacing })} options={[{ key: "normal", label: lx.spaceNormal }, { key: "airy", label: lx.spaceAiry }]} />
       </Part>
       {/* opening the cart design opens the cart in the preview, so he sees what he changes; and it opens by itself when the preview shows the cart */}
+      <div data-section="cart" />
       <Part lang={lang} label={cartT[lang].title} hint={cartT[lang].hint} force={!!cart?.on} onOpen={() => cart?.show(true)} onClose={() => cart?.show(false)}>
         <div className="grid grid-cols-2 gap-2">
           {cartStyles.map((r) => (
@@ -2517,19 +2544,6 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
           ))}
         </div>
       </Part>
-      <div data-section="productPage">
-      {/* opens by itself when the page menu shows the product page */}
-      <Part lang={lang} force={attn === "productPage"} label={productPageT[lang].title} hint={productPageT[lang].hint} onOpen={() => product?.(true)} onClose={() => product?.(false)}>
-        <div className="grid grid-cols-2 gap-2">
-          {productPageStyles.map((r) => (
-            <button key={r} type="button" onClick={() => update((d) => ({ ...d, config: { ...d.config, productPage: { style: r } } }))} aria-pressed={(draft.config.productPage?.style ?? "classic") === r} className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-start text-xs font-semibold transition ${(draft.config.productPage?.style ?? "classic") === r ? "border-primary bg-primary text-white [&_.text-muted]:!text-white/80" : "border-fg/15 hover:bg-soft"}`}>
-              {productPageT[lang].kinds[r][0]}
-              <span className="text-[11px] font-normal text-muted">{productPageT[lang].kinds[r][1]}</span>
-            </button>
-          ))}
-        </div>
-      </Part>
-      </div>
       <Part lang={lang} label={popT[lang].pricesTitle}>
         <Seg value={th.prices ?? "auto"} cols={1} onChange={(prices) => set({ prices })} options={[{ key: "auto", label: popT[lang].pricesAuto }, { key: "ar", label: popT[lang].pricesAr }, { key: "en", label: popT[lang].pricesEn }]} />
       </Part>
@@ -2584,25 +2598,17 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
 /* Where each wording shows in the store (the "no products" words show to customers only, in an empty store: no place to point at) */
 const wordingSpot: Partial<Record<keyof StorefrontConfig["texts"], string>> = { search: "search", viewAll: "viewall" };
 
-export function TextsPanel({ lang, draft, update }: { lang: Lang; draft: Draft; update: Update }) {
+/** One of the store's own words (an empty field keeps the store's wording, shown faintly): it sits on the screen of the part it belongs to */
+function WordField({ lang, draft, update, k }: { lang: Lang; draft: Draft; update: Update; k: "viewAll" | "noProducts" }) {
   const t = dc[lang].texts;
-  const tx = draft.config.texts;
-  const set = (k: keyof StorefrontConfig["texts"], v: string) => update((d) => ({ ...d, config: { ...d.config, texts: { ...d.config.texts, [k]: { ...d.config.texts[k], [lang]: v } } } }));
+  const v = draft.config.texts[k][lang] ?? "";
+  const set = (val: string) => update((d) => ({ ...d, config: { ...d.config, texts: { ...d.config.texts, [k]: { ...d.config.texts[k], [lang]: val } } } }));
   return (
-    <div className="space-y-5 p-4">
-      <div>
-        <h2 className="font-bold text-black dark:text-white">{t.title}</h2>
-        <p className="mt-1 text-xs text-muted">{t.hint}</p>
-      </div>
-      {/* An empty field shows the store's own wording faintly, so he sees what customers read. ("allFilter" is kept in saved designs but not offered: the store no longer has an "All" filter row.) */}
-      {(["search", "viewAll", "noProducts"] as const).map((k) => (
-        <Part lang={lang} key={k} label={t[k]} preview={tx[k][lang] || storeCopy[lang][k]} spot={wordingSpot[k]}>
-          <input value={tx[k][lang]} onChange={(e) => set(k, e.target.value)} placeholder={storeCopy[lang][k]} maxLength={60} className={`${input} h-11`} />
-          <CharCount value={tx[k][lang] ?? ""} max={60} />
-          <RudeNote lang={lang} text={tx[k][lang]} />
-        </Part>
-      ))}
-    </div>
+    <Part lang={lang} label={t[k]} preview={v || storeCopy[lang][k]} spot={wordingSpot[k]}>
+      <input value={v} onChange={(e) => set(e.target.value)} placeholder={storeCopy[lang][k]} maxLength={60} className={`${input} h-11`} />
+      <CharCount value={v} max={60} />
+      <RudeNote lang={lang} text={v} />
+    </Part>
   );
 }
 
@@ -3298,6 +3304,18 @@ function CollectionForm({ lang, s, onChange, text }: { lang: Lang; s: Collection
 /*  Header and footer: rows that open their own small forms            */
 /* ------------------------------------------------------------------ */
 
+/** His products as customers get them (not deleted, not hidden): which parts of the page show something depends on them */
+function shopProducts(): { id: number; featured: boolean; sale: number | null }[] {
+  try {
+    const all = JSON.parse(localStorage.getItem("seen-products") || "[]") as { id?: unknown; featured?: unknown; sale?: unknown; price?: unknown; deletedAt?: unknown; hidden?: unknown }[];
+    return (Array.isArray(all) ? all : [])
+      .filter((p) => !p.deletedAt && !p.hidden && typeof p.id === "number")
+      .map((p) => ({ id: p.id as number, featured: p.featured === true, sale: typeof p.sale === "number" && typeof p.price === "number" && p.sale < p.price ? p.sale : null }));
+  } catch {
+    return [];
+  }
+}
+
 type SubKey = "nameLogo" | "sidebarSettings" | "navigation" | "searchCart" | "announcement" | "footerSettings";
 /* The parts of the footer's screen */
 type FootBlock = "layout" | "links" | "contact" | "social" | "licenses" | "look";
@@ -3356,7 +3374,262 @@ const cardIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke
 /* the design options' screen for the product card (what it shows, its look, its colors) */
 const cardWord = { ar: "بطاقة المنتج", en: "Product card" } as const;
 /** The screens of the design options that something outside can ask for */
-export type OptionsScreen = "identity" | "cards";
+export type OptionsScreen = "identity" | "cards" | "productPage" | "shopPage";
+const shopIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>;
+/* the design options' screen for the all-products page */
+const shopWordD = { ar: "كل المنتجات", en: "All products" } as const;
+const shopScreenT = {
+  ar: {
+    filters: "الفلاتر",
+    cats: "أزرار التصنيفات (رجالي، نسائي…)",
+    sizes: "فلتر المقاس",
+    sizesHint: "يظهر فقط إذا كانت عندك ملابس أو أحذية بمقاسات.",
+    inStock: "زر «المتوفر فقط»",
+    price: "فلتر السعر (من… إلى…)",
+    sorting: "الترتيب",
+    sorts: "طرق الترتيب التي يختار منها العميل",
+    newest: "الأحدث",
+    low: "السعر: من الأقل",
+    high: "السعر: من الأعلى",
+    lastSort: "غير متاح لأن هذه آخر طريقة ترتيب مفعّلة، ويجب أن تبقى واحدة على الأقل.",
+    first: "الترتيب عند فتح الصفحة",
+    layout: "التخطيط",
+    cols: "عدد المنتجات في الصف (على الكمبيوتر)",
+    cardsNote: "شكل بطاقات المنتجات يتبع «بطاقة المنتج»، ليبقى مثل الصفحة الرئيسية.",
+    words: "الكلمات",
+    title: "عنوان الصفحة",
+    look: "الشكل",
+    same: "نفس الصفحة الرئيسية",
+    own: "مختلف",
+    lookHint: "الخطوط ولون المتجر تبقى نفسها دائمًا، ليبقى المتجر واحدًا.",
+    bg: "لون خلفية الصفحة",
+    bgImage: "صورة خلفية الصفحة (اختيارية)",
+    chip: "لون الفلتر المختار",
+    sameWhy: "غير متاح لأن «الشكل» هو «نفس الصفحة الرئيسية».",
+  },
+  en: {
+    filters: "Filters",
+    cats: "Category buttons (Men, Women…)",
+    sizes: "Size filter",
+    sizesHint: "Shows only when you have clothing or shoes with sizes.",
+    inStock: "“In stock only” switch",
+    price: "Price filter (from… to…)",
+    sorting: "Sorting",
+    sorts: "Orders customers can choose from",
+    newest: "Newest",
+    low: "Price: low to high",
+    high: "Price: high to low",
+    lastSort: "Not available because this is the last order left on, and at least one must stay.",
+    first: "Order when the page opens",
+    layout: "Layout",
+    cols: "Products per row (on a computer)",
+    cardsNote: "The product cards follow “Product card”, so they match the home page.",
+    words: "Words",
+    title: "Page title",
+    look: "Look",
+    same: "Same as the home page",
+    own: "Different",
+    lookHint: "The fonts and the store color always stay the same, so it stays one store.",
+    bg: "Page background color",
+    bgImage: "Page background picture (optional)",
+    chip: "Chosen filter color",
+    sameWhy: "Not available because “Look” is “Same as the home page”.",
+  },
+} as const;
+
+/** All products: its filters, its orders, products per row, its title and its look. While it is open the preview shows that page. */
+function ShopPageForm({ lang, draft, update, shop, shown, onLeave }: { lang: Lang; draft: Draft; update: Update; shop?: (on: boolean) => void; shown?: boolean; onLeave: () => void }) {
+  const w = shopScreenT[lang];
+  const sp = draft.config.shopPage ?? {};
+  const setSp = (patch: Partial<NonNullable<StorefrontConfig["shopPage"]>>) => update((d) => ({ ...d, config: { ...d.config, shopPage: { ...(d.config.shopPage ?? {}), ...patch } } }));
+  /* the preview shows the all-products page while this screen is open (once: the callback is new on every drawing) */
+  const shopRef = useRef(shop);
+  shopRef.current = shop;
+  useEffect(() => {
+    shopRef.current?.(true);
+    return () => shopRef.current?.(false);
+  }, []);
+  /* another page picked in the page menu: this screen closes */
+  const was = useRef(false);
+  useEffect(() => {
+    if (shown) was.current = true;
+    else if (was.current) onLeave();
+  }, [shown, onLeave]);
+  const sorts = sp.sorts?.length ? sp.sorts : (["newest", "low", "high"] as const);
+  const first = sp.sortFirst && sorts.includes(sp.sortFirst) ? sp.sortFirst : sorts[0];
+  const own = sp.look === "own";
+  const title = sp.title?.[lang] ?? "";
+  const heading = "text-xs font-bold uppercase tracking-wide text-muted";
+  return (
+    <div className="space-y-5">
+      <div className="space-y-3">
+        <h3 className={heading}>{w.filters}</h3>
+        <Toggle on={sp.cats !== false} onChange={(cats) => setSp({ cats })} label={w.cats} />
+        <div>
+          <Toggle on={sp.sizes !== false} onChange={(sizes) => setSp({ sizes })} label={w.sizes} />
+          <p className="text-[11px] leading-relaxed text-muted">{w.sizesHint}</p>
+        </div>
+        <Toggle on={sp.inStock !== false} onChange={(inStock) => setSp({ inStock })} label={w.inStock} />
+        <Toggle on={!!sp.price} onChange={(price) => setSp({ price })} label={w.price} />
+      </div>
+      <div className="space-y-3 border-t border-fg/10 pt-4">
+        <h3 className={heading}>{w.sorting}</h3>
+        <p className="text-sm font-semibold">{w.sorts}</p>
+        {shopSorts.map((k) => {
+          const on = sorts.includes(k);
+          const last = on && sorts.length === 1;
+          return (
+            <Blocked key={k} when={last} why={w.lastSort}>
+              <Toggle on={on} onChange={(v) => setSp({ sorts: shopSorts.filter((x) => (x === k ? v : sorts.includes(x))) })} label={w[k]} />
+            </Blocked>
+          );
+        })}
+        <Part lang={lang} label={w.first}>
+          <Seg value={first} onChange={(sortFirst) => setSp({ sortFirst })} cols={sorts.length} options={sorts.map((k) => ({ key: k, label: w[k] }))} />
+        </Part>
+      </div>
+      <div className="space-y-3 border-t border-fg/10 pt-4">
+        <h3 className={heading}>{w.layout}</h3>
+        <Part lang={lang} label={w.cols}>
+          <Seg value={String(sp.cols ?? 4) as "3" | "4"} onChange={(v) => setSp({ cols: v === "3" ? 3 : 4 })} options={[{ key: "3", label: "3" }, { key: "4", label: "4" }]} />
+        </Part>
+        <p className="text-[11px] leading-relaxed text-muted">{w.cardsNote}</p>
+      </div>
+      <div className="space-y-3 border-t border-fg/10 pt-4">
+        <h3 className={heading}>{w.words}</h3>
+        <Part lang={lang} label={w.title} preview={title || shopWordD[lang]}>
+          <input value={title} onChange={(e) => { const v = e.target.value; setSp({ title: { ...(sp.title ?? { en: "", ar: "" }), [lang]: v } }); }} placeholder={shopWordD[lang]} maxLength={40} className={`${input} h-11`} />
+          <CharCount value={title} max={40} />
+          <RudeNote lang={lang} text={title} />
+        </Part>
+        <WordField lang={lang} draft={draft} update={update} k="noProducts" />
+      </div>
+      <div className="space-y-3 border-t border-fg/10 pt-4">
+        <h3 className={heading}>{w.look}</h3>
+        <Seg value={own ? "own" : "same"} onChange={(look) => setSp({ look })} options={[{ key: "same", label: w.same }, { key: "own", label: w.own }]} />
+        <p className="text-[11px] leading-relaxed text-muted">{w.lookHint}</p>
+        <Blocked when={!own} why={w.sameWhy}>
+          <div className="space-y-3">
+            <ColorChip lang={lang} label={w.bg} value={sp.bg} onChange={(bg) => setSp({ bg })} onReset={() => setSp({ bg: undefined })} />
+            <Part lang={lang} label={w.bgImage}>
+              <PhotoPicker lang={lang} value={sp.bgImage ?? ""} onChange={(bgImage) => setSp({ bgImage: bgImage || undefined })} max={1600} />
+            </Part>
+            <ColorChip lang={lang} label={w.chip} value={sp.chipColor} onChange={(chipColor) => setSp({ chipColor })} onReset={() => setSp({ chipColor: undefined })} />
+          </div>
+        </Blocked>
+      </div>
+    </div>
+  );
+}
+const pageIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 8h18M6 11h5v6H6zM14 11h4M14 14h4M14 17h2" /></svg>;
+/* the design options' screen for the product page */
+const pageWord = { ar: "صفحة المنتج", en: "Product page" } as const;
+const ppScreenT = {
+  ar: {
+    look: "شكل الصفحة",
+    parts: "ما يظهر في الصفحة",
+    crumbs: "مسار الصفحة (المتجر / التصنيف / المنتج)",
+    save: "سطر «توفّر…» تحت السعر المخفّض",
+    saveHint: "يظهر فقط على المنتجات المخفّضة.",
+    ask: "زر «اسأل عن هذا المنتج» عبر واتساب",
+    askHint: "يظهر فقط إذا كان لمتجرك رقم واتساب.",
+    perks: "وعود المتجر (التوصيل والاستبدال والدفع)",
+    perksHint: "نفس وعود قسم «مزايا المتجر» في صفحتك الرئيسية، وعرض التوصيل المجاني إن كان مفعّلًا.",
+    details: "مربع «التفاصيل» (التصنيف والتوفر)",
+    also: "منتجات «قد يعجبك أيضًا» في الأسفل",
+    words: "الكلمات",
+    addText: "نص زر الإضافة للسلة",
+    alsoTitle: "عنوان «قد يعجبك أيضًا»",
+    buyColor: "لون زر الإضافة للسلة",
+    alsoOff: "غير متاح لأن «منتجات «قد يعجبك أيضًا» في الأسفل» مُطفأ.",
+  },
+  en: {
+    look: "Page look",
+    parts: "What shows on the page",
+    crumbs: "Page path (Store / Category / Product)",
+    save: "“You save…” line under a sale price",
+    saveHint: "Shows on products on sale only.",
+    ask: "“Ask about this product” WhatsApp button",
+    askHint: "Shows only when your store has a WhatsApp number.",
+    perks: "Store promises (delivery, returns, payment)",
+    perksHint: "The same promises as your home page's Store perks section, and the free delivery offer when it is on.",
+    details: "“Details” box (category, availability)",
+    also: "“You may also like” products at the bottom",
+    words: "Words",
+    addText: "Add to cart button text",
+    alsoTitle: "“You may also like” title",
+    buyColor: "Add to cart button color",
+    alsoOff: "Not available because “You may also like” products is off.",
+  },
+} as const;
+
+/** Product page: its look, which parts show, its words and the add button's color. While it is open the preview shows a product page. */
+function ProductPageForm({ lang, draft, update, product, shown, onLeave }: { lang: Lang; draft: Draft; update: Update; product?: (on: boolean) => void; /* the preview shows a product page now */ shown?: boolean; /* the preview went to another page (the page menu): this screen closes */ onLeave: () => void }) {
+  const w = ppScreenT[lang];
+  const pg = draft.config.productPage ?? { style: "classic" as const };
+  const setPg = (patch: Partial<NonNullable<StorefrontConfig["productPage"]>>) => update((d) => ({ ...d, config: { ...d.config, productPage: { ...(d.config.productPage ?? { style: "classic" }), ...patch } } }));
+  /* the preview shows the product page while this screen is open, and the home page again after */
+  /* (once, when it opens and when it closes: the callback is a new one on every drawing of the designer) */
+  const productRef = useRef(product);
+  productRef.current = product;
+  useEffect(() => {
+    productRef.current?.(true);
+    return () => productRef.current?.(false);
+  }, []);
+  /* he picked another page in the page menu (the cart, the home page): that page shows and this screen closes */
+  const was = useRef(false);
+  useEffect(() => {
+    if (shown) was.current = true;
+    else if (was.current) onLeave();
+  }, [shown, onLeave]);
+  const toggle = (k: "crumbs" | "save" | "ask" | "perks" | "details" | "also", label: string, hint?: string) => (
+    <div>
+      <Toggle on={pg[k] !== false} onChange={(v) => setPg({ [k]: v })} label={label} />
+      {hint && <p className="text-[11px] leading-relaxed text-muted">{hint}</p>}
+    </div>
+  );
+  const words = (k: "addText" | "alsoTitle", label: string, ph: string, max: number) => {
+    const v = pg[k]?.[lang] ?? "";
+    return (
+      <Part lang={lang} label={label} preview={v || ph}>
+        <input value={v} onChange={(e) => { const t = e.target.value; setPg({ [k]: { ...(pg[k] ?? { en: "", ar: "" }), [lang]: t } }); }} placeholder={ph} maxLength={max} className={`${input} h-11`} />
+        <CharCount value={v} max={max} />
+        <RudeNote lang={lang} text={v} />
+      </Part>
+    );
+  };
+  return (
+    <div className="space-y-5">
+      <Part lang={lang} label={w.look} hint={productPageT[lang].hint}>
+        <div className="grid grid-cols-2 gap-2">
+          {productPageStyles.map((r) => (
+            <button key={r} type="button" onClick={() => setPg({ style: r })} aria-pressed={(pg.style ?? "classic") === r} className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-start text-sm font-semibold transition ${(pg.style ?? "classic") === r ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-fg/15 hover:bg-soft"}`}>
+              {productPageT[lang].kinds[r][0]}
+              <span className="text-[11px] font-normal text-muted">{productPageT[lang].kinds[r][1]}</span>
+            </button>
+          ))}
+        </div>
+      </Part>
+      <div className="space-y-3 border-t border-fg/10 pt-4">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-muted">{w.parts}</h3>
+        {toggle("crumbs", w.crumbs)}
+        {toggle("save", w.save, w.saveHint)}
+        {toggle("ask", w.ask, w.askHint)}
+        {toggle("perks", w.perks, w.perksHint)}
+        {toggle("details", w.details)}
+        {toggle("also", w.also)}
+      </div>
+      <div className="space-y-3 border-t border-fg/10 pt-4">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-muted">{w.words}</h3>
+        {words("addText", w.addText, storeCopy[lang].add, 30)}
+        <Blocked when={pg.also === false} why={w.alsoOff}>
+          {words("alsoTitle", w.alsoTitle, lang === "ar" ? "قد يعجبك أيضًا" : "You may also like", 60)}
+        </Blocked>
+        <ColorChip lang={lang} label={w.buyColor} value={pg.buyColor} onChange={(buyColor) => setPg({ buyColor })} onReset={() => setPg({ buyColor: undefined })} />
+      </div>
+    </div>
+  );
+}
 const searchCartIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="8" cy="8" r="4.500" /><path d="M11.300 11.300 14 14M13 15h8l-1 6h-6zM15 15v-1a2 2 0 0 1 4 0v1" /></svg>;
 const sidebarIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M5.500 8h1.500M5.500 11h1.500M5.500 14h1.500" /></svg>;
 
@@ -3660,7 +3933,7 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
               <ItemCard
                 key={i}
                 lang={lang}
-                name={l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]}
+                name={l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]} other={!l[lang]?.trim() && !!l[lang === "ar" ? "en" : "ar"]?.trim()}
                 empty={itemWords[lang].newLink}
                 icon={<span aria-hidden className="h-4 w-4 shrink-0 rounded-full ring-1 ring-fg/15" style={{ background: l.color || cfg.theme.text }} />}
                 force={added === i}
@@ -3760,7 +4033,7 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
           <ItemCard
             key={i}
             lang={lang}
-            name={m.text[lang]?.trim() || m.text[lang === "ar" ? "en" : "ar"]}
+            name={m.text[lang]?.trim() || m.text[lang === "ar" ? "en" : "ar"]} other={!m.text[lang]?.trim() && !!m.text[lang === "ar" ? "en" : "ar"]?.trim()}
             empty={itemWords[lang].newMessage}
             icon={<span aria-hidden className="h-4 w-4 shrink-0 rounded-full ring-1 ring-fg/15" style={{ background: m.color }} />}
             force={added === i}
@@ -4445,7 +4718,7 @@ function TilesForm({ lang, s, onChange, text }: { lang: Lang; s: TilesEl; onChan
             <ItemCard
               key={x.key ?? i}
               lang={lang}
-              name={x.label?.[lang]?.trim() || x.label?.[lang === "ar" ? "en" : "ar"]}
+              name={x.label?.[lang]?.trim() || x.label?.[lang === "ar" ? "en" : "ar"]} other={!x.label?.[lang]?.trim() && !!x.label?.[lang === "ar" ? "en" : "ar"]?.trim()}
               empty={listB[lang].newTile}
               /* eslint-disable-next-line @next/next/no-img-element */
               icon={<img src={x.image} alt="" className="h-8 w-7 shrink-0 rounded-md object-cover ring-1 ring-black/10" />}
@@ -4556,7 +4829,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
         <ItemCard
           key={i}
           lang={lang}
-          name={x.title?.[lang]?.trim() || x.title?.[lang === "ar" ? "en" : "ar"]}
+          name={x.title?.[lang]?.trim() || x.title?.[lang === "ar" ? "en" : "ar"]} other={!x.title?.[lang]?.trim() && !!x.title?.[lang === "ar" ? "en" : "ar"]?.trim()}
           empty={listB[lang].newBanner}
           icon={<span aria-hidden className="h-6 w-6 shrink-0 rounded-md ring-1 ring-black/10" style={{ background: x.variant === "card" ? x.bg || "#b9f3d0" : x.image ? `center / cover url(${x.image})` : "linear-gradient(135deg, #7a3ea1, #2f6fde)" }} />}
           onRemove={() => set(items.filter((_, j) => j !== i))}
@@ -4796,7 +5069,7 @@ function ChipsForm({ lang, s, onChange }: { lang: Lang; s: ChipsEl; onChange: (s
         >
           <ItemCard
             lang={lang}
-            name={x.label[lang]?.trim() || x.label[lang === "ar" ? "en" : "ar"]}
+            name={x.label[lang]?.trim() || x.label[lang === "ar" ? "en" : "ar"]} other={!x.label[lang]?.trim() && !!x.label[lang === "ar" ? "en" : "ar"]?.trim()}
             empty={listB[lang].newChip}
             icon={<span aria-hidden className="h-5 w-5 shrink-0 rounded-full ring-1 ring-black/10" style={{ background: x.color }} />}
             extra={
@@ -5064,6 +5337,8 @@ export function ownLinkProblem(raw: string, pages: number[] | null, sections: st
   if (!l) return "target";
   const pg = /^page:(\d+)$/.exec(l);
   if (pg) return pages && !pages.includes(Number(pg[1])) ? "page" : null;
+  /* the all-products page, or it on one category */
+  if (/^shop(:[\w%.~-]+)?$/.test(l)) return null;
   if (sections.includes(l)) return null;
   if (/^(javascript|data|vbscript|file):/i.test(l)) return "web";
   if (/^(mailto|tel|sms|whatsapp):\S+$/i.test(l)) return null;

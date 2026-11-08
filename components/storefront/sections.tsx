@@ -22,7 +22,7 @@ export type Ctx = {
   compact: boolean;
   /* Only what the sections use, so that a change elsewhere (the name, the footer, another section) does not draw every section again */
   data: Pick<StoreData, "products" | "categories" | "color" | "isDemo">;
-  config: Pick<StorefrontConfig, "theme" | "texts" | "cards">;
+  config: Pick<StorefrontConfig, "theme" | "texts" | "cards" | "productPage" | "shopPage">;
   /* the products part of the page (see shopTarget): where a hero button he never set leads */
   shop?: string;
   design?: Design;
@@ -40,6 +40,8 @@ export type Ctx = {
   showSection?: (id: string) => void;
   /* Opens the page of a product */
   openProduct?: (id: number) => void;
+  /* the all-products page, with a category chosen or all of them */
+  openShop?: (category?: string) => void;
 };
 
 /* A small line in an elegant Latin italic (taglines such as "The Emerald Edit") */
@@ -97,7 +99,20 @@ const pageOf = (l: string) => {
   const m = /^page:(\d+)$/.exec((l ?? "").trim());
   return m ? Number(m[1]) : null;
 };
+/** The all-products page a link leads to: undefined when it is not one, "" for all products, or a category's name */
+export function shopOf(l: string): string | undefined {
+  const m = /^shop(?::(.+))?$/.exec((l ?? "").trim());
+  if (!m) return undefined;
+  try {
+    return m[1] ? decodeURIComponent(m[1]) : "";
+  } catch {
+    return "";
+  }
+}
+
 export function linkProps(l: string, ctx: Ctx) {
+  const shop = shopOf(l);
+  if (shop !== undefined) return { href: "#", onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.openShop?.(shop || undefined); } };
   const id = pageOf(l);
   if (id !== null) return { href: "#", onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.openPage?.(id); } };
   /* The name of a part of this page: it scrolls there. Anything else is a web address. */
@@ -635,6 +650,119 @@ function Gallery({ p, ctx, look }: { p: StoreProduct; ctx: Ctx; look: ProductPag
 
 /** The page of one product: its pictures, name, price, stock and the way to buy it, then what the merchant wrote about it and other products.
     It has four looks (classic, editorial, luxe, pop); a theme picks one and the merchant can switch it in the designer. */
+/* The words of the all-products page */
+const shopWords = {
+  ar: { inStock: "المتوفر فقط", priceFrom: "السعر من", priceTo: "إلى", title: "كل المنتجات", all: "الكل", sort: "الترتيب", newest: "الأحدث", low: "السعر: من الأقل", high: "السعر: من الأعلى", size: "المقاس", anySize: "كل المقاسات", count: (n: number) => (n === 1 ? "منتج واحد" : n === 2 ? "منتجان" : n <= 10 ? `${n} منتجات` : `${n} منتجًا`), empty: "لا توجد منتجات بهذا الاختيار.", clear: "إظهار كل المنتجات", back: "العودة إلى المتجر", filters: "تصفية المنتجات" },
+  en: { inStock: "In stock only", priceFrom: "Price from", priceTo: "to", title: "All products", all: "All", sort: "Sort", newest: "Newest", low: "Price: low to high", high: "Price: high to low", size: "Size", anySize: "All sizes", count: (n: number) => (n === 1 ? "1 product" : `${n} products`), empty: "No products match this choice.", clear: "Show all products", back: "Back to the store", filters: "Filter products" },
+};
+
+/**
+ * The all-products page: every product of the store, with the categories across the top (Men, Women, Kids…), the sizes of
+ * clothing and shoes, and the order (newest, cheapest, dearest). A category can come chosen (a menu link "Men" leads here).
+ */
+export function ShopPage({ ctx, category, onBack, onCategory }: { ctx: Ctx; category?: string; onBack: () => void; /* the category he picked here (kept, so coming back from a product returns to it) */ onCategory?: (c: string) => void }) {
+  const w = shopWords[ctx.lang];
+  /* his choices for the page (Store design → All products) */
+  const sp = ctx.config.shopPage ?? {};
+  const sorts = sp.sorts?.length ? sp.sorts : (["newest", "low", "high"] as const);
+  const first = sp.sortFirst && sorts.includes(sp.sortFirst) ? sp.sortFirst : sorts[0];
+  const own = sp.look === "own";
+  const [cat, setCatOwn] = useState<string>(category ?? "");
+  const setCat = (c: string) => { setCatOwn(c); onCategory?.(c); };
+  const [size, setSize] = useState("");
+  const [sort, setSort] = useState<"newest" | "low" | "high">(first);
+  useEffect(() => setSort(first), [first]);
+  const [stockOnly, setStockOnly] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  useEffect(() => { setCatOwn(category ?? ""); setSize(""); }, [category]);
+  const all = ctx.data.products.filter((p) => p.price !== null || ctx.design);
+  /* the categories that have products, in the store's order */
+  const cats = ctx.data.categories.filter((c) => all.some((p) => categoriesOf(p).includes(c)));
+  const inCat = (cat && sp.cats !== false ? all.filter((p) => categoriesOf(p).includes(cat)) : all)
+    /* in stock only, and the price range, when he offers them and the customer uses them */
+    .filter((p) => !(sp.inStock !== false && stockOnly) || p.quantity > 0)
+    .filter((p) => !sp.price || ((!from || priceOf(p) >= Number(from)) && (!to || priceOf(p) <= Number(to))));
+  /* the sizes of the products shown (only when some are sold in sizes) */
+  const sizes = Array.from(new Set(inCat.flatMap((p) => (p.sizes ?? []).map((z) => z.name))));
+  const shown = (size && sp.sizes !== false ? inCat.filter((p) => p.sizes?.some((z) => z.name === size && z.quantity > 0)) : inCat).slice();
+  if (sort !== "newest") shown.sort((a, b) => (sort === "low" ? priceOf(a) - priceOf(b) : priceOf(b) - priceOf(a)));
+  /* the chosen filter: his own color when the page has its own look, otherwise the text color */
+  const chipOn = own && sp.chipColor ? sp.chipColor : undefined;
+  const chip = (on: boolean) =>
+    `min-h-[40px] shrink-0 rounded-[var(--sf-pill)] border px-4 text-sm font-semibold transition ${on ? (chipOn ? "" : "border-[var(--sf-text)] bg-[var(--sf-text)] text-[var(--sf-bg)]") : "border-black/15 hover:border-[var(--sf-text)]"}`;
+  const chipStyle = (on: boolean): React.CSSProperties | undefined => (on && chipOn ? { background: chipOn, borderColor: chipOn, color: onColor(chipOn) } : undefined);
+  const field = "h-10 rounded-[min(var(--sf-r),10px)] border border-black/15 bg-white px-3 text-sm text-[#1c1a17]";
+  const bgStyle: React.CSSProperties | undefined = own && (sp.bg || sp.bgImage) ? { ...(sp.bg ? { background: sp.bg } : {}), ...(sp.bgImage ? { backgroundImage: `url("${sp.bgImage}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}) } : undefined;
+  return (
+    <section className={ctx.compact ? "px-4 pb-10 pt-5" : "px-8 pb-16 pt-8"} style={bgStyle}>
+      <div className="mx-auto max-w-6xl">
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--sf-accent)] hover:underline">
+          <span className="rotate-180">{icons.arrow}</span>
+          {w.back}
+        </button>
+        <div className="mt-5 flex flex-wrap items-end justify-between gap-3">
+          <h1 className={`font-extrabold leading-tight text-[var(--sf-title)] ${ctx.compact ? "text-3xl" : "text-4xl"}`} style={{ fontFamily: "var(--sf-heading)" }}>{(sp.cats !== false && cat) || sp.title?.[ctx.lang]?.trim() || w.title}</h1>
+          <p className="text-sm text-sf-text/70">{w.count(shown.length)}</p>
+        </div>
+        {/* the categories, sliding sideways on a phone */}
+        {sp.cats !== false && (
+        <div role="group" aria-label={w.filters} className="mt-5 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
+          <button type="button" aria-pressed={!cat} onClick={() => { setCat(""); setSize(""); }} className={chip(!cat)} style={chipStyle(!cat)}>{w.all}</button>
+          {cats.map((c) => (
+            <button key={c} type="button" aria-pressed={cat === c} onClick={() => { setCat(c); setSize(""); }} className={chip(cat === c)} style={chipStyle(cat === c)}><bdi>{c}</bdi></button>
+          ))}
+        </div>
+        )}
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          {sp.inStock !== false && (
+            <label className="flex items-center gap-2 text-sm font-semibold">
+              <input type="checkbox" checked={stockOnly} onChange={(e) => setStockOnly(e.target.checked)} className="h-4 w-4 accent-[var(--sf-primary)]" />
+              {w.inStock}
+            </label>
+          )}
+          {sp.price && (
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              {w.priceFrom}
+              <input value={from} onChange={(e) => setFrom(e.target.value.replace(/[^0-9.]/g, "").slice(0, 7))} inputMode="decimal" dir="ltr" aria-label={w.priceFrom} className={`${field} w-20`} />
+              {w.priceTo}
+              <input value={to} onChange={(e) => setTo(e.target.value.replace(/[^0-9.]/g, "").slice(0, 7))} inputMode="decimal" dir="ltr" aria-label={w.priceTo} className={`${field} w-20`} />
+            </span>
+          )}
+          {sp.sizes !== false && sizes.length > 0 && (
+            <label className="flex items-center gap-2 text-sm font-semibold">
+              {w.size}
+              <select value={size} onChange={(e) => setSize(e.target.value)} className={field}>
+                <option value="">{w.anySize}</option>
+                {sizes.map((z) => <option key={z} value={z}>{z}</option>)}
+              </select>
+            </label>
+          )}
+          {/* the orders he offers (one alone needs no choice) */}
+          {sorts.length > 1 && (
+          <label className="ms-auto flex items-center gap-2 text-sm font-semibold">
+            {w.sort}
+            <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className={field}>
+              {sorts.map((k) => <option key={k} value={k}>{w[k]}</option>)}
+            </select>
+          </label>
+          )}
+        </div>
+        <div className="mt-6">
+          {shown.length ? (
+            <Grid items={shown} ctx={ctx} columns={sp.cols ?? 4} />
+          ) : (
+            <div className="rounded-[var(--sf-r)] border-2 border-dashed border-black/10 px-4 py-14 text-center">
+              <p className="font-semibold">{w.empty}</p>
+              {(cat || size || stockOnly || from || to) && <button type="button" onClick={() => { setCat(""); setSize(""); setStockOnly(false); setFrom(""); setTo(""); }} className="mt-3 text-sm font-bold text-[var(--sf-primary)] underline underline-offset-4">{w.clear}</button>}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /** The basket's entry for a product: its id, or "id|size" for one size of a product in sizes */
 export const basketKey = (id: number, size?: string | null) => (size ? `${id}|${size}` : String(id));
 
@@ -648,6 +776,12 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const c = copy[ctx.lang];
   const w = pageWords[ctx.lang];
   const s = pageSkins[look] ?? pageSkins.classic;
+  /* his choices for the page (Store design → Product page): a part he switched off is left out; his own words and color */
+  const pg = ctx.config.productPage;
+  const on = (k: "crumbs" | "save" | "ask" | "perks" | "details" | "also") => pg?.[k] !== false;
+  const addWords = pg?.addText?.[ctx.lang]?.trim() || c.add;
+  const alsoWords = pg?.alsoTitle?.[ctx.lang]?.trim() || w.also;
+  const buyColor = pg?.buyColor || undefined;
   const luxe = look === "luxe", pop = look === "pop", editorial = look === "editorial";
   const pl = priceLang(ctx.config.theme.prices, ctx.lang);
   /* clothing and shoes: the customer picks a size, and the stock and the basket are that size's */
@@ -783,9 +917,10 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
           disabled={out || p.price === null || needSize}
           onClick={() => ctx.setQty(p, pick, size ?? undefined)}
           className={`inline-flex min-w-[12rem] flex-1 items-center justify-center gap-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sf-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none ${s.buy}`}
+          style={buyColor ? { background: buyColor, borderColor: buyColor, color: onColor(buyColor) } : undefined}
         >
           {icons.bag}
-          {out ? c.soldOut : needSize ? w.pickSize : c.add}
+          {out ? c.soldOut : needSize ? w.pickSize : addWords}
           {!out && !needSize && p.price !== null && pick > 1 && <span className="opacity-80">· {amount(now * pick)}</span>}
         </button>
       )}
@@ -917,7 +1052,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   return (
     <section className={ctx.compact ? "px-4 pb-10 pt-5" : "px-8 pb-16 pt-8"}>
       <div className="mx-auto max-w-6xl">
-        <nav aria-label={w.crumbs} className={`flex min-w-0 items-center gap-2 text-sm ${luxe ? "justify-center" : ""} ${editorial ? "text-[11px] uppercase tracking-[0.2em] rtl:tracking-normal rtl:text-xs" : ""}`}>
+        {on("crumbs") && <nav aria-label={w.crumbs} className={`flex min-w-0 items-center gap-2 text-sm ${luxe ? "justify-center" : ""} ${editorial ? "text-[11px] uppercase tracking-[0.2em] rtl:tracking-normal rtl:text-xs" : ""}`}>
           <button
             type="button"
             onClick={onBack}
@@ -929,12 +1064,12 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
           {p.category && (
             <>
               <span aria-hidden className="text-sf-text/35">/</span>
-              <span className="max-w-[40%] shrink-0 truncate text-sf-text/70"><Say>{p.category}</Say></span>
+              <button type="button" onClick={() => ctx.openShop?.(p.category)} className="max-w-[40%] shrink-0 truncate text-sf-text/70 underline-offset-4 transition hover:underline"><Say>{p.category}</Say></button>
             </>
           )}
           <span aria-hidden className="text-sf-text/35">/</span>
           <span aria-current="page" className="min-w-0 truncate text-sf-text/70"><Say>{p.name}</Say></span>
-        </nav>
+        </nav>}
 
         <div className={`mt-5 grid items-start ${ctx.compact ? "gap-7" : s.grid}`}>
           {luxe ? (
@@ -961,14 +1096,14 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
 
             <div className={`mt-5 space-y-2 ${editorial ? "border-y border-sf-text/15 py-5" : ""}`}>
               {price}
-              {saved > 0 && <p className={s.save} style={pop || look === "classic" ? { color: "var(--sf-saletext, var(--sf-sale))" } : undefined}>{w.save} {amount(saved)}</p>}
+              {saved > 0 && on("save") && <p className={s.save} style={pop || look === "classic" ? { color: "var(--sf-saletext, var(--sf-sale))" } : undefined}>{w.save} {amount(saved)}</p>}
             </div>
 
             <div className="mt-4">{stock}</div>
             {notesChips && <div className="mt-6">{notesChips}</div>}
             {sizePicker && <div className="mt-6">{sizePicker}</div>}
             <div className="mt-6">{buy}</div>
-            {askHref && (
+            {askHref && on("ask") && (
               <div className={`mt-3 ${luxe ? "text-center" : ""}`}>
                 <a href={askHref} target="_blank" rel="noreferrer" className={`inline-flex min-h-[44px] items-center gap-2 text-sm font-semibold underline-offset-4 transition hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--sf-text)] ${editorial ? "text-xs uppercase tracking-[0.18em] rtl:tracking-normal" : ""}`}>
                   {icons.whatsapp}
@@ -977,19 +1112,21 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
                 </a>
               </div>
             )}
-            {perkList && <div className={editorial ? "mt-6 border-t border-sf-text/15 pt-6" : "mt-6"}>{perkList}</div>}
+            {perkList && on("perks") && <div className={editorial ? "mt-6 border-t border-sf-text/15 pt-6" : "mt-6"}>{perkList}</div>}
 
             {editorial ? (
               <div className="mt-8 border-t border-sf-text/15">
                 {aboutText && fold(w.about, aboutText, true)}
-                {fold(w.details, detailRows, !aboutText)}
+                {on("details") && fold(w.details, detailRows, !aboutText)}
               </div>
             ) : luxe ? (
               <>
                 {aboutText && <div className="mx-auto mt-8 max-w-md">{aboutText}</div>}
-                <div className={`mt-8 ${s.panel}`} style={{ borderColor: tint("--sf-accent", 45) }}>
-                  <div className="rounded-[var(--sf-ri)] border px-5 py-5" style={{ borderColor: tint("--sf-accent", 25) }}>{detailRows}</div>
-                </div>
+                {on("details") && (
+                  <div className={`mt-8 ${s.panel}`} style={{ borderColor: tint("--sf-accent", 45) }}>
+                    <div className="rounded-[var(--sf-ri)] border px-5 py-5" style={{ borderColor: tint("--sf-accent", 25) }}>{detailRows}</div>
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -999,15 +1136,15 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
                     {aboutText}
                   </div>
                 )}
-                <div className={`mt-6 ${s.panel}`}>{detailRows}</div>
+                {on("details") && <div className={`mt-6 ${s.panel}`}>{detailRows}</div>}
               </>
             )}
           </div>
         </div>
 
-        {others.length > 0 && (
+        {others.length > 0 && on("also") && (
           <div className={`${ctx.compact ? "mt-12" : "mt-20"} ${editorial ? "border-t border-sf-text/15 pt-10" : ""}`}>
-            <Heading title={w.also} ctx={ctx} />
+            <Heading title={alsoWords} ctx={ctx} />
             <Grid items={others} ctx={ctx} columns={4} />
           </div>
         )}
@@ -2765,6 +2902,41 @@ const sectionNames = {
   en: { hero: "Main cover", perks: "Store perks", featured: "Featured products", discounts: "Deals", products: "Product grid", text: "Free text", reviews: "Customer reviews", collection: "Pinned products", slides: "Animated pictures", tiles: "Picture tiles", banners: "Promo banners", ribbon: "Words ribbon", chips: "Colored chips", newsletter: "Newsletter" },
   ar: { hero: "الغلاف الرئيسي", perks: "مزايا المتجر", featured: "منتجات مميزة", discounts: "التخفيضات", products: "شبكة المنتجات", text: "نص حر", reviews: "آراء العملاء", collection: "منتجات ثابتة", slides: "صور متحركة", tiles: "معرض صور", banners: "بنرات ترويجية", ribbon: "شريط الكلمات", chips: "أزرار ملوّنة", newsletter: "النشرة البريدية" },
 };
+
+/**
+ * Whether a part of the page shows nothing to customers, by the same rules each part follows when it is drawn (no reviews written,
+ * no pictures, no products picked, no product on sale…). The designer uses it to leave such parts out of its link lists.
+ */
+export function sectionEmptyFor(sec: SectionConfig, products: { id: number; featured?: boolean; sale: number | null }[]): boolean {
+  const words = (v?: { en?: string; ar?: string }) => !!(v?.en?.trim() || v?.ar?.trim());
+  const has = (ids?: number[]) => (ids ?? []).some((id) => products.some((p) => p.id === id));
+  switch (sec.type) {
+    case "perks":
+      return !(sec.settings.items ?? []).length;
+    case "collection":
+      return !has(sec.settings.productIds);
+    case "tiles":
+      return !(sec.settings.items ?? []).some((x) => x.image);
+    case "banners":
+      return !(sec.settings.items ?? []).length;
+    case "slides":
+      return !(sec.settings.slides ?? []).some((x) => x.image);
+    case "reviews":
+      return !(sec.settings.items ?? []).some((r) => r.text.trim());
+    case "text":
+      return !words(sec.settings.title) && !words(sec.settings.body);
+    case "featured":
+      return !products.length;
+    case "discounts":
+      return !products.some((p) => p.sale !== null);
+    case "ribbon":
+      return !(sec.settings.items ?? []).some((x) => words(x));
+    case "chips":
+      return !(sec.settings.items ?? []).some((x) => words(x.label));
+    default:
+      return false;
+  }
+}
 
 export function renderSection(s: SectionConfig, ctx: Ctx) {
   if (!s.visible) return null;

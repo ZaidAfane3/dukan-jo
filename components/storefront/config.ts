@@ -53,6 +53,9 @@ export type CartStyle = (typeof cartStyles)[number];
 /* The product page's look. "classic": soft rounded panels, clean and modern. "editorial": a tall photo, small capitals and hairlines
    like a fashion magazine. "luxe": a framed photo, centered titles and an ornament, airy. "pop": bold outlines, hard shadows and chunky round buttons. */
 export const productPageStyles = ["classic", "editorial", "luxe", "pop"] as const;
+/** The orders the all-products page can show its products in */
+export const shopSorts = ["newest", "low", "high"] as const;
+export type ShopSort = (typeof shopSorts)[number];
 export type ProductPageStyle = (typeof productPageStyles)[number];
 export type DisplayFont = "default" | "ruqaa" | "lemonada" | "amiri";
 
@@ -271,7 +274,13 @@ export type StorefrontConfig = {
   /* How the basket looks (see Cart.tsx). A design saved before it was kept has none: the side panel. */
   cart?: { style: CartStyle };
   /* How the page of a product looks (see ProductPage in sections.tsx). A design saved before it was kept has none: the classic page. */
-  productPage?: { style: ProductPageStyle };
+  /* The product page: its look, which of its parts show (none set: shown), his own words for the add button and the
+     "You may also like" title ("" or none: the store's), and the add button's color */
+  /* The all-products page: which filters customers get (none set: categories, sizes, in stock on; price range off), which
+     orders they can pick and the one it opens with, products per row, his own title, and its look: the home page's ("same"),
+     or its own background (a color or a picture) and chosen-filter color ("own") */
+  shopPage?: { cats?: boolean; sizes?: boolean; inStock?: boolean; price?: boolean; sorts?: ShopSort[]; sortFirst?: ShopSort; cols?: 3 | 4; title?: Bi; look?: "same" | "own"; bg?: string; bgImage?: string; chipColor?: string };
+  productPage?: { style: ProductPageStyle; crumbs?: boolean; save?: boolean; ask?: boolean; perks?: boolean; details?: boolean; also?: boolean; addText?: Bi; alsoTitle?: Bi; buyColor?: string };
   /* Words the store uses in small places. An empty text falls back to the built-in wording. */
   texts: { search: Bi; viewAll: Bi; allFilter: Bi; noProducts: Bi };
   footer: {

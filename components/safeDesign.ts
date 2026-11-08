@@ -8,7 +8,7 @@
 
    Plain TypeScript with no browser APIs, so the backend can run the very same rules on every design it receives. */
 
-import { ANNOUNCE_MESSAGES_MAX, ANNOUNCE_TEXT_MAX, cartStyles, defaultConfig, HERO_TITLE_MAX, HERO_TITLE_MIN, FOOTER_SIZES, productPageStyles, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type SectionConfig, type SectionType, type StorefrontConfig } from "./storefront/config";
+import { ANNOUNCE_MESSAGES_MAX, ANNOUNCE_TEXT_MAX, cartStyles, defaultConfig, HERO_TITLE_MAX, HERO_TITLE_MIN, FOOTER_SIZES, productPageStyles, shopSorts, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type SectionConfig, type SectionType, type StorefrontConfig } from "./storefront/config";
 import { normalizeHex, safeUrl } from "./safe";
 
 type Spec = (v: unknown, i: number) => unknown;
@@ -91,6 +91,8 @@ export function safeDesignLink(v: unknown): string | undefined {
   const t = (cleanWords(v.replace(/[\t\n\r]/g, ""), 500) ?? "").trim();
   if (!t) return "";
   if (/^page:\d{1,12}$/.test(t)) return t;
+  /* the all-products page, or it filtered by a category (its name written as a link part: %D8%B1…) */
+  if (/^shop(:[\w%.~-]{1,200})?$/.test(t)) return t;
   if (/^[\w-]{1,60}$/.test(t)) return t;
   if (/^(?:mailto|tel|sms|whatsapp):[^\s<>"'`]+$/i.test(t)) return t;
   if (/^[^\s@:/]+@[^\s@:/]+\.[^\s@:/]+$/.test(t)) return t;
@@ -339,7 +341,8 @@ const top: Top = {
     image: oneOf("portrait", "square", "wide"), style: oneOf("shadow", "outline", "flat", "pop"), info: oneOf("stack", "row", "center"), add: oneOf("wide", "plus"), priceColor: color, addColor: color,
   }),
   cart: obj({ style: oneOf(...cartStyles) }),
-  productPage: obj({ style: oneOf(...productPageStyles) }),
+  shopPage: obj({ cats: bool, sizes: bool, inStock: bool, price: bool, sorts: list(oneOf(...shopSorts), 3), sortFirst: oneOf(...shopSorts), cols: oneOf(3, 4), title: bi(40), look: oneOf("same", "own"), bg: color, bgImage: pic, chipColor: color }),
+  productPage: obj({ style: oneOf(...productPageStyles), crumbs: bool, save: bool, ask: bool, perks: bool, details: bool, also: bool, addText: bi(30), alsoTitle: bi(60), buyColor: color }),
   texts: obj({ search: bi(80), viewAll: bi(80), allFilter: bi(80), noProducts: bi(200) }),
   footer: obj({
     showLogo: bool, showLinks: bool, showContact: bool, showSocial: bool, tabs: list(tab, 30), columns: list(column, 12),
