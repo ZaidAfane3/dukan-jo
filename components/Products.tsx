@@ -860,6 +860,17 @@ export function Products() {
                           <img src={i === cropAt && photoLive ? photoLive : u} alt="" onError={() => setBroken((b) => (b.includes(u) ? b : [...b, u]))} onLoad={() => setBroken((b) => b.filter((x) => x !== u))} className="h-full w-full object-cover" />
                           {broken.includes(u) && <span className="absolute inset-0 grid place-items-center bg-rose-600/80 p-1 text-center text-[10px] font-bold leading-tight text-white">{p.imageBroken}</span>}
                           {i === 0 && <span className="absolute start-1.5 top-1.5 rounded-md bg-primary px-2 py-0.5 text-[10px] font-bold text-white">{p.primary}</span>}
+                          {/* any other photo can become the main one: the one on the product card and first on its page (its visible
+                              part is chosen again, since it is a different picture) */}
+                          {i > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => { setCropAt(null); setPhotoLive(null); setFocus({ x: 50, y: 50 }); setPhotos((cur) => [cur[i], ...cur.filter((_, j) => j !== i)]); }}
+                              className="absolute start-1.5 top-1.5 rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#1c1a17] shadow-sm ring-1 ring-black/10 transition hover:bg-primary hover:text-white"
+                            >
+                              {lang === "ar" ? "اجعلها الأساسية" : "Make main"}
+                            </button>
+                          )}
                           {i > 0 && !demoActive() && (
                             <button type="button" onClick={() => setCropAt(i)} className="absolute bottom-1.5 start-1.5 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white opacity-0 transition focus:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
                               {lang === "ar" ? "قصّ" : "Crop"}
