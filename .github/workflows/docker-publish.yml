@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
+  REGISTRY: ghcr.io zaid afaneh
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
