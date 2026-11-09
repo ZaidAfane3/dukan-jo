@@ -190,12 +190,15 @@ export function cleanSetting(key: SettingKey, v: unknown, themeIds?: string[]): 
       if (!entries.length || entries.length > LIMITS.endings) return null;
       const out: Record<string, number> = {};
       for (const [ending, price] of entries) {
-        if (!ENDING_RE.test(ending) || !endingOk(ending)) return null;
+        if (!ENDING_RE.test(ending)) return null;
+        /* an ending no real name can have (".j", saved before this was checked) is left out on its own, so the other saved
+           prices still apply; saving a new one is refused in the settings route */
+        if (!endingOk(ending)) continue;
         const p = cleanMoney(typeof price === "number" ? String(price) : price, 10_000);
         if (p === "") return null;
         out[ending] = Number(p);
       }
-      return out;
+      return Object.keys(out).length ? out : null;
     }
 
     case "dukkan_ship": {
