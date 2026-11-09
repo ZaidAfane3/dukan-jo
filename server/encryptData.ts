@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { emailKey, open, phoneKey, PRIVATE_PARAMS, seal } from "./crypto";
+import { emailKey, open, phoneKey, PRIVATE_PARAMS, seal, sealDeep } from "./crypto";
 
 /* Runs once each time the server starts (from db()), after the tables exist: seals every private value still stored
    as plain text (rows written before encryption existed), gives every account and staff member their email/mobile
@@ -49,6 +49,21 @@ export async function encryptOldRows(pool: Pool): Promise<void> {
       const n = await c.query(`SELECT id, params->>'${k}' AS raw FROM notifications WHERE jsonb_typeof(params->'${k}') = 'string' AND params->>'${k}' <> '' AND params->>'${k}' NOT LIKE 'e1:%'`);
       /* raw came back opened if it was sealed, but those rows are filtered out above */
       for (const r of n.rows) await c.query(`UPDATE notifications SET params = jsonb_set(params, $2::text[], to_jsonb($3::text)) WHERE id = $1`, [r.id, [k], seal(r.raw)]);
+    }
+
+    /* the activity log: its reason, address and the texts in its details (audit() seals new lines the same way). The log
+       refuses changes, so its trigger is off only inside this transaction, and only to seal what it already says. */
+    const plainLog = `(reason IS NOT NULL AND reason <> '' AND reason NOT LIKE 'e1:%') OR (ip <> '' AND ip NOT LIKE 'e1:%')
+      OR jsonb_path_exists(meta, 'strict $.** ? (@.type() == "string" && !(@ starts with "e1:"))')`;
+    const log = await c.query(`SELECT id, reason::text AS raw_reason, ip::text AS raw_ip, meta::text AS raw_meta FROM audit_log WHERE ${plainLog}`);
+    if (log.rows.length) {
+      await c.query(`ALTER TABLE audit_log DISABLE TRIGGER audit_log_frozen`);
+      /* raw_meta is JSON text (not a sealed value), so it comes back exactly as stored; reason and ip come back opened */
+      for (const r of log.rows)
+        await c.query(`UPDATE audit_log SET reason = $2, ip = $3, meta = $4::jsonb WHERE id = $1`, [
+          r.id, seal(r.raw_reason as string | null), seal(r.raw_ip as string), r.raw_meta == null ? null : JSON.stringify(sealDeep(JSON.parse(r.raw_meta as string))),
+        ]);
+      await c.query(`ALTER TABLE audit_log ENABLE TRIGGER audit_log_frozen`);
     }
 
     /* fingerprints for finding and uniqueness (the values come back opened) */

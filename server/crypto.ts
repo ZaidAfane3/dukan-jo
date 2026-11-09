@@ -65,10 +65,24 @@ export function open(value: string | null | undefined): string | null {
     d.setAuthTag(all.subarray(12, 28));
     return Buffer.concat([d.update(all.subarray(28)), d.final()]).toString("utf8");
   } catch (e) {
-    if (process.env.NODE_ENV === "production" && !process.env.DUKKAN_DATA_KEY) throw e;
+    /* In production this means the key is wrong: stop the request. Handing back the sealed text as if it were the data
+       would let the next save write it over the real data (a store's JSON read as "invalid", then replaced by defaults). */
+    if (process.env.NODE_ENV === "production") throw new Error("DUKKAN_DATA_KEY can't open the data saved with it (wrong key?)", { cause: e });
     console.warn("[crypto] a value marked as encrypted could not be opened (wrong key, or not really encrypted)");
     return value;
   }
+}
+
+/** Seals every text inside a JSON value (for JSON columns such as the activity log's details). Numbers, true/false and
+    the keys stay as they are; db.ts opens the texts again on the way out. Below a few levels the rest is sealed as one
+    JSON text, since db.ts stops opening there. */
+export function sealDeep(v: unknown, depth = 0): unknown {
+  if (v == null) return v;
+  if (typeof v === "string") return isSealed(v) ? v : seal(v);
+  if (typeof v !== "object") return v;
+  if (depth >= 5) return seal(JSON.stringify(v));
+  if (Array.isArray(v)) return v.map((x) => sealDeep(x, depth + 1));
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, sealDeep(x, depth + 1)]));
 }
 
 /** A keyed fingerprint for finding a value without storing it (pass the value already in its saved form) */

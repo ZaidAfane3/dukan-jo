@@ -69,7 +69,9 @@ export async function staffFromToken(token: string | undefined): Promise<(Staff 
    "Local dev". The live server runs the production build (NODE_ENV=production), where this is always off. To try the
    real sign-in locally anyway, start the dev server with DIWAN_DEV_LOGIN=off. Someone who did sign in stays themselves. */
 const LOCAL_DEV = process.env.NODE_ENV === "development" && process.env.DIWAN_DEV_LOGIN !== "off";
-const DEV_EMAIL = "local-dev@diwan.local";
+/** The local dev owner's email. First-owner setup (app/api/diwan/setup) doesn't count that row as staff, so turning
+    DIWAN_DEV_LOGIN=off on a database that only has it still lets the real first owner be made. */
+export const DEV_EMAIL = "local-dev@diwan.local";
 const gDev = globalThis as unknown as { diwanDevOwner?: Promise<Staff & { verified: boolean }> };
 
 /** The local dev owner (a real staff row, so the activity log can name it; it has no password, so it can't sign in) */
@@ -117,9 +119,12 @@ export async function audit(
   reason?: string | null,
   meta?: Record<string, unknown>,
 ): Promise<void> {
+  /* the reason, the address and the details' texts are private (notes, emails, reasons...): sealed like the tables they
+     come from (server/crypto.ts), opened again when read */
+  const { seal, sealDeep } = await import("./crypto");
   await (await db()).query(
     `INSERT INTO audit_log (staff_id, action, target_type, target_id, reason, ip, meta) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [staffId, action, target?.type ?? null, target ? String(target.id) : null, reason ?? null, ipOf(req), meta ? JSON.stringify(meta) : null],
+    [staffId, action, target?.type ?? null, target ? String(target.id) : null, seal(reason ?? null), seal(ipOf(req)), meta ? JSON.stringify(sealDeep(meta)) : null],
   );
 }
 

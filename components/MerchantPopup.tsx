@@ -19,7 +19,7 @@ export function PopupCard({ popup: p, lang, onClose, onButton, titleId }: { popu
   const button = lang === "ar" ? p.buttonAr : p.buttonEn;
   const btnClass = "inline-flex h-11 w-full items-center justify-center rounded-xl bg-ink px-5 text-sm font-semibold text-onink transition hover:bg-deep";
   return (
-    <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="relative w-full max-w-md overflow-hidden rounded-3xl bg-card text-fg shadow-2xl ring-1 ring-fg/10">
+    <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="relative max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-3xl bg-card text-fg shadow-2xl ring-1 ring-fg/10">
       <button type="button" onClick={onClose} aria-label={closeWord[lang]} title={closeWord[lang]} className={`absolute end-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full transition ${p.image ? "bg-black/40 text-white hover:bg-black/60" : "text-muted hover:bg-soft hover:text-fg"}`}>
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
       </button>

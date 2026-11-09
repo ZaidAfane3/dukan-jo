@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { brandName } from "../content";
+import { refreshCatalog, useCatalog } from "../catalog";
 import { demoActive, setOwnCopy } from "../demoSandbox";
 import { adoptTheme, baseTheme, defaultTheme, findTheme, loadThemeState, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
@@ -312,6 +313,8 @@ export function Designer() {
     [trying, lang, focusOverrides],
   );
   const bar = useRef<HTMLDivElement>(null);
+  /* the theme store's list (themes made in Diwan, their names and prices): this browser's copy at once, the server's after */
+  useCatalog();
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${t.title}`;
@@ -330,44 +333,55 @@ export function Designer() {
     if (!template) d.config = withoutUnboughtLooks(d.config);
     const baseline = JSON.stringify(d);
     if (template) d.config = loadTemplate() ?? defaultConfig;
-    const tryTheme = !ro && !template ? findTheme(q.get("theme")) : null;
-    /* The theme's look on his store: his contact details, socials and pages stay (see adoptTheme) */
-    if (tryTheme) d.config = adoptTheme(d.config, tryTheme.build(lang, { samples: true, storeName: d.identity.name }));
-    setTrying(tryTheme);
-    setTemplateMode(template);
-    /* Without his own products the template would look empty, so it is shown with sample products */
-    setSample(template || q.get("sample") === "1");
-    if (template) {
-      /* Dukkan's staff only (a Diwan session with the settings permission); the template itself comes from the server */
-      void (async () => {
-        const me = await fetch("/api/diwan/auth/me", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-        if (!me?.staff?.verified) return window.location.replace("/diwan/login");
-        if (catalog) {
-          /* a theme made in Diwan: its design comes from the server (the route checks the staff member may change themes) */
-          const r = await fetch(`/api/diwan/themes/${catalog}/design`, { cache: "no-store" }).catch(() => null);
-          const j = r?.ok ? await r.json().catch(() => null) : null;
-          if (!j || j.result !== "ok") return window.location.replace("/diwan/themes");
-          d.config = j.design ? designFrom(j.design) : defaultConfig;
-          setCatalogTheme({ id: catalog, name: (lang === "ar" ? j.name?.ar : j.name?.en) || j.name?.en || j.name?.ar || catalog });
-        } else {
-          if (!me.staff.settings) return window.location.replace("/diwan");
-          await refreshTemplate(true);
-          d.config = loadTemplate() ?? defaultConfig;
-        }
-        setDraft(d);
+    const themeId = !ro && !template ? q.get("theme") : null;
+    const found = findTheme(themeId);
+    /* A theme made in Diwan is only known once the theme store's list is here. On a first visit (no copy in this browser
+       yet) wait for the server's list, so the link opens that theme instead of quietly opening his own design. */
+    if (themeId && !found) {
+      void refreshCatalog().then(() => begin(findTheme(themeId)));
+      return;
+    }
+    begin(found);
+
+    function begin(tryTheme: ThemeInfo | null) {
+      /* The theme's look on his store: his contact details, socials and pages stay (see adoptTheme) */
+      if (tryTheme) d.config = adoptTheme(d.config, tryTheme.build(lang, { samples: true, storeName: d.identity.name }));
+      setTrying(tryTheme);
+      setTemplateMode(template);
+      /* Without his own products the template would look empty, so it is shown with sample products */
+      setSample(template || q.get("sample") === "1");
+      if (template) {
+        /* Dukkan's staff only (a Diwan session with the settings permission); the template itself comes from the server */
+        void (async () => {
+          const me = await fetch("/api/diwan/auth/me", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          if (!me?.staff?.verified) return window.location.replace("/diwan/login");
+          if (catalog) {
+            /* a theme made in Diwan: its design comes from the server (the route checks the staff member may change themes) */
+            const r = await fetch(`/api/diwan/themes/${catalog}/design`, { cache: "no-store" }).catch(() => null);
+            const j = r?.ok ? await r.json().catch(() => null) : null;
+            if (!j || j.result !== "ok") return window.location.replace("/diwan/themes");
+            d.config = j.design ? designFrom(j.design) : defaultConfig;
+            setCatalogTheme({ id: catalog, name: (lang === "ar" ? j.name?.ar : j.name?.en) || j.name?.en || j.name?.ar || catalog });
+          } else {
+            if (!me.staff.settings) return window.location.replace("/diwan");
+            await refreshTemplate(true);
+            d.config = loadTemplate() ?? defaultConfig;
+          }
+          setDraft(d);
+          setSaved(JSON.stringify(d));
+        })();
+        return;
+      }
+      /* the unfinished work he left last time comes back, still unsaved (the store keeps what was saved before) */
+      const left = !ro && !tryTheme ? loadDraft() : null;
+      if (left) {
+        setDraft({ ...left, config: withoutUnboughtLooks(left.config) });
         setSaved(JSON.stringify(d));
-      })();
-      return;
+        return;
+      }
+      setDraft(d);
+      setSaved(tryTheme ? baseline : JSON.stringify(d));
     }
-    /* the unfinished work he left last time comes back, still unsaved (the store keeps what was saved before) */
-    const left = !ro && !tryTheme ? loadDraft() : null;
-    if (left) {
-      setDraft({ ...left, config: withoutUnboughtLooks(left.config) });
-      setSaved(JSON.stringify(d));
-      return;
-    }
-    setDraft(d);
-    setSaved(tryTheme ? baseline : JSON.stringify(d));
   }, []);
 
   /* Kept from one render to the next: the whole design is turned into text only when it changes */
