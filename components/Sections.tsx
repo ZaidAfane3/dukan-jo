@@ -1,11 +1,11 @@
 "use client";
 
-import { commercialRegistration, registrationWords, trustWords } from "./legal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Logo } from "./Nav";
 import { FlagJO } from "./Flag";
-import { industries as industryCopy, usePrefs, type IndustryDetail } from "./Prefs";
-import { brandName, content } from "./content";
+import { brandName } from "./content";
+import { linkAttrs, SOCIAL_NAMES, type IndustryIcon, type SiteView } from "./siteContent";
+import { useSite, useSiteLang } from "./useSiteContent";
 import { SeenShipMark } from "./SeenShip";
 import { Reveal, Tilt, Typed } from "./ui";
 
@@ -18,17 +18,19 @@ const svg = (d: React.ReactNode) => (
   </svg>
 );
 
-/* Own simple line icons, same order as the copy in Prefs.tsx */
-const industryIcons = [
+/* Own simple line icons; each industry in Diwan > Website picks one by name */
+const industryIcons: Record<IndustryIcon, React.ReactNode> = {
   /* a hoodie: the hood, the sleeves, the pocket and the two strings */
-  svg(<><path d="M8.5 5.2C9.2 3.8 10.5 3 12 3s2.8.8 3.500 2.200" /><path d="M8.500 5.200 4 7.500 2.500 17l3 .8L6.500 13v8h11v-8l1 4.800 3-.8L20 7.500l-4.500-2.300" /><path d="M8.500 5.200C9 8 10.300 9.500 12 9.500s3-1.500 3.500-4.300" /><path d="M10.500 9.500v3M13.500 9.500v3" /><path d="M8.500 17h7l-.8 3.500H9.300L8.500 17Z" /></>),
-  svg(<><path d="M10 3h4v3h-4zM9 6h6v2H9z" /><path d="M7 11a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-8Z" /><path d="M10 14h4" /></>),
-  svg(<><path d="M6 4h12l3 5-9 11L3 9l3-5Z" /><path d="M3 9h18M9 4l3 16M15 4l-3 16" /></>),
-  svg(<><rect x="3" y="6" width="18" height="12" rx="4" /><path d="M8 10v4M6 12h4M16 11h.01M18 13h.01" /></>),
-  svg(<><rect x="3" y="5" width="18" height="11" rx="2" /><path d="M8 20h8M12 16v4" /></>),
-  svg(<><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="M19 17l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" /></>),
-  svg(<><path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3" /><path d="M2 12a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v6H2v-6Z" /><path d="M5 18v2M19 18v2" /></>),
-];
+  fashion: svg(<><path d="M8.5 5.2C9.2 3.8 10.5 3 12 3s2.8.8 3.500 2.200" /><path d="M8.500 5.200 4 7.500 2.500 17l3 .8L6.500 13v8h11v-8l1 4.800 3-.8L20 7.500l-4.500-2.300" /><path d="M8.500 5.200C9 8 10.300 9.500 12 9.500s3-1.500 3.500-4.300" /><path d="M10.500 9.500v3M13.500 9.500v3" /><path d="M8.500 17h7l-.8 3.500H9.300L8.500 17Z" /></>),
+  perfume: svg(<><path d="M10 3h4v3h-4zM9 6h6v2H9z" /><path d="M7 11a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-8Z" /><path d="M10 14h4" /></>),
+  jewelry: svg(<><path d="M6 4h12l3 5-9 11L3 9l3-5Z" /><path d="M3 9h18M9 4l3 16M15 4l-3 16" /></>),
+  digital: svg(<><rect x="3" y="6" width="18" height="12" rx="4" /><path d="M8 10v4M6 12h4M16 11h.01M18 13h.01" /></>),
+  electronics: svg(<><rect x="3" y="5" width="18" height="11" rx="2" /><path d="M8 20h8M12 16v4" /></>),
+  beauty: svg(<><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="M19 17l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" /></>),
+  home: svg(<><path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3" /><path d="M2 12a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v6H2v-6Z" /><path d="M5 18v2M19 18v2" /></>),
+  /* a store front, as in the logo, for an industry with no picture of its own */
+  store: svg(<path d="M4 9 5.5 4h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6" />),
+};
 
 /* Small icons for the three points of a detail card */
 const detailIcons = [
@@ -41,7 +43,7 @@ const detailIcons = [
    the same, and round again, without ever stopping. The address bar shows the store on screen. With less motion asked for, the
    stores simply change every few seconds. */
 function StoreTurns({ stores }: { stores: { src: string; address: string; view: string }[] }) {
-  const { lang } = usePrefs();
+  const lang = useSiteLang();
   const [i, setI] = useState(0);
   /* the store that just finished: it stays on top, at the bottom of its page, and fades away while the next one starts */
   const [gone, setGone] = useState<string | null>(null);
@@ -65,9 +67,9 @@ function StoreTurns({ stores }: { stores: { src: string; address: string; view: 
           {st.address}
         </span>
         {/* the eye opens the store on screen in a new tab, as a visitor sees it */}
-        <a href={st.view} target="_blank" rel="noreferrer" aria-label={lang === "ar" ? "افتح المتجر في صفحة جديدة" : "Open the store in a new tab"} title={lang === "ar" ? "افتح المتجر في صفحة جديدة" : "Open the store in a new tab"} className="absolute end-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white text-[#3d4a4f] shadow-sm ring-1 ring-black/10 transition hover:scale-105 hover:text-black">
+        {st.view && <a href={st.view} target="_blank" rel="noreferrer" aria-label={lang === "ar" ? "افتح المتجر في صفحة جديدة" : "Open the store in a new tab"} title={lang === "ar" ? "افتح المتجر في صفحة جديدة" : "Open the store in a new tab"} className="absolute end-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white text-[#3d4a4f] shadow-sm ring-1 ring-black/10 transition hover:scale-105 hover:text-black">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.500-6 10-6 10 6 10 6-3.500 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.500" /></svg>
-        </a>
+        </a>}
       </div>
       <div className="relative h-[var(--box)] overflow-hidden [--box:22rem] sm:[--box:30rem] lg:[--box:36rem]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -86,8 +88,16 @@ function StoreTurns({ stores }: { stores: { src: string; address: string; view: 
 
 /* What an industry shows when it is pressed: a big window with a store like it (the whole page, scrolling slowly by itself),
    and a few lines about what Dukkan does for it. The card is wider than the page column. */
-function IndustryCard({ d }: { d: IndustryDetail }) {
-  const { t } = usePrefs();
+type Detail = NonNullable<SiteView["industries"]["items"][number]["detail"]>;
+
+/* The "Start free" button under a feature or an industry card: the same words and address as the one in the top bar */
+function StartButton({ className }: { className: string }) {
+  const { s } = useSite();
+  if (!s.nav.start.href) return null;
+  return <a {...linkAttrs(s.nav.start.href)} className={className}>{s.nav.start.label}</a>;
+}
+
+function IndustryCard({ d }: { d: Detail }) {
   const shot = d.shots[0];
   return (
     <div className="mt-12" style={{ marginInline: "calc(50% - min(47vw, 42rem))" }}>
@@ -98,17 +108,17 @@ function IndustryCard({ d }: { d: IndustryDetail }) {
             <p className="mt-4 text-lg leading-relaxed text-muted">{d.body}</p>
             <ul className="mt-8 space-y-5">
               {d.bullets.map((b, i) => (
-                <li key={b} className="flex items-center gap-4 text-lg font-semibold">
+                <li key={i} className="flex items-center gap-4 text-lg font-semibold">
                   <svg viewBox="0 0 24 24" className="h-8 w-8 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{detailIcons[i % detailIcons.length]}</svg>
                   {b}
                 </li>
               ))}
             </ul>
-            <a href="/signup" className={`${cta} mt-10 inline-block`}>{t.start}</a>
+            <StartButton className={`${cta} mt-10 inline-block`} />
           </div>
 
           {/* A few stores of this industry take turns in one window */}
-          {d.stores ? (
+          {d.stores.length ? (
             <StoreTurns stores={d.stores} />
           ) : shot && (
             <div className="relative pb-8 sm:pb-10">
@@ -145,13 +155,15 @@ function IndustryCard({ d }: { d: IndustryDetail }) {
 }
 
 export function Industries() {
-  const { lang, t } = usePrefs();
-  const items = industryCopy[lang];
+  const { lang, s } = useSite();
+  const items = s.industries.items;
   const rtl = lang === "ar";
   /* Every industry is always there: the open one is the big card in the middle and the others are small icons on its two sides.
      The ones near it show and the farther ones fade away toward the edges. Each press of the arrow opens the next one and they
      all glide to their new place together. */
-  const [active, setActive] = useState(0);
+  const [picked, setActive] = useState(0);
+  /* a list that got shorter (in Diwan's preview) keeps a card that still exists */
+  const active = Math.min(picked, Math.max(0, items.length - 1));
   /* The opening (when the row first comes into view) and the end (after the last industry): all the icons stand in one even
      row and a wave runs through them. After the end it starts again from the first. */
   const [finale, setFinale] = useState(false);
@@ -191,6 +203,9 @@ export function Industries() {
     setActive(active + 1);
   };
 
+  /* Diwan can take every industry away; then the section goes too */
+  if (!items.length) return null;
+
   /* How far an item's middle is from the middle of the stage, toward the end side */
   const place = (i: number) => (finale ? (i - (items.length - 1) / 2) * 5 : i === active ? 0 : (10.5 + (Math.abs(i - active) - 1) * 4.25) * Math.sign(i - active));
 
@@ -202,9 +217,9 @@ export function Industries() {
   return (
     <section id="industries" className="mx-auto max-w-6xl px-5 py-20">
       {/* The pictures of the industry cards load now, so a card has its picture the moment it opens */}
-      {items.map((x) => x.detail?.shots[0] && <img key={x.name} src={x.detail.shots[0].src} alt="" aria-hidden className="hidden" />)}
+      {items.map((x, i) => x.detail?.shots[0] && <img key={i} src={x.detail.shots[0].src} alt="" aria-hidden className="hidden" />)}
       <Reveal>
-        <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{t.industriesTitle}</h2>
+        <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{s.industries.title}</h2>
       </Reveal>
 
       <div className="relative mt-10 px-11 md:px-14">
@@ -252,7 +267,7 @@ export function Industries() {
                 }`}
                 style={{ transform: `translate(calc(-50% + ${x}rem), -50%) scale(${seen ? 1 : 0.6})`, opacity: seen ? 1 : 0, transitionDelay: finale ? `${i * 70}ms` : undefined }}
               >
-                <span className={`${finale ? "dk-wave" : "transition-transform duration-700"} ${on ? "scale-125 text-white" : "scale-100"}`} style={finale ? { animationDelay: `${i * 140}ms` } : undefined}>{industryIcons[i]}</span>
+                <span className={`${finale ? "dk-wave" : "transition-transform duration-700"} ${on ? "scale-125 text-white" : "scale-100"}`} style={finale ? { animationDelay: `${i * 140}ms` } : undefined}>{industryIcons[ind.icon] ?? industryIcons.store}</span>
                 <span className={`whitespace-nowrap text-base leading-snug transition-all duration-700 ${on ? "max-h-8 opacity-100" : "max-h-0 opacity-0"}`}>{ind.name}</span>
               </button>
             );
@@ -262,7 +277,7 @@ export function Industries() {
 
       {/* In the finale this line pops up bigger, with a ray of light crossing it, and then settles */}
       {(finale || !items[active].detail) && <p key={`${finale ? "all" : active}-${lang}`} className={`mt-6 text-center ${finale ? "dk-pop dk-text-brand text-2xl font-extrabold sm:text-3xl" : "animate-[fadeIn_0.5s_ease] text-lg text-muted"}`}>
-        {finale ? (rtl ? "كل قطاع، ومنصة واحدة تجمعها." : "Every industry, one platform.") : items[active].blurb}
+        {finale ? s.industries.finale : items[active].blurb}
       </p>}
 
       {/* An industry with a detail card opens it under the line: pictures of a store like it, and what Dukkan does for it */}
@@ -290,16 +305,16 @@ function Tile({ children }: { children: React.ReactNode }) {
 }
 
 function LoginMock() {
-  const { lang } = usePrefs();
-  const m = content[lang].experience.login;
+  const { s } = useSite();
+  const m = s.experience.login;
   return (
     <Tile>
       <p className="text-center text-lg font-bold tracking-wide">{m.brand}</p>
       <p className="mt-3 text-center text-sm font-semibold">{m.title}</p>
       <p className="mt-4 text-xs text-muted">{m.label}</p>
       <div dir="ltr" className="mt-1.5 flex items-center overflow-hidden rounded-md border border-fg/25 text-xs">
-        <span dir="ltr" className="border-e border-fg/15 px-2.5 py-2.5 font-semibold">{m.code}</span>
-        <span dir="ltr" className="flex-1 px-2.5 py-2.5 text-muted/70">{m.placeholder}</span>
+        <span dir="ltr" className="border-e border-fg/15 px-2.5 py-2.5 font-semibold">+962</span>
+        <span dir="ltr" className="flex-1 px-2.5 py-2.5 text-muted/70">7 7123 4567</span>
       </div>
       <div className="mt-3 rounded-md bg-ink py-2.5 text-center text-xs font-semibold text-white">{m.button}</div>
       <p className="mt-3 text-center text-[11px] text-muted">{m.link}</p>
@@ -379,14 +394,14 @@ function PayLogo({ index }: { index: number }) {
 }
 
 function PayMock() {
-  const { lang } = usePrefs();
-  const m = content[lang].experience.pay;
+  const { s } = useSite();
+  const m = s.experience.pay;
   return (
     <Tile>
       <p className="text-sm font-semibold">{m.title}</p>
       <ul className="mt-3 space-y-2">
         {m.options.map((o, i) => (
-          <li key={o} className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs font-medium ${i === 0 ? "border-primary bg-primary/10" : "border-fg/15"}`}>
+          <li key={i} className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs font-medium ${i === 0 ? "border-primary bg-primary/10" : "border-fg/15"}`}>
             <span className={`grid h-4 w-4 place-items-center rounded-full border ${i === 0 ? "border-primary" : "border-fg/30"}`}>
               {i === 0 && <span className="h-2 w-2 rounded-full bg-primary" />}
             </span>
@@ -401,8 +416,8 @@ function PayMock() {
 }
 
 function TrackMock() {
-  const { lang } = usePrefs();
-  const m = content[lang].experience.track;
+  const { s } = useSite();
+  const m = s.experience.track;
   const done = 3;
   return (
     <Tile>
@@ -410,7 +425,7 @@ function TrackMock() {
       <p className="mt-1 text-[11px] text-muted">{m.order}</p>
       <ol className="mt-4 space-y-3">
         {m.steps.map((step, i) => (
-          <li key={step} className="flex items-center gap-3 text-xs">
+          <li key={i} className="flex items-center gap-3 text-xs">
             <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] ${i < done ? "bg-primary text-white" : "border border-fg/25 text-transparent"}`}>✓</span>
             <span className={i < done ? "font-semibold" : "text-muted"}>{step}</span>
           </li>
@@ -421,8 +436,8 @@ function TrackMock() {
 }
 
 export function Experience() {
-  const { lang } = usePrefs();
-  const c = content[lang].experience;
+  const { s } = useSite();
+  const c = s.experience;
   const mocks = [<LoginMock key="l" />, <PayMock key="p" />, <TrackMock key="t" />];
   return (
     <section className="mx-auto max-w-6xl px-5 py-20">
@@ -501,7 +516,7 @@ const payText = {
 };
 
 function PaymentsMock() {
-  const { lang } = usePrefs();
+  const lang = useSiteLang();
   const t = payText[lang];
   /* The blue behind the card drifts in its own random way each time the page opens (made after it opens, so the server and the browser agree) */
   const [drift, setDrift] = useState<{ dx: number; dy: number; r: number; dur: number; delay: number }[]>([]);
@@ -623,7 +638,7 @@ const lensMask = {
 const maskImg = { WebkitMaskImage: "url(/maps/jordan.png)", maskImage: "url(/maps/jordan.png)", WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat" };
 
 function FleetMap() {
-  const { lang } = usePrefs();
+  const lang = useSiteLang();
   const [active, setActive] = useState(2);
 
   useEffect(() => {
@@ -763,32 +778,37 @@ const payIcons = [
 ];
 
 export function Features() {
-  const { lang, t } = usePrefs();
-  const c = content[lang];
+  const { s } = useSite();
+  const c = s.features;
+  if (!c.items.length) return null;
   return (
     <section className="mx-auto max-w-6xl space-y-28 px-5 py-10">
       <Reveal>
-        <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{c.featuresTitle}</h2>
+        <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{c.title}</h2>
       </Reveal>
-      {c.features.map((f, i) => (
-        <div key={f.id} id={f.id} className={`grid items-center gap-12 lg:grid-cols-2 ${i % 2 ? "lg:[&>*:first-child]:order-2" : ""}`}>
+      {c.items.map((f, i) => {
+        /* the picture and the icons come with the kind of feature chosen in Diwan */
+        const icons = f.kind === "payments" ? payIcons : featureIcons[f.kind];
+        const pointIcons = f.kind === "payments" ? payIcons : icons?.slice(1);
+        return (
+        <div key={i} id={f.anchor || undefined} className={`grid items-center gap-12 lg:grid-cols-2 ${i % 2 ? "lg:[&>*:first-child]:order-2" : ""}`}>
           <Reveal y={40}>
-            {f.id === "payments" ? <PaymentsMock /> : f.id === "shipping" ? <FleetMap /> : <MockCard index={i} />}
+            {f.kind === "payments" ? <PaymentsMock /> : f.kind === "shipping" ? <FleetMap /> : <MockCard index={i} />}
           </Reveal>
           <Reveal delay={0.1}>
             <span className="inline-flex items-center gap-2 rounded-full bg-soft px-4 py-1.5 text-sm font-bold text-deep dark:text-primary">
               {f.tag}
-              {(f.id === "payments" ? payIcons : featureIcons[f.id]) && (
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{(f.id === "payments" ? payIcons : featureIcons[f.id])[0]}</svg>
+              {icons && (
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{icons[0]}</svg>
               )}
             </span>
             <Typed as="h3" text={f.title} speed={50} className="mt-5 text-3xl font-extrabold tracking-tight" />
             <Typed as="p" text={f.body} speed={22} className="mt-3 text-muted" />
             <ul className="mt-6 space-y-3">
               {f.points.map((p, j) => (
-                <li key={p} className="flex items-start gap-3 font-medium">
-                  {f.id === "payments" || featureIcons[f.id] ? (
-                    <svg viewBox="0 0 24 24" className="mt-0.5 h-6 w-6 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{(f.id === "payments" ? payIcons : featureIcons[f.id].slice(1))[j % (f.id === "payments" ? payIcons : featureIcons[f.id].slice(1)).length]}</svg>
+                <li key={j} className="flex items-start gap-3 font-medium">
+                  {pointIcons?.length ? (
+                    <svg viewBox="0 0 24 24" className="mt-0.5 h-6 w-6 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{pointIcons[j % pointIcons.length]}</svg>
                   ) : (
                     <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary text-[10px] text-white">✓</span>
                   )}
@@ -796,10 +816,11 @@ export function Features() {
                 </li>
               ))}
             </ul>
-            <a href="/signup" className={`${cta} mt-8 inline-block`}>{t.start}</a>
+            <StartButton className={`${cta} mt-8 inline-block`} />
           </Reveal>
         </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -816,9 +837,9 @@ const skins = [
 const quoteMark = "M10 8C6 9.500 4 13 4 17v7h9v-9H8c0-3 1.500-5 4-6L10 8Zm14 0c-4 1.500-6 5-6 9v7h9v-9h-5c0-3 1.500-5 4-6L24 8Z";
 
 export function Testimonials() {
-  const { lang } = usePrefs();
-  const c = content[lang];
-  const all = c.quotes;
+  const { lang, s } = useSite();
+  const c = s.testimonials;
+  const all = c.items;
   /* Three cards are in view on a big screen and one on a phone. The arrows move the view one card at a time:
      on the first card you cannot go back, and after the last the next arrow goes round to the first again. */
   const [start, setStart] = useState(0);
@@ -833,10 +854,11 @@ export function Testimonials() {
   const at = Math.min(start, last);
   const arrow = "pointer-events-auto grid h-10 w-10 place-items-center md:h-12 md:w-12 rounded-full bg-card/70 text-fg/70 shadow-lg ring-1 ring-fg/10 backdrop-blur transition duration-300 hover:scale-110 hover:bg-card hover:text-fg";
   const chevron = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 6-6 6 6 6" /></svg>;
+  if (!all.length) return null;
   return (
     <section className="mx-auto max-w-6xl px-5 py-24">
       <Reveal>
-        <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{c.testimonialsTitle}</h2>
+        <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{c.title}</h2>
       </Reveal>
       <div className="relative mt-16 px-11 md:px-14">
       {/* The arrows sit at the two sides, on a soft fade. They fade away on the first and the last card. */}
@@ -884,7 +906,7 @@ export function Testimonials() {
 
                     {/* The text is typed out when the card comes into view */}
                     <blockquote className={`text-lg font-medium leading-relaxed ${k.text}`} style={{ transform: "translateZ(36px)" }}>
-                      {inView ? <Typed as="span" text={q.q} speed={26} /> : <span>{q.q}</span>}
+                      {inView ? <Typed as="span" text={q.quote} speed={26} /> : <span>{q.quote}</span>}
                     </blockquote>
 
                     <figcaption className={`mt-7 flex items-center gap-3 text-sm ${k.muted}`} style={{ transform: "translateZ(60px)" }}>
@@ -899,8 +921,8 @@ export function Testimonials() {
                         </span>
                       )}
                       <span>
-                        <strong className={`block ${k.text}`}>{q.n}</strong>
-                        {q.s}
+                        <strong className={`block ${k.text}`}>{q.name}</strong>
+                        {q.role}
                       </span>
                     </figcaption>
 
@@ -925,10 +947,12 @@ export function Testimonials() {
 /* Reliability: proof that Dukkan is a registered company. A wide card carries the registration (its border glows
    and moves, the emblem floats, the number links to the ministry's register), then three cards that tilt. */
 export function Trust() {
-  const { lang } = usePrefs();
-  const w = trustWords[lang];
-  const reg = registrationWords[lang];
-  const contact = content[lang].footer.contact;
+  const { s } = useSite();
+  const w = s.legal;
+  const reg = s.legal;
+  const contact = s.contact;
+  /* the registration links to the ministry's register when Diwan gives its address */
+  const regLink = reg.url ? linkAttrs(reg.url) : null;
   const icons = [
     <path key="0" d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h6M9 17h6" />,
     <path key="1" d="M12 21s7-6.100 7-11.500A7 7 0 0 0 5 9.500C5 14.900 12 21 12 21ZM12 12a2.500 2.500 0 1 0 0-5 2.500 2.500 0 0 0 0 5Z" />,
@@ -959,22 +983,26 @@ export function Trust() {
                   {reg.verified}
                 </span>
                 <p className="mt-2 text-sm text-muted">{reg.label}</p>
-                <a href={commercialRegistration.url} target="_blank" rel="noreferrer" dir="ltr" className="mt-0.5 block w-fit text-4xl font-extrabold tracking-wide underline decoration-primary/30 underline-offset-8 transition hover:text-primary hover:decoration-primary">
-                  {commercialRegistration.number}
-                </a>
+                {regLink ? (
+                  <a {...regLink} dir="ltr" className="mt-0.5 block w-fit text-4xl font-extrabold tracking-wide underline decoration-primary/30 underline-offset-8 transition hover:text-primary hover:decoration-primary">
+                    {reg.number}
+                  </a>
+                ) : (
+                  <p dir="ltr" className="mt-0.5 w-fit text-4xl font-extrabold tracking-wide">{reg.number}</p>
+                )}
               </div>
             </div>
-            <a href={commercialRegistration.url} target="_blank" rel="noreferrer" className="group inline-flex items-center gap-2 rounded-xl bg-ink px-6 py-3 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep">
+            {regLink && <a {...regLink} className="group inline-flex items-center gap-2 rounded-xl bg-ink px-6 py-3 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep">
               {w.check}
               <svg viewBox="0 0 24 24" className="h-4 w-4 transition-transform group-hover:-translate-x-1 ltr:rotate-180 ltr:group-hover:translate-x-1" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 6-6 6 6 6" /></svg>
-            </a>
+            </a>}
           </div>
         </div>
       </Reveal>
 
       <div className="mt-8 grid gap-6 md:grid-cols-3">
         {w.cards.map((card, i) => (
-          <Reveal key={card.title} delay={0.2 + i * 0.1}>
+          <Reveal key={i} delay={0.2 + i * 0.1}>
             <Tilt max={12} perspective={800} className="h-full">
               <div className="group relative h-full overflow-hidden rounded-[2rem] bg-gradient-to-br from-soft/80 to-card p-7 ring-1 ring-fg/10 transition-shadow duration-300 hover:shadow-[0_30px_50px_-30px_rgb(0_0_0/0.35)]">
                 <span className="relative grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-primary to-deep text-onink shadow-md">
@@ -983,7 +1011,7 @@ export function Trust() {
                 <h3 className="relative mt-4 text-lg font-bold">{card.title}</h3>
                 <p className="relative mt-1.5 text-sm leading-relaxed text-muted">{card.body}</p>
                 {/* The place, and the phone and email: plain lines with a small icon */}
-                {i === 1 && (
+                {i === 1 && contact.place && (
                   <p className="relative mt-4 flex items-center gap-2 text-sm font-bold">
                     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{icons[1]}</svg>
                     {contact.place}
@@ -991,14 +1019,14 @@ export function Trust() {
                 )}
                 {i === 2 && (
                   <div className="relative mt-4 space-y-2 text-sm font-bold">
-                    <a href={`tel:${contact.phone.replace(/\s/g, "")}`} dir="ltr" className="flex w-fit items-center gap-2 transition-colors hover:text-primary">
+                    {contact.phone && <a href={`tel:${contact.phone.replace(/\s/g, "")}`} dir="ltr" className="flex w-fit items-center gap-2 transition-colors hover:text-primary">
                       <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{icons[2]}</svg>
                       {contact.phone}
-                    </a>
-                    <a href={`mailto:${contact.email}`} dir="ltr" className="flex w-fit items-center gap-2 transition-colors hover:text-primary">
+                    </a>}
+                    {contact.email && <a href={`mailto:${contact.email}`} dir="ltr" className="flex w-fit items-center gap-2 transition-colors hover:text-primary">
                       <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>
                       {contact.email}
-                    </a>
+                    </a>}
                   </div>
                 )}
               </div>
@@ -1022,8 +1050,8 @@ const ctaTiles = [
 ];
 
 export function FinalCta() {
-  const { lang, t } = usePrefs();
-  const c = content[lang].finalCta;
+  const { s } = useSite();
+  const c = s.finalCta;
   /* Random motion for every tile: its own speed, direction, distance, tilt and starting moment, so they never move together.
      It is made after the page opens, so the server and the browser agree on what they show first. */
   const [motion, setMotion] = useState<{ dx: number; dy: number; r: number; dur: number; delay: number }[]>([]);
@@ -1054,32 +1082,44 @@ export function FinalCta() {
           ))}
 
           <h2 className="dk-text-sweep text-3xl font-extrabold tracking-tight sm:text-5xl">{c.title}</h2>
-          <Typed as="p" text={c.body} speed={24} className="mx-auto mt-4 max-w-xl text-white/70" />
-          <div className="relative mt-9 inline-block">
+          {c.body && <Typed as="p" text={c.body} speed={24} className="mx-auto mt-4 max-w-xl text-white/70" />}
+          {c.button.href && <div className="relative mt-9 inline-block">
             {/* A ring that keeps growing and fading around the button */}
             <span aria-hidden className="dk-ring absolute inset-0 rounded-xl ring-2 ring-white/50" style={{ animationDuration: "5s" }} />
-            <a href="/signup" style={{ animationDuration: "15s" }} className="dk-shimmer group relative inline-flex items-center gap-2 rounded-xl bg-white px-7 py-4 font-semibold text-[#00323b] transition hover:-translate-y-0.5 hover:bg-[#e8faf5]">
-              {t.cta1}
+            <a {...linkAttrs(c.button.href)} style={{ animationDuration: "15s" }} className="dk-shimmer group relative inline-flex items-center gap-2 rounded-xl bg-white px-7 py-4 font-semibold text-[#00323b] transition hover:-translate-y-0.5 hover:bg-[#e8faf5]">
+              {c.button.label}
               <svg viewBox="0 0 24 24" className="h-4 w-4 transition-transform group-hover:-translate-x-1 ltr:rotate-180 ltr:group-hover:translate-x-1" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 6-6 6 6 6" /></svg>
             </a>
-          </div>
+          </div>}
         </div>
       </Reveal>
     </section>
   );
 }
 
-const socialIcons = [
-  <path key="tt" d="M14 4v10.500a3.500 3.500 0 1 1-3.500-3.500M14 4c.4 2.500 2 4 4.500 4.200" />,
-  <path key="x" d="M5 5l14 14M19 5 5 19" />,
-  <g key="yt"><rect x="3" y="6" width="18" height="12" rx="3.500" /><path d="m10.500 9.500 4 2.500-4 2.500Z" /></g>,
-  <g key="ig"><rect x="4" y="4" width="16" height="16" rx="4.500" /><circle cx="12" cy="12" r="3.500" /><path d="M16.800 7.200v.01" /></g>,
-];
+/* One icon per social network; Diwan > Website gives each network its address */
+const socialIcons: Record<SiteView["social"][number]["kind"], React.ReactNode> = {
+  tiktok: <path d="M14 4v10.500a3.500 3.500 0 1 1-3.500-3.500M14 4c.4 2.500 2 4 4.500 4.200" />,
+  x: <path d="M5 5l14 14M19 5 5 19" />,
+  youtube: <g><rect x="3" y="6" width="18" height="12" rx="3.500" /><path d="m10.500 9.500 4 2.500-4 2.500Z" /></g>,
+  instagram: <g><rect x="4" y="4" width="16" height="16" rx="4.500" /><circle cx="12" cy="12" r="3.500" /><path d="M16.800 7.200v.01" /></g>,
+  facebook: <path d="M14.500 8H17V4.500h-2.500A3.500 3.500 0 0 0 11 8v2.500H8.500V14H11v6h3.500v-6H17l.5-3.500h-3V8.500a.5.5 0 0 1 .5-.5Z" />,
+  linkedin: <g><rect x="3.500" y="3.500" width="17" height="17" rx="3" /><path d="M8 10.500V16M8 7.700v.01M11.500 16v-5.500M11.500 13c0-1.500 1-2.500 2.300-2.500S16 11.300 16 13v3" /></g>,
+};
 
 export function Footer() {
-  const { lang } = usePrefs();
-  const c = content[lang].footer;
-  const cols = [...c.cols, { title: c.industriesTitle, links: industryCopy[lang].map((i) => i.name) }];
+  const { lang, s } = useSite();
+  const c = s.footer;
+  /* A link with no address is left out, and a column left with no links goes too. The industries column lists the
+     industries of the section above and leads to it. */
+  const cols = [
+    ...c.columns.map((col) => ({ title: col.title, links: col.links.filter((l) => l.href && l.label) })),
+    { title: c.industriesTitle, links: s.industries.items.map((i) => ({ label: i.name, href: "#industries" })) },
+  ].filter((col) => col.links.length);
+  /* with up to three link columns, the payment logos and "Available in" keep their own two columns at the far side */
+  const placed = cols.length <= 3;
+  const social = s.social.filter((x) => x.href);
+  const contact = s.contact;
   const pin = (
     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M12 21s7-6.100 7-11.500A7 7 0 0 0 5 9.500C5 14.900 12 21 12 21Z" />
@@ -1106,54 +1146,65 @@ export function Footer() {
           <div className="flex items-start gap-6">
             <div>
               <Logo />
-              <p className="mt-3 max-w-xs text-sm text-muted">{c.tagline}</p>
+              {c.tagline && <p className="mt-3 max-w-xs text-sm text-muted">{c.tagline}</p>}
             </div>
           </div>
 
-          <ul className="flex items-center gap-3">
-            {c.social.map((name, i) => (
-              <li key={name}>
-                <a href="#" aria-label={name} title={name} className="grid h-10 w-10 place-items-center rounded-xl text-primary transition hover:-translate-y-0.5 hover:bg-fg/[0.07]">
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    {socialIcons[i]}
-                  </svg>
-                </a>
-              </li>
-            ))}
-          </ul>
+          {social.length > 0 && (
+            <ul className="flex items-center gap-3">
+              {social.map((x) => {
+                const name = SOCIAL_NAMES[x.kind][lang];
+                return (
+                  <li key={x.kind}>
+                    <a {...linkAttrs(x.href)} aria-label={name} title={name} className="grid h-10 w-10 place-items-center rounded-xl text-primary transition hover:-translate-y-0.5 hover:bg-fg/[0.07]">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        {socialIcons[x.kind]}
+                      </svg>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
 
         <div className="mt-10 grid gap-10 border-t border-fg/10 py-12 sm:grid-cols-2 md:grid-cols-5">
-          {cols.map((col) => (
-            <div key={col.title}>
+          {cols.map((col, i) => (
+            <div key={i}>
               <h4 className="text-sm font-bold text-muted">{col.title}</h4>
               <ul className="mt-5 space-y-3 text-sm">
-                {col.links.map((l) => (
-                  <li key={l}><a href="#" className="transition-colors hover:text-primary">{l}</a></li>
+                {col.links.map((l, j) => (
+                  <li key={j}><a {...linkAttrs(l.href)} className="transition-colors hover:text-primary">{l.label}</a></li>
                 ))}
               </ul>
             </div>
           ))}
 
           {/* The two columns that were empty: the payment methods, small, two above two, next to the industries; and "Available in" as the last thing on the far side */}
-          <div className="sm:col-span-2 md:col-span-1 md:col-start-4">
-            <div className="grid w-fit grid-cols-[6.5rem_6.5rem] items-center gap-y-4">
-              {/* Two even columns, every logo starting at the same edge, and every row on one centre line. CliQ uses a copy of its picture with the empty space cut away, so it starts at the edge like the others. */}
-              {/* eslint-disable @next/next/no-img-element */}
-              <span className="flex h-6 items-center"><img src="/logos/visa.png" alt="Visa" className="block h-4 w-auto" /></span>
-              <span className="flex h-6 items-center"><img src="/logos/applepay.png" alt="Apple Pay" className="block h-[18px] w-auto dark:brightness-0 dark:invert" /></span>
-              <span className="flex h-6 items-center"><img src="/logos/cliq-tight.png" alt="CliQ" className="block h-[22px] w-auto dark:brightness-0 dark:invert" /></span>
-              <span className="flex h-6 items-center"><img src="/logos/paypal.png" alt="PayPal" className="block h-[14px] w-auto" /></span>
-              {/* eslint-enable @next/next/no-img-element */}
+          {c.payments.length > 0 && (
+            <div className={`sm:col-span-2 md:col-span-1 ${placed ? "md:col-start-4" : ""}`}>
+              <div className="grid w-fit grid-cols-[6.5rem_6.5rem] items-center gap-y-4">
+                {/* Two even columns, every logo starting at the same edge, and every row on one centre line. CliQ uses a copy of its picture with the empty space cut away, so it starts at the edge like the others. */}
+                {c.payments.map((p, i) => (
+                  <span key={i} className="flex h-6 items-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.src} alt={p.name} className={`block w-auto ${p.invertInDark ? "dark:brightness-0 dark:invert" : ""}`} style={{ height: p.height }} />
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="sm:col-span-2 md:col-span-1 md:col-start-5">
-            <p className="text-sm font-bold text-muted">{c.availableIn}</p>
-            <p className="mt-2 flex items-center gap-2 text-sm font-semibold">
-              <FlagJO />
-              {c.country}
-            </p>
-          </div>
+          )}
+          {(c.availableIn || c.country) && (
+            <div className={`sm:col-span-2 md:col-span-1 ${placed ? "md:col-start-5" : ""}`}>
+              {c.availableIn && <p className="text-sm font-bold text-muted">{c.availableIn}</p>}
+              {c.country && (
+                <p className="mt-2 flex items-center gap-2 text-sm font-semibold">
+                  <FlagJO />
+                  {c.country}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1161,9 +1212,9 @@ export function Footer() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-8 gap-y-3 px-5 py-5 text-sm text-muted">
           <p>{c.legal}</p>
           <ul className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            <li className="flex items-center gap-2">{phone}<span dir="ltr">{c.contact.phone}</span></li>
-            <li className="flex items-center gap-2">{pin}{c.contact.place}</li>
-            <li className="flex items-center gap-2">{mail}<span dir="ltr">{c.contact.email}</span></li>
+            {contact.phone && <li><a href={`tel:${contact.phone.replace(/\s/g, "")}`} className="flex items-center gap-2 transition-colors hover:text-primary">{phone}<span dir="ltr">{contact.phone}</span></a></li>}
+            {contact.place && <li className="flex items-center gap-2">{pin}{contact.place}</li>}
+            {contact.email && <li><a href={`mailto:${contact.email}`} className="flex items-center gap-2 transition-colors hover:text-primary">{mail}<span dir="ltr">{contact.email}</span></a></li>}
           </ul>
         </div>
       </div>
