@@ -54,7 +54,7 @@ export async function encryptOldRows(pool: Pool): Promise<void> {
     /* the activity log: its reason, address and the texts in its details (audit() seals new lines the same way). The log
        refuses changes, so its trigger is off only inside this transaction, and only to seal what it already says. */
     const plainLog = `(reason IS NOT NULL AND reason <> '' AND reason NOT LIKE 'e1:%') OR (ip <> '' AND ip NOT LIKE 'e1:%')
-      OR jsonb_path_exists(meta, 'strict $.** ? (@.type() == "string" && !(@ starts with "e1:"))')`;
+      OR jsonb_path_exists(meta, 'strict $.** ? (@.type() == "string" && @ != "" && !(@ starts with "e1:"))')`;
     const log = await c.query(`SELECT id, reason::text AS raw_reason, ip::text AS raw_ip, meta::text AS raw_meta FROM audit_log WHERE ${plainLog}`);
     if (log.rows.length) {
       await c.query(`ALTER TABLE audit_log DISABLE TRIGGER audit_log_frozen`);
