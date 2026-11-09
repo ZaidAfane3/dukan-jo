@@ -32,6 +32,8 @@ const almarai = Almarai({ subsets: ["arabic"], weight: ["300", "400", "700"], va
    Almarai writes Arabic only: the English font pickers leave it out (fontChoices in storefront/config.ts). */
 const kufi = Noto_Kufi_Arabic({ subsets: ["arabic", "latin"], weight: ["300", "400", "500", "600", "800"], variable: "--font-kufi", preload: false });
 
+/* What every page is first sent with. The landing page then shows the title and description saved in Diwan > Website, in
+   the visitor's language (SiteMeta in components/useSiteContent.ts). */
 export const metadata: Metadata = {
   title: "Dukkan | Launch your online store in minutes",
   description:

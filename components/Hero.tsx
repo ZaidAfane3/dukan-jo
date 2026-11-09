@@ -3,7 +3,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
-import { usePrefs } from "./Prefs";
+import { linkAttrs, partGap } from "./siteContent";
+import { useSite } from "./useSiteContent";
 import { Tilt } from "./ui";
 
 const bars = [38, 26, 31, 22, 62, 50, 36, 47, 66, 52, 62, 82, 100];
@@ -110,7 +111,8 @@ const GOAL = 56000;
 const START = { visits: 12480, sales: 48339, orders: 692 };
 
 export function Hero() {
-  const { lang, t } = usePrefs();
+  const { lang, s } = useSite();
+  const h = s.hero;
   const d = content[lang].dashboard;
   const pv = preview[lang];
 
@@ -164,7 +166,7 @@ export function Hero() {
             transition={{ duration: 0.8, delay: 0.1, ease: [0.2, 0.65, 0.3, 0.9] }}
             className="text-5xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl"
           >
-            {t.h1a}<span className="text-primary">{t.h1b}</span>{t.h1c}
+            {h.before}{partGap(h.before, h.highlight)}<span className="text-primary">{h.highlight}</span>{partGap(h.before + h.highlight, h.after)}{h.after}
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 24 }}
@@ -172,7 +174,7 @@ export function Hero() {
             transition={{ duration: 0.8, delay: 0.2, ease: [0.2, 0.65, 0.3, 0.9] }}
             className="mt-6 max-w-lg text-lg leading-relaxed text-muted"
           >
-            {t.sub}
+            {h.sub}
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 24 }}
@@ -180,14 +182,19 @@ export function Hero() {
             transition={{ duration: 0.8, delay: 0.3, ease: [0.2, 0.65, 0.3, 0.9] }}
             className="mt-8 flex flex-wrap gap-3"
           >
-            <a href="/signup" className="rounded-xl bg-ink px-6 py-3.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-deep">
-              {t.cta1}
-            </a>
-            <a href="/demo" className="rounded-xl border border-fg/20 px-6 py-3.5 font-semibold transition hover:-translate-y-0.5 hover:bg-card">
-              {t.cta2}
-            </a>
+            {/* a button with no address is left out rather than shown going nowhere */}
+            {h.cta1.href && h.cta1.label && (
+              <a {...linkAttrs(h.cta1.href)} className="rounded-xl bg-ink px-6 py-3.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-deep">
+                {h.cta1.label}
+              </a>
+            )}
+            {h.cta2.href && h.cta2.label && (
+              <a {...linkAttrs(h.cta2.href)} className="rounded-xl border border-fg/20 px-6 py-3.5 font-semibold transition hover:-translate-y-0.5 hover:bg-card">
+                {h.cta2.label}
+              </a>
+            )}
           </motion.div>
-          <p className="mt-6 text-base font-medium text-muted">{t.note}</p>
+          {h.note && <p className="mt-6 text-base font-medium text-muted">{h.note}</p>}
         </div>
 
         <motion.div

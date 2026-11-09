@@ -7,7 +7,8 @@ import type { Lang } from "./content";
 export type { Lang };
 type Theme = "light" | "dark";
 
-/* Copy that has an Arabic translation so far (nav + hero). The rest follows. */
+/* The landing page's first words, kept as `t` for any page that still reads it. The landing page itself no longer reads
+   them from here: its words are edited in Diwan and come from components/siteContent.ts (through useSiteContent.ts). */
 const en = {
     solutions: "Solutions",
     industries: "Industries",
@@ -44,76 +45,6 @@ const ar: typeof en = {
 
 export type Copy = typeof en;
 
-/* An industry can have a detail card: a title, a short text, three points, and pictures of a store of that kind
-   (each picture is a part of a long picture of the page: `y` is how far down it, in percent). */
-export type IndustryDetail = {
-  title: string;
-  body: string;
-  bullets: string[];
-  shots: { src: string; y: number }[];
-  /* Several stores of this industry in one window, taking turns: one scrolls down its whole page, then the next appears (in place of the shots) */
-  stores?: { src: string; address: string; view: string }[];
-};
-
-/* Industries: name + one-line blurb per language (same order as the icons). */
-export const industries: Record<Lang, { name: string; blurb: string; detail?: IndustryDetail }[]> = {
-  en: [
-    {
-      name: "Fashion",
-      blurb: "Colors, sizes and new drops every week, handled.",
-      detail: {
-        title: "A clothing store that looks like you",
-        body: "Hoodies, tees, caps or anything you can wear. Your store comes alive with bold colors, quick category buttons and a product page with sizes and reviews.",
-        bullets: ["Colorful quick buttons for Men, Women and more", "Product pages with sizes, stars and customer opinions", "A page for every category, ready to fill"],
-        shots: [{ src: "/themes/lamma.jpg?v=3", y: 0 }, { src: "/themes/lamma-product.jpg", y: 0 }],
-        stores: [{ src: "/themes/mada.jpg?v=4", address: "dukkan.store/your-store", view: "/store?theme=mada" }, { src: "/themes/lamma.jpg?v=3", address: "dukkan.store/your-store", view: "/store?theme=lamma" }],
-      },
-    },
-    {
-      name: "Perfumes",
-      blurb: "Collections, gift sets and samples, handled.",
-      detail: {
-        title: "Smart tools for selling your perfumes",
-        body: "Whether you sell fine fragrances, oud or gift sets, your store shows every scent with elegance and takes orders without any technical fuss.",
-        bullets: ["Show each perfume's notes and size on its card", "A ready luxury design for your collections and banners", "Choose which part of each bottle's picture shows"],
-        shots: [{ src: "/themes/atelier.jpg?v=2x", y: 0 }, { src: "/themes/atelier.jpg?v=2x", y: 34 }],
-      },
-    },
-    { name: "Jewelry", blurb: "Premium presentation with secure checkout." },
-    { name: "Digital products", blurb: "Instant delivery for downloads, courses and licenses." },
-    { name: "Electronics", blurb: "Warranty, serial tracking and fast fulfilment." },
-    { name: "Beauty", blurb: "Routines, bundles and loyalty rewards." },
-    { name: "Home", blurb: "Large catalogs with flexible shipping." },
-  ],
-  ar: [
-    {
-      name: "أزياء",
-      blurb: "ألوان ومقاسات وموديلات جديدة كل أسبوع، كلها بسهولة.",
-      detail: {
-        title: "متجر ملابس يشبه ذوقك",
-        body: "هوديز وتيشيرتات وكابات وكل ما يُلبس. يصير متجرك مليان حياة بألوان جريئة، وأزرار تصنيفات سريعة، وصفحة منتج فيها مقاسات وتقييمات.",
-        bullets: ["أزرار ملوّنة سريعة لرجالي ونسائي وغيرها", "صفحات منتجات بمقاسات ونجوم وآراء العملاء", "صفحة جاهزة لكل تصنيف وتنتظر منتجاتك"],
-        shots: [{ src: "/themes/lamma.jpg?v=3", y: 0 }, { src: "/themes/lamma-product.jpg", y: 0 }],
-        stores: [{ src: "/themes/mada.jpg?v=4", address: "dukkan.store/your-store", view: "/store?theme=mada" }, { src: "/themes/lamma.jpg?v=3", address: "dukkan.store/your-store", view: "/store?theme=lamma" }],
-      },
-    },
-    {
-      name: "العطور",
-      blurb: "مجموعات وأطقم هدايا وعيّنات، كلها بسهولة.",
-      detail: {
-        title: "حلول ذكية لبيع عطورك",
-        body: "سواء كنت تبيع عطورًا فاخرة أو دهن عود أو أطقم هدايا، يعرض متجرك كل عطر بأناقة ويستقبل الطلبات بدون أي تعقيدات تقنية.",
-        bullets: ["اعرض نوتات كل عطر وحجمه على بطاقته", "تصميم فاخر جاهز لمجموعاتك وبنراتك", "اختر الجزء الظاهر من صورة كل زجاجة"],
-        shots: [{ src: "/themes/atelier.jpg?v=2x", y: 0 }, { src: "/themes/atelier.jpg?v=2x", y: 34 }],
-      },
-    },
-    { name: "المجوهرات", blurb: "عرض فاخر مع دفع آمن." },
-    { name: "المنتجات الرقمية", blurb: "تسليم فوري للملفات والدورات والتراخيص." },
-    { name: "الإلكترونيات", blurb: "ضمان وتتبع للأرقام التسلسلية وتجهيز سريع للطلبات." },
-    { name: "العناية والتجميل", blurb: "روتين وباقات ومكافآت ولاء لعملائك." },
-    { name: "مستلزمات المنزل", blurb: "كتالوجات كبيرة مع خيارات شحن مرنة." },
-  ],
-};
 export const dict: Record<Lang, Copy> = { en, ar };
 
 type Ctx = {
@@ -166,7 +97,6 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
-    if (window.location.pathname === "/") document.title = lang === "ar" ? "دكان | أطلق متجرك الإلكتروني في دقائق" : "Dukkan | Launch your online store in minutes";
   }, [lang]);
 
   useEffect(() => {
