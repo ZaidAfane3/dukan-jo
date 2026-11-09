@@ -1,8 +1,8 @@
 import { cleanSetting, SETTING_DEFAULTS, type PlatformSettings, type SettingKey } from "@/components/diwan/platformSettings";
 import { db } from "./db";
 
-/* The platform settings Diwan saves (platform_settings), read where the server charges or checks something: the domain
-   prices, the ways to pay. Each value passes its rules again (a value an older version saved that no longer passes them
+/* The platform settings Diwan saves (platform_settings), read where the server charges or checks something: the ways
+   to pay, Dukkan Ship. Each value passes its rules again (a value an older version saved that no longer passes them
    counts as never saved), and a setting never saved gives its starting value, which is what the code did before Diwan. */
 
 /** One setting as Dukkan uses it now */

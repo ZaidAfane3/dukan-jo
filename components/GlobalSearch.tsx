@@ -19,7 +19,7 @@ const pages = [
   { href: "/marketing/coupons", en: "Coupons", ar: "الكوبونات", kw: "coupon discount code free shipping marketing خصم كود تسويق" },
   { href: "/marketing/repurchase", en: "Repurchase reminders", ar: "تذكيرات إعادة الشراء", kw: "repurchase buy again reminder marketing تسويق" },
   { href: "/reports", en: "Store performance", ar: "أداء المتجر", kw: "reports analytics visits payments sales customers تقارير مدفوعات زيارات" },
-  { href: "/domain", en: "Store domain", ar: "دومين المتجر", kw: "domain address link url dukkan.store نطاق رابط عنوان المتجر" },
+  { href: "/store-link", en: "Store link", ar: "رابط المتجر", kw: "link address url dukkan.store domain رابط عنوان المتجر" },
   { href: "/themes", en: "Theme store", ar: "متجر الثيمات", kw: "themes templates buy store design ثيمات قوالب شراء تصميم" },
   { href: "/themes/mine", en: "My themes", ar: "ثيماتي", kw: "my themes bought owned ثيماتي ثيمات مشتريات" },
   { href: "/design", en: "Store design", ar: "تصميم المتجر", kw: "design theme storefront colors header footer sections editor تصميم ثيم ألوان واجهة المتجر" },
@@ -28,7 +28,7 @@ const pages = [
   { href: "/support", en: "Support tickets", ar: "تذاكر الدعم", kw: "support help ticket contact دعم مساعدة تذكرة" },
   { href: "/settings", en: "Account settings", ar: "إعدادات الحساب", kw: "settings profile password phone email name إعدادات الملف الشخصي كلمة المرور" },
   { href: "/settings/notifications", en: "Notifications settings", ar: "إعدادات الإشعارات", kw: "notification email alerts إشعارات تنبيهات بريد" },
-  { href: "/onboarding", en: "Complete store setup", ar: "إكمال إعداد المتجر", kw: "setup onboarding store domain shipping identity إعداد هوية المتجر الشحن النطاق" },
+  { href: "/onboarding", en: "Complete store setup", ar: "إكمال إعداد المتجر", kw: "setup onboarding store link shipping identity إعداد هوية المتجر الشحن الرابط" },
 ];
 
 const copy = {

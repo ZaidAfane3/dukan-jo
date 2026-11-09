@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePrefs } from "./Prefs";
-import { cleanDomains } from "./safeAccount";
 import { loadSetup } from "./setup";
 import { StorefrontTheme } from "./storefront/StorefrontTheme";
 import { composeDesign, DEFAULT_THEME_ID, lookOf, previewProducts, type ThemeInfo } from "./themes";
@@ -22,16 +21,10 @@ export function ThemePreview({ theme, height, scroll = false, sample = false }: 
   const { lang } = usePrefs();
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(380);
-  /* The address of the merchant's own store: his own domain when he has added one on the domain page, otherwise his dukkan.store address */
+  /* The address of the merchant's own store: his dukkan.store link (every store lives at Dukkan's address) */
   const [address, setAddress] = useState("");
   useEffect(() => {
-    let own = "";
-    try {
-      own = cleanDomains(JSON.parse(localStorage.getItem("seen-domains") ?? "[]"))[0]?.name ?? "";
-    } catch {
-      /* no domains saved */
-    }
-    setAddress(sample ? `dukkan.store/${theme.id}` : own || `dukkan.store/${loadSetup()?.slug || "your-store"}`);
+    setAddress(`dukkan.store/${sample ? theme.id : loadSetup()?.slug || "your-store"}`);
   }, [sample, theme.id]);
 
   /* React 18 does not know the inert attribute yet, so it is set by hand */

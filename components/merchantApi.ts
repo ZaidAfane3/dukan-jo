@@ -1,7 +1,7 @@
 import { demoActive, signedInAs } from "./demoSandbox";
 
 /* The calls a merchant's pages make to Dukkan's server for things that must reach Dukkan itself (a deleted order, a
-   domain, a theme bought, the account's profile and password), next to what the pages keep in the browser. Only for a
+   theme bought, the account's profile and password), next to what the pages keep in the browser. Only for a
    signed-in account, and never during the platform tour (demoSandbox.ts): signed out or in the tour, nothing is sent. */
 
 /** True when the page should send its changes to the server */

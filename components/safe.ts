@@ -439,7 +439,7 @@ export const RESERVED_SLUGS = new Set([
   "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "cdn", "checkout", "dashboard", "demo", "design",
   "dev", "docs", "domain", "dukkan", "help", "home", "login", "logout", "mail", "marketing", "new", "null", "onboarding", "orders",
   "pages", "preview", "products", "register", "reports", "root", "seen", "settings", "shop", "signin", "signup", "staff",
-  "static", "status", "store", "support", "system", "test", "themes", "undefined", "www",
+  "static", "status", "store", "store-link", "support", "system", "test", "themes", "undefined", "www",
 ]);
 
 /** Turns what was typed into a store address: lower case, spaces become dashes, other characters go. */
@@ -448,23 +448,3 @@ export function typedSlug(s: unknown): string {
 }
 
 export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG_RULE.test(s) && !RESERVED_SLUGS.has(s);
-
-/* The platform's own domains: a merchant cannot add them as his custom domain. */
-const PLATFORM_DOMAINS = ["dukkan.store", "dukkan.jo", "seen.jo"];
-
-/** A custom domain as it is saved: lower case, without https://, www., a path or a final dot; an Arabic or other
-    non-Latin name becomes its xn-- form. Gives "" when it is not a domain a merchant can connect. */
-export function cleanDomain(s: unknown): string {
-  if (typeof s !== "string") return "";
-  let v = s.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "").replace(/\.$/, "");
-  if (!v || v.length > 253 || /[\s<>"'`\\@:]/.test(v)) return "";
-  try {
-    v = new URL(`https://${v}`).hostname;
-  } catch {
-    return "";
-  }
-  if (v.length > 253 || !/^(?!-)(?:[a-z0-9-]{1,63}\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/.test(v)) return "";
-  if (v.split(".").some((l) => l.startsWith("-") || l.endsWith("-"))) return "";
-  if (PLATFORM_DOMAINS.some((d) => v === d || v.endsWith(`.${d}`))) return "";
-  return v;
-}

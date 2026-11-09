@@ -14,7 +14,6 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan/tickets", en: "Tickets", ar: "التذاكر", perm: "tickets", group: "support" },
   { href: "/diwan/complaints", en: "Store reports", ar: "بلاغات المتاجر", perm: "complaints", group: "support" },
   { href: "/diwan/documents", en: "Documents", ar: "المستندات", perm: "documents", group: "support" },
-  { href: "/diwan/domains", en: "Domains", ar: "النطاقات", perm: "domains", group: "support" },
   { href: "/diwan/feedback", en: "Bugs and ideas", ar: "الأخطاء والأفكار", perm: "tickets", group: "support" },
   /* marketing: what Dukkan's team sends to merchants' dashboards */
   { href: "/diwan/announcements", en: "Announcements", ar: "الإعلانات", perm: "announce", group: "merchants" },

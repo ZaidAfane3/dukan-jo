@@ -27,7 +27,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
 import { AccountBanners } from "./SupportBanner";
 
-type Section = "home" | "pages" | "domain" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
+type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -340,10 +340,10 @@ export function DashboardBar({
       key: "store",
       label: lang === "ar" ? "المتجر" : "Store",
       icon: icons.channels,
-      section: "domain",
+      section: "store",
       sub: [
         { label: lang === "ar" ? "تصميم المتجر" : "Store design", href: "/design" },
-        { label: lang === "ar" ? "دومين المتجر" : "Store domain", href: "/domain" },
+        { label: lang === "ar" ? "رابط المتجر" : "Store link", href: "/store-link" },
         { label: lang === "ar" ? "ثيماتي" : "My themes", href: "/themes/mine" },
         { label: lang === "ar" ? "متجر الثيمات" : "Theme store", href: "/themes" },
         ...(tour ? [] : [{ label: lang === "ar" ? "خيارات التوصيل" : "Delivery options", href: "/delivery" }]),
@@ -375,7 +375,7 @@ export function DashboardBar({
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [openKey, setOpenKey] = useState<string | null>(active === "domain" ? "store" : active === "orders" || active === "marketing" || active === "reports" ? active : null);
+  const [openKey, setOpenKey] = useState<string | null>(active === "store" ? "store" : active === "orders" || active === "marketing" || active === "reports" ? active : null);
 
   /* Remember whether the sidebar was collapsed. The page padding follows it through a CSS variable. */
   useEffect(() => {

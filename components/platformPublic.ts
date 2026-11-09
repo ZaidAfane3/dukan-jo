@@ -4,7 +4,7 @@ import { cleanSetting, PUBLIC_KEYS, SETTING_DEFAULTS, THEME_PAYS, type PayMethod
 export { THEME_PAYS, type ThemePay };
 
 /* The platform settings Dukkan's staff save in Diwan that the merchant pages and the stores read (GET
-   /api/platform/settings): the domain prices, the ways to pay, the free themes, Dukkan Ship and the legal pages a new
+   /api/platform/settings): the ways to pay, the free themes, Dukkan Ship and the legal pages a new
    store starts with. Diwan is where they are decided; the pages only show them, and the server checks again whatever is
    charged or paid (never trusting what a page sends).
 

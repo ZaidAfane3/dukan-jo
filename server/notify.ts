@@ -5,7 +5,6 @@ import { db } from "./db";
    its params (components/notifications.ts holds the wording). Kinds Dukkan's side sends:
      ticketReplied   { number, subject }        Dukkan answered a ticket
      ticketStatus    { number, status }         a ticket was resolved or closed
-     domainStatus    { domain, status, note }   a domain became active or failed
      documentStatus  { name, status, note }     a paper was approved or rejected
      shopSuspended   { reason }                 the store was suspended
      shopReactivated {}                         the store is back
@@ -14,7 +13,7 @@ import { db } from "./db";
      supportViewed   { minutes }                Dukkan support opened the store (log in as merchant)
    Announcements are not sent with this: they are rows in announcements, shown to whoever they are for. */
 export type NotifyKind =
-  | "ticketReplied" | "ticketStatus" | "domainStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
+  | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
   | "planChanged" | "paymentReceived" | "supportViewed";
 
 /* the free-text details (a ticket's subject, a staff note, a suspension reason) are stored encrypted; numbers, kinds

@@ -41,7 +41,6 @@ type Rows = Record<string, any>[];
 type Detail = {
   shop: Shop;
   payments: Rows;
-  domains: Rows;
   themes: Rows;
   tickets: Rows;
   deletions: Rows;
@@ -136,7 +135,20 @@ export default function ShopPage({ params }: { params: { id: string } }) {
                 <Line k={t("2-step code", "رمز التحقق بخطوتين")} v={sh.totp_on ? t("On", "مفعّل") : t("Off", "غير مفعّل")} />
               </Info>
               <Info title={t("Store", "المتجر")}>
-                <Line k={t("Link", "الرابط")} v={sh.slug ? storeLink(sh.slug) : "—"} ltr />
+                {/* the store's only address: Dukkan's, followed by its link name (Dukkan connects no other domain) */}
+                <Line
+                  k={t("Store link", "رابط المتجر")}
+                  v={
+                    sh.slug ? (
+                      <a href={`https://${storeLink(sh.slug)}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        {storeLink(sh.slug)}
+                      </a>
+                    ) : (
+                      "—"
+                    )
+                  }
+                  ltr
+                />
                 <Line
                   k={t("Color", "اللون")}
                   v={
@@ -188,11 +200,6 @@ export default function ShopPage({ params }: { params: { id: string } }) {
                 head={[t("Started", "البداية"), t("Staff", "الموظف"), t("Reason", "السبب"), t("Mode", "النوع"), t("Ended", "الانتهاء")]}
                 rows={d.visits}
                 row={(r) => [f.dateTime(r.started_at), r.staff, r.reason, r.view_only ? t("View only", "عرض فقط") : t("Could change", "مع التعديل"), r.ended_at ? f.dateTime(r.ended_at) : new Date(r.ends_at) > new Date() ? t("Open now", "مفتوحة الآن") : f.dateTime(r.ends_at)]}
-              />
-              <Section title={t("Domains", "النطاقات")} empty={t("No domains yet.", "لا توجد نطاقات بعد.")}
-                head={[t("Domain", "النطاق"), t("Kind", "النوع"), t("Status", "الحالة"), t("Renews", "التجديد"), t("Added", "أضيف")]}
-                rows={d.domains}
-                row={(r) => [<span key="n" dir="ltr">{r.name}</span>, r.kind === "bought" ? t("Bought", "مشترى") : t("Connected", "مربوط"), r.status, f.date(r.renews_at), f.date(r.created_at)]}
               />
               <Section title={t("Themes bought", "الثيمات المشتراة")} empty={t("No themes bought yet.", "لم تُشترَ أي ثيمات بعد.")}
                 head={[t("Theme", "الثيم"), t("Price", "السعر"), t("Paid", "الدفع")]}

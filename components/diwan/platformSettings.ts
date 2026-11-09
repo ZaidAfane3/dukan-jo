@@ -1,4 +1,3 @@
-import { ENDINGS, endingOk } from "../domainShop";
 import { cleanLine, cleanLines, cleanMoney, visibleLength } from "../safe";
 
 /* The platform settings Diwan can change (platform_settings rows), their starting values and the rules each value must pass.
@@ -29,16 +28,17 @@ export type PlatformSettings = {
   payment_methods: PaymentMethods;
   default_themes: string[];
   seo_defaults: SeoDefaults;
-  domain_prices: Record<string, number>;
   dukkan_ship: DukkanShip;
   store_legal_templates: StoreLegalTemplates;
 };
 export type SettingKey = keyof PlatformSettings;
 
-export const SETTING_KEYS: SettingKey[] = ["trial_days", "shipping_companies", "payment_methods", "default_themes", "seo_defaults", "domain_prices", "dukkan_ship", "store_legal_templates"];
+/* Dukkan once sold domains, with a "domain_prices" setting; it no longer does (every store lives at dukkan.store/<its
+   link>), so that key is gone from here. A row still saved under it is never read, sent or shown. */
+export const SETTING_KEYS: SettingKey[] = ["trial_days", "shipping_companies", "payment_methods", "default_themes", "seo_defaults", "dukkan_ship", "store_legal_templates"];
 /* What any visitor's page may read (GET /api/platform/settings): prices, ways to pay and texts every store shows anyway. The
    rest (the trial length) stays inside Diwan. */
-export const PUBLIC_KEYS = ["payment_methods", "shipping_companies", "seo_defaults", "default_themes", "domain_prices", "dukkan_ship", "store_legal_templates"] as const satisfies readonly SettingKey[];
+export const PUBLIC_KEYS = ["payment_methods", "shipping_companies", "seo_defaults", "default_themes", "dukkan_ship", "store_legal_templates"] as const satisfies readonly SettingKey[];
 export type PublicKey = (typeof PUBLIC_KEYS)[number];
 export type PublicSettings = Pick<PlatformSettings, PublicKey>;
 
@@ -82,7 +82,6 @@ export const SETTING_DEFAULTS: PlatformSettings = {
   /* empty: the code's own free designs (Dukkan and Mada, components/themes.ts) */
   default_themes: [],
   seo_defaults: { titleSuffix_en: "", titleSuffix_ar: "", description_en: "", description_ar: "" },
-  domain_prices: Object.fromEntries(ENDINGS.map((e) => [e.ending, e.price])),
   dukkan_ship: {
     price: 3,
     cities: [
@@ -101,7 +100,7 @@ export const SETTING_DEFAULTS: PlatformSettings = {
 };
 
 export const LIMITS = {
-  companies: 30, cities: 40, city: 40, companyName: 60, phone: 20, note: 200, themes: 20, suffix: 60, description: 300, endings: 30, maxTrial: 365,
+  companies: 30, cities: 40, city: 40, companyName: 60, phone: 20, note: 200, themes: 20, suffix: 60, description: 300, maxTrial: 365,
   shipPrice: 100, shipCities: 30, shipPolicy: 200, shipFeatures: 8, shipFeature: 80, legalTitle: 80, legalBody: 6000,
 };
 
@@ -127,9 +126,6 @@ function biList(v: unknown, maxItems: number, max: number): Bi[] | null {
   }
   return out;
 }
-
-/** A domain ending as Dukkan sells it: ".com", ".com.jo" */
-export const ENDING_RE = /^(\.[a-z0-9][a-z0-9-]{0,19}){1,2}$/;
 
 /** A theme id as components/themes.ts writes them */
 export const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -182,23 +178,6 @@ export function cleanSetting(key: SettingKey, v: unknown, themeIds?: string[]): 
         description_en: cleanLine(v.description_en ?? "", LIMITS.description),
         description_ar: cleanLine(v.description_ar ?? "", LIMITS.description),
       };
-    }
-
-    case "domain_prices": {
-      if (!isObj(v)) return null;
-      const entries = Object.entries(v);
-      if (!entries.length || entries.length > LIMITS.endings) return null;
-      const out: Record<string, number> = {};
-      for (const [ending, price] of entries) {
-        if (!ENDING_RE.test(ending)) return null;
-        /* an ending no real name can have (".j", saved before this was checked) is left out on its own, so the other saved
-           prices still apply; saving a new one is refused in the settings route */
-        if (!endingOk(ending)) continue;
-        const p = cleanMoney(typeof price === "number" ? String(price) : price, 10_000);
-        if (p === "") return null;
-        out[ending] = Number(p);
-      }
-      return Object.keys(out).length ? out : null;
     }
 
     case "dukkan_ship": {

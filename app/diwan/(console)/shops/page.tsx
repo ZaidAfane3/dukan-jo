@@ -13,7 +13,6 @@ type Row = {
   owner: string;
   email: string;
   phone: string;
-  domain: string | null;
   status: string;
   setup_done: number;
   published: boolean;
@@ -29,9 +28,6 @@ type List = { rows: Row[]; total: number; page: number; pages: number; canExport
 
 const FILTERS = ["status", "setup", "published", "ship", "sort"] as const;
 type Filters = Record<(typeof FILTERS)[number], string>;
-
-/** Where a store opens: its own domain when one is connected and working, else its dukkan.store address */
-const addressOf = (r: Row) => r.domain || storeLink(r.slug);
 
 /* Every shop, searched and filtered by the server. A row opens the shop. */
 export default function ShopsPage() {
@@ -66,12 +62,11 @@ export default function ShopsPage() {
     setExporting(false);
     if (!r.ok || !j?.rows) return;
     downloadCsv(`dukkan-stores-${new Date().toISOString().slice(0, 10)}.csv`, [
-      ["id", "store", "link", "domain", "owner", "email", "phone", "status", "setup", "published", "dukkan ship", "products", "orders", "total sales JOD", "last seen", "signed up"],
+      ["id", "store", "link", "owner", "email", "phone", "status", "setup", "published", "dukkan ship", "products", "orders", "total sales JOD", "last seen", "signed up"],
       ...(j.rows as Row[]).map((r) => [
         r.id,
         r.name,
         storeLink(r.slug),
-        addressOf(r),
         r.owner,
         r.email,
         r.phone,
@@ -180,7 +175,7 @@ export default function ShopsPage() {
             <DataTable
               head={[
                 t("Store", "المتجر"),
-                t("Domain", "النطاق"),
+                t("Store link", "رابط المتجر"),
                 t("Owner", "المالك"),
                 t("Status", "الحالة"),
                 t("Setup", "الإعداد"),
@@ -205,16 +200,16 @@ export default function ShopsPage() {
                     </Link>
                   </td>
                   <td className={td}>
-                    {addressOf(r) ? (
-                      /* the store's own domain stands out; the dukkan.store address is the quiet default */
+                    {r.slug ? (
+                      /* every store lives at Dukkan's address followed by its link name: it opens in a new tab */
                       <a
-                        href={`https://${addressOf(r)}`}
+                        href={`https://${storeLink(r.slug)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         dir="ltr"
-                        className={`whitespace-nowrap hover:underline ${r.domain ? "font-medium text-primary" : "text-xs text-muted hover:text-primary"}`}
+                        className="whitespace-nowrap text-xs text-muted hover:text-primary hover:underline"
                       >
-                        {addressOf(r)}
+                        {storeLink(r.slug)}
                       </a>
                     ) : (
                       <span className="text-muted">—</span>

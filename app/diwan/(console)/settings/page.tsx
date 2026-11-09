@@ -28,7 +28,6 @@ export default function SettingsPage() {
             <Payments e={d.settings.payment_methods} />
             <DefaultThemes e={d.settings.default_themes} />
             <Seo e={d.settings.seo_defaults} />
-            <DomainPrices e={d.settings.domain_prices} />
             <DukkanShip e={d.settings.dukkan_ship} />
             <div className="xl:col-span-2">
               <Shipping e={d.settings.shipping_companies} />
@@ -162,34 +161,6 @@ function Seo({ e }: { e: Entry<"seo_defaults"> }) {
           <textarea id="seo-da" dir="rtl" rows={3} className={`${field} h-auto py-2`} maxLength={LIMITS.description} value={s.value.description_ar} onChange={(x) => set("description_ar", x.target.value)} />
         </div>
       </div>
-    </Section>
-  );
-}
-
-function DomainPrices({ e }: { e: Entry<"domain_prices"> }) {
-  const t = useT();
-  const s = useSaver("domain_prices", e);
-  /* edited as rows, so an ending can be renamed or added; turned back into { ending: price } on save */
-  const [rows, setRows] = useState(() => Object.entries(e.value).map(([ending, price]) => ({ ending, price: String(price) })));
-  useEffect(() => setRows(Object.entries(s.value).map(([ending, price]) => ({ ending, price: String(price) }))), [s.value]);
-  const save = () => {
-    const out: Record<string, number> = {};
-    for (const r of rows) if (r.ending.trim()) out[r.ending.trim().toLowerCase()] = Number(r.price);
-    s.save(out);
-  };
-  return (
-    <Section title={t("Domain prices", "أسعار النطاقات")} sub={t("Yearly price in JOD for each ending Dukkan sells. An ending not on this list is not sold.", "السعر السنوي بالدينار لكل نهاية يبيعها دكّان. النهاية غير الموجودة هنا لا تُباع.")} info={s.info} state={s.state} onSave={save}>
-      {rows.map((r, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <input aria-label={t("Ending", "النهاية")} dir="ltr" className={`${field} w-32`} placeholder=".com" maxLength={41} value={r.ending} onChange={(x) => setRows(rows.map((y, j) => (j === i ? { ...y, ending: x.target.value } : y)))} />
-          <input aria-label={t("Price (JOD)", "السعر (د.أ)")} type="number" min={0} step="0.001" className={`${field} w-32`} value={r.price} onChange={(x) => setRows(rows.map((y, j) => (j === i ? { ...y, price: x.target.value } : y)))} />
-          <span className="text-xs text-muted">{t("JOD / year", "د.أ / سنة")}</span>
-          <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))} className="ms-auto text-sm text-red-600 hover:underline">{t("Remove", "حذف")}</button>
-        </div>
-      ))}
-      {rows.length < LIMITS.endings && (
-        <button type="button" onClick={() => setRows([...rows, { ending: "", price: "0" }])} className="text-sm font-semibold text-primary hover:underline">{t("+ Add an ending", "+ إضافة نهاية")}</button>
-      )}
     </Section>
   );
 }
