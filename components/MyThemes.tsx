@@ -91,7 +91,7 @@ export function MyThemes() {
 
   return (
     <div className="dash min-h-screen bg-page">
-      <DashboardBar active="domain" subtabs={[w.title]} activeSub={0} />
+      <DashboardBar active="store" subtabs={[w.title]} activeSub={0} />
 
       <main data-lang-fade className="mx-auto max-w-[1100px] space-y-6 px-5 py-8 md:px-10">
         <div className="flex flex-wrap items-end justify-between gap-4">

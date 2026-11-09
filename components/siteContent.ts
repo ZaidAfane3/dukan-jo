@@ -61,7 +61,8 @@ export type SiteContent = {
   finalCta: { title: Bi; body: Bi; button: SiteLink };
   footer: { tagline: Bi; columns: { title: Bi; links: SiteLink[] }[]; industriesTitle: Bi; availableIn: Bi; country: Bi; legal: Bi; payments: PaymentLogo[] };
   social: { kind: SocialKind; href: string }[];
-  contact: { phone: string; place: Bi; email: string };
+  /* whatsapp: Dukkan support's WhatsApp number, shown where a merchant needs help (the suspended-store page); empty hides it */
+  contact: { phone: string; place: Bi; email: string; whatsapp: string };
   legal: {
     number: string;
     url: string;
@@ -308,7 +309,7 @@ export const SITE_DEFAULTS: SiteContent = {
     { kind: "youtube", href: "" },
     { kind: "instagram", href: "" },
   ],
-  contact: { phone: "+962 6 000 0000", place: bi("Amman, Jordan", "عمّان، الأردن"), email: "hello@dukkan.store" },
+  contact: { phone: "+962 6 000 0000", place: bi("Amman, Jordan", "عمّان، الأردن"), email: "hello@dukkan.store", whatsapp: "" },
   legal: {
     number: "016703",
     url: "https://ccr.mit.gov.jo/mitq/faces/HomePage",
@@ -727,6 +728,13 @@ export function cleanSiteContent(input: unknown): { content: SiteContent; bad: s
         return s;
       })(),
       place: c.bi(contact.place, D.contact.place, "contact.place", 80, false),
+      /* a phone number like the one above (it becomes a wa.me link), nothing by default */
+      whatsapp: (() => {
+        if (contact.whatsapp === undefined) return D.contact.whatsapp;
+        const s = cleanLine(contact.whatsapp, M.phone);
+        if (s && !/^\+?[\d ]{6,20}$/.test(s)) return c.note("contact.whatsapp"), D.contact.whatsapp;
+        return s;
+      })(),
       email: (() => {
         if (contact.email === undefined) return D.contact.email;
         if (typeof contact.email === "string" && !contact.email.trim()) return "";

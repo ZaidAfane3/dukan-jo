@@ -789,6 +789,7 @@ function ContactCard() {
         <div className="grid gap-3 sm:grid-cols-2">
           <Text path={["contact", "phone"]} label={t("Phone (empty hides it)", "الهاتف (الفارغ لا يظهر)")} dir="ltr" max={M.phone} placeholder="+962 6 000 0000" />
           <Text path={["contact", "email"]} label={t("Email (empty hides it)", "البريد الإلكتروني (الفارغ لا يظهر)")} dir="ltr" max={120} placeholder="hello@dukkan.store" />
+          <Text path={["contact", "whatsapp"]} label={t("Support WhatsApp (empty hides it; shown to suspended stores)", "واتساب الدعم (الفارغ لا يظهر؛ يُعرض للمتاجر الموقوفة)")} dir="ltr" max={M.phone} placeholder="+962 7 9000 0000" />
         </div>
         <Two path={["contact", "place"]} label={t("City", "المدينة")} max={80} />
       </Group>

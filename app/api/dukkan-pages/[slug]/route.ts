@@ -1,6 +1,6 @@
 import { PAGE_SLUG } from "@/components/dukkanPageRules";
 import { answer } from "@/server/auth";
-import { AUDIENCE_HAS } from "@/server/announce";
+import { AUDIENCE_HAS, PAGE_SINCE } from "@/server/announce";
 import { db } from "@/server/db";
 import { merchantRoute } from "@/server/tickets";
 
@@ -13,7 +13,7 @@ export const GET = merchantRoute(async (_req, me, { params }) => {
   const { rows } = await pool.query(
     `SELECT a.id, a.slug, a.title_en, a.title_ar, a.summary_en, a.summary_ar, a.body_en, a.body_ar, a.in_menu, a.published_at
        FROM dukkan_pages a
-      WHERE a.slug = $2 AND a.status = 'live' AND ${AUDIENCE_HAS("$1")}`,
+      WHERE a.slug = $2 AND a.status = 'live' AND ${AUDIENCE_HAS("$1", PAGE_SINCE)}`,
     [me.id, params.slug],
   );
   const r = rows[0];

@@ -12,7 +12,7 @@ const SEALED: { table: string; key: string[]; cols: string[] }[] = [
   { table: "accounts", key: ["id"], cols: ["email", "name", "phone", "totp_secret", "city", "dob", "gender"] },
   { table: "staff", key: ["id"], cols: ["email", "totp_secret"] },
   { table: "store_data", key: ["account_id", "key"], cols: ["value"] },
-  { table: "shops", key: ["account_id"], cols: ["phone", "pickup_address"] },
+  { table: "shops", key: ["account_id"], cols: ["phone", "pickup_address", "suspend_reason"] },
   { table: "tickets", key: ["id"], cols: ["subject", "where_text"] },
   { table: "ticket_messages", key: ["id"], cols: ["body"] },
   { table: "ticket_pictures", key: ["id"], cols: ["data"] },

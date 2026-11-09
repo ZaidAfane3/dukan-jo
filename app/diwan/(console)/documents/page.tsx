@@ -5,7 +5,7 @@ import { useState } from "react";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { FilterBar } from "@/components/diwan/Filters";
 
-/* Documents: papers shops send for checking (courier proof, commercial registration for .jo domains). Staff approve
+/* Documents: papers shops send for checking (courier proof, commercial registration). Staff approve
    or reject each one with a note; the merchant's bell is told (documentStatus) and the activity log keeps it. Live
    data from /api/diwan/documents. Merchants can't upload files yet (there is no file storage), so this stays empty
    until uploads exist. */

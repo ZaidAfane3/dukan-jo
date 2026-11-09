@@ -1,13 +1,14 @@
 import { jodOf } from "./shopActions";
 
-/* What a plan form sends, checked: names in both languages, prices in JOD, limits (empty: no limit). */
+/* What a plan form sends, checked: names in both languages, prices in JOD, limits (empty: no limit). Plans no longer
+   say whether a store may use its own domain (no store can: each lives at dukkan.store/<its link>); the old
+   custom_domain column is left as it is and never written. */
 export type PlanInput = {
   nameEn: string;
   nameAr: string;
   priceMonth: string;
   priceYear: string;
   maxProducts: number | null;
-  customDomain: boolean;
   maxStaff: number | null;
   active: boolean;
 };
@@ -29,7 +30,7 @@ export function planInput(b: Record<string, unknown> | null): PlanInput | null {
   const maxProducts = limit(b.maxProducts);
   const maxStaff = limit(b.maxStaff);
   if (nameEn.length < 2 || nameAr.length < 2 || !priceMonth || !priceYear || maxProducts === false || maxStaff === false) return null;
-  return { nameEn, nameAr, priceMonth, priceYear, maxProducts, customDomain: b.customDomain !== false, maxStaff, active: b.active !== false };
+  return { nameEn, nameAr, priceMonth, priceYear, maxProducts, maxStaff, active: b.active !== false };
 }
 
 /** A key for a new plan from its English name (a-z, 0-9 and dashes) */

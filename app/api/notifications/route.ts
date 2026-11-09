@@ -6,14 +6,16 @@ import { merchantRoute } from "@/server/tickets";
 export const dynamic = "force-dynamic";
 
 /* The merchant's bell from the server: what Dukkan sent this shop (server/notify.ts) and the live announcements meant for
-   it, newest first, at most 50, each with whether it was read. The page words each one from its kind and params. */
+   it, newest first, at most 50, each with whether it was read. The page words each one from its kind and params.
+   Old "domainStatus" notices (from when Dukkan connected merchants' own domains) stay in the table but are left out:
+   every store now lives at dukkan.store/<its link>, so they would point to something that no longer exists. */
 
 export const GET = merchantRoute(async (_req, me) => {
   const { rows } = await (await db()).query(
     `SELECT x.id, x.kind, x.params, x.ts,
             EXISTS (SELECT 1 FROM notification_reads r WHERE r.notification_id = x.id AND r.account_id = $1) AS read
        FROM (
-         SELECT n.id, n.kind, n.params, n.created_at AS ts FROM notifications n WHERE n.account_id = $1
+         SELECT n.id, n.kind, n.params, n.created_at AS ts FROM notifications n WHERE n.account_id = $1 AND n.kind <> 'domainStatus'
          UNION ALL
          SELECT n.id, 'announcement', jsonb_build_object('id', a.id::text, 'titleEn', a.title_en, 'titleAr', a.title_ar,
                   'bodyEn', a.body_en, 'bodyAr', a.body_ar, 'banner', a.banner), a.starts_at

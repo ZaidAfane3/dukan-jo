@@ -449,22 +449,10 @@ export function typedSlug(s: unknown): string {
 
 export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG_RULE.test(s) && !RESERVED_SLUGS.has(s);
 
-/* The platform's own domains: a merchant cannot add them as his custom domain. */
-const PLATFORM_DOMAINS = ["dukkan.store", "dukkan.jo", "seen.jo"];
-
-/** A custom domain as it is saved: lower case, without https://, www., a path or a final dot; an Arabic or other
-    non-Latin name becomes its xn-- form. Gives "" when it is not a domain a merchant can connect. */
-export function cleanDomain(s: unknown): string {
-  if (typeof s !== "string") return "";
-  let v = s.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "").replace(/\.$/, "");
-  if (!v || v.length > 253 || /[\s<>"'`\\@:]/.test(v)) return "";
-  try {
-    v = new URL(`https://${v}`).hostname;
-  } catch {
-    return "";
-  }
-  if (v.length > 253 || !/^(?!-)(?:[a-z0-9-]{1,63}\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/.test(v)) return "";
-  if (v.split(".").some((l) => l.startsWith("-") || l.endsWith("-"))) return "";
-  if (PLATFORM_DOMAINS.some((d) => v === d || v.endsWith(`.${d}`))) return "";
-  return v;
-}
+/* Names reserved later, for new choices only: a store that already took one keeps it (saved setups are read with isSlug,
+   so its link never disappears), but nobody can choose it from now on. "store-link" became a merchant page. */
+const RESERVED_FOR_NEW = new Set(["store-link"]);
+/** A name the platform keeps, when a store chooses or changes its link */
+export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s);
+/** A link a store may choose now */
+export const isNewSlug = (s: unknown): s is string => isSlug(s) && !RESERVED_FOR_NEW.has(s);

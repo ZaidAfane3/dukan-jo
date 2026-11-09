@@ -1,6 +1,5 @@
 "use client";
 
-import { GIFT_FLAG } from "./ThemePopup";
 import { createAccount, logIn, logOut } from "./accounts";
 import { demoActive, endDemo } from "./demoSandbox";
 import { useRouter } from "next/navigation";
@@ -15,6 +14,7 @@ import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required"
 import { ACCOUNT_LIMITS, passwordError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { resetToStarterDesign } from "./storefront/storage";
+import { SUSPENDED_PATH } from "./suspended";
 import { TwoStepCodeStep } from "./TwoStepSettings";
 
 type Tab = "create" | "login";
@@ -186,9 +186,10 @@ export function SignupForm() {
       }
       setBusy(false);
       if (r === "cancel") return;
+      /* the password was right but Dukkan suspended the store: a page of its own says why (logIn kept the reason) */
+      if (r === "suspended") return router.push(SUSPENDED_PATH);
       if (r !== "ok") {
-        const suspended = lang === "ar" ? "أوقف فريق دكّان هذا المتجر مؤقتًا. تواصل مع الدعم لمعرفة السبب." : "Dukkan has suspended this store. Contact support to find out why.";
-        setErrors(r === "none" ? { loginId: c.errNoAccount } : r === "wrong" ? { password: c.errWrongPassword } : r === "suspended" ? { password: suspended } : { password: c.errServer });
+        setErrors(r === "none" ? { loginId: c.errNoAccount } : r === "wrong" ? { password: c.errWrongPassword } : { password: c.errServer });
         document.getElementById(r === "none" ? "s-loginId" : "s-password")?.focus();
         return;
       }
@@ -227,8 +228,6 @@ export function SignupForm() {
       }
       try {
         sessionStorage.setItem("seen-signed-in", "1");
-        /* a real account (not the tour): the founders' gift greets it on the next page, once per account */
-        if (!tour) sessionStorage.setItem(GIFT_FLAG, "1");
       } catch {
         /* storage unavailable */
       }

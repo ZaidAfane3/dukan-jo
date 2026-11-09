@@ -1,11 +1,7 @@
-import type { Metadata } from "next";
-import { Domain } from "@/components/Domain";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Dukkan | Store domain",
-  description: "Your store address and your own domains.",
-};
-
+/* Dukkan no longer sells domains or connects a merchant's own domain: every store lives at dukkan.store/<its link>.
+   The old "Store domain" page became "Store link", so an old link, bookmark or notification lands there. */
 export default function DomainPage() {
-  return <Domain />;
+  redirect("/store-link");
 }

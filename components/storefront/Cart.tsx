@@ -185,7 +185,7 @@ const storeCoupons = (): Coupon[] => {
 };
 
 /* The order saved for the merchant: the same shape as the orders of the dashboard (components/Orders.tsx) */
-function saveOrder(o: { customer: string; phone: string; total: number; items: (PricedLine & { image?: string })[]; fulfil: Fulfil; city: string; address: string; note: string; pay: Pay; coupon?: { code: string; discount: number } }): number | null {
+function saveOrder(o: { customer: string; phone: string; total: number; items: (PricedLine & { image?: string })[]; fulfil: Fulfil; city: string; address: string; note: string; pay: Pay; coupon?: { code: string; discount: number }; /* the delivery fee inside the total, for his reports */ delivery: number }): number | null {
   try {
     const list = readList("seen-orders");
     const id = list.reduce((m, x) => (typeof x.id === "number" && Number.isSafeInteger(x.id) && x.id < 1e9 ? Math.max(m, x.id) : m), 1000) + 1;
@@ -215,15 +215,17 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
 }
 
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, look = "drawer", contained = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean }) {
+/* `ownFee`: the merchant delivers with his own courier and charges this per order; null means Dukkan Ship's price */
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, ownFee = null, look = "drawer", contained = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | null; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean }) {
   const w = words[lang];
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", city: "", address: "", note: "" });
   /* What Dukkan's staff set in Diwan (platform settings): the ways to pay that are on, and the flat delivery price of Dukkan
-     Ship until the merchant can set his own (orders reaching the free delivery amount pay nothing) */
+     Ship. A merchant with his own courier charges his own fee instead (set on the Delivery page). Orders reaching the
+     free delivery amount pay nothing either way */
   const platform = usePublicSettings();
   const pays = storePays(platform);
-  const DELIVERY_FEE = platform.dukkan_ship.price;
+  const DELIVERY_FEE = ownFee ?? platform.dukkan_ship.price;
   /* the cities Dukkan Ship delivers to, as set in Diwan */
   const cities = shipCityLists(platform);
   const [payPicked, setPay] = useState<Pay>("cliq");
@@ -316,11 +318,13 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       return;
     }
     const off = used?.ok ? used.discount : 0;
-    const sum = toFils(priced.subtotal - off + ((fd.on && priced.subtotal >= fd.min) || checked.value.fulfil === "pickup" || (used?.ok && used.freeDelivery) ? 0 : DELIVERY_FEE));
+    const fee = (fd.on && priced.subtotal >= fd.min) || checked.value.fulfil === "pickup" || (used?.ok && used.freeDelivery) ? 0 : DELIVERY_FEE;
+    const sum = toFils(priced.subtotal - off + fee);
     placing.current = true;
     const id = saveOrder({
       ...checked.value,
       total: sum,
+      delivery: toFils(fee),
       items: priced.items.map((it) => ({ ...it, image: lines.find((l) => l.p.id === it.id)?.p.image })),
       ...(used?.ok ? { coupon: { code: used.coupon.code, discount: off } } : {}),
     });

@@ -119,6 +119,30 @@ export async function currentAccount(req: NextRequest): Promise<SessionAccount |
   };
 }
 
+/** What a suspended store is told: the reason staff wrote in Diwan and since when. Only ever given to someone who proved
+    they own the account (the right password, or a session they signed in with). */
+export const suspendedReply = (reason: string | null, at: Date | string | null) => ({
+  result: "suspended" as const,
+  reason: reason ?? "",
+  since: at ? new Date(at).toISOString() : null,
+});
+
+/** For a merchant whose store was suspended while they were signed in: the suspension behind this browser's session,
+    or null. Suspending keeps the merchant's own sessions (they count as signed out, see sessionRow) so an open tab can
+    still be told why; reactivating deletes them, so the merchant signs in again. Never a support session or one still
+    waiting for its 2-step code. */
+export async function sessionSuspension(req: NextRequest): Promise<ReturnType<typeof suspendedReply> | null> {
+  const token = req.cookies.get(COOKIE)?.value;
+  if (!token || token.length > 100) return null;
+  const { rows } = await (await db()).query(
+    `SELECT sh.suspend_reason, sh.suspended_at
+       FROM sessions s JOIN shops sh ON sh.account_id = s.account_id
+      WHERE s.token_hash = $1 AND s.expires_at > now() AND s.impersonation_id IS NULL AND NOT s.pending_totp AND sh.status = 'suspended'`,
+    [tokenHash(token)],
+  );
+  return rows[0] ? suspendedReply(rows[0].suspend_reason, rows[0].suspended_at) : null;
+}
+
 /** The account whose password was right and whose session waits for the 2-step code, or null */
 export async function pendingAccount(req: NextRequest): Promise<{ id: string; email: string; name: string; phone: string; secret: string } | null> {
   const r = await sessionRow(req);

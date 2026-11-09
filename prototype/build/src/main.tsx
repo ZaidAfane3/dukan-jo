@@ -15,7 +15,6 @@ import Dashboard from "@seen/app/dashboard/page";
 import Delivery from "@seen/app/delivery/page";
 import Demo from "@seen/app/demo/page";
 import Design from "@seen/app/design/page";
-import Domain from "@seen/app/domain/page";
 import AbandonedCarts from "@seen/app/marketing/abandoned-carts/page";
 import Coupons from "@seen/app/marketing/coupons/page";
 import FreeDelivery from "@seen/app/marketing/free-delivery/page";
@@ -32,6 +31,7 @@ import Notifications from "@seen/app/settings/notifications/page";
 import Settings from "@seen/app/settings/page";
 import Signup from "@seen/app/signup/page";
 import Store from "@seen/app/store/page";
+import StoreLink from "@seen/app/store-link/page";
 import Support from "@seen/app/support/page";
 import MyThemes from "@seen/app/themes/mine/page";
 import Themes from "@seen/app/themes/page";
@@ -43,7 +43,8 @@ const routes: Record<string, () => JSX.Element> = {
   "/delivery": Delivery,
   "/demo": Demo,
   "/design": Design,
-  "/domain": Domain,
+  /* the old "Store domain" page became "Store link" (the app redirects /domain there) */
+  "/domain": StoreLink,
   "/marketing/abandoned-carts": AbandonedCarts,
   "/marketing/coupons": Coupons,
   "/marketing/free-delivery": FreeDelivery,
@@ -60,6 +61,7 @@ const routes: Record<string, () => JSX.Element> = {
   "/settings": Settings,
   "/signup": Signup,
   "/store": Store,
+  "/store-link": StoreLink,
   "/support": Support,
   "/themes/mine": MyThemes,
   "/themes": Themes,

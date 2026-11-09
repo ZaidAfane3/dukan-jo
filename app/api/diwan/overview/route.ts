@@ -22,7 +22,6 @@ export const GET = staffRoute("shops.read", async () => {
         FROM shops s ${CURRENT_SUB_SQL}`),
     pool.query(`
       SELECT (SELECT count(*) FROM tickets WHERE status NOT IN ('resolved', 'closed'))::int AS tickets,
-             (SELECT count(*) FROM domains WHERE status = 'awaiting')::int AS domains,
              (SELECT count(*) FROM store_reports WHERE status = 'new')::int AS reports,
              (SELECT count(*) FROM documents WHERE status = 'waiting')::int AS documents`),
     pool.query(`

@@ -3,6 +3,7 @@
    Nothing is sent anywhere, and uploaded files are never stored. */
 
 import { cleanProfile, cleanSetup, savedPhone } from "./safeAccount";
+import { nextProductId } from "./productIds";
 import { cleanProduct, money, parseList, productProblems, type Product } from "./records";
 
 export type SavedSetup = {
@@ -20,7 +21,9 @@ export type SavedSetup = {
   /* `quantity`: how many are for sale; left out when the stock is unlimited */
   /* `image`: its cropped picture (a small data URL); `id`: the product it became in the product list */
   product: { type: number; name: string; price: string; quantity?: number; image?: string; id?: number } | null;
-  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; city: string; address: string } | null;
+  /* `fee`: with his own courier, what a customer pays for delivery per order in JOD (left out or 0: free). Dukkan Ship
+     has no fee of his: the price Dukkan's staff set in Diwan is charged */
+  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; city: string; address: string; fee?: number } | null;
 };
 
 const KEY = "seen-setup";
@@ -65,7 +68,7 @@ export function syncSetupProduct(p: { name: string; price: string; quantity?: nu
     const old = id ? items.find((x) => x.id === id && !x.deletedAt) : undefined;
     const next = cleanProduct({
       ...(old ?? { created: Date.now(), shipping: true }),
-      id: old?.id ?? items.reduce((m, x) => Math.max(m, x.id), 0) + 1,
+      id: old?.id ?? nextProductId(items),
       name: p.name,
       price: money(p.price),
       /* no quantity in setup means the stock has no limit (said with `unlimited`, never with a made-up count) */

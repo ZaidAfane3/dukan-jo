@@ -1,5 +1,6 @@
 import { accountData, demoActive, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
 import { dropSaves, flushSaves, savesPending } from "./serverSync";
+import { asSuspension, forgetSuspension, rememberSuspension, SUSPENDED_PATH } from "./suspended";
 
 /* The merchants' accounts. They live on the server (app/api/auth, the passwords hashed with scrypt, in a session cookie
    the page can't read). Each account has its own store: everything the dashboard saves is kept in this browser under
@@ -9,7 +10,7 @@ import { dropSaves, flushSaves, savesPending } from "./serverSync";
    The pages only call createAccount, logIn and logOut, and syncOnOpen runs on every page. */
 
 export type PublicAccount = { email: string; name: string; phone: string };
-type Reply = { result?: string; account?: PublicAccount; data?: Record<string, string> };
+type Reply = { result?: string; account?: PublicAccount; data?: Record<string, string>; reason?: string; since?: string | null };
 
 /* Kept for this tab, as the sign-up form does, so setup and settings can show the account's name, email and number */
 function rememberProfile(a: PublicAccount) {
@@ -72,11 +73,15 @@ export async function createAccount(a: { email: string; name: string; phone: str
 }
 
 /** Signs in with an email (or mobile) and password, and brings back that account's store. "none": no account;
-    "wrong": the password does not match; "suspended": Dukkan suspended the store; "code": the account has 2-step codes
-    on, so logInCode must follow; "error": the server could not be reached. */
+    "wrong": the password does not match; "suspended": Dukkan suspended the store (its reason and date are kept for
+    the /suspended page); "code": the account has 2-step codes on, so logInCode must follow; "error": the server could
+    not be reached. */
 export async function logIn(id: string, password: string): Promise<"ok" | "none" | "wrong" | "suspended" | "code" | "error"> {
+  forgetSuspension();
   const r = await call("/api/auth/login", "POST", { id, password });
   const result = r?.reply.result;
+  const suspension = asSuspension(r?.reply);
+  if (suspension) rememberSuspension(suspension);
   if (result === "none" || result === "wrong" || result === "suspended" || result === "code") return result;
   if (result !== "ok" || !r?.reply.account) return "error";
   await signedIn(r.reply.account);
@@ -96,6 +101,7 @@ export async function logInCode(code: string): Promise<"ok" | "wrong" | "expired
 }
 
 async function signedIn(a: PublicAccount) {
+  forgetSuspension();
   dropSaves();
   signInAs(a.email);
   rememberProfile(a);
@@ -115,6 +121,7 @@ function askTwoStep() {
 
 /** Logging out: what is left is sent first, then the session ends, and the next visitor sees no one's store */
 export async function logOut(): Promise<void> {
+  forgetSuspension();
   const wasSignedIn = !!signedInAs();
   /* flushSaves takes the waiting changes at once, so this browser can leave the account straight away (the next page
      must not open its store) while they are still on their way */
@@ -142,7 +149,10 @@ export async function syncOnOpen() {
   const me = await call("/api/auth/me", "GET");
   /* the server can't be reached: carry on with this browser's copy */
   if (!me || me.status >= 500) return;
-  if (me.status === 401 || me.reply.account?.email !== email) {
+  /* Dukkan suspended the store while this tab was signed in: the tab is signed out like below, but goes to the page
+     that says why rather than to the sign-in form, which would only refuse them */
+  const suspension = asSuspension(me.reply);
+  if (me.status === 401 || suspension || me.reply.account?.email !== email) {
     /* the session ran out or belongs to someone else: sign out here too */
     dropSaves();
     signInAs(null);
@@ -152,9 +162,14 @@ export async function syncOnOpen() {
     } catch {
       /* storage blocked */
     }
-    /* on a dashboard page, send them to sign in again rather than show an empty store (never from Diwan, the staff console) */
     const path = window.location.pathname;
-    if (path !== "/" && !path.startsWith("/signup") && !path.startsWith("/demo") && !path.startsWith("/diwan")) window.location.href = "/signup";
+    if (suspension) {
+      rememberSuspension(suspension);
+      if (path !== SUSPENDED_PATH) window.location.href = SUSPENDED_PATH;
+      return;
+    }
+    /* on a dashboard page, send them to sign in again rather than show an empty store (never from Diwan, the staff console) */
+    if (path !== "/" && path !== SUSPENDED_PATH && !path.startsWith("/signup") && !path.startsWith("/demo") && !path.startsWith("/diwan")) window.location.href = "/signup";
     return;
   }
   /* a new tab: the settings page and setup need the profile (an open tab keeps the one it has) */

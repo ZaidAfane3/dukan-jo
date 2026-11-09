@@ -32,14 +32,16 @@
    (colors sampled from the reference dashboard). */
 /* Light dashboard: panels, headers and active rows are neutral gray, not the
    mint tint used on the marketing site. Dark mode sets its own grays below. */
-.dash {
+/* .dash-mock: Diwan's small copy of the merchant dashboard (components/diwan/MerchantPreview.tsx) takes the same colors,
+   without making the Diwan page around it denser (html:has(.dash) below) */
+.dash, .dash-mock {
   --soft: 244 244 245;
   /* text inside the dashboard is near-black, so the brand teal stays for buttons, links and active items */
   --fg: 24 24 27; /* #18181b */
   color: rgb(var(--fg));
 }
 
-[data-theme="dark"] .dash {
+[data-theme="dark"] .dash, [data-theme="dark"] .dash-mock {
   --page: 34 34 34; /* #222222 */
   --card: 42 43 45; /* #2a2b2d */
   --soft: 56 56 59; /* #38383b */
@@ -87,10 +89,10 @@ html:has(.dash) {
   font-size: 15px;
 }
 /* The store preview inside the designer keeps the store's own weights, so it looks like the live store */
-.dash .font-extrabold:not(.store-preview *) { font-weight: 600; }
-.dash .font-bold:not(.store-preview *) { font-weight: 550; }
-.dash .font-semibold:not(.store-preview *) { font-weight: 500; }
-.dash .font-medium:not(.store-preview *) { font-weight: 450; }
+.dash .font-extrabold:not(.store-preview *), .dash-mock .font-extrabold { font-weight: 600; }
+.dash .font-bold:not(.store-preview *), .dash-mock .font-bold { font-weight: 550; }
+.dash .font-semibold:not(.store-preview *), .dash-mock .font-semibold { font-weight: 500; }
+.dash .font-medium:not(.store-preview *), .dash-mock .font-medium { font-weight: 450; }
 /* The big numbers read best light */
 .dash .font-bold:is(.text-3xl, .text-4xl, .text-5xl, .text-6xl):not(.store-preview *) { font-weight: 450; }
 
