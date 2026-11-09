@@ -173,18 +173,16 @@ export type Content = {
       pickupHint: string;
       modes: { title: string; desc: string }[];
       seenName: string;
-      price: string;
+      /* Dukkan Ship's price, its line under the price, pickup cities and points are platform settings (Diwan, dukkan_ship):
+         components/platformPublic.ts shipWords gives them in the page's language */
       perOrder: string;
-      priceNote: string;
       change: string;
       cityLabel: string;
       cityPh: string;
-      /* the cities offered; allCities: every governorate a city may have been saved as before */
-      cities: string[];
+      /* every governorate a city may have been saved as before */
       allCities: string[];
       addressLabel: string;
       addressPh: string;
-      features: string[];
       previewSeen: string;
       errCity: string;
       errName: string;
@@ -694,17 +692,15 @@ export const content: Record<Lang, Content> = {
           { title: "Use Dukkan Ship", desc: "Our own delivery service. One flat price for every order." },
         ],
         seenName: "Dukkan Ship",
-        price: "JOD 3",
+        /* Dukkan Ship's price, the line under it, its pickup cities and its points are platform settings Dukkan's staff
+           change in Diwan (dukkan_ship): components/platformPublic.ts shipWords */
         perOrder: "per order",
-        priceNote: "Billed per order. No monthly fee and no contract.",
         change: "Change delivery option",
         cityLabel: "Pickup city",
         cityPh: "Choose a city",
-        cities: ["Irbid", "Amman", "Salt"],
         allCities: ["Amman", "Irbid", "Zarqa", "Balqa", "Madaba", "Karak", "Tafilah", "Ma'an", "Aqaba", "Jerash", "Ajloun", "Mafraq", "Salt"],
         addressLabel: "Pickup address",
         addressPh: "Street, building number, landmark",
-        features: ["Pickup from your address", "Tracking for every order", "Flat price, no contracts"],
         previewSeen: "This is how Dukkan Ship will appear in your account",
         errCity: "Choose a pickup city.",
         errName: "Enter their name, at least 2 letters.",
@@ -1365,17 +1361,13 @@ export const content: Record<Lang, Content> = {
           { title: "استخدم شحن دكان", desc: "خدمة التوصيل الخاصة بنا، بسعر ثابت لكل طلب." },
         ],
         seenName: "شحن دكان",
-        price: "3 د.أ",
         perOrder: "لكل طلب",
-        priceNote: "تُحتسب لكل طلب. بلا اشتراك شهري ولا عقود.",
         change: "تغيير خيار التوصيل",
         cityLabel: "مدينة الاستلام",
         cityPh: "اختر المدينة",
-        cities: ["إربد", "عمّان", "السلط"],
         allCities: ["عمّان", "إربد", "الزرقاء", "البلقاء", "مأدبا", "الكرك", "الطفيلة", "معان", "العقبة", "جرش", "عجلون", "المفرق", "السلط"],
         addressLabel: "عنوان الاستلام",
         addressPh: "الشارع، رقم المبنى، أقرب معلم",
-        features: ["استلام من عنوانك", "تتبّع لكل طلب", "سعر ثابت بلا عقود"],
         previewSeen: "هكذا سيظهر شحن دكان في حسابك",
         errCity: "اختر مدينة الاستلام.",
         errName: "أدخل الاسم، حرفان على الأقل.",

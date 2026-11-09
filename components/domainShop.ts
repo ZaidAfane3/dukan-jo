@@ -26,7 +26,9 @@ export type DomainOffer = {
 
 export type BoughtDomain = { years: number; renews: number; autoRenew: boolean; paid: number };
 
-/* The endings Dukkan sells, cheapest first after the popular ones (prices in JOD a year, set by Dukkan on the server later) */
+/* The endings Dukkan sold before its staff could set them in Diwan (platform settings, domain_prices): the starting prices
+   in JOD a year, and the order the page lists them in. What is sold and for how much is the saved setting: an ending
+   that is not in it is not sold. */
 export const ENDINGS: { ending: string; price: number; needsPapers?: boolean }[] = [
   { ending: ".com", price: 12 },
   { ending: ".jo", price: 35, needsPapers: true },
@@ -36,6 +38,24 @@ export const ENDINGS: { ending: string; price: number; needsPapers?: boolean }[]
   { ending: ".net", price: 14 },
   { ending: ".online", price: 6 },
 ];
+
+/** The yearly price in JOD of each ending Dukkan sells: { ".com": 12 } */
+export type DomainPrices = Record<string, number>;
+
+/** .jo and .com.jo (any ending under .jo) are given only to businesses registered in Jordan */
+const papersFor = (ending: string) => ending === ".jo" || ending.endsWith(".jo");
+
+export type Ending = { ending: string; price: number; needsPapers: boolean };
+
+/** The endings for sale at these prices, in the page's order: the usual ones first, the ones staff added after them */
+export function endingsFor(prices: DomainPrices): Ending[] {
+  const known = ENDINGS.map((e) => e.ending);
+  const rank = (e: string) => (known.includes(e) ? known.indexOf(e) : known.length);
+  return Object.entries(prices)
+    .filter(([, price]) => Number.isFinite(price) && price >= 0)
+    .map(([ending, price]) => ({ ending, price, needsPapers: papersFor(ending) }))
+    .sort((a, b) => rank(a.ending) - rank(b.ending) || a.price - b.price || a.ending.localeCompare(b.ending));
+}
 
 /* Names everybody wants: shown as taken, so the merchant sees what that looks like */
 const TAKEN = new Set(["google", "amazon", "shop", "store", "dukkan", "salla", "noon", "zara", "nike", "apple", "jordan", "amman"]);
@@ -54,14 +74,15 @@ function madeUpFree(domain: string): boolean {
   return h % 3 !== 0;
 }
 
-/** Which endings are free for a name, and their prices. "short": the name needs 3 characters or more. */
-export async function searchDomains(typed: string): Promise<DomainOffer[] | "short"> {
+/** Which endings are free for a name, and their prices (`prices`: the saved ones, components/platformPublic.ts). "short":
+    the name needs 3 characters or more. */
+export async function searchDomains(typed: string, prices: DomainPrices): Promise<DomainOffer[] | "short"> {
   const word = domainWord(typed);
   if (word.length < 3) return "short";
   await new Promise((r) => setTimeout(r, 450)); /* a server takes a moment */
-  return ENDINGS.map(({ ending, price, needsPapers }) => {
+  return endingsFor(prices).map(({ ending, price, needsPapers }) => {
     const name = `${word}${ending}`;
-    return { name, ending, price, needsPapers: !!needsPapers, free: !TAKEN.has(word) && word.length > 3 && madeUpFree(name) };
+    return { name, ending, price, needsPapers, free: !TAKEN.has(word) && word.length > 3 && madeUpFree(name) };
   });
 }
 
@@ -77,11 +98,9 @@ export async function buyDomain(offer: DomainOffer, years: number, autoRenew: bo
   return { ok: true, name, bought: { years: y, renews: renews.getTime(), autoRenew, paid: offer.price * y } };
 }
 
-/** The ending Dukkan sells that a whole domain has ("olive.com.jo" → .com.jo), or null for one Dukkan does not sell.
-    The server uses it for the price and for whether papers are needed, so it never trusts what the page says. */
-export function endingOf(domain: string): (typeof ENDINGS)[number] | null {
-  return ENDINGS.find((e) => domain.endsWith(e.ending) && domain.length > e.ending.length && !domain.slice(0, -e.ending.length).includes(".")) ?? null;
+/** The ending Dukkan sells (at `prices`) that a whole domain has ("olive.com.jo" → .com.jo), or null for one Dukkan does not
+    sell. The server uses it with the saved prices for the price and for whether papers are needed, so it never trusts
+    what the page says. */
+export function endingOf(domain: string, prices: DomainPrices): Ending | null {
+  return endingsFor(prices).find((e) => domain.endsWith(e.ending) && domain.length > e.ending.length && !domain.slice(0, -e.ending.length).includes(".")) ?? null;
 }
-
-/** .jo and .com.jo need the commercial registration */
-export const needsPapers = (domain: string) => !!endingOf(domain)?.needsPapers;

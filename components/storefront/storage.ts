@@ -1,5 +1,5 @@
 import { sanitizeDesign, sanitizePages } from "../safeDesign";
-import { content } from "../content";
+import { publicSettings, shipCityLists } from "../platformPublic";
 import { loadSetup } from "../setup";
 import { ANNOUNCE_MESSAGES_MAX, defaultConfig, relinkPages, type Bi, type PageRef, type SectionConfig, type StorefrontConfig } from "./config";
 
@@ -163,7 +163,11 @@ export function loadConfig(): StorefrontConfig {
 /* The line under a delivery perk that Dukkan wrote (he never changed it) follows how the store delivers: with Dukkan's delivery,
    the cities it reaches (the list of the delivery setup); with his own delivery, or none chosen yet, no city at all. */
 const cityList = (l: string[], and: string, comma: string) => (l.length > 1 ? `${l.slice(0, -1).join(comma)}${and}${l[l.length - 1]}` : l[0] ?? "");
-const dukkanCities = (): Bi => ({ en: cityList(content.en.onboarding.shipping.cities, " and ", ", "), ar: content.ar.onboarding.shipping.cities.join(" و") });
+/* Dukkan Ship's cities as Dukkan's staff set them in Diwan (platform settings, dukkan_ship) */
+const dukkanCities = (): Bi => {
+  const l = shipCityLists(publicSettings());
+  return { en: cityList(l.en, " and ", ", "), ar: l.ar.join(" و") };
+};
 const anyCity: Bi = { en: "Straight to your door", ar: "حتى باب بيتك" };
 function withDeliveryLine(cfg: StorefrontConfig): StorefrontConfig {
   const stock = [{ en: "Irbid, Amman and Salt", ar: "إربد وعمّان والسلط" }, dukkanCities(), anyCity];

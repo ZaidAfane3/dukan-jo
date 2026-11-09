@@ -6,6 +6,7 @@ import { inLang } from "./safeOrder";
 import { DashboardBar } from "./DashboardBar";
 import { FlagJO } from "./Flag";
 import { usePrefs } from "./Prefs";
+import { shipWords, usePublicSettings } from "./platformPublic";
 import { isJordanMobile, jordanMobile, phoneError, savedMobile, shownMobile, typedPhone } from "./phone";
 import { cleanDate, cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
 import { ACCOUNT_LIMITS, cleanProfile, DOB_MIN, dobError, passwordError, type Profile } from "./safeAccount";
@@ -103,7 +104,8 @@ function Radio({ name, value, current, label, onChange }: { name: string; value:
 export function Settings() {
   const { lang } = usePrefs();
   const s = content[lang].settings;
-  const cities = content[lang].onboarding.shipping.cities;
+  /* the cities Dukkan Ship works in, as Dukkan's staff set them in Diwan */
+  const cities = shipWords(usePublicSettings(), lang).cities;
 
   const [p, setP] = useState<Profile>(EMPTY);
   const [current, setCurrent] = useState("");

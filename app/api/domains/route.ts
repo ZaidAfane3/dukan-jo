@@ -4,6 +4,7 @@ import { cleanDomain } from "@/components/safe";
 import { ACCOUNT_LIMITS } from "@/components/safeAccount";
 import { answer, currentAccount, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { db } from "@/server/db";
+import { readSetting } from "@/server/settings";
 import { COLS, shapeDomain } from "./shape";
 
 export const dynamic = "force-dynamic";
@@ -13,11 +14,21 @@ export const dynamic = "force-dynamic";
    active, or failed with a note); the domain page shows that status. A domain belongs to one shop at a time: one that
    another shop already has is refused with "taken". Removing one keeps it as "removed" (see [id]/route.ts).
 
-   For a bought domain the server works out the price and whether papers are needed from the endings Dukkan sells
-   (domainShop.ts), never from the page. Prototype: nothing is registered and no money is taken yet. */
+   For a bought domain the server works out the price and whether papers are needed from the endings Dukkan sells at the
+   prices staff saved in Diwan (platform settings, domain_prices; domainShop.ts), never from the page. Prototype: nothing
+   is registered and no money is taken yet. */
 
-/** The account's domains (not the removed ones), oldest first, with Dukkan's status and note */
+/** The account's domains (not the removed ones), oldest first, with Dukkan's status and note.
+    With ?quote=olive.com: what Dukkan charges for that domain a year now (the same price a purchase below is charged),
+    "not-sold" for an ending Dukkan does not sell. Prices are public, so a quote needs no account. */
 export const GET = guarded(async (req: NextRequest) => {
+  const quote = req.nextUrl.searchParams.get("quote");
+  if (quote !== null) {
+    const name = cleanDomain(quote);
+    if (!name) return answer({ result: "invalid" }, 400);
+    const ending = endingOf(name, await readSetting("domain_prices"));
+    return ending ? answer({ result: "ok", name, ending: ending.ending, price: ending.price, needsPapers: ending.needsPapers }) : answer({ result: "not-sold" }, 404);
+  }
   const a = await currentAccount(req);
   if (!a) return answer({ result: "none" }, 401);
   const { rows } = await (await db()).query(`SELECT ${COLS} FROM domains WHERE account_id = $1 AND status <> 'removed' ORDER BY created_at, id`, [a.id]);
@@ -41,10 +52,10 @@ export const POST = guarded(async (req: NextRequest) => {
   /* a bought domain: one of the endings Dukkan sells, for 1 to 5 years, at Dukkan's price */
   let bought: { years: number; price: number; papers: boolean; autoRenew: boolean } | null = null;
   if (kind === "bought") {
-    const ending = endingOf(name);
+    const ending = endingOf(name, await readSetting("domain_prices"));
     const years = Number(body?.years);
     if (!ending || !Number.isInteger(years) || years < 1 || years > 5) return answer({ result: "invalid" }, 400);
-    bought = { years, price: ending.price * years, papers: !!ending.needsPapers, autoRenew: body?.autoRenew !== false };
+    bought = { years, price: ending.price * years, papers: ending.needsPapers, autoRenew: body?.autoRenew !== false };
   }
 
   const pool = await db();
