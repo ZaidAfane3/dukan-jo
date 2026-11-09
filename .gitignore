@@ -41,3 +41,4 @@ prototype/build/src/fonts.css
 # Auto-deploy cron runtime files
 deploy/auto-deploy.log
 deploy/auto-deploy.lock
+deploy/deployed-commit
