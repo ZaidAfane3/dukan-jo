@@ -16,7 +16,7 @@ export function Enter() {
         <div className="max-w-sm text-center">
           <p className="font-semibold">{t("The store could not be opened. The visit may have ended.", "تعذر فتح المتجر. ربما انتهت الزيارة.")}</p>
           <a href="/diwan/shops" className="mt-4 inline-block text-sm font-semibold text-primary hover:underline">
-            {t("Back to shops", "العودة إلى المتاجر")}
+            {t("Back to stores", "العودة إلى المتاجر")}
           </a>
         </div>
       ) : (
