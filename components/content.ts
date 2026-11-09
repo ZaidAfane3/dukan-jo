@@ -47,6 +47,10 @@ export type Content = {
   };
   signup: {
     tabs: { login: string; create: string };
+    /* the title and line at the top of the card, for each mode */
+    heading: { login: { title: string; subtitle: string }; create: { title: string; subtitle: string } };
+    /* the quiet line under the card that changes mode */
+    switchMode: { toCreate: { question: string; action: string }; toLogin: { question: string; action: string } };
     fullName: string;
     fullNamePh: string;
     email: string;
@@ -543,6 +547,14 @@ export const content: Record<Lang, Content> = {
     },
     signup: {
       tabs: { login: "Log in", create: "Create account" },
+      heading: {
+        login: { title: "Welcome back", subtitle: "Log in to your store" },
+        create: { title: "Create your store", subtitle: "Start free in minutes" },
+      },
+      switchMode: {
+        toCreate: { question: "Don't have an account?", action: "Create one" },
+        toLogin: { question: "Already have an account?", action: "Log in" },
+      },
       fullName: "Full name",
       fullNamePh: "Enter your full name",
       email: "Email",
@@ -1214,6 +1226,14 @@ export const content: Record<Lang, Content> = {
     },
     signup: {
       tabs: { login: "تسجيل الدخول", create: "إنشاء حساب" },
+      heading: {
+        login: { title: "أهلًا بعودتك", subtitle: "سجّل الدخول إلى متجرك" },
+        create: { title: "أنشئ متجرك", subtitle: "ابدأ مجانًا خلال دقائق" },
+      },
+      switchMode: {
+        toCreate: { question: "ليس لديك حساب؟", action: "أنشئ حسابًا" },
+        toLogin: { question: "لديك حساب؟", action: "سجّل الدخول" },
+      },
       fullName: "الاسم الكامل",
       fullNamePh: "أدخل اسمك الكامل",
       email: "البريد الإلكتروني",
