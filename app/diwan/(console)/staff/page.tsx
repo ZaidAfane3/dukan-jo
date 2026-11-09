@@ -21,7 +21,9 @@ type Member = {
   lastLoginAt: string | null; createdAt: string; sessions: number;
 };
 type Data = { me: string; staff: Member[] };
-type Shown = { name: string; password: string };
+/* self: the owner changed their own password, which ended their session; the page reloads (and goes to sign-in) only
+   after they close the dialog, so they can copy the password first */
+type Shown = { name: string; password: string; self?: boolean };
 
 /** The role choices: the open ones, then the others greyed out as coming later */
 function RoleOptions() {
@@ -101,14 +103,24 @@ export default function StaffPage() {
           why={why}
           onClose={() => setPwFor(null)}
           onSaved={(password) => {
-            setShown({ name: pwFor.name, password });
+            const self = pwFor.id === s.data?.me;
+            setShown({ name: pwFor.name, password, self });
             setPwFor(null);
             setMsg({ ok: true, text: t("Saved.", "تم الحفظ.") });
-            s.reload();
+            if (!self) s.reload();
           }}
         />
       )}
-      {shown && <ShowPasswordOnce name={shown.name} password={shown.password} onClose={() => setShown(null)} />}
+      {shown && (
+        <ShowPasswordOnce
+          name={shown.name}
+          password={shown.password}
+          onClose={() => {
+            setShown(null);
+            if (shown.self) s.reload();
+          }}
+        />
+      )}
       <Loaded s={s}>
         {(d) => (
           <>

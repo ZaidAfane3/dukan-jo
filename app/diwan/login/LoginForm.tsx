@@ -340,7 +340,8 @@ function PasswordInput({
   const t = useT();
   const [shown, setShown] = useState(false);
   return (
-    <div className="relative">
+    /* ltr on the wrapper too, so the show button sits in the space the input keeps for it in Arabic as well */
+    <div dir="ltr" className="relative">
       <input
         id={id}
         type={shown ? "text" : "password"}
