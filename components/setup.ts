@@ -3,6 +3,7 @@
    Nothing is sent anywhere, and uploaded files are never stored. */
 
 import { cleanProfile, cleanSetup, savedPhone } from "./safeAccount";
+import { nextProductId } from "./productIds";
 import { cleanProduct, money, parseList, productProblems, type Product } from "./records";
 
 export type SavedSetup = {
@@ -67,7 +68,7 @@ export function syncSetupProduct(p: { name: string; price: string; quantity?: nu
     const old = id ? items.find((x) => x.id === id && !x.deletedAt) : undefined;
     const next = cleanProduct({
       ...(old ?? { created: Date.now(), shipping: true }),
-      id: old?.id ?? items.reduce((m, x) => Math.max(m, x.id), 0) + 1,
+      id: old?.id ?? nextProductId(items),
       name: p.name,
       price: money(p.price),
       /* no quantity in setup means the stock has no limit (said with `unlimited`, never with a made-up count) */

@@ -8,6 +8,7 @@ import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
 import { readPhoto } from "./designer/image";
 import { demoActive } from "./demoSandbox";
+import { nextProductId } from "./productIds";
 import { FocusPicker } from "./FocusPicker";
 import { ImageCropper } from "./ImageCropper";
 import { PRODUCT_MAX, cleanCategory, cleanProduct, productCategories, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
@@ -638,7 +639,7 @@ export function Products() {
     };
 
     if (editing === "new") {
-      const id = items.reduce((m, x) => Math.max(m, x.id), 0) + 1;
+      const id = nextProductId(items);
       setItems((list) => [{ id, created: Date.now(), ...base }, ...list]);
     } else {
       /* if the product was removed meanwhile (in another tab), his edits bring it back instead of being lost */

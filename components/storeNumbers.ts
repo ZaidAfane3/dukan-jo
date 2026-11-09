@@ -84,12 +84,10 @@ export type SalesFigures = {
   average: number;
 };
 
-/** The product an order line was: by its id when the name still matches (a product deleted for good can see its id
-    given to a new one, whose cost and name must never be counted for the old sales), else by its exact name. Products
-    in the bin no longer exist for this. */
+/** The product an order line was: by its id (it survives a rename, and is never given to another product, see
+    productIds.ts), else by its exact name for lines saved without one. Products in the bin no longer exist for this. */
 function productOf(line: { id?: number; name: string }, byId: Map<number, Product>, byName: Map<string, Product>) {
-  const same = line.id !== undefined ? byId.get(line.id) : undefined;
-  return same && same.name === line.name ? same : byName.get(line.name);
+  return (line.id !== undefined ? byId.get(line.id) : undefined) ?? byName.get(line.name);
 }
 
 function productMaps(products: Product[]) {
