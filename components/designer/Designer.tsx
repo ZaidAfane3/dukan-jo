@@ -360,7 +360,7 @@ export function Designer() {
       return;
     }
     /* the unfinished work he left last time comes back, still unsaved (the store keeps what was saved before) */
-    const left = !ro && !mine && !tryTheme ? loadDraft() : null;
+    const left = !ro && !tryTheme ? loadDraft() : null;
     if (left) {
       setDraft({ ...left, config: withoutUnboughtLooks(left.config) });
       setSaved(JSON.stringify(d));
@@ -832,7 +832,7 @@ export function Designer() {
   /* The red frame and the red dot go away as soon as the field they point at is fixed */
   const problemNow = firstProblem(draft);
   /* leaving with the name or a contact number missing: the work is kept as a draft, and the store does not go live with it */
-  const asDraft = !!problemNow && !mine && !templateMode && !trying && (problemNow.id === "name" || problemNow.id === "whatsapp" || problemNow.id === "phone" || problemNow.id === "contact" || problemNow.id === "email");
+  const asDraft = !!problemNow && !templateMode && !trying && (problemNow.id === "name" || problemNow.id === "whatsapp" || problemNow.id === "phone" || problemNow.id === "contact" || problemNow.id === "email");
   const attnNow = attn && problemNow?.id === attn.id ? attn : null;
   /* The save button turns green and says "Saved" for a moment after a save */
   const justSaved = !dirty && (flash === "saved" || flash === "savedExcept");
@@ -1301,7 +1301,7 @@ export function Designer() {
             </button>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button type="button" autoFocus onClick={() => setExiting(false)} className="h-11 whitespace-nowrap rounded-xl border border-fg/15 px-3 text-sm font-semibold transition hover:bg-soft">{t.modal.stay}</button>
-              <button type="button" onClick={() => { if (!mine && !templateMode) keepDraft(null); setSaved(JSON.stringify(draft)); leave(); }} className="h-11 whitespace-nowrap rounded-xl px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
+              <button type="button" onClick={() => { if (!templateMode) keepDraft(null); setSaved(JSON.stringify(draft)); leave(); }} className="h-11 whitespace-nowrap rounded-xl px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
             </div>
           </div>
         </div>
