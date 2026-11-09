@@ -6,8 +6,22 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { brandName, content, type Content, type ReportWidget, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
-import { cleanProduct, parseList } from "./records";
+import { cleanOrder, cleanProduct, parseList, type Order, type Product } from "./records";
 import { cleanLine } from "./safe";
+import { STATUS_KEYS, ordersCopy } from "./ordersContent";
+import {
+  PAY_KEYS,
+  customersReport,
+  inventoryReport,
+  ordersReport,
+  paymentsReport,
+  percentChange,
+  previousSpan,
+  rangeSpan,
+  salesFigures,
+  type RangeKind,
+  type Span,
+} from "./storeNumbers";
 
 /* ====================================================================
    Data. A brand-new store has no sales, so every figure starts at zero.
@@ -135,7 +149,17 @@ export function Money({ value, currency }: { value: number; currency: string }) 
   );
 }
 
-function Delta({ value }: { value: number }) {
+/* null: there is nothing earlier to compare with (a real store's first sales), so no percentage is made up */
+function Delta({ value }: { value: number | null }) {
+  const { lang } = usePrefs();
+  if (value === null) {
+    const none = real[lang].noCompare;
+    return (
+      <span title={none} aria-label={none} className="inline-flex items-center rounded-full bg-fg/10 px-2.5 py-0.5 text-[11px] font-bold text-muted">
+        —
+      </span>
+    );
+  }
   const tone = value > 0 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : value < 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" : "bg-fg/10 text-muted";
   return (
     <span dir="ltr" className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${tone}`}>
@@ -392,6 +416,309 @@ function GenericReport({
 }
 
 /* ====================================================================
+   A real store's reports: the same pages, worked out from its own
+   orders and products (storeNumbers.ts). What Dukkan does not count
+   yet (visits, carts left behind, taxes, payment fees) says so.
+   ==================================================================== */
+
+type StoreData = { orders: Order[]; products: Product[] };
+
+const real = {
+  en: {
+    notTracked: "Not tracked yet",
+    noCompare: "No earlier sales to compare with",
+    visitsNote: "Dukkan does not count store visits yet, so there is nothing to show here. Your orders, customers and stock are in the other reports.",
+    cartsNote: "Dukkan does not keep the carts customers leave yet, so there is nothing to show here.",
+    cogsUnknown: (n: number) => `${n === 1 ? "1 sold item has" : `${n} sold items have`} no known cost (no cost on the product, or the product was deleted), so ${n === 1 ? "it is" : "they are"} left out.`,
+    profitHigh: "Some sold items have no cost on their product, so the real profit is lower than this.",
+    shippingNone: "Not saved on these orders",
+    orders: { title: "Orders", desc: "Every order placed in the period, whatever its status." },
+    average: { title: "Average order", desc: "What an order brought in on average, without cancelled or refunded ones.", formula: ["Average order", "=", "Net sales", "÷", "Orders"] },
+    cancel: { title: "Cancellation rate", desc: "The share of the period's orders that were cancelled.", formula: ["Cancellation rate", "=", "Cancelled orders", "÷", "All orders", "×", "100"] },
+    cancelItems: ["Cancelled orders", "All orders"],
+    byStatus: { title: "Orders by status", desc: "Where the period's orders are now." },
+    bySource: { title: "Orders by source", desc: "Orders placed in your online store, and orders you added yourself." },
+    byWay: { title: "Delivery or pickup", desc: "How the period's orders reach your customers." },
+    ways: ["Delivered", "Picked up from the store"],
+    byDay: { title: "Orders by day", desc: "How many orders came in each day of the period." },
+    customers: { title: "Customers", desc: "Different customers who bought in the period, told apart by phone number or email. Cancelled and refunded orders are not counted." },
+    newCustomers: { title: "New customers", desc: "Customers whose first purchase from your store is in this period." },
+    returning: { title: "Returning customer rate", desc: "The share of the period's customers who bought more than once in it.", formula: ["Returning rate", "=", "Returning customers", "÷", "All customers", "×", "100"] },
+    returningItems: ["Returning customers", "All customers"],
+    top: { title: "Customers with the most orders", desc: "Your most loyal customers in the period, ranked by number of orders." },
+    ordersN: (n: number) => (n === 1 ? "1 order" : `${n} orders`),
+    noContact: "Orders with no phone or email: {n}. They are not counted as customers.",
+    methods: { title: "Payment methods used", desc: "How the period's paid orders were paid, by number of orders and amount." },
+    pays: { card: "Card", cliq: "CliQ", cash: "Cash on delivery", none: "Not recorded (added by hand)" },
+    electronic: { title: "Share of electronic payments", desc: "Orders paid by card or CliQ, out of the orders whose way of paying is known." },
+    electronicItems: ["Electronic payments", "Payments with a known method"],
+    products: { title: "Products", desc: "Products in your store, hidden ones too (not the ones in the bin)." },
+    stock: { title: "Units in stock", desc: "All the units you have, over the products with a counted stock." },
+    unlimited: "+ {n} with no stock limit",
+    sold: { title: "Units sold", desc: "Units sold in the period, without cancelled or refunded orders." },
+    availability: { title: "Stock availability by product", desc: "Products in stock, running low (at or under their own low stock amount) and sold out. Products with no stock limit count as in stock." },
+    availItems: ["In stock", "Low stock", "Out of stock"],
+    best: { title: "Best sellers", desc: "The products that sold the most units in the period." },
+    restock: { title: "To restock", desc: "Products sold out or running low, fewest left first." },
+    left: (n: number, at: number) => `${n} left · low at ${at}`,
+  },
+  ar: {
+    notTracked: "لا يُتتبّع بعد",
+    noCompare: "لا توجد مبيعات سابقة للمقارنة",
+    visitsNote: "لا يحسب دكان زيارات المتجر بعد، فلا يوجد ما يُعرض هنا. طلباتك وعملاؤك ومخزونك في التقارير الأخرى.",
+    cartsNote: "لا يحفظ دكان السلات التي يتركها العملاء بعد، فلا يوجد ما يُعرض هنا.",
+    cogsUnknown: (n: number) => `${n === 1 ? "قطعة مباعة واحدة تكلفتها" : `${n} من القطع المباعة تكلفتها`} غير معروفة (لا تكلفة على المنتج، أو حُذف المنتج)، فلم تُحسب.`,
+    profitHigh: "بعض القطع المباعة لا تكلفة على منتجها، فالربح الحقيقي أقل من هذا.",
+    shippingNone: "غير محفوظة على هذه الطلبات",
+    orders: { title: "الطلبات", desc: "كل الطلبات التي وصلت خلال الفترة، أيًّا كانت حالتها." },
+    average: { title: "متوسط الطلب", desc: "ما جلبه الطلب الواحد في المتوسط، دون الطلبات الملغاة أو المستردة.", formula: ["متوسط الطلب", "=", "صافي المبيعات", "÷", "الطلبات"] },
+    cancel: { title: "معدل الإلغاء", desc: "نسبة الطلبات الملغاة من طلبات الفترة.", formula: ["معدل الإلغاء", "=", "الطلبات الملغاة", "÷", "كل الطلبات", "×", "100"] },
+    cancelItems: ["الطلبات الملغاة", "كل الطلبات"],
+    byStatus: { title: "الطلبات حسب الحالة", desc: "أين وصلت طلبات الفترة الآن." },
+    bySource: { title: "الطلبات حسب المصدر", desc: "طلبات من متجرك الإلكتروني، وطلبات أضفتها بنفسك." },
+    byWay: { title: "توصيل أو استلام", desc: "كيف تصل طلبات الفترة إلى عملائك." },
+    ways: ["توصيل", "استلام من المتجر"],
+    byDay: { title: "الطلبات حسب اليوم", desc: "كم طلبًا وصل في كل يوم من أيام الفترة." },
+    customers: { title: "العملاء", desc: "العملاء المختلفون الذين اشتروا خلال الفترة، نميّزهم برقم الهاتف أو البريد. لا تُحسب الطلبات الملغاة أو المستردة." },
+    newCustomers: { title: "عملاء جدد", desc: "عملاء كان أول شراء لهم من متجرك في هذه الفترة." },
+    returning: { title: "نسبة العملاء العائدين", desc: "نسبة عملاء الفترة الذين اشتروا أكثر من مرة خلالها.", formula: ["نسبة العائدين", "=", "العملاء العائدون", "÷", "كل العملاء", "×", "100"] },
+    returningItems: ["العملاء العائدون", "كل العملاء"],
+    top: { title: "العملاء الأكثر طلبًا", desc: "أكثر عملائك ولاءً خلال الفترة، مرتّبين حسب عدد الطلبات." },
+    ordersN: (n: number) => (n === 1 ? "طلب واحد" : n === 2 ? "طلبان" : n <= 10 ? `${n} طلبات` : `${n} طلبًا`),
+    noContact: "طلبات بلا هاتف أو بريد: {n}. لم تُحسب ضمن العملاء.",
+    methods: { title: "طرق الدفع المستخدمة", desc: "كيف دُفعت طلبات الفترة، بعدد الطلبات والمبلغ." },
+    pays: { card: "بطاقة", cliq: "كليك", cash: "الدفع عند الاستلام", none: "غير مسجّلة (أُضيفت يدويًا)" },
+    electronic: { title: "نسبة الدفع الإلكتروني", desc: "الطلبات المدفوعة ببطاقة أو كليك، من الطلبات المعروفة طريقة دفعها." },
+    electronicItems: ["مدفوعات إلكترونية", "مدفوعات معروفة الطريقة"],
+    products: { title: "المنتجات", desc: "منتجات متجرك، ومنها المخفية (دون التي في سلة المحذوفات)." },
+    stock: { title: "القطع في المخزون", desc: "كل القطع المتوفرة لديك، في المنتجات ذات المخزون المعدود." },
+    unlimited: "+ {n} بلا حد للمخزون",
+    sold: { title: "القطع المباعة", desc: "القطع المباعة خلال الفترة، دون الطلبات الملغاة أو المستردة." },
+    availability: { title: "توفّر المخزون حسب المنتج", desc: "منتجات متوفرة، وأخرى قاربت على النفاد (عند حد المخزون المنخفض لكل منتج أو أقل)، وأخرى نفدت. المنتجات بلا حد للمخزون تُحسب متوفرة." },
+    availItems: ["متوفر", "مخزون منخفض", "نفد"],
+    best: { title: "الأكثر مبيعًا", desc: "المنتجات التي بيع منها أكبر عدد من القطع خلال الفترة." },
+    restock: { title: "لإعادة التخزين", desc: "منتجات نفدت أو قاربت على النفاد، الأقل أولًا." },
+    left: (n: number, at: number) => `باقٍ ${n} · الحد ${at}`,
+  },
+};
+
+const panel = "flex min-h-[15rem] flex-col rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
+
+/** One card of a real report: its "?" and title, its refresh button, and what it shows. */
+function RealCard({ id, info, busy, refresh, wide, children }: { id: string; info: HelpInfo; busy: Partial<Record<string, boolean>>; refresh: (id: string) => void; wide?: boolean; children: React.ReactNode }) {
+  const { lang } = usePrefs();
+  return (
+    <section className={`${panel} ${wide ? "md:col-span-2 lg:col-span-3" : ""}`}>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="flex items-start gap-2 text-sm font-bold">
+          <span className="pt-px"><HelpTip info={info} /></span>
+          {info.title}
+        </h3>
+        <RefreshButton busy={!!busy[id]} onClick={() => refresh(id)} label={content[lang].reports.refresh} />
+      </div>
+      <div className={`mt-4 flex flex-1 flex-col transition-opacity duration-300 ${busy[id] ? "opacity-40" : ""}`}>{children}</div>
+    </section>
+  );
+}
+
+function Stat({ delta, tone = "text-primary", children, note }: { delta?: number | null; tone?: string; children: React.ReactNode; note?: string }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+      {delta !== undefined && <Delta value={delta} />}
+      <p className={`text-4xl font-bold ${tone}`}>{children}</p>
+      {note && <p className="text-xs text-muted">{note}</p>}
+    </div>
+  );
+}
+
+/** A rate with the two counts it comes from. */
+function Rate({ value, tone, labels, a, b }: { value: number; tone: string; labels: string[]; a: number; b: number }) {
+  return (
+    <div className="flex flex-1 flex-col justify-center">
+      <p className={`text-end text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={value} decimals={1} />%</span></p>
+      <div className="mt-4 h-3 overflow-hidden rounded-full bg-fg/10" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100}>
+        <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.min(value, 100)}%` }} />
+      </div>
+      <ul className="mt-5 space-y-3 text-sm">
+        {[a, b].map((n, i) => (
+          <li key={labels[i]} className="flex items-center justify-between">
+            <span className="text-muted">{labels[i]}</span>
+            <span className="font-bold"><AnimatedNumber value={n} /></span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Rows with a bar each; `shown` is what is written at the end of the row (the count when left out). */
+function Bars({ rows, logos }: { rows: { label: string; value: number; shown?: string }[]; logos?: (string | undefined)[] }) {
+  const { lang } = usePrefs();
+  const [open, setOpen] = useState(false);
+  const max = Math.max(...rows.map((x) => x.value), 1);
+  if (!rows.some((x) => x.value > 0)) return <p className="flex flex-1 items-center justify-center py-8 text-center text-sm text-muted">{content[lang].reports.noData}</p>;
+  return (
+    <>
+      <ul className="space-y-4">
+        {rows.map((row, i) =>
+          !open && i >= SHORT_LIST ? null : (
+            <li key={`${row.label}-${i}`}>
+              <div className="flex items-center justify-between gap-3 text-sm font-semibold">
+                <span className="flex min-w-0 items-center gap-2.5">
+                  {logos?.[i] && <PayLogo src={logos[i] as string} />}
+                  <span dir="auto" className="min-w-0 truncate">{row.label}</span>
+                </span>
+                <span dir="ltr" className="shrink-0 text-muted">{row.shown ?? row.value.toLocaleString("en-US")}</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-fg/10">
+                <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${(row.value / max) * 100}%` }} />
+              </div>
+            </li>
+          ),
+        )}
+      </ul>
+      {rows.length > SHORT_LIST && <MoreButton open={open} onClick={() => setOpen((v) => !v)} lang={lang} />}
+    </>
+  );
+}
+
+/** Nothing to show because Dukkan does not count it yet (not a 0, which would look like a fact). */
+function NotTrackedPanel({ note }: { note: string }) {
+  const { lang } = usePrefs();
+  return (
+    <div className="flex flex-col items-center rounded-2xl bg-card p-10 text-center shadow-sm ring-1 ring-fg/10">
+      <span className="grid h-16 w-16 place-items-center rounded-3xl bg-soft text-muted">
+        <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+      </span>
+      <p className="mt-4 font-bold">{real[lang].notTracked}</p>
+      <p className="mt-1 max-w-md text-sm text-muted">{note}</p>
+    </div>
+  );
+}
+
+function RealReport({ section, data, span, prev, busy, refresh }: { section: number; data: StoreData; span: Span; prev: Span; busy: Partial<Record<string, boolean>>; refresh: (id: string) => void }) {
+  const { lang } = usePrefs();
+  const w = real[lang];
+  const r = content[lang].reports;
+  const cur = r.currency;
+  const grid = "grid gap-6 md:grid-cols-2 lg:grid-cols-3";
+  const money2 = (n: number) => `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`;
+  const card = (id: string, info: HelpInfo, body: React.ReactNode, wide?: boolean) => (
+    <RealCard key={id} id={id} info={info} busy={busy} refresh={refresh} wide={wide}>
+      {body}
+    </RealCard>
+  );
+
+  if (section === 3) return <NotTrackedPanel note={w.visitsNote} />;
+  if (section === 4) return <NotTrackedPanel note={w.cartsNote} />;
+
+  if (section === 1) {
+    const o = ordersReport(data.orders, span);
+    const before = ordersReport(data.orders, prev);
+    const f = salesFigures(data.orders, data.products, span);
+    const fBefore = salesFigures(data.orders, data.products, prev);
+    const st = ordersCopy[lang].statuses;
+    const dayName = (t: number) => new Intl.DateTimeFormat(dateLocale(lang), { day: "numeric", month: "short" }).format(new Date(t));
+    const peak = Math.max(...o.byDay.map((d) => d.orders), 1);
+    return (
+      <div className={grid}>
+        {card("ro-all", w.orders, <Stat delta={percentChange(o.all, before.all)}><span dir="ltr"><AnimatedNumber value={o.all} /></span></Stat>)}
+        {card("ro-avg", w.average, <Stat delta={percentChange(f.average, fBefore.average)}><Money value={f.average} currency={cur} /></Stat>)}
+        {card("ro-cancel", w.cancel, <Rate value={o.cancelRate} tone="text-rose-500" labels={w.cancelItems} a={o.byStatus.cancelled} b={o.all} />)}
+        {card("ro-status", w.byStatus, <Bars rows={STATUS_KEYS.map((k) => ({ label: st[k], value: o.byStatus[k] }))} />)}
+        {card("ro-source", w.bySource, <Bars rows={[{ label: ordersCopy[lang].channels[1], value: o.online }, { label: ordersCopy[lang].channels[0], value: o.manual }]} />)}
+        {card("ro-way", w.byWay, <Bars rows={[{ label: w.ways[0], value: o.delivery }, { label: w.ways[1], value: o.pickup }]} />)}
+        {card(
+          "ro-day",
+          w.byDay,
+          o.all === 0 ? (
+            <p className="flex flex-1 items-center justify-center py-8 text-center text-sm text-muted">{r.noData}</p>
+          ) : (
+            <div>
+              <div dir="ltr" className="flex h-36 items-end gap-1" role="img" aria-label={w.byDay.title}>
+                {o.byDay.map((d) => (
+                  <span
+                    key={d.day}
+                    title={`${dayName(d.day)}: ${d.orders} · ${money2(d.sales)}`}
+                    className={`flex-1 rounded-sm transition-all duration-500 ${d.orders ? "bg-primary" : "bg-primary/20"}`}
+                    style={{ height: `${d.orders ? Math.max((d.orders / peak) * 100, 8) : 4}%` }}
+                  />
+                ))}
+              </div>
+              <div dir="ltr" className="mt-1.5 flex justify-between text-[11px] text-muted">
+                <span>{dayName(o.byDay[0].day)}</span>
+                <span>{dayName(o.byDay[o.byDay.length - 1].day)}</span>
+              </div>
+            </div>
+          ),
+          true,
+        )}
+      </div>
+    );
+  }
+
+  if (section === 2) {
+    const c = customersReport(data.orders, span);
+    const before = customersReport(data.orders, prev);
+    const rate = c.customers ? Math.round((c.repeat / c.customers) * 1000) / 10 : 0;
+    return (
+      <div className={grid}>
+        {card("rc-all", w.customers, <Stat delta={percentChange(c.customers, before.customers)} note={c.unknown ? w.noContact.replace("{n}", String(c.unknown)) : undefined}><span dir="ltr"><AnimatedNumber value={c.customers} /></span></Stat>)}
+        {card("rc-new", w.newCustomers, <Stat delta={percentChange(c.newCustomers, before.newCustomers)} tone="text-emerald-600 dark:text-emerald-400"><span dir="ltr"><AnimatedNumber value={c.newCustomers} /></span></Stat>)}
+        {card("rc-return", w.returning, <Rate value={rate} tone="text-emerald-600 dark:text-emerald-400" labels={w.returningItems} a={c.repeat} b={c.customers} />)}
+        {card("rc-top", w.top, <Bars rows={c.top.map((x) => ({ label: x.name, value: x.orders, shown: `${w.ordersN(x.orders)} · ${money2(x.spent)}` }))} />, true)}
+      </div>
+    );
+  }
+
+  if (section === 5) {
+    const p = paymentsReport(data.orders, span);
+    const known = p.card.count + p.cliq.count + p.cash.count;
+    const online = p.card.count + p.cliq.count;
+    const logos: Record<string, string | undefined> = { card: "/logos/visa.png", cliq: "/logos/cliq.png", cash: "cash" };
+    const keys = PAY_KEYS.filter((k) => k !== "none" || p.none.count > 0);
+    return (
+      <div className={grid}>
+        {card("rp-methods", w.methods, <Bars rows={keys.map((k) => ({ label: w.pays[k], value: p[k].count, shown: `${p[k].count} · ${money2(p[k].sum)}` }))} logos={keys.map((k) => logos[k])} />, false)}
+        {card("rp-online", w.electronic, <Rate value={known ? Math.round((online / known) * 1000) / 10 : 0} tone="text-emerald-600 dark:text-emerald-400" labels={w.electronicItems} a={online} b={known} />)}
+      </div>
+    );
+  }
+
+  /* section 6: inventory */
+  const inv = inventoryReport(data.products, data.orders, span);
+  const before = inventoryReport(data.products, data.orders, prev);
+  return (
+    <div className={grid}>
+      {card("ri-products", w.products, <Stat><span dir="ltr"><AnimatedNumber value={inv.products} /></span></Stat>)}
+      {card("ri-stock", w.stock, <Stat note={inv.unlimited ? w.unlimited.replace("{n}", String(inv.unlimited)) : undefined}><span dir="ltr"><AnimatedNumber value={inv.stock} /></span></Stat>)}
+      {card("ri-sold", w.sold, <Stat delta={percentChange(inv.sold, before.sold)}><span dir="ltr"><AnimatedNumber value={inv.sold} /></span></Stat>)}
+      {card("ri-avail", w.availability, <Bars rows={w.availItems.map((label, i) => ({ label, value: [inv.inStock, inv.low, inv.out][i] }))} />)}
+      {card("ri-best", w.best, <Bars rows={inv.topSold.map((x) => ({ label: x.name, value: x.qty }))} />)}
+      {card(
+        "ri-restock",
+        w.restock,
+        inv.lowList.length ? (
+          <ul className="space-y-3 text-sm">
+            {inv.lowList.map((x, i) => (
+              <li key={`${x.name}-${i}`} className="flex items-center justify-between gap-3">
+                <a href="/products" dir="auto" className="min-w-0 truncate font-semibold hover:text-primary hover:underline">{x.name}</a>
+                <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold ${x.quantity === 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-300"}`}>{w.left(x.quantity, x.lowAt)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="flex flex-1 items-center justify-center py-8 text-center text-sm text-muted">{r.noData}</p>
+        ),
+      )}
+    </div>
+  );
+}
+
+/* ====================================================================
    Page
    ==================================================================== */
 
@@ -421,6 +748,15 @@ export function Reports() {
   }, []);
   const [busy, setBusy] = useState<Partial<Record<WidgetId, boolean>>>({});
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  /* A real store's own orders and products, read again by each refresh button and when the range changes */
+  const [data, setData] = useState<StoreData>({ orders: [], products: [] });
+  const readData = useCallback(() => {
+    try {
+      setData({ orders: parseList(localStorage.getItem("seen-orders"), cleanOrder), products: parseList(localStorage.getItem("seen-products"), cleanProduct) });
+    } catch {
+      /* storage blocked: nothing to count */
+    }
+  }, []);
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${r.menu[0]}`;
@@ -430,23 +766,32 @@ export function Reports() {
     if (demoActive()) {
       setSample(true);
       setTour(true);
-    }
+    } else readData();
     setUpdatedAt(new Date());
-  }, []);
+  }, [readData]);
 
   const figures = sample ? sampleFigures(range, seed) : ZERO;
   const { net, costs, profit } = derive(figures);
   const cur = r.currency;
 
-  /* Each refresh button reloads its widget: it spins, then new numbers arrive. */
+  /* Each refresh button reloads its widget: it spins, then new numbers arrive (the tour draws new sample ones, a real
+     store reads its orders and products again) */
   const refresh = useCallback((id: WidgetId) => {
     setBusy((b) => ({ ...b, [id]: true }));
     window.setTimeout(() => {
       setSeed((s) => s + 1);
+      if (!demoActive()) readData();
       setUpdatedAt(new Date());
       setBusy((b) => ({ ...b, [id]: false }));
     }, 900);
-  }, []);
+  }, [readData]);
+
+  /* A real store's sales, and the same days just before to compare with (storeNumbers.ts) */
+  const at = updatedAt ?? new Date();
+  const span = rangeSpan(range as RangeKind, at);
+  const prevSpan = previousSpan(range as RangeKind, at);
+  const realNow = sample ? null : salesFigures(data.orders, data.products, span);
+  const realPrev = sample ? null : salesFigures(data.orders, data.products, prevSpan);
 
   /* A report he sets up is kept in this browser as a saved definition (nothing is sent anywhere) */
   const createReport = (e: React.FormEvent) => {
@@ -484,14 +829,16 @@ export function Reports() {
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
   const timeText = updatedAt ? updatedAt.toLocaleTimeString(dateLocale(lang)) : "";
 
-  const cards: { id: WidgetId; help: HelpKey; title: string; value: number; slot: number; color: string; badge?: boolean }[] = [
+  /* `delta` is the real store's change from the period before; the tour keeps its repeatable sample one (slot) */
+  const cards: { id: WidgetId; help: HelpKey; title: string; value: number; slot: number; color: string; badge?: boolean; delta?: number | null }[] = [
     { id: "net", help: "netSales", title: r.cards[0], value: net, slot: 1, color: "text-primary" },
     { id: "sales", help: "totalSales", title: r.cards[1], value: figures.sales, slot: 2, color: "text-primary", badge: true },
     { id: "profit", help: "netProfit", title: r.cards[2], value: profit, slot: 3, color: "text-emerald-600 dark:text-emerald-400" },
     { id: "costs", help: "totalCosts", title: r.cards[3], value: costs, slot: 4, color: "text-rose-500" },
   ];
 
-  const rows: { help: HelpKey; label: string; value: number; tone: string; slot: number }[] = [
+  /* `value` null: not known for a real store, and `note` says why instead of a 0 */
+  const rows: { help: HelpKey; label: string; value: number | null; tone: string; slot: number; delta?: number | null; note?: string }[] = [
     { help: "totalSales", label: r.rows[0], value: figures.sales, tone: "", slot: 5 },
     { help: "discounts", label: r.rows[1], value: figures.discounts, tone: "text-rose-500", slot: 6 },
     { help: "netSales", label: r.rows[2], value: net, tone: "text-emerald-600 dark:text-emerald-400", slot: 7 },
@@ -502,6 +849,28 @@ export function Reports() {
     { help: "totalCosts", label: r.rows[7], value: costs, tone: "text-rose-500", slot: 12 },
     { help: "netProfit", label: r.rows[8], value: profit, tone: "text-emerald-600 dark:text-emerald-400", slot: 13 },
   ];
+
+  if (realNow && realPrev) {
+    const rw = real[lang];
+    /* Net sales is what customers paid (the orders' totals, after coupons); total sales is the same before coupons.
+       The costs are the ones that are known: products with a cost, and delivery fees saved on the orders */
+    const costsOf = (f: typeof realNow) => f.cogs + (f.shipping ?? 0);
+    const d = (now: number, before: number) => percentChange(now, before);
+    const figuresNow = { net: realNow.sales, gross: realNow.gross, profit: realNow.profit, costs: costsOf(realNow) };
+    const figuresPrev = { net: realPrev.sales, gross: realPrev.gross, profit: realPrev.profit, costs: costsOf(realPrev) };
+    const keys = ["net", "gross", "profit", "costs"] as const;
+    keys.forEach((k, i) => Object.assign(cards[i], { value: figuresNow[k], delta: d(figuresNow[k], figuresPrev[k]) }));
+    const set = (i: number, value: number | null, delta: number | null, note?: string) => Object.assign(rows[i], { value, delta, note });
+    set(0, realNow.gross, d(realNow.gross, realPrev.gross));
+    set(1, realNow.discounts, d(realNow.discounts, realPrev.discounts));
+    set(2, realNow.sales, d(realNow.sales, realPrev.sales));
+    set(3, realNow.cogs, d(realNow.cogs, realPrev.cogs), realNow.cogsUnknown ? rw.cogsUnknown(realNow.cogsUnknown) : undefined);
+    set(4, realNow.shipping, realNow.shipping === null ? null : d(realNow.shipping, realPrev.shipping ?? 0), realNow.shipping === null ? rw.shippingNone : undefined);
+    set(5, null, null, rw.notTracked);
+    set(6, null, null, rw.notTracked);
+    set(7, figuresNow.costs, d(figuresNow.costs, figuresPrev.costs));
+    set(8, realNow.profit, d(realNow.profit, realPrev.profit), realNow.cogsUnknown ? rw.profitHigh : undefined);
+  }
 
   const ab = abandonedFigures(range, seed, sample);
   const tourProducts = useTourProducts();
@@ -600,9 +969,11 @@ export function Reports() {
 
   return (
     <div className="dash min-h-screen bg-page">
+      {/* TODO: the "Reports" subtab (saved reports) has no page yet, so a real store shows only "Store performance";
+          the tour keeps its look */}
       <DashboardBar
         active="reports"
-        subtabs={r.menu}
+        subtabs={tour ? r.menu : r.menu.slice(0, 1)}
         activeSub={0}
       />
 
@@ -624,10 +995,14 @@ export function Reports() {
               </li>
             ))}
           </ul>
-          <div className="space-y-2 p-4">
-            <button type="button" onClick={() => setCreating(true)} className="block w-full rounded-xl bg-ink py-2.5 text-center text-sm font-semibold text-onink transition hover:bg-deep">+ {r.createReport}</button>
-            <span className="block rounded-xl border border-primary/50 py-2.5 text-center text-sm font-semibold text-primary">{r.manage}</span>
-          </div>
+          {/* TODO: a report he creates is saved (seen-reports) but nothing reads it back or makes its file yet, so a real
+              store does not get these buttons until that exists; the tour keeps its look */}
+          {tour && (
+            <div className="space-y-2 p-4">
+              <button type="button" onClick={() => setCreating(true)} className="block w-full rounded-xl bg-ink py-2.5 text-center text-sm font-semibold text-onink transition hover:bg-deep">+ {r.createReport}</button>
+              <span className="block rounded-xl border border-primary/50 py-2.5 text-center text-sm font-semibold text-primary">{r.manage}</span>
+            </div>
+          )}
         </aside>
 
         {/* Content */}
@@ -639,6 +1014,7 @@ export function Reports() {
                 value={range}
                 onChange={(e) => {
                   setRange(Number(e.target.value));
+                  if (!tour) readData();
                   setUpdatedAt(new Date());
                 }}
                 aria-label={rangeText}
@@ -669,8 +1045,9 @@ export function Reports() {
                       </div>
                     </div>
                     <div className={`flex flex-1 flex-col items-center justify-center gap-3 transition-opacity duration-300 ${busy[card.id] ? "opacity-40" : ""}`}>
-                      <Delta value={change(seed, card.slot, sample)} />
+                      <Delta value={card.delta !== undefined ? card.delta : change(seed, card.slot, sample)} />
                       <p className={`text-6xl font-bold ${card.color}`}><Money value={card.value} currency={cur} /></p>
+                      {card.id === "profit" && realNow?.cogsUnknown ? <p className="max-w-xs text-center text-xs text-amber-700 dark:text-amber-300">{real[lang].profitHigh}</p> : null}
                     </div>
                   </section>
                 ))}
@@ -686,20 +1063,31 @@ export function Reports() {
                 </div>
                 <ul className={`mt-4 divide-y divide-fg/10 transition-opacity duration-300 ${busy.summary ? "opacity-40" : ""}`}>
                   {rows.map((row) => (
-                    <li key={row.label} className="flex items-center justify-between gap-4 py-3 text-sm">
-                      <span className="flex items-center gap-2 font-semibold">
-                        <HelpTip id={row.help} />
-                        {row.label}
-                      </span>
-                      <span className="flex items-center gap-3">
-                        <Delta value={change(seed, row.slot, sample)} />
-                        <span className={`min-w-[6.5rem] text-end font-bold ${row.tone}`}><Money value={row.value} currency={cur} /></span>
-                      </span>
+                    <li key={row.label} className="py-3 text-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="flex items-center gap-2 font-semibold">
+                          <HelpTip id={row.help} />
+                          {row.label}
+                        </span>
+                        <span className="flex items-center gap-3">
+                          {row.value === null ? (
+                            <span className="min-w-[6.5rem] text-end font-semibold text-muted">{row.note}</span>
+                          ) : (
+                            <>
+                              <Delta value={row.delta !== undefined ? row.delta : change(seed, row.slot, sample)} />
+                              <span className={`min-w-[6.5rem] text-end font-bold ${row.tone}`}><Money value={row.value} currency={cur} /></span>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      {row.value !== null && row.note && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">{row.note}</p>}
                     </li>
                   ))}
                 </ul>
               </section>
             </>
+          ) : !sample ? (
+            <RealReport section={section} data={data} span={span} prev={prevSpan} busy={busy} refresh={refresh} />
           ) : section === 4 ? (
             abandonedView
           ) : section === 1 || section === 2 || section === 3 || section === 5 || section === 6 ? (

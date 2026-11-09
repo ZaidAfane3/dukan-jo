@@ -231,6 +231,9 @@ export type Order = {
   pay?: "cliq" | "cash" | "card";
   /* The coupon used at checkout: its code and what it took off (the total is already after it) */
   coupon?: { code: string; discount: number };
+  /* Orders from the store: the delivery fee the customer paid (already in the total; 0 when delivery was free). Older
+     orders and orders added by hand have none, so Reports leaves their delivery out instead of guessing it */
+  delivery?: number;
   created: number;
 };
 
@@ -265,6 +268,7 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     ...(typeof x.note === "string" ? { note: cleanLines(x.note, 500) } : {}),
     ...(x.pay !== undefined ? { pay: oneOf(x.pay, ["cliq", "cash", "card"] as const, "cash") } : {}),
     ...(couponOf(x.coupon) ? { coupon: couponOf(x.coupon) } : {}),
+    ...(money(x.delivery) !== null ? { delivery: money(x.delivery) as number } : {}),
     created: time(x.created, 0),
   };
 }

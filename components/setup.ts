@@ -20,7 +20,9 @@ export type SavedSetup = {
   /* `quantity`: how many are for sale; left out when the stock is unlimited */
   /* `image`: its cropped picture (a small data URL); `id`: the product it became in the product list */
   product: { type: number; name: string; price: string; quantity?: number; image?: string; id?: number } | null;
-  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; city: string; address: string } | null;
+  /* `fee`: with his own courier, what a customer pays for delivery per order in JOD (left out or 0: free). Dukkan Ship
+     has no fee of his: the price Dukkan's staff set in Diwan is charged */
+  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; city: string; address: string; fee?: number } | null;
 };
 
 const KEY = "seen-setup";

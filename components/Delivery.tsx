@@ -10,6 +10,9 @@ import { inLang } from "./safeOrder";
 import { usePrefs } from "./Prefs";
 import { shipWords, usePublicSettings } from "./platformPublic";
 import { loadSetup, saveSetup, type SavedSetup } from "./setup";
+import { typedMoney } from "./records";
+import { cleanMoney } from "./safe";
+import { ACCOUNT_LIMITS } from "./safeAccount";
 
 /* The delivery options a merchant chose in setup. Until now there was no place to change them. */
 
@@ -20,8 +23,8 @@ const field =
 const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const words = {
-  en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "You have not chosen a delivery option yet." },
-  ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لم تختر خيار توصيل بعد." },
+  en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "You have not chosen a delivery option yet.", fee: "Delivery fee per order (JOD)", feeHint: "What customers pay for delivery at checkout. Leave it at 0 for free delivery.", feeBad: "Enter an amount from 0 to {max} JOD, with up to 3 decimals." },
+  ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لم تختر خيار توصيل بعد.", fee: "رسوم التوصيل لكل طلب (د.أ)", feeHint: "ما يدفعه العميل للتوصيل عند إتمام الطلب. اتركها 0 ليكون التوصيل مجانيًا.", feeBad: "اكتب مبلغًا من 0 إلى {max} د.أ، بثلاث خانات عشرية على الأكثر." },
 };
 
 
@@ -42,8 +45,10 @@ export function Delivery() {
   const [kind, setKind] = useState(0);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  /* His own courier's fee as he types it ("" is read as 0: free) */
+  const [fee, setFee] = useState("0");
   /* Each mistake shows under its own field */
-  const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string }>({});
+  const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string; fee?: string }>({});
   const [flash, setFlash] = useState(false);
 
   useEffect(() => {
@@ -62,6 +67,7 @@ export function Delivery() {
         setKind(v.shipping.kind);
         setName(v.shipping.name);
         setPhone(v.shipping.phone);
+        setFee(String(v.shipping.fee ?? 0));
       }
     }
     setReady(true);
@@ -81,10 +87,13 @@ export function Delivery() {
     } else if (mode === "own") {
       if (visibleLength(name) < 2) next.name = s.errName;
       if (!isJordanMobile(phone)) next.phone = s.phoneInvalid;
-      shipping = { mode: "own", kind, name: cleanLine(name, 60), phone: savedMobile(phone), city: "", address: "" };
+      /* the same money rule as every amount he saves; empty means free */
+      const amount = fee.trim() === "" ? "0" : cleanMoney(fee, ACCOUNT_LIMITS.shipFee);
+      if (amount === "") next.fee = w.feeBad.replace("{max}", String(ACCOUNT_LIMITS.shipFee));
+      shipping = { mode: "own", kind, name: cleanLine(name, 60), phone: savedMobile(phone), city: "", address: "", fee: Number(amount) || 0 };
     }
     setErrors(next);
-    const first = (["city", "address", "name", "phone"] as const).find((k) => next[k]);
+    const first = (["city", "address", "name", "phone", "fee"] as const).find((k) => next[k]);
     if (first) {
       document.getElementById(`d-${first}`)?.focus();
       return;
@@ -172,6 +181,11 @@ export function Delivery() {
                 <label htmlFor="d-phone" className="mb-2 block text-sm font-semibold">{s.phoneLabel}<RequiredMark /></label>
                 <input id="d-phone" dir="ltr" inputMode="tel" aria-required aria-invalid={!!errors.phone} value={phone} onChange={(e) => { setPhone(typedAnyPhone(e.target.value)); setErrors((x) => ({ ...x, phone: undefined })); }} maxLength={20} placeholder="7X XXX XXXX" className={`${field} h-11 text-start ${errors.phone ? bad : ""}`} />
                 {errors.phone ? <p className="mt-1.5 text-xs text-rose-600">{errors.phone}</p> : <p className="mt-1.5 text-xs text-muted">{s.phoneHint}</p>}
+              </div>
+              <div>
+                <label htmlFor="d-fee" className="mb-2 block text-sm font-semibold">{w.fee}</label>
+                <input id="d-fee" dir="ltr" inputMode="decimal" aria-invalid={!!errors.fee} aria-describedby="d-fee-note" value={fee} onChange={(e) => { setFee(typedMoney(e.target.value, 3)); setErrors((x) => ({ ...x, fee: undefined })); }} placeholder="0" className={`${field} h-11 max-w-[12rem] text-start ${errors.fee ? bad : ""}`} />
+                <p id="d-fee-note" className={`mt-1.5 text-xs ${errors.fee ? "text-rose-600" : "text-muted"}`}>{errors.fee ?? w.feeHint}</p>
               </div>
             </div>
           )}

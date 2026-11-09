@@ -45,7 +45,8 @@ type Store = {
   whatsapp: string | null;
   slug: string;
   product: { type: number; name: string; price: string; quantity?: number; image: string | null; /* the product it became in the product list */ id?: number } | null;
-  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string } | null;
+  /* `fee`: his own courier's delivery fee, set on the Delivery page; setup keeps it as it is */
+  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string; fee?: number } | null;
   pickup: boolean;
 };
 
@@ -1347,7 +1348,7 @@ function ShippingStep({ store, onSave }: StepProps) {
       return;
     }
     savedUrls.current = new Set(proofs.flatMap((f) => (f.url ? [f.url] : [])));
-    onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "" } });
+    onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "", ...(own?.fee !== undefined ? { fee: own.fee } : {}) } });
   };
 
   return (
@@ -1538,7 +1539,7 @@ export function Onboarding() {
       pickup: store.pickup,
       logo: store.logoData,
       product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.image?.startsWith("data:") ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
-      shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address } : null,
+      shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address, ...(store.shipping.fee !== undefined ? { fee: store.shipping.fee } : {}) } : null,
     });
   }, [restored, store, done]);
 
