@@ -158,7 +158,7 @@ function AddForm({ onDone, why }: { onDone: (text: string) => void; why: (r: { d
         <label htmlFor="st-role" className={label}>{t("Role", "الدور")}</label>
         <select id="st-role" className={field} value={v.role} onChange={(e) => setV({ ...v, role: e.target.value })}>
           <option value="support">{t("Support", "الدعم")}</option>
-          <option value="developer">{t("Developer (developer portal only)", "المطوّر (بوابة المطورين فقط)")}</option>
+          <option value="developer">{t("Marketing (announcements, pop-ups, pages, themes)", "التسويق (الإعلانات والنوافذ والصفحات والثيمات)")}</option>
           <option value="owner">{t("Owner", "المالك")}</option>
         </select>
       </div>

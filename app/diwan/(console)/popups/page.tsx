@@ -6,7 +6,7 @@ import { PopupCard } from "@/components/MerchantPopup";
 import { POPUP_IMAGE_MAX, POPUP_LIMITS, POPUP_NEXT, type PopupStatus, type PopupView } from "@/components/popupRules";
 import { checkImage, uploadProblemFor } from "@/components/safe";
 
-/* Pop-ups to merchants, in Diwan's developer portal: a box in the middle of the merchant's home page (an offer, a new
+/* Pop-ups to merchants, in Diwan's marketing pages: a box in the middle of the merchant's home page (an offer, a new
    feature, a notice), with an optional picture and button. Made as a draft with a live preview, then released: each shop
    it is for sees it once, between its start and end. "Seen" and "pressed" count the shops. Every change is in the
    activity log. */

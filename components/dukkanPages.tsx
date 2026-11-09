@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Fragment } from "react";
 
 /* Pages Dukkan's team publishes for merchants (guides, news, rules), read in the merchant dashboard at /from-dukkan.
-   Made in Diwan's developer portal (/diwan/pages). Shared by the server (the rules) and the pages (the limits and how a
+   Made in Diwan's marketing pages (/diwan/pages). Shared by the server (the rules) and the pages (the limits and how a
    page's text is shown).
 
    A page's text is plain text, never HTML:

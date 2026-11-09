@@ -29,7 +29,7 @@ const RUQAA = { fontFamily: "var(--font-ruqaa), var(--font-sans)" };
    (counts and totals only: Diwan never looks at a merchant's products, orders or customers). */
 export default function OverviewPage() {
   const staff = useStaff();
-  /* a staff member who can't see shops (a developer) gets the developer portal's home instead of the shops' figures */
+  /* a staff member who can't see shops (the Marketing role) gets the marketing home instead of the shops' figures */
   if (staff && !can(staff, "shops.read")) return <PortalHome />;
   return <ShopsOverview />;
 }
@@ -140,7 +140,7 @@ function ShopsOverview() {
   );
 }
 
-/* The developer portal's home: the welcome, then an index of the pages this staff member may open */
+/* The marketing home: the welcome, then an index of the pages this staff member may open */
 function PortalHome() {
   const t = useT();
   const staff = useStaff();
@@ -157,7 +157,7 @@ function PortalHome() {
   return (
     <>
       <Welcome line={t("What Dukkan sends out to merchants, in one place. Pick up where you left off.", "كل ما ترسله دكّان إلى التجار، في مكان واحد. تابع من حيث توقفت.")} />
-      <PageHead title={t("Developer portal", "بوابة المطورين")} eyebrow={t("Your pages", "صفحاتك")} />
+      <PageHead title={t("Marketing", "التسويق")} eyebrow={t("Your pages", "صفحاتك")} />
       <ul className={`${card} divide-y divide-fg/[0.06] p-0`}>
         {list.map((i) => (
           <li key={i.href}>

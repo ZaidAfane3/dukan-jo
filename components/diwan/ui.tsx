@@ -106,7 +106,7 @@ export const area =
 /** The one warm colour: saffron, only for what needs someone (open tickets, new reports). Calm things have no colour. */
 export const ATTENTION = "text-amber-700 dark:text-amber-300";
 
-/* the section a page belongs to (Stores, Support, Merchant dashboard...), found by its address, for the line above its title */
+/* the section a page belongs to (Stores, Support, Marketing...), found by its address, for the line above its title */
 function groupOf(path: string) {
   const item = DIWAN_NAV.filter((i) => i.href !== "/diwan").find((i) => path === i.href || path.startsWith(i.href + "/"));
   return item?.group ? NAV_GROUPS[item.group] : null;

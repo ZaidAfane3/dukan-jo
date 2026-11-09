@@ -6,7 +6,7 @@ import { audit, staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
-/* Pop-ups to merchants, run from Diwan's developer portal (/diwan/popups). A pop-up is made as a draft, then released
+/* Pop-ups to merchants, run from Diwan's marketing pages (/diwan/popups). A pop-up is made as a draft, then released
    (live: shown once to each shop it is for, between its start and end), then ended. Pictures may be picture data, so a
    pop-up can be up to about 600 KB. */
 const MAX = 700_000;

@@ -16,7 +16,7 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan/documents", en: "Documents", ar: "المستندات", perm: "documents", group: "support" },
   { href: "/diwan/domains", en: "Domains", ar: "النطاقات", perm: "domains", group: "support" },
   { href: "/diwan/feedback", en: "Bugs and ideas", ar: "الأخطاء والأفكار", perm: "tickets", group: "support" },
-  /* what Dukkan's team sends to merchants' dashboards */
+  /* marketing: what Dukkan's team sends to merchants' dashboards */
   { href: "/diwan/announcements", en: "Announcements", ar: "الإعلانات", perm: "announce", group: "merchants" },
   { href: "/diwan/popups", en: "Pop-ups", ar: "النوافذ المنبثقة", perm: "announce", group: "merchants" },
   { href: "/diwan/pages", en: "Pages", ar: "الصفحات", perm: "announce", group: "merchants" },
@@ -32,7 +32,7 @@ export const DIWAN_NAV: NavItem[] = [
 export const NAV_GROUPS: Record<NavGroup, { en: string; ar: string }> = {
   stores: { en: "Stores", ar: "المتاجر" },
   support: { en: "Support", ar: "الدعم" },
-  merchants: { en: "Merchant dashboard", ar: "لوحة التاجر" },
+  merchants: { en: "Marketing", ar: "التسويق" },
   themes: { en: "Theme store", ar: "متجر الثيمات" },
   admin: { en: "Admin", ar: "الإدارة" },
 };

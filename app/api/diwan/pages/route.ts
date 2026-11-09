@@ -7,7 +7,7 @@ import { audit, staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
-/* Dukkan's pages for merchants (components/dukkanPages.tsx), run from Diwan's developer portal */
+/* Dukkan's pages for merchants (components/dukkanPages.tsx), run from Diwan's marketing pages */
 
 const MAX = 120_000;
 

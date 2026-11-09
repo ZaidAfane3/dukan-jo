@@ -8,7 +8,7 @@ import { PageBody, type MerchantPage } from "./dukkanPages";
 import { merchantCall, onServer } from "./merchantApi";
 import { usePrefs } from "./Prefs";
 
-/* "From Dukkan": the guides, news and rules Dukkan's team publishes for merchants (made in Diwan's developer portal,
+/* "From Dukkan": the guides, news and rules Dukkan's team publishes for merchants (made in Diwan's marketing pages,
    /diwan/pages), read here in the dashboard. Only for a signed-in account: they come from Dukkan's server. */
 
 const words = {
