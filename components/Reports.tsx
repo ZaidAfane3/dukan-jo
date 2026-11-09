@@ -432,6 +432,8 @@ const real = {
     cogsUnknown: (n: number) => `${n === 1 ? "1 sold item has" : `${n} sold items have`} no known cost (no cost on the product, or the product was deleted), so ${n === 1 ? "it is" : "they are"} left out.`,
     profitHigh: "Some sold items have no cost on their product, so the real profit is lower than this.",
     shippingNone: "Not saved on these orders",
+    shippingPaid: "Paid by customers; taken out of the profit",
+    courierNote: "What you pay the courier isn't tracked yet: this is the profit on your products.",
     orders: { title: "Orders", desc: "Every order placed in the period, whatever its status." },
     average: { title: "Average order", desc: "What an order brought in on average, without cancelled or refunded ones.", formula: ["Average order", "=", "Net sales", "÷", "Orders"] },
     cancel: { title: "Cancellation rate", desc: "The share of the period's orders that were cancelled.", formula: ["Cancellation rate", "=", "Cancelled orders", "÷", "All orders", "×", "100"] },
@@ -470,6 +472,8 @@ const real = {
     cogsUnknown: (n: number) => `${n === 1 ? "قطعة مباعة واحدة تكلفتها" : `${n} من القطع المباعة تكلفتها`} غير معروفة (لا تكلفة على المنتج، أو حُذف المنتج)، فلم تُحسب.`,
     profitHigh: "بعض القطع المباعة لا تكلفة على منتجها، فالربح الحقيقي أقل من هذا.",
     shippingNone: "غير محفوظة على هذه الطلبات",
+    shippingPaid: "دفعها العملاء؛ تُطرح من الربح",
+    courierNote: "ما تدفعه لشركة التوصيل لا يُتتبّع بعد: هذا هو الربح من منتجاتك.",
     orders: { title: "الطلبات", desc: "كل الطلبات التي وصلت خلال الفترة، أيًّا كانت حالتها." },
     average: { title: "متوسط الطلب", desc: "ما جلبه الطلب الواحد في المتوسط، دون الطلبات الملغاة أو المستردة.", formula: ["متوسط الطلب", "=", "صافي المبيعات", "÷", "الطلبات"] },
     cancel: { title: "معدل الإلغاء", desc: "نسبة الطلبات الملغاة من طلبات الفترة.", formula: ["معدل الإلغاء", "=", "الطلبات الملغاة", "÷", "كل الطلبات", "×", "100"] },
@@ -865,11 +869,12 @@ export function Reports() {
     set(1, realNow.discounts, d(realNow.discounts, realPrev.discounts));
     set(2, realNow.sales, d(realNow.sales, realPrev.sales));
     set(3, realNow.cogs, d(realNow.cogs, realPrev.cogs), realNow.cogsUnknown ? rw.cogsUnknown(realNow.cogsUnknown) : undefined);
-    set(4, realNow.shipping, realNow.shipping === null ? null : d(realNow.shipping, realPrev.shipping ?? 0), realNow.shipping === null ? rw.shippingNone : undefined);
+    set(4, realNow.shipping, realNow.shipping === null ? null : d(realNow.shipping, realPrev.shipping ?? 0), realNow.shipping === null ? rw.shippingNone : rw.shippingPaid);
     set(5, null, null, rw.notTracked);
     set(6, null, null, rw.notTracked);
     set(7, figuresNow.costs, d(figuresNow.costs, figuresPrev.costs));
-    set(8, realNow.profit, d(realNow.profit, realPrev.profit), realNow.cogsUnknown ? rw.profitHigh : undefined);
+    /* the courier's real cost is not recorded, so the profit always says what it leaves out */
+    set(8, realNow.profit, d(realNow.profit, realPrev.profit), realNow.cogsUnknown ? `${rw.profitHigh} ${rw.courierNote}` : rw.courierNote);
   }
 
   const ab = abandonedFigures(range, seed, sample);

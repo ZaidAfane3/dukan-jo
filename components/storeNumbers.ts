@@ -75,18 +75,21 @@ export type SalesFigures = {
   cogs: number;
   /** Units sold whose cost is not known (no cost set, the product is gone, or an order added by hand without items) */
   cogsUnknown: number;
-  /** Delivery fees saved on the orders, or null when no order in the period has one saved (then it is left out) */
+  /** Delivery fees the customers paid (saved on the orders), or null when no order in the period has one saved */
   shipping: number | null;
-  /** sales − cost of goods − delivery fees, leaving out the costs that are not known */
+  /** The profit on the products: sales − the delivery fees customers paid − cost of goods. What the merchant pays the
+      courier is not recorded anywhere, so it is not in this (the page says so); costs that are not known are left out. */
   profit: number;
   /** sales ÷ orders */
   average: number;
 };
 
-/** The product an order line was: by its id (orders from the store keep it), else by its exact name. Products in the
-    bin no longer exist for this. */
+/** The product an order line was: by its id when the name still matches (a product deleted for good can see its id
+    given to a new one, whose cost and name must never be counted for the old sales), else by its exact name. Products
+    in the bin no longer exist for this. */
 function productOf(line: { id?: number; name: string }, byId: Map<number, Product>, byName: Map<string, Product>) {
-  return (line.id !== undefined ? byId.get(line.id) : undefined) ?? byName.get(line.name);
+  const same = line.id !== undefined ? byId.get(line.id) : undefined;
+  return same && same.name === line.name ? same : byName.get(line.name);
 }
 
 function productMaps(products: Product[]) {
