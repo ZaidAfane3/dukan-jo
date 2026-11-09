@@ -7,11 +7,10 @@ import { inTransaction } from "@/server/tickets";
 export const dynamic = "force-dynamic";
 
 /** Every announcement, newest first: status (scheduled, live, ended), how many shops it is for and how many read it.
-    Also the plans (for the audience picker) and the names of the shops chosen in each one. */
+    Also the names of the shops chosen in each one. */
 export const GET = staffRoute("announce", async () => {
   const pool = await db();
-  const [list, plans] = await Promise.all([
-    pool.query(
+  const list = await pool.query(
       `SELECT a.*, st.name AS by,
               CASE WHEN a.starts_at > now() THEN 'scheduled' WHEN a.ends_at IS NOT NULL AND a.ends_at <= now() THEN 'ended' ELSE 'live' END AS status,
               (SELECT count(*)::int FROM notification_reads r JOIN notifications n ON n.id = r.notification_id
@@ -20,9 +19,7 @@ export const GET = staffRoute("announce", async () => {
          FROM announcements a LEFT JOIN staff st ON st.id = a.created_by
         ORDER BY a.created_at DESC
         LIMIT 200`,
-    ),
-    pool.query(`SELECT key, name_en, name_ar FROM plans ORDER BY price_month, id`),
-  ]);
+  );
   const ids = Array.from(new Set(list.rows.flatMap((r) => (Array.isArray(r.audience?.accounts) ? r.audience.accounts : []).map(String))));
   const shops = ids.length
     ? (
@@ -34,7 +31,6 @@ export const GET = staffRoute("announce", async () => {
     : [];
   return answer({
     result: "ok",
-    plans: plans.rows.map((p) => ({ key: p.key, nameEn: p.name_en, nameAr: p.name_ar })),
     shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, email: s.email }])),
     announcements: list.rows.map((r) => ({
       id: String(r.id),

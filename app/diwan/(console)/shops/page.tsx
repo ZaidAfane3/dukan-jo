@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { planName, Select, StatusBadge, statusOptions, statusText, storeLink } from "@/components/diwan/shopBits";
+import { Select, StatusBadge, statusOptions, statusText, storeLink } from "@/components/diwan/shopBits";
 import { Btn, DataTable, downloadCsv, field, Loaded, PageHead, td, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { FilterBar } from "@/components/diwan/Filters";
 
@@ -13,9 +13,7 @@ type Row = {
   owner: string;
   email: string;
   phone: string;
-  plan_en: string | null;
-  plan_ar: string | null;
-  ends_at: string | null;
+  domain: string | null;
   status: string;
   setup_done: number;
   published: boolean;
@@ -27,10 +25,13 @@ type Row = {
   last_seen_at: string | null;
   created_at: string;
 };
-type List = { rows: Row[]; total: number; page: number; pages: number; plans: { id: string; name_en: string; name_ar: string }[]; canExport: boolean };
+type List = { rows: Row[]; total: number; page: number; pages: number; canExport: boolean };
 
-const FILTERS = ["status", "plan", "setup", "published", "ship", "sort"] as const;
+const FILTERS = ["status", "setup", "published", "ship", "sort"] as const;
 type Filters = Record<(typeof FILTERS)[number], string>;
+
+/** Where a store opens: its own domain when one is connected and working, else its dukkan.store address */
+const addressOf = (r: Row) => r.domain || storeLink(r.slug);
 
 /* Every shop, searched and filtered by the server. A row opens the shop. */
 export default function ShopsPage() {
@@ -38,7 +39,7 @@ export default function ShopsPage() {
   const f = useFmt();
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
-  const [filters, setFilters] = useState<Filters>({ status: "", plan: "", setup: "", published: "", ship: "", sort: "newest" });
+  const [filters, setFilters] = useState<Filters>({ status: "", setup: "", published: "", ship: "", sort: "newest" });
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
 
@@ -65,16 +66,15 @@ export default function ShopsPage() {
     setExporting(false);
     if (!r.ok || !j?.rows) return;
     downloadCsv(`dukkan-stores-${new Date().toISOString().slice(0, 10)}.csv`, [
-      ["id", "store", "link", "owner", "email", "phone", "plan", "plan ends", "status", "setup", "published", "dukkan ship", "products", "orders", "total sales JOD", "last seen", "signed up"],
+      ["id", "store", "link", "domain", "owner", "email", "phone", "status", "setup", "published", "dukkan ship", "products", "orders", "total sales JOD", "last seen", "signed up"],
       ...(j.rows as Row[]).map((r) => [
         r.id,
         r.name,
         storeLink(r.slug),
+        addressOf(r),
         r.owner,
         r.email,
         r.phone,
-        r.plan_en ?? "",
-        r.ends_at ? r.ends_at.slice(0, 10) : "",
         r.status,
         `${r.setup_done}/6`,
         r.published ? "yes" : "no",
@@ -105,9 +105,9 @@ export default function ShopsPage() {
 
       <FilterBar
         className="mb-4"
-        count={(["status", "plan", "setup", "published", "ship"] as const).filter((k) => filters[k]).length}
+        count={(["status", "setup", "published", "ship"] as const).filter((k) => filters[k]).length}
         onClear={() => {
-          setFilters((x) => ({ ...x, status: "", plan: "", setup: "", published: "", ship: "" }));
+          setFilters((x) => ({ ...x, status: "", setup: "", published: "", ship: "" }));
           setPage(1);
         }}
         search={
@@ -122,14 +122,8 @@ export default function ShopsPage() {
           />
         }
       >
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <Select label={t("Status", "الحالة")} value={filters.status} onChange={setFilter("status")} options={[{ value: "", label: `${t("Status", "الحالة")}: ${all}` }, ...statusOptions(t)]} />
-        <Select
-          label={t("Plan", "الباقة")}
-          value={filters.plan}
-          onChange={setFilter("plan")}
-          options={[{ value: "", label: `${t("Plan", "الباقة")}: ${all}` }, ...(s.data?.plans ?? []).map((p) => ({ value: String(p.id), label: planName(t, p) }))]}
-        />
         <Select
           label={t("Setup", "الإعداد")}
           value={filters.setup}
@@ -186,6 +180,7 @@ export default function ShopsPage() {
             <DataTable
               head={[
                 t("Store", "المتجر"),
+                t("Domain", "النطاق"),
                 t("Owner", "المالك"),
                 t("Status", "الحالة"),
                 t("Setup", "الإعداد"),
@@ -208,10 +203,21 @@ export default function ShopsPage() {
                     <Link href={`/diwan/shops/${r.id}`} className="font-semibold text-primary hover:underline">
                       {r.name || t("(no name yet)", "(بلا اسم بعد)")}
                     </Link>
-                    {r.slug && (
-                      <p dir="ltr" className="text-xs text-muted">
-                        {storeLink(r.slug)}
-                      </p>
+                  </td>
+                  <td className={td}>
+                    {addressOf(r) ? (
+                      /* the store's own domain stands out; the dukkan.store address is the quiet default */
+                      <a
+                        href={`https://${addressOf(r)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        dir="ltr"
+                        className={`whitespace-nowrap hover:underline ${r.domain ? "font-medium text-primary" : "text-xs text-muted hover:text-primary"}`}
+                      >
+                        {addressOf(r)}
+                      </a>
+                    ) : (
+                      <span className="text-muted">—</span>
                     )}
                   </td>
                   <td className={td}>

@@ -121,7 +121,7 @@ export default function StaffPage() {
               })}
             </DataTable>
             <p className="mt-3 text-xs text-muted">
-              {t("Owners can do everything. Support can see stores and tickets, handle domains, papers and store reports, and log in as a merchant; not billing, settings or staff.", "المالك يستطيع كل شيء. الدعم يرى المتاجر والتذاكر، ويتابع النطاقات والمستندات والبلاغات، ويدخل كتاجر؛ دون الفواتير والإعدادات والفريق.")}
+              {t("Owners can do everything. Support can see stores and tickets, handle domains, papers and store reports, and log in as a merchant; not payments, settings or staff.", "المالك يستطيع كل شيء. الدعم يرى المتاجر والتذاكر، ويتابع النطاقات والمستندات والبلاغات، ويدخل كتاجر؛ دون المدفوعات والإعدادات والفريق.")}
             </p>
           </>
         )}

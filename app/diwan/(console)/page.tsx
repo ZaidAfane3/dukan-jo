@@ -16,9 +16,8 @@ type Overview = {
   active: number;
   inactive: number;
   suspended: number;
-  paying: number;
-  expiring: number;
-  expiringTrials: number;
+  published: number;
+  onTrial: number;
   waiting: { tickets: number; domains: number; reports: number; documents: number };
   newest: { id: string; name: string; slug: string | null; owner: string; created_at: string; setup_done: number; status: string }[];
 };
@@ -64,12 +63,12 @@ function ShopsOverview() {
                     { label: t("New this week", "جديدة هذا الأسبوع"), value: f.num(d.newWeek), note: t("signed up in the last 7 days", "سجّلت خلال آخر 7 أيام") },
                     { label: t("Active", "النشطة"), value: f.num(d.active), note: t(`${f.num(d.inactive)} quiet for 14 days or more`, `${f.num(d.inactive)} بلا دخول منذ 14 يومًا أو أكثر`) },
                     {
-                      label: t("Paying", "تدفع"),
-                      value: f.num(d.paying),
+                      label: t("Published", "منشورة"),
+                      value: f.num(d.published),
                       note: t(`of ${f.num(d.total)} stores`, `من ${f.num(d.total)} متجر`),
-                      extra: <Share part={d.paying} whole={d.total} />,
+                      extra: <Share part={d.published} whole={d.total} />,
                     },
-                    { label: t("Ending in 14 days", "تنتهي خلال 14 يومًا"), value: f.num(d.expiring), note: t(`${f.num(d.expiringTrials)} of them trials`, `منها ${f.num(d.expiringTrials)} تجريبية`) },
+                    { label: t("On trial", "في الفترة التجريبية"), value: f.num(d.onTrial), note: t("in their free trial now", "في الفترة المجانية الآن") },
                   ]}
                 />
               </section>

@@ -229,8 +229,6 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   }
   const status = p.get("status");
   if (status && (SHOP_STATUSES as readonly string[]).includes(status)) where.push(`(${STATUS_SQL}) = ${add(status)}`);
-  const plan = p.get("plan");
-  if (plan && /^\d{1,12}$/.test(plan)) where.push(`cur.plan_id = ${add(plan)}`);
   const setup = p.get("setup");
   if (setup === "done") where.push(`s.setup_done >= 6`);
   else if (setup === "partial") where.push(`s.setup_done BETWEEN 1 AND 5`);
@@ -245,6 +243,9 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   return { sql, params, order: SORTS[p.get("sort") ?? ""] ?? SORTS.newest };
 }
 
-export const SHOP_LIST_COLUMNS = `s.account_id AS id, s.name, s.slug, a.name AS owner, a.email, a.phone, cur.plan_en, cur.plan_ar, cur.ends_at,
+/* `domain`: the store's own domain when one is connected and working (the newest, if more than one); none: its
+   dukkan.store address is what people open */
+export const SHOP_LIST_COLUMNS = `s.account_id AS id, s.name, s.slug, a.name AS owner, a.email, a.phone,
+  (SELECT d.name FROM domains d WHERE d.account_id = s.account_id AND d.status = 'active' ORDER BY d.created_at DESC, d.id DESC LIMIT 1) AS domain,
   (${STATUS_SQL}) AS status, s.setup_done, s.published, s.paused, s.ship_mode, s.product_count, s.order_count, s.total_sales,
   s.last_seen_at, s.created_at`;

@@ -6,23 +6,20 @@ import { staffRoute } from "@/server/staff";
 export const dynamic = "force-dynamic";
 
 /* Diwan's first page: the main numbers, what waits for staff in the other sections, and the newest shops. All live.
-   Active: the merchant was seen in the last 14 days (signed in or used the dashboard). */
+   Active: the merchant was seen in the last 14 days (signed in or used the dashboard). Dukkan has no plans for now, so
+   nothing here is about paying: published counts the stores that published their store, on trial those in their free trial. */
 export const GET = staffRoute("shops.read", async () => {
   await prepareShops();
   const pool = await db();
-  const [shops, subs, waiting, newest] = await Promise.all([
+  const [shops, waiting, newest] = await Promise.all([
     pool.query(`
       SELECT count(*)::int AS total,
-             count(*) FILTER (WHERE created_at > now() - interval '7 days')::int AS new_week,
-             count(*) FILTER (WHERE last_seen_at > now() - interval '14 days')::int AS active,
-             count(*) FILTER (WHERE status = 'suspended')::int AS suspended
-        FROM shops`),
-    pool.query(`
-      SELECT count(DISTINCT sub.account_id) FILTER (WHERE sub.status = 'active' AND p.key <> 'trial')::int AS paying,
-             count(*) FILTER (WHERE sub.ends_at BETWEEN now() AND now() + interval '14 days')::int AS expiring,
-             count(*) FILTER (WHERE sub.ends_at BETWEEN now() AND now() + interval '14 days' AND p.key = 'trial')::int AS expiring_trials
-        FROM subscriptions sub JOIN plans p ON p.id = sub.plan_id
-       WHERE sub.status IN ('trial', 'active')`),
+             count(*) FILTER (WHERE s.created_at > now() - interval '7 days')::int AS new_week,
+             count(*) FILTER (WHERE s.last_seen_at > now() - interval '14 days')::int AS active,
+             count(*) FILTER (WHERE s.status = 'suspended')::int AS suspended,
+             count(*) FILTER (WHERE s.published)::int AS published,
+             count(*) FILTER (WHERE (${STATUS_SQL}) = 'trial')::int AS on_trial
+        FROM shops s ${CURRENT_SUB_SQL}`),
     pool.query(`
       SELECT (SELECT count(*) FROM tickets WHERE status NOT IN ('resolved', 'closed'))::int AS tickets,
              (SELECT count(*) FROM domains WHERE status = 'awaiting')::int AS domains,
@@ -41,9 +38,8 @@ export const GET = staffRoute("shops.read", async () => {
     active: k.active,
     inactive: k.total - k.active,
     suspended: k.suspended,
-    paying: subs.rows[0].paying,
-    expiring: subs.rows[0].expiring,
-    expiringTrials: subs.rows[0].expiring_trials,
+    published: k.published,
+    onTrial: k.on_trial,
     waiting: waiting.rows[0],
     newest: newest.rows,
   });

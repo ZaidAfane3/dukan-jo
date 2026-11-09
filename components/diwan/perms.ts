@@ -10,7 +10,7 @@ export type Perm =
   | "billing" | "tickets" | "domains" | "documents" | "complaints"
   | "announce" | "settings" | "flags" | "marketplace" | "staff" | "audit.read" | "delete";
 
-/* Owner: everything. Support: see shops and tickets, log in as merchant; no billing, plans, deleting or settings.
+/* Owner: everything. Support: see shops and tickets, log in as merchant; no payments, deleting or settings.
    Developer (shown as "Marketing"; the stored name stays developer): the marketing pages only (what merchants see in their dashboard: themes, pages, pop-ups, announcements,
    the outside developers' work), the feature switches and the activity log; no shops, payments, tickets or staff. */
 const SUPPORT: Perm[] = ["shops.read", "shops.impersonate", "tickets", "domains", "documents", "complaints", "audit.read"];
