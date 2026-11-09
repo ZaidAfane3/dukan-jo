@@ -47,7 +47,7 @@ export function Icon({ name, className = "h-5 w-5", strokeWidth = 1.8 }: { name:
 const BY_PATH: [string, IconName][] = [
   ["/diwan/shops", "shops"], ["/diwan/payments", "payments"], ["/diwan/funnel", "funnel"], ["/diwan/tickets", "tickets"],
   ["/diwan/feedback", "feedback"], ["/diwan/domains", "domains"], ["/diwan/documents", "documents"], ["/diwan/complaints", "complaints"],
-  ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
+  ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/website", "domains"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
   ["/diwan/marketplace", "developers"], ["/diwan/flags", "flags"], ["/diwan/settings", "settings"], ["/diwan/staff", "staff"],
   ["/diwan/activity", "activity"],
 ];

@@ -20,6 +20,7 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan/announcements", en: "Announcements", ar: "الإعلانات", perm: "announce", group: "merchants" },
   { href: "/diwan/popups", en: "Pop-ups", ar: "النوافذ المنبثقة", perm: "announce", group: "merchants" },
   { href: "/diwan/pages", en: "Pages", ar: "الصفحات", perm: "announce", group: "merchants" },
+  { href: "/diwan/website", en: "Website", ar: "الموقع", perm: "settings", group: "merchants" },
   /* the theme store: Dukkan's themes and the outside developers' work */
   { href: "/diwan/themes", en: "Themes", ar: "الثيمات", perm: "marketplace", group: "themes" },
   { href: "/diwan/marketplace", en: "Developers", ar: "المطورون", perm: "marketplace", group: "themes" },
