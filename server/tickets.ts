@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { imageSize, isComplete, MAX_PIXELS, MAX_SIDE } from "@/components/safe";
 import { answer, currentAccount, guarded, sameOrigin } from "./auth";
+import { lookupKeys, seal } from "./crypto";
 import { db } from "./db";
 
 /* Tickets, bug reports and ideas: what the merchant routes (app/api/tickets) and Diwan's routes (app/api/diwan/tickets,
@@ -83,11 +84,11 @@ export async function addMessage(
 ): Promise<string> {
   const { rows } = await client.query(
     `INSERT INTO ticket_messages (ticket_id, author, staff_id, internal, body) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [ticketId, m.author, m.staffId ?? null, !!m.internal, m.body],
+    [ticketId, m.author, m.staffId ?? null, !!m.internal, seal(m.body)],
   );
   const id = String(rows[0].id);
   for (const p of m.pictures ?? []) {
-    await client.query(`INSERT INTO ticket_pictures (ticket_id, message_id, data, mime, bytes) VALUES ($1, $2, $3, $4, $5)`, [ticketId, id, p.data, p.mime, p.bytes]);
+    await client.query(`INSERT INTO ticket_pictures (ticket_id, message_id, data, mime, bytes) VALUES ($1, $2, $3, $4, $5)`, [ticketId, id, seal(p.data), p.mime, p.bytes]);
   }
   return id;
 }
@@ -138,7 +139,7 @@ const SORTS: Record<string, string> = {
 
 /** Tickets for Diwan, filtered from the query string (every filter from an allowlist, every value a parameter):
     status (one, or "active": not solved or closed), priority, kinds, assignee (mine, unassigned or a staff id), q (shop
-    name, email, ticket number or subject), sort (updated, created, priority), page. Also the count per status for the
+    name or link, full email or mobile, ticket number), sort (updated, created, priority), page. Also the count per status for the
     same filters without the status one. */
 export async function listTickets(sp: URLSearchParams, kinds: string[], staffId: string) {
   const where: string[] = [];
@@ -155,7 +156,9 @@ export async function listTickets(sp: URLSearchParams, kinds: string[], staffId:
   if (q) {
     const num = /^#?\d{1,12}$/.test(q) ? Number(q.replace("#", "")) : null;
     const like = p(likeOf(q));
-    where.push(`(s.name ILIKE ${like} OR a.email ILIKE ${like} OR a.name ILIKE ${like} OR t.subject ILIKE ${like}${num ? ` OR t.number = ${p(num)}` : ""})`);
+    const [e, m] = lookupKeys(q);
+    /* emails, mobiles and subjects are encrypted: an email or mobile is found only when typed in full */
+    where.push(`(s.name ILIKE ${like} OR s.slug ILIKE ${like} OR a.email_hash = ${p(e)} OR a.phone_hash = ${p(m)}${num ? ` OR t.number = ${p(num)}` : ""})`);
   }
   const base = `FROM tickets t JOIN accounts a ON a.id = t.account_id LEFT JOIN shops s ON s.account_id = t.account_id`;
   const pool = await db();

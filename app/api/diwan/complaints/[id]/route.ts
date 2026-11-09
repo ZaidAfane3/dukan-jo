@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cleanLines } from "@/components/safe";
 import { answer, readJson } from "@/server/auth";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 
@@ -20,7 +21,7 @@ export const PATCH = staffRoute("complaints", async (req: NextRequest, me, { par
   const before = await pool.query(`SELECT account_id, status, notes FROM store_reports WHERE id = $1`, [id]);
   const b = before.rows[0];
   if (!b) return answer({ result: "missing" }, 404);
-  await pool.query(`UPDATE store_reports SET status = $2, notes = $3, handled_by = $4, updated_at = now() WHERE id = $1`, [id, status, notes, me.id]);
+  await pool.query(`UPDATE store_reports SET status = $2, notes = $3, handled_by = $4, updated_at = now() WHERE id = $1`, [id, status, seal(notes), me.id]);
   await audit(req, me.id, "complaint.update", { type: "store_report", id }, null, {
     shop: String(b.account_id),
     before: { status: b.status, notes: b.notes },

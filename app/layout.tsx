@@ -38,14 +38,15 @@ export const metadata: Metadata = {
     "Dukkan is the all-in-one e-commerce platform: store builder, payments, shipping, marketing and more.",
 };
 
-/* Applies saved theme and language before first paint to avoid a flash. */
-const initScript = `try{var d=document.documentElement,t=localStorage.getItem("seen-theme"),l=localStorage.getItem("seen-lang");if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";d.dataset.theme=t;if(l==="ar"){d.lang="ar";d.dir="rtl";d.dataset.boot="1";setTimeout(function(){delete d.dataset.boot},1500)}}catch(e){}`;
+/* Applies saved theme and language before first paint to avoid a flash. A first visit is light and Arabic (not the
+   system's dark mode); the page is sent in Arabic, so only a saved English choice hides it until it has switched. */
+const initScript = `try{var d=document.documentElement,t=localStorage.getItem("seen-theme"),l=localStorage.getItem("seen-lang");d.dataset.theme=t==="dark"?"dark":"light";if(l==="en"){d.lang="en";d.dir="ltr";d.dataset.boot="1";setTimeout(function(){delete d.dataset.boot},1500)}}catch(e){}`;
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" dir="ltr" suppressHydrationWarning>
+    <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: initScript }} />
       </head>

@@ -5,6 +5,7 @@ export const themeWords = {
     store: {
       title: "Theme store",
       sub: "Ready-made designs for your store. Buy one, use it, then make it yours in the store designer.",
+      featured: "Featured",
       inside: "What is inside",
       preview: "Preview",
       buy: "Buy",
@@ -77,6 +78,7 @@ export const themeWords = {
     store: {
       title: "متجر الثيمات",
       sub: "تصاميم جاهزة لمتجرك. اشترِ واحدًا، واستخدمه، ثم اجعله لك في مصمّم المتجر.",
+      featured: "مميّز",
       inside: "ماذا يحتوي",
       preview: "معاينة",
       buy: "شراء",

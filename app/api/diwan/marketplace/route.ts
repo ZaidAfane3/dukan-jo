@@ -4,10 +4,11 @@ import { staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
-/** The marketplace as it is: developers (with how many items each sent) and every item with its step */
+/** The marketplace as it is: developers (with how many items each sent), every item with its step, and for each of Dukkan's
+    own themes how many stores use it now, how many bought it and what it brought in */
 export const GET = staffRoute("marketplace", async () => {
   const pool = await db();
-  const [devs, items] = await Promise.all([
+  const [devs, items, use, sales] = await Promise.all([
     pool.query(
       `SELECT d.id::text AS id, d.name, d.email, d.company, d.status, d.share_pct::float AS "sharePct", d.created_at AS "createdAt",
               (SELECT count(*) FROM marketplace_items i WHERE i.developer_id = d.id)::int AS items
@@ -20,6 +21,12 @@ export const GET = staffRoute("marketplace", async () => {
          FROM marketplace_items i LEFT JOIN developers d ON d.id = i.developer_id LEFT JOIN staff s ON s.id = i.reviewed_by
         ORDER BY i.updated_at DESC`,
     ),
+    pool.query(`SELECT theme_id AS id, count(*)::int AS n FROM shops GROUP BY theme_id`),
+    pool.query(`SELECT theme_id AS id, count(*)::int AS n, COALESCE(sum(price), 0)::float AS total FROM theme_purchases GROUP BY theme_id`),
   ]);
-  return answer({ developers: devs.rows, items: items.rows });
+  const themes: Record<string, { stores: number; bought: number; revenue: number }> = {};
+  const one = (id: string) => (themes[id] ??= { stores: 0, bought: 0, revenue: 0 });
+  for (const r of use.rows) one(r.id).stores = r.n;
+  for (const r of sales.rows) Object.assign(one(r.id), { bought: r.n, revenue: r.total });
+  return answer({ developers: devs.rows, items: items.rows, themes });
 });

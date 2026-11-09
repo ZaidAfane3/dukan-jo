@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { planName, Select, StatusBadge, statusOptions, statusText, storeLink } from "@/components/diwan/shopBits";
 import { Btn, DataTable, downloadCsv, field, Loaded, PageHead, td, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { FilterBar } from "@/components/diwan/Filters";
 
 type Row = {
   id: string;
@@ -102,16 +103,26 @@ export default function ShopsPage() {
         }
       />
 
-      <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-        <input
-          type="search"
-          value={typed}
-          onChange={(e) => setTyped(e.target.value)}
-          maxLength={100}
-          placeholder={t("Store, owner, email, phone or link", "المتجر أو المالك أو البريد أو الهاتف أو الرابط")}
-          aria-label={t("Search shops", "البحث في المتاجر")}
-          className={`${field} sm:col-span-2 lg:col-span-4 xl:col-span-2`}
-        />
+      <FilterBar
+        className="mb-4"
+        count={(["status", "plan", "setup", "published", "ship"] as const).filter((k) => filters[k]).length}
+        onClear={() => {
+          setFilters((x) => ({ ...x, status: "", plan: "", setup: "", published: "", ship: "" }));
+          setPage(1);
+        }}
+        search={
+          <input
+            type="search"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            maxLength={100}
+            placeholder={t("Store name or link, or the full email or mobile", "اسم المتجر أو رابطه، أو البريد أو الهاتف كاملًا")}
+            aria-label={t("Search shops", "البحث في المتاجر")}
+            className={field}
+          />
+        }
+      >
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Select label={t("Status", "الحالة")} value={filters.status} onChange={setFilter("status")} options={[{ value: "", label: `${t("Status", "الحالة")}: ${all}` }, ...statusOptions(t)]} />
         <Select
           label={t("Plan", "الباقة")}
@@ -151,6 +162,7 @@ export default function ShopsPage() {
           ]}
         />
       </div>
+      </FilterBar>
       <div className="mb-4 flex items-center gap-2 text-sm">
         <span className="text-muted">{t("Sort by", "الترتيب حسب")}</span>
         <Select
@@ -175,7 +187,6 @@ export default function ShopsPage() {
               head={[
                 t("Store", "المتجر"),
                 t("Owner", "المالك"),
-                t("Plan", "الباقة"),
                 t("Status", "الحالة"),
                 t("Setup", "الإعداد"),
                 t("Products", "المنتجات"),
@@ -211,10 +222,6 @@ export default function ShopsPage() {
                     <p dir="ltr" className="text-xs text-muted">
                       {r.phone}
                     </p>
-                  </td>
-                  <td className={td}>
-                    <p>{r.plan_en ? planName(t, r) : "—"}</p>
-                    {r.ends_at && <p className="text-xs text-muted">{t("ends", "تنتهي")} {f.date(r.ends_at)}</p>}
                   </td>
                   <td className={td} title={statusText(t, r.status)}>
                     <StatusBadge status={r.status} />

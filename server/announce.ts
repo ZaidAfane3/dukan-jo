@@ -78,23 +78,31 @@ export async function cleanAnnouncement(b: Record<string, unknown>): Promise<Ann
   const start = startsAt ?? new Date();
   if (endsAt && endsAt <= start) return { bad: "endsAt" };
 
-  const aud = b.audience && typeof b.audience === "object" ? (b.audience as Record<string, unknown>) : null;
-  let audience: Audience;
-  const pool = await db();
-  if (aud?.all === true) audience = { all: true };
-  else if (Array.isArray(aud?.accounts)) {
-    const ids = Array.from(new Set((aud!.accounts as unknown[]).map((v) => String(v)).filter((v) => /^\d{1,15}$/.test(v)))).slice(0, 2000);
-    if (!ids.length) return { bad: "audience" };
-    const { rows } = await pool.query(`SELECT id FROM accounts WHERE id = ANY($1::bigint[])`, [ids]);
-    if (rows.length !== ids.length) return { bad: "audience" };
-    audience = { accounts: ids.map(Number) };
-  } else if (Array.isArray(aud?.plans)) {
-    const keys = Array.from(new Set((aud!.plans as unknown[]).filter((v): v is string => typeof v === "string" && v.length <= 60))).slice(0, 50);
-    if (!keys.length) return { bad: "audience" };
-    const { rows } = await pool.query(`SELECT key FROM plans WHERE key = ANY($1::text[])`, [keys]);
-    if (rows.length !== keys.length) return { bad: "audience" };
-    audience = { plans: keys };
-  } else return { bad: "audience" };
+  const audience = await cleanAudience(b.audience);
+  if (!audience) return { bad: "audience" };
 
   return { titleEn, titleAr, bodyEn, bodyAr, audience, banner: b.banner === true, startsAt: start, endsAt };
+}
+
+/** Checks who something from Diwan is for (announcements, pages, pop-ups): everyone, chosen shops or plans. Shops and plans
+    are checked against the database (unknown ones are refused). Null when it is not a valid audience. */
+export async function cleanAudience(raw: unknown): Promise<Audience | null> {
+  const aud = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const pool = await db();
+  if (aud?.all === true) return { all: true };
+  if (Array.isArray(aud?.accounts)) {
+    const ids = Array.from(new Set((aud!.accounts as unknown[]).map((v) => String(v)).filter((v) => /^\d{1,15}$/.test(v)))).slice(0, 2000);
+    if (!ids.length) return null;
+    const { rows } = await pool.query(`SELECT id FROM accounts WHERE id = ANY($1::bigint[])`, [ids]);
+    if (rows.length !== ids.length) return null;
+    return { accounts: ids.map(Number) };
+  }
+  if (Array.isArray(aud?.plans)) {
+    const keys = Array.from(new Set((aud!.plans as unknown[]).filter((v): v is string => typeof v === "string" && v.length <= 60))).slice(0, 50);
+    if (!keys.length) return null;
+    const { rows } = await pool.query(`SELECT key FROM plans WHERE key = ANY($1::text[])`, [keys]);
+    if (rows.length !== keys.length) return null;
+    return { plans: keys };
+  }
+  return null;
 }

@@ -1,3 +1,4 @@
+import { isRole } from "@/components/diwan/perms";
 import type { NextRequest } from "next/server";
 import { cleanLine } from "@/components/safe";
 import { staffPasswordProblem } from "@/components/diwan/staffRules";
@@ -8,7 +9,7 @@ import { audit, staffRoute } from "@/server/staff";
 export const dynamic = "force-dynamic";
 
 /* One change to a staff member (owners only), sent as { action, ... }:
-     role      { role: "owner" | "support" }   change what they may do
+     role      { role: "owner" | "support" | "developer" }   change what they may do
      active    { active: boolean }              deactivate (signs them out everywhere) or bring back
      reset2step                                 forget their 2-step code: they set up a new one at the next sign-in
      password  { password }                     a new temporary password; they choose their own at the next sign-in
@@ -49,9 +50,9 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
     const signOutEverywhere = () => c.query(`DELETE FROM staff_sessions WHERE staff_id = $1`, [id]);
 
     if (action === "role") {
-      const role = body?.role === "owner" || body?.role === "support" ? body.role : null;
+      const role = isRole(body?.role) ? body.role : null;
       if (!role) throw new Bad("invalid");
-      if (role === "support" && (await lastOwner())) throw new Bad("last-owner");
+      if (role !== "owner" && (await lastOwner())) throw new Bad("last-owner");
       await c.query(`UPDATE staff SET role = $2 WHERE id = $1`, [id, role]);
       meta = { before: s.role, after: role };
     } else if (action === "active") {

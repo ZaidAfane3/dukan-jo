@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { METHODS, methodText, planName, Select, todayJo } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, DataTable, downloadCsv, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { FilterBar } from "@/components/diwan/Filters";
 
 type Plan = {
   id: string;
@@ -353,8 +354,13 @@ function Payments() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <input type="search" maxLength={100} value={q} onChange={(e) => (setQ(e.target.value), setPage(1))} placeholder={t("Store, owner, email or reference", "المتجر أو المالك أو البريد أو المرجع")} className={`${field} lg:col-span-2`} />
+      <FilterBar
+        className=""
+        count={(method ? 1 : 0) + (from ? 1 : 0) + (to ? 1 : 0)}
+        onClear={() => { setMethod(""); setFrom(""); setTo(""); setPage(1); }}
+        search={<input type="search" maxLength={100} value={q} onChange={(e) => (setQ(e.target.value), setPage(1))} placeholder={t("Store, reference, or the full email or mobile", "المتجر أو المرجع، أو البريد أو الهاتف كاملًا")} aria-label={t("Search payments", "البحث في المدفوعات")} className={field} />}
+      >
+      <div className="grid gap-2 sm:grid-cols-3">
         <Select
           label={t("Method", "الطريقة")}
           value={method}
@@ -364,6 +370,7 @@ function Payments() {
         <input type="date" aria-label={t("From", "من")} value={from} onChange={(e) => (setFrom(e.target.value), setPage(1))} className={field} />
         <input type="date" aria-label={t("To", "إلى")} value={to} onChange={(e) => (setTo(e.target.value), setPage(1))} className={field} />
       </div>
+      </FilterBar>
       <Loaded s={s}>
         {(d) => (
           <>

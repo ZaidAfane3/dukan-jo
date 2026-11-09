@@ -21,12 +21,13 @@ const isHttps = (req: NextRequest) => (req.headers.get("x-forwarded-proto") ?? r
 /* ---------------- sessions ---------------- */
 
 /** Starts a staff session (not verified until the 2-step code is given) and sets the cookie */
-export async function startStaffSession(res: NextResponse, req: NextRequest, staffId: string): Promise<void> {
+export async function startStaffSession(res: NextResponse, req: NextRequest, staffId: string, verified = false): Promise<void> {
   const token = randomBytes(32).toString("base64url");
   const pool = await db();
+  /* verified from the start only while 2-step codes are not required (STAFF_2FA_REQUIRED) and none is set up */
   await pool.query(
-    `INSERT INTO staff_sessions (token_hash, staff_id, ip, expires_at) VALUES ($1, $2, $3, now() + make_interval(hours => $4))`,
-    [tokenHash(token), staffId, ipOf(req), HOURS],
+    `INSERT INTO staff_sessions (token_hash, staff_id, ip, verified, expires_at) VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5))`,
+    [tokenHash(token), staffId, ipOf(req), verified, HOURS],
   );
   if (Math.random() < 0.1) pool.query(`DELETE FROM staff_sessions WHERE expires_at < now()`).catch(() => {});
   res.cookies.set(STAFF_COOKIE, token, { httpOnly: true, sameSite: "strict", secure: isHttps(req), path: "/", maxAge: HOURS * 3600 });
@@ -46,7 +47,7 @@ export async function verifyStaffSession(req: NextRequest): Promise<void> {
 
 /** The staff member behind a cookie token, and whether the 2-step code was given. Also usable from server components. */
 export async function staffFromToken(token: string | undefined): Promise<(Staff & { verified: boolean }) | null> {
-  if (!token || token.length > 100) return null;
+  if (!token || token.length > 100) return LOCAL_DEV ? devOwner() : null;
   const pool = await db();
   const { rows } = await pool.query(
     `UPDATE staff_sessions ss SET last_used_at = now()
@@ -57,8 +58,37 @@ export async function staffFromToken(token: string | undefined): Promise<(Staff 
     [tokenHash(token), IDLE_MIN],
   );
   const s = rows[0];
-  if (!s) return null;
+  /* locally, a sign-in left halfway (no code given yet) doesn't stop the dev owner either */
+  if (!s || (LOCAL_DEV && !s.verified)) return LOCAL_DEV ? devOwner() : null;
   return { id: String(s.id), email: s.email, name: s.name, role: s.role, totpOn: s.totp_on, verified: s.verified };
+}
+
+/* ---------------- local development: no sign-in ---------------- */
+
+/* On the local dev server only (`next dev`, NODE_ENV=development), Diwan opens without signing in, as an owner called
+   "Local dev". The live server runs the production build (NODE_ENV=production), where this is always off. To try the
+   real sign-in locally anyway, start the dev server with DIWAN_DEV_LOGIN=off. Someone who did sign in stays themselves. */
+const LOCAL_DEV = process.env.NODE_ENV === "development" && process.env.DIWAN_DEV_LOGIN !== "off";
+/** The local dev owner's email. First-owner setup (app/api/diwan/setup) doesn't count that row as staff, so turning
+    DIWAN_DEV_LOGIN=off on a database that only has it still lets the real first owner be made. */
+export const DEV_EMAIL = "local-dev@diwan.local";
+const gDev = globalThis as unknown as { diwanDevOwner?: Promise<Staff & { verified: boolean }> };
+
+/** The local dev owner (a real staff row, so the activity log can name it; it has no password, so it can't sign in) */
+function devOwner(): Promise<Staff & { verified: boolean }> {
+  gDev.diwanDevOwner ??= (async () => {
+    const { emailKey, seal } = await import("./crypto");
+    const { rows } = await (await db()).query(
+      `INSERT INTO staff (email, email_hash, name, role, password_hash) VALUES ($1, $2, 'Local dev', 'owner', 'none')
+       ON CONFLICT (email_hash) DO UPDATE SET role = 'owner', active = true RETURNING id`,
+      [seal(DEV_EMAIL), emailKey(DEV_EMAIL)],
+    );
+    return { id: String(rows[0].id), email: DEV_EMAIL, name: "Local dev", role: "owner" as Role, totpOn: false, verified: true };
+  })().catch((e) => {
+    gDev.diwanDevOwner = undefined;
+    throw e;
+  });
+  return gDev.diwanDevOwner;
 }
 
 export const currentStaff = (req: NextRequest) => staffFromToken(req.cookies.get(STAFF_COOKIE)?.value);
@@ -89,9 +119,12 @@ export async function audit(
   reason?: string | null,
   meta?: Record<string, unknown>,
 ): Promise<void> {
+  /* the reason, the address and the details' texts are private (notes, emails, reasons...): sealed like the tables they
+     come from (server/crypto.ts), opened again when read */
+  const { seal, sealDeep } = await import("./crypto");
   await (await db()).query(
     `INSERT INTO audit_log (staff_id, action, target_type, target_id, reason, ip, meta) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [staffId, action, target?.type ?? null, target ? String(target.id) : null, reason ?? null, ipOf(req), meta ? JSON.stringify(meta) : null],
+    [staffId, action, target?.type ?? null, target ? String(target.id) : null, seal(reason ?? null), seal(ipOf(req)), meta ? JSON.stringify(sealDeep(meta)) : null],
   );
 }
 

@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { answer, currentAccount, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { newTotpSecret, totpLink, totpOk } from "@/server/staff";
 
@@ -29,7 +30,7 @@ export const POST = guarded(async (req: NextRequest) => {
 
   if (typeof body?.code !== "string") {
     const secret = newTotpSecret();
-    await pool.query(`UPDATE accounts SET totp_secret = $2 WHERE id = $1 AND NOT totp_on`, [a.id, secret]);
+    await pool.query(`UPDATE accounts SET totp_secret = $2 WHERE id = $1 AND NOT totp_on`, [a.id, seal(secret)]);
     return answer({ result: "ok", secret, grouped: grouped(secret), link: totpLink(secret, a.email, "Dukkan") });
   }
   if (tooMany(req, "totp-setup", 10, 15)) return answer({ result: "slow-down" }, 429);

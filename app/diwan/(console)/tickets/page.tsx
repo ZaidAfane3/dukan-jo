@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, td, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER } from "@/components/diwan/ticketWords";
 import { Pager, type TicketRow } from "@/components/diwan/TicketBits";
+import { FilterBar } from "@/components/diwan/Filters";
 
 /* Support tickets from merchants, live from the database: counts per status, filters, sorting and pages. Opening one
    (its own page) is written to the activity log. Bug reports and ideas have their own board (/diwan/feedback). */
@@ -60,20 +61,23 @@ export default function TicketsPage() {
         ))}
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          set("q", q.trim());
-        }}
-        className={`${card} mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}
-      >
-        <div>
-          <label className={label} htmlFor="tq">{t("Shop, email, number or subject", "المتجر أو البريد أو الرقم أو الموضوع")}</label>
-          <div className="flex gap-2">
-            <input id="tq" className={field} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search…", "بحث…")} />
+      <FilterBar
+        count={(filters.priority ? 1 : 0) + (filters.assignee ? 1 : 0) + (filters.sort !== "updated" ? 1 : 0)}
+        onClear={() => setFilters((x) => ({ ...x, priority: "", assignee: "", sort: "updated" }))}
+        search={
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              set("q", q.trim());
+            }}
+            className="flex gap-2"
+          >
+            <input id="tq" className={field} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("Shop, email, number or subject", "المتجر أو البريد أو الرقم أو الموضوع")} placeholder={t("Shop, email, number or subject…", "المتجر أو البريد أو الرقم أو الموضوع…")} />
             <Btn kind="ghost" type="submit">{t("Find", "بحث")}</Btn>
-          </div>
-        </div>
+          </form>
+        }
+      >
+      <div className="grid gap-3 sm:grid-cols-3">
         <div>
           <label className={label} htmlFor="tp">{t("Priority", "الأولوية")}</label>
           <select id="tp" className={field} value={filters.priority} onChange={(e) => set("priority", e.target.value)}>
@@ -98,7 +102,8 @@ export default function TicketsPage() {
             <option value="priority">{t("Priority", "الأولوية")}</option>
           </select>
         </div>
-      </form>
+      </div>
+      </FilterBar>
 
       <Loaded s={s}>
         {(d) => (

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { FilterBar } from "@/components/diwan/Filters";
 import { REASON_WORDS, REPORT_LIMITS, REPORT_REASONS, type ReportReason } from "@/components/storeReports";
 
 /* Store reports: what customers sent with "Report this store" in a store's footer, and what staff found themselves.
@@ -66,20 +67,22 @@ export default function ComplaintsPage() {
             {count(x, s.data?.counts) !== null && <span className="ms-1.5 tabular-nums opacity-75">{count(x, s.data?.counts)}</span>}
           </button>
         ))}
-        <div className="ms-auto flex flex-wrap gap-2">
-          <select className={`${field} w-auto`} value={reason} onChange={(e) => setReason(e.target.value)} aria-label={t("Reason", "السبب")}>
+      </div>
+      <FilterBar count={(reason ? 1 : 0) + (from ? 1 : 0)} onClear={() => { setReason(""); setFrom(""); }} className="mb-4">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <select className={field} value={reason} onChange={(e) => setReason(e.target.value)} aria-label={t("Reason", "السبب")}>
             <option value="">{t("Every reason", "كل الأسباب")}</option>
             {REPORT_REASONS.map((r) => (
               <option key={r} value={r}>{t(REASON_WORDS[r].en, REASON_WORDS[r].ar)}</option>
             ))}
           </select>
-          <select className={`${field} w-auto`} value={from} onChange={(e) => setFrom(e.target.value)} aria-label={t("From", "المصدر")}>
+          <select className={field} value={from} onChange={(e) => setFrom(e.target.value)} aria-label={t("From", "المصدر")}>
             <option value="">{t("Customers and staff", "العملاء والفريق")}</option>
             <option value="customer">{t("From customers", "من العملاء")}</option>
             <option value="staff">{t("Found by staff", "وجدها الفريق")}</option>
           </select>
         </div>
-      </div>
+      </FilterBar>
 
       <Loaded s={s}>
         {(d) =>

@@ -1,4 +1,4 @@
-import { content, type Lang } from "./content";
+import { content, dateLocale, type Lang } from "./content";
 import { demoActive, signedInAs } from "./demoSandbox";
 
 /* The bell's list. Two sources, shown as one list:
@@ -194,7 +194,7 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
       return w.shopReactivated;
     case "planChanged": {
       const d = p.ends ? new Date(/^\d+$/.test(p.ends) ? Number(p.ends) : p.ends) : null;
-      const ends = d && !Number.isNaN(d.getTime()) ? w.until.replace("{date}", new Intl.DateTimeFormat(lang === "ar" ? "ar-JO" : "en-GB", { day: "numeric", month: "long", year: "numeric" }).format(d)) : "";
+      const ends = d && !Number.isNaN(d.getTime()) ? w.until.replace("{date}", new Intl.DateTimeFormat(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" }).format(d)) : "";
       /* the plan's name comes in both languages (planAr from server/shopActions.ts) */
       return fill(w.planChanged, { ends, plan: (lang === "ar" && p.planAr) || p.plan || "" });
     }

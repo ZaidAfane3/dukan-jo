@@ -8,7 +8,8 @@ import { usePrefs } from "./Prefs";
 import { PreviewEye, PreviewWindow } from "./ThemePopup";
 import { ThemePreview } from "./ThemePreview";
 import { themeWords } from "./themesContent";
-import { buyTheme, isFreeTheme, loadThemeState, themes, type ThemeInfo, type ThemeState } from "./themes";
+import { useCatalog } from "./catalog";
+import { buyTheme, isFeatured, isFreeTheme, loadThemeState, storeThemes, type ThemeInfo, type ThemeState } from "./themes";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 
@@ -27,6 +28,8 @@ export function ThemeStore() {
   const [state, setState] = useState<ThemeState>({ owned: [], custom: [], active: "" });
   const [buying, setBuying] = useState<ThemeInfo | null>(null);
   const [previewing, setPreviewing] = useState<ThemeInfo | null>(null);
+  /* the list Dukkan's staff run from Diwan (what is in the store, its order and prices) */
+  useCatalog();
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${w.store.title}`;
@@ -56,8 +59,8 @@ export function ThemeStore() {
           <p className="mt-1 text-sm text-muted">{w.store.sub}</p>
         </div>
 
-        {/* only the themes still offered (a theme taken out of the store is not listed) */}
-        {themes.filter((t) => t.inStore !== false).map((t) => {
+        {/* only the themes in the store now (Diwan: live), in the store's order; one taken out (hidden) is not listed */}
+        {storeThemes().map((t) => {
           /* a free design (Mada) is every merchant's already: no checkout, it waits in My themes */
           const free = isFreeTheme(t.id);
           const owned = free || state.owned.some((o) => o.id === t.id);
@@ -85,6 +88,7 @@ export function ThemeStore() {
 
               <div className="flex flex-col">
                 <div className="flex flex-wrap gap-2">
+                  {isFeatured(t.id) && <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">{w.store.featured}</span>}
                   {t.tags.map((x) => (
                     <span key={x.en} className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{x[lang]}</span>
                   ))}
@@ -96,7 +100,7 @@ export function ThemeStore() {
                 <p className="mt-1 font-semibold text-primary">{t.tagline[lang]}</p>
                 <p className="mt-3 text-sm leading-relaxed text-muted">{t.about[lang]}</p>
 
-                <p className="mt-5 text-sm font-bold">{w.store.inside}</p>
+                {t.features.length > 0 && <p className="mt-5 text-sm font-bold">{w.store.inside}</p>}
                 <ul className="mt-2 space-y-1.5 text-sm text-muted">
                   {t.features.map((f) => (
                     <li key={f.en} className="flex items-start gap-2">

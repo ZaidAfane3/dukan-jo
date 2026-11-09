@@ -1,10 +1,12 @@
 import type { PoolClient } from "pg";
 import { cleanSetup } from "@/components/safeAccount";
+import { lookupKeys, seal } from "./crypto";
 import { db } from "./db";
 
 /* The shops table: one row per merchant account, worked out on the server from what the merchant's pages sync to
    store_data. Diwan reads only this row (names, counts and totals), never the products, orders or customers
-   themselves: the counting happens in SQL and only the numbers come back.
+   themselves: the counting happens in countShop and only the numbers are saved. The shop's phone and pickup address
+   are stored encrypted.
 
    What counts:
    - setup_done: how many of the 6 setup steps are ticked in seen-setup
@@ -16,79 +18,100 @@ import { db } from "./db";
    - first_order_at: the date of the oldest order (or now, when no order has a date) */
 
 /** The keys whose change can change the shops row */
-export const SHOP_KEYS = new Set(["seen-setup", "seen-products", "seen-orders", "seen-storefront", "seen-maintenance"]);
+export const SHOP_KEYS = new Set(["seen-setup", "seen-products", "seen-orders", "seen-storefront", "seen-maintenance", "seen-themes"]);
 
 type Q = Pick<PoolClient, "query">;
 
-/* store_data.value as jsonb, or NULL when it is not valid JSON (pg_input_is_valid: PostgreSQL 16 and later) */
-const J = (key: string) =>
-  `(SELECT CASE WHEN pg_input_is_valid(value, 'jsonb') THEN value::jsonb END FROM store_data WHERE account_id = $1 AND key = '${key}')`;
+/* The counts, worked out here from the opened values (store_data is encrypted, so SQL can't read inside it). Only
+   the numbers leave this function. */
+type Counts = { product_count: number; order_count: number; total_sales: string; first_at: Date | null; published: boolean; paused: boolean; theme_id: string };
+const parse = (v: string | undefined): unknown => {
+  if (v == null) return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+};
+const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
+/* The theme in use: seen-themes.active, or for a design he saved from a theme ("mine-..."), the theme it came from. Only an
+   id from a fixed shape is kept (it is shown in Diwan and counted); anything else counts as Dukkan's default design. */
+function themeOf(v: unknown): string {
+  if (!isObj(v) || typeof v.active !== "string") return "dukkan";
+  const custom = Array.isArray(v.custom) ? v.custom.find((c): c is Record<string, unknown> => isObj(c) && c.id === v.active) : undefined;
+  const id = typeof custom?.from === "string" ? custom.from : v.active;
+  return /^[a-z0-9-]{1,40}$/.test(id) && !id.startsWith("mine-") ? id : "dukkan";
+}
 
-/* The counts, done in SQL so the contents never reach this code */
-const COUNTS = `
-  WITH v AS (SELECT ${J("seen-products")} AS products, ${J("seen-orders")} AS orders, ${J("seen-maintenance")} AS maint,
-                    EXISTS (SELECT 1 FROM store_data WHERE account_id = $1 AND key = 'seen-storefront') AS published),
-       p AS (SELECT count(*)::int AS n FROM v, jsonb_array_elements(CASE WHEN jsonb_typeof(v.products) = 'array' THEN v.products ELSE '[]' END) x
-              WHERE jsonb_typeof(x) = 'object' AND COALESCE(jsonb_typeof(x -> 'deletedAt'), 'null') = 'null'),
-       o AS (SELECT x FROM v, jsonb_array_elements(CASE WHEN jsonb_typeof(v.orders) = 'array' THEN v.orders ELSE '[]' END) x
-              WHERE jsonb_typeof(x) = 'object' AND jsonb_typeof(x -> 'id') = 'number' AND (x ->> 'id') ~ '^[1-9][0-9]{0,15}$'),
-       t AS (SELECT
-               count(*)::int AS n,
-               COALESCE(sum(CASE
-                 WHEN (x ->> 'status') IN ('cancelled', 'refunded') THEN 0
-                 WHEN jsonb_typeof(x -> 'total') IN ('number', 'string') AND (x ->> 'total') ~ '^[0-9]{1,7}(\\.[0-9]{1,3})?$'
-                   THEN LEAST((x ->> 'total')::numeric, 1000000)
-                 ELSE 0 END), 0)::numeric(14, 3) AS sales,
-               min(CASE WHEN jsonb_typeof(x -> 'created') = 'number' AND (x ->> 'created') ~ '^[0-9]{12,13}(\\.[0-9]+)?$'
-                         AND (x ->> 'created')::numeric BETWEEN 946684800000 AND 4102444800000
-                        THEN to_timestamp((x ->> 'created')::numeric / 1000) END) AS first_at
-             FROM o)
-  SELECT p.n AS product_count, t.n AS order_count, t.sales AS total_sales, t.first_at, v.published,
-         COALESCE(jsonb_typeof(v.maint) = 'object' AND v.maint -> 'on' = 'true'::jsonb, false) AS paused
-    FROM v, p, t`;
+export function countShop(data: Map<string, string>): Counts {
+  const products = parse(data.get("seen-products"));
+  const orders = parse(data.get("seen-orders"));
+  const maint = parse(data.get("seen-maintenance"));
+  const productCount = Array.isArray(products) ? products.filter((x) => isObj(x) && x.deletedAt == null).length : 0;
+  const real = Array.isArray(orders)
+    ? orders.filter((x): x is Record<string, unknown> => isObj(x) && typeof x.id === "number" && /^[1-9][0-9]{0,15}$/.test(String(x.id)))
+    : [];
+  let sales = 0;
+  let first: number | null = null;
+  for (const o of real) {
+    const total = typeof o.total === "number" || typeof o.total === "string" ? String(o.total) : "";
+    if (o.status !== "cancelled" && o.status !== "refunded" && /^[0-9]{1,7}(\.[0-9]{1,3})?$/.test(total)) sales += Math.min(Number(total), 1_000_000);
+    const c = o.created;
+    if (typeof c === "number" && /^[0-9]{12,13}(\.[0-9]+)?$/.test(String(c)) && c >= 946684800000 && c <= 4102444800000) first = first == null ? c : Math.min(first, c);
+  }
+  return {
+    product_count: productCount,
+    order_count: real.length,
+    total_sales: sales.toFixed(3),
+    first_at: first == null ? null : new Date(first),
+    published: data.has("seen-storefront"),
+    paused: isObj(maint) && maint.on === true,
+    theme_id: themeOf(parse(data.get("seen-themes"))),
+  };
+}
 
 /** Works the shops row out again from the account's saved data, and saves it. */
 export async function syncShop(accountId: string | number, q?: Q): Promise<void> {
   const c: Q = q ?? (await db());
-  const [{ rows: setupRows }, { rows: countRows }] = await Promise.all([
-    c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [accountId]),
-    c.query(COUNTS, [accountId]),
-  ]);
+  /* the values come back opened by db() */
+  const { rows } = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [accountId, Array.from(SHOP_KEYS)]);
+  const data = new Map<string, string>(rows.map((r: { key: string; value: string }) => [r.key, r.value]));
   let setup = null;
   try {
-    setup = setupRows[0] ? cleanSetup(JSON.parse(setupRows[0].value)) : null;
+    setup = data.has("seen-setup") ? cleanSetup(JSON.parse(data.get("seen-setup")!)) : null;
   } catch {
     setup = null;
   }
-  const k = countRows[0];
+  const k = countShop(data);
   const ship = setup?.shipping;
   const values = [
     accountId,
     setup?.name ?? "",
     setup?.slug || null,
-    setup?.phone ?? "",
+    seal(setup?.phone ?? ""),
     setup?.color ?? "",
     setup ? setup.done.filter(Boolean).length : 0,
     !!k.published,
     !!k.paused,
     ship?.mode ?? "",
     ship?.mode === "seen" ? ship.city : "",
-    ship?.mode === "seen" ? ship.address : "",
+    seal(ship?.mode === "seen" ? ship.address : ""),
     k.product_count,
     k.order_count,
     k.total_sales,
     k.first_at,
+    k.theme_id,
   ];
   const sql = `
     INSERT INTO shops (account_id, name, slug, phone, color, setup_done, published, paused, ship_mode, pickup_city, pickup_address,
-                       product_count, order_count, total_sales, published_at, first_product_at, first_order_at, updated_at)
+                       product_count, order_count, total_sales, published_at, first_product_at, first_order_at, theme_id, updated_at)
     VALUES ($1, $2, $3::text, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-            CASE WHEN $7 THEN now() END, CASE WHEN $12 > 0 THEN now() END, CASE WHEN $13 > 0 THEN COALESCE($15, now()) END, now())
+            CASE WHEN $7 THEN now() END, CASE WHEN $12 > 0 THEN now() END, CASE WHEN $13 > 0 THEN COALESCE($15, now()) END, $16, now())
     ON CONFLICT (account_id) DO UPDATE SET
       name = EXCLUDED.name, slug = EXCLUDED.slug, phone = EXCLUDED.phone, color = EXCLUDED.color, setup_done = EXCLUDED.setup_done,
       published = EXCLUDED.published, paused = EXCLUDED.paused, ship_mode = EXCLUDED.ship_mode, pickup_city = EXCLUDED.pickup_city,
       pickup_address = EXCLUDED.pickup_address, product_count = EXCLUDED.product_count, order_count = EXCLUDED.order_count,
-      total_sales = EXCLUDED.total_sales,
+      total_sales = EXCLUDED.total_sales, theme_id = EXCLUDED.theme_id,
       published_at = COALESCE(shops.published_at, EXCLUDED.published_at),
       first_product_at = COALESCE(shops.first_product_at, EXCLUDED.first_product_at),
       first_order_at = COALESCE(shops.first_order_at, EXCLUDED.first_order_at),
@@ -200,7 +223,9 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   const q = (p.get("q") ?? "").trim().slice(0, 100);
   if (q) {
     const like = add(likeText(q));
-    where.push(`(s.name ILIKE ${like} OR a.name ILIKE ${like} OR a.email ILIKE ${like} OR a.phone ILIKE ${like} OR s.slug ILIKE ${like})`);
+    const [e, m] = lookupKeys(q);
+    /* the owner's name, email and mobile are encrypted: email and mobile are found only when typed in full */
+    where.push(`(s.name ILIKE ${like} OR s.slug ILIKE ${like} OR a.email_hash = ${add(e)} OR a.phone_hash = ${add(m)})`);
   }
   const status = p.get("status");
   if (status && (SHOP_STATUSES as readonly string[]).includes(status)) where.push(`(${STATUS_SQL}) = ${add(status)}`);

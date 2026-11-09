@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { THEME_CATALOG } from "@/components/diwan/themeCatalog";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 
 /* The theme and app marketplace: outside developers, what they sent in and where each item is on its way to the store
    (sent → checking → approved or rejected → live → removed). There is no developer portal yet, so staff enter the
-   developers and their items here. Dukkan's own themes are listed at the end, read-only. */
+   developers and their items here. Dukkan's own theme store is run from /diwan/themes. */
 
 type DevStatus = "waiting" | "approved" | "blocked";
 type ItemStatus = "sent" | "checking" | "approved" | "rejected" | "live" | "removed";
@@ -38,7 +37,7 @@ export default function MarketplacePage() {
   const s = useApi<Data>("/api/diwan/marketplace");
   return (
     <div>
-      <PageHead title={t("Marketplace", "سوق الثيمات والتطبيقات")} sub={t("Themes and apps made by outside developers, and Dukkan's own themes.", "ثيمات وتطبيقات من مطورين خارجيين، وثيمات دكّان الخاصة.")} />
+      <PageHead title={t("Developers", "المطورون")} sub={t("Themes and apps made by outside developers. Dukkan's own theme store is on the Themes page.", "ثيمات وتطبيقات من مطورين خارجيين. متجر ثيمات دكّان في صفحة الثيمات.")} />
       <p className="mb-6 rounded-xl bg-amber-500/15 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
         {t("There is no developer portal yet: developers send their work to Dukkan directly, and staff enter it here.", "لا توجد بوابة للمطورين بعد: يرسل المطورون أعمالهم إلى دكّان مباشرة، ويدخلها الفريق هنا.")}
       </p>
@@ -47,7 +46,6 @@ export default function MarketplacePage() {
           <div className="space-y-10">
             <Items data={d} reload={s.reload} />
             <Developers devs={d.developers} reload={s.reload} />
-            <OwnThemes />
           </div>
         )}
       </Loaded>
@@ -265,33 +263,5 @@ function DevForm({ dev, onDone }: { dev: Dev | null; onDone: () => void }) {
         <Btn type="button" kind="ghost" onClick={onDone}>{t("Cancel", "إلغاء")}</Btn>
       </div>
     </form>
-  );
-}
-
-/* ---------------- Dukkan's own themes ---------------- */
-
-function OwnThemes() {
-  const t = useT();
-  const f = useFmt();
-  return (
-    <section>
-      <h2 className="mb-1 text-lg font-bold">{t("Made by Dukkan", "من صنع دكّان")}</h2>
-      <p className="mb-3 text-sm text-muted">{t("Built into Dukkan's code (components/themes.ts). They change with the code, not here.", "مبنية في كود دكّان (components/themes.ts). تتغير مع الكود، لا من هنا.")}</p>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {THEME_CATALOG.map((th) => (
-          <div key={th.id} className={card}>
-            <div className="flex items-start justify-between gap-2">
-              <p className="font-bold">{t(th.name.en, th.name.ar)}</p>
-              {th.price > 0 ? <Badge tone="primary">{f.jod(th.price)}</Badge> : <Badge tone="green">{t("Free", "مجاني")}</Badge>}
-            </div>
-            <p className="mt-1 text-sm text-muted">{t(th.tagline.en, th.tagline.ar)}</p>
-            <p className="mt-2 text-xs text-muted">
-              <code dir="ltr">{th.id}</code>
-              {th.inStore === false && ` · ${t("not sold in the theme store", "لا يُباع في متجر الثيمات")}`}
-            </p>
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }

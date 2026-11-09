@@ -3,18 +3,18 @@
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { brandName } from "../content";
+import { refreshCatalog, useCatalog } from "../catalog";
 import { demoActive, setOwnCopy } from "../demoSandbox";
 import { adoptTheme, baseTheme, defaultTheme, findTheme, loadThemeState, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
 import { PageEditor } from "./PageEditor";
-import { load as loadPages, savePages, setPagesScope } from "../InfoPages";
-import { freshMine, loadMine, resetMine, saveMine } from "./mineTemplate";
+import { load as loadPages, savePages } from "../InfoPages";
 import { LangSwitch, usePrefs } from "../Prefs";
 import { oneSided, startingWords, textsNow, TRANSLATE_WORDS } from "./translations";
 import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
 import { StorefrontTheme } from "../storefront/StorefrontTheme";
 import { DesignerSkeleton } from "../StoreSkeletons";
-import { clearTemplate, dropServerTemplate, loadConfig, loadTemplate, refreshTemplate, saveConfig, saveTemplate, sendTemplate, storeIsLive } from "../storefront/storage";
+import { clearTemplate, dropServerTemplate, loadConfig, loadTemplate, refreshTemplate, saveConfig, saveTemplate, sendTemplate, sendThemeDesign, designFrom, storeIsLive } from "../storefront/storage";
 import { defaultConfig, headingFamily, type PicEdit, type SectionMove } from "../storefront/config";
 import { Canvas } from "./Canvas";
 import { HEX, input } from "./controls";
@@ -146,19 +146,10 @@ function initial(): Draft {
   };
 }
 
-/* `mine` is Saad's private copy of the demo template at /saad (temporary, see mineTemplate.ts): fully editable, saved under its own key. */
-export function Designer({ mine: mineProp = false }: { mine?: boolean | string } = {}) {
-  /* /saad shows the demo template; /saad/<theme> shows a ready theme of the theme store (kept under its own key) */
-  const themeId = typeof mineProp === "string" && findTheme(mineProp) ? mineProp : undefined;
-  const mine = !!mineProp;
-  /* Saad's copies keep their own pages (each theme its own list), and are never locked by the tour. Set before anything reads them. */
-  setPagesScope(mine ? `saad-pages-${themeId ?? "demo"}` : null);
-  /* the starter template (/design?template=1) is staff work, never locked by the tour either */
-  setOwnCopy(mine || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("template") === "1"));
-  useEffect(() => () => {
-    setPagesScope(null);
-    setOwnCopy(false);
-  }, []);
+export function Designer() {
+  /* the starter template (/design?template=1) and a theme made in Diwan (/design?catalog=<id>) are staff work, never locked by the tour */
+  setOwnCopy(typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("template") === "1" || !!new URLSearchParams(window.location.search).get("catalog")));
+  useEffect(() => () => setOwnCopy(false), []);
   const { lang, setLang } = usePrefs();
   const t = dc[lang];
   const tb = barText[lang];
@@ -271,10 +262,10 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [usingTheme, setUsingTheme] = useState("");
   useEffect(() => {
     const s = loadThemeState();
-    const id = themeId ?? s.active;
+    const id = s.active;
     setActiveTheme(s.names?.[id] || s.custom.find((c) => c.id === id)?.name || findTheme(id)?.name[lang] || "");
     setUsingTheme(baseTheme(id));
-  }, [themeId, lang]);
+  }, [lang]);
   const [sample, setSample] = useState(false);
   /* whether the store has products of its own (read again when the dashboard changes them in another tab) */
   const [hasOwnProducts, setHasOwnProducts] = useState(true);
@@ -288,6 +279,9 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [templateMode, setTemplateMode] = useState(false);
   /* the server did not keep the last save of the starter template */
   const [templateErr, setTemplateErr] = useState(false);
+  /* /design?catalog=<id>: staff edit the design of a theme made in Diwan (the theme store's list). It works like the
+     starter template (templateMode), but it is saved to that theme on the server. */
+  const [catalogTheme, setCatalogTheme] = useState<{ id: string; name: string } | null>(null);
   const [exiting, setExiting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [attn, setAttn] = useState<{ id: Problem; tab: Tab; n: number } | null>(null);
@@ -315,10 +309,12 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [pic, setPic] = useState<{ id: number; name: string; image: string; focus: { x: number; y: number } } | null>(null);
   const [focusOverrides, setFocusOverrides] = useState<Record<number, { x: number; y: number }>>({});
   const tryProducts = useMemo(
-    () => (trying || mine ? previewProducts(lang, trying ?? findTheme(themeId)).map((p) => (focusOverrides[p.id] ? { ...p, focus: focusOverrides[p.id] } : p)) : undefined),
-    [trying, mine, themeId, lang, focusOverrides],
+    () => (trying ? previewProducts(lang, trying).map((p) => (focusOverrides[p.id] ? { ...p, focus: focusOverrides[p.id] } : p)) : undefined),
+    [trying, lang, focusOverrides],
   );
   const bar = useRef<HTMLDivElement>(null);
+  /* the theme store's list (themes made in Diwan, their names and prices): this browser's copy at once, the server's after */
+  useCatalog();
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${t.title}`;
@@ -327,48 +323,65 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     /* the starter template is staff work (checked below and by the server), never locked by the platform tour */
-    const template = !mine && q.get("template") === "1";
-    const ro = mine || template ? false : demoActive();
+    const catalogId = q.get("catalog");
+    const catalog = catalogId && /^[a-z][a-z0-9-]{1,30}$/.test(catalogId) ? catalogId : null;
+    const template = q.get("template") === "1" || !!catalog;
+    const ro = template ? false : demoActive();
     setReadOnly(ro);
     const d = initial();
-    if (mine) {
-      const m = loadMine(lang, themeId);
-      d.config = m.config;
-      d.identity = m.identity;
-    }
     /* a look of a theme he has not bought is never in his design (an older save, or one picked before they were hidden) */
-    if (!mine && !template) d.config = withoutUnboughtLooks(d.config);
+    if (!template) d.config = withoutUnboughtLooks(d.config);
     const baseline = JSON.stringify(d);
     if (template) d.config = loadTemplate() ?? defaultConfig;
-    const tryTheme = !ro && !template && !mine ? findTheme(q.get("theme")) : null;
-    /* The theme's look on his store: his contact details, socials and pages stay (see adoptTheme) */
-    if (tryTheme) d.config = adoptTheme(d.config, tryTheme.build(lang, { samples: true, storeName: d.identity.name }));
-    setTrying(tryTheme);
-    setTemplateMode(template);
-    /* Without his own products the template would look empty, so it is shown with sample products */
-    setSample(template || q.get("sample") === "1");
-    if (template) {
-      /* Dukkan's staff only (a Diwan session with the settings permission); the template itself comes from the server */
-      void (async () => {
-        const me = await fetch("/api/diwan/auth/me", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-        if (!me?.staff?.verified) return window.location.replace("/diwan/login");
-        if (!me.staff.settings) return window.location.replace("/diwan");
-        await refreshTemplate(true);
-        d.config = loadTemplate() ?? defaultConfig;
-        setDraft(d);
+    const themeId = !ro && !template ? q.get("theme") : null;
+    const found = findTheme(themeId);
+    /* A theme made in Diwan is only known once the theme store's list is here. On a first visit (no copy in this browser
+       yet) wait for the server's list, so the link opens that theme instead of quietly opening his own design. */
+    if (themeId && !found) {
+      void refreshCatalog().then(() => begin(findTheme(themeId)));
+      return;
+    }
+    begin(found);
+
+    function begin(tryTheme: ThemeInfo | null) {
+      /* The theme's look on his store: his contact details, socials and pages stay (see adoptTheme) */
+      if (tryTheme) d.config = adoptTheme(d.config, tryTheme.build(lang, { samples: true, storeName: d.identity.name }));
+      setTrying(tryTheme);
+      setTemplateMode(template);
+      /* Without his own products the template would look empty, so it is shown with sample products */
+      setSample(template || q.get("sample") === "1");
+      if (template) {
+        /* Dukkan's staff only (a Diwan session with the settings permission); the template itself comes from the server */
+        void (async () => {
+          const me = await fetch("/api/diwan/auth/me", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          if (!me?.staff?.verified) return window.location.replace("/diwan/login");
+          if (catalog) {
+            /* a theme made in Diwan: its design comes from the server (the route checks the staff member may change themes) */
+            const r = await fetch(`/api/diwan/themes/${catalog}/design`, { cache: "no-store" }).catch(() => null);
+            const j = r?.ok ? await r.json().catch(() => null) : null;
+            if (!j || j.result !== "ok") return window.location.replace("/diwan/themes");
+            d.config = j.design ? designFrom(j.design) : defaultConfig;
+            setCatalogTheme({ id: catalog, name: (lang === "ar" ? j.name?.ar : j.name?.en) || j.name?.en || j.name?.ar || catalog });
+          } else {
+            if (!me.staff.settings) return window.location.replace("/diwan");
+            await refreshTemplate(true);
+            d.config = loadTemplate() ?? defaultConfig;
+          }
+          setDraft(d);
+          setSaved(JSON.stringify(d));
+        })();
+        return;
+      }
+      /* the unfinished work he left last time comes back, still unsaved (the store keeps what was saved before) */
+      const left = !ro && !tryTheme ? loadDraft() : null;
+      if (left) {
+        setDraft({ ...left, config: withoutUnboughtLooks(left.config) });
         setSaved(JSON.stringify(d));
-      })();
-      return;
+        return;
+      }
+      setDraft(d);
+      setSaved(tryTheme ? baseline : JSON.stringify(d));
     }
-    /* the unfinished work he left last time comes back, still unsaved (the store keeps what was saved before) */
-    const left = !ro && !mine && !tryTheme ? loadDraft() : null;
-    if (left) {
-      setDraft({ ...left, config: withoutUnboughtLooks(left.config) });
-      setSaved(JSON.stringify(d));
-      return;
-    }
-    setDraft(d);
-    setSaved(tryTheme ? baseline : JSON.stringify(d));
   }, []);
 
   /* Kept from one render to the next: the whole design is turned into text only when it changes */
@@ -380,8 +393,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const startTexts = useRef<ReturnType<typeof textsNow> | null>(null);
   if (draft && !startTexts.current) startTexts.current = textsNow(draft.config);
   const samples = useMemo(
-    () => startingWords([usingTheme, trying?.id, themeId], mine ? [freshMine("en", themeId).config, freshMine("ar", themeId).config] : []),
-    [usingTheme, trying, themeId, mine],
+    () => startingWords([usingTheme, trying?.id], []),
+    [usingTheme, trying],
   );
   /* the language reminder he dismissed: it stays hidden until a new text is changed in one language only */
   const [ignored, setIgnored] = useState({ en: 0, ar: 0 });
@@ -419,16 +432,6 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  /* At /saad the store's name is the made-up one in the page's language. The language is only known after the first render, so it is set again here (never over unsaved edits). */
-  useEffect(() => {
-    if (!mine || !draft || dirty) return;
-    const identity = freshMine(lang, themeId).identity;
-    if (JSON.stringify(identity) === JSON.stringify(draft.identity)) return;
-    const next = { ...draft, identity };
-    setDraft(next);
-    setSaved(JSON.stringify(next));
-  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Closing the tab or reloading with unsaved changes asks first. */
   useEffect(() => {
@@ -684,7 +687,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const setPicFocus = (f: { x: number; y: number }) => {
     if (!pic) return;
     setPic({ ...pic, focus: f });
-    if (pic.id < 0 || mine || trying) setFocusOverrides((m) => ({ ...m, [pic.id]: f }));
+    if (pic.id < 0 || trying) setFocusOverrides((m) => ({ ...m, [pic.id]: f }));
     else saveProductFocus(pic.id, f);
   };
   /* Designing a page: its elements are edited with the same panel as the home page's, and saved with the page */
@@ -714,8 +717,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     if (!templateMode && !HEX.test(d.identity.color)) return { id: "color", tab: "options" };
     if (!HEX.test(d.config.theme.background)) return { id: "background", tab: "options" };
     if (!HEX.test(d.config.theme.text)) return { id: "text", tab: "options" };
-    /* The store's own contact details (a template or a theme copy has none) */
-    if (!templateMode && !mine) {
+    /* The store's own contact details (a template has none) */
+    if (!templateMode) {
       const f = d.config.footer;
       if (!okEmail(f.email)) return { id: "email", tab: "pages" };
       if (!okPhone(f.whatsapp)) return { id: "whatsapp", tab: "pages" };
@@ -775,21 +778,21 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     }
     emptyOk.current = false;
     /* A look of a theme he has not bought can be tried in the preview, but the store keeps only what he owns */
-    const kept = mine || templateMode ? draft : { ...draft, config: withoutUnboughtLooks(draft.config) };
+    const kept = templateMode ? draft : { ...draft, config: withoutUnboughtLooks(draft.config) };
     /* the starter template's own copy is on the server (sent below); this browser's copy is only a cache, so a full storage doesn't stop it */
-    if (!(mine ? saveMine(draft.config, themeId) : templateMode ? saveTemplate(draft.config) || true : saveConfig(kept.config))) {
+    if (!(templateMode ? catalogTheme || saveTemplate(draft.config) || true : saveConfig(kept.config))) {
       setFlash("full");
       setTimeout(() => setFlash(null), 4000);
       return false;
     }
     setIsOpen(storeIsLive());
-    if (templateMode || mine) {
+    if (templateMode) {
       /* The template belongs to the platform, not to any store, so the store's own data stays as it is */
       if (templateMode) {
         const before = saved;
         setTemplateErr(false);
         /* not kept by the server (signed out, or no right to): the changes show as unsaved again */
-        void sendTemplate(draft.config).then((ok) => {
+        void (catalogTheme ? sendThemeDesign(catalogTheme.id, draft.config) : sendTemplate(draft.config)).then((ok) => {
           if (ok) return;
           setSaved(before);
           setFlash(null);
@@ -832,7 +835,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   acts.current = { select, selectProduct, moveBit, editPic, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); if (id !== null) setPanelOpen(true); }, sampleProducts: setSample };
   /* the preview with sample products: offered while the store has no products of its own (a theme try-out and his own copy of a
      theme already show the theme's sample products, the starter template always shows them); it is only on screen, never saved */
-  const sampleChoice = !trying && !mine && !templateMode && (!hasOwnProducts || sample) ? { on: sample, set: setSample } : null;
+  const sampleChoice = !trying && !templateMode && (!hasOwnProducts || sample) ? { on: sample, set: setSample } : null;
   /* the design this page is built on, as it first came (a design he made himself goes back to Dukkan's): the "original design" of the menu */
   const originalTheme = findTheme(trying?.id ?? usingTheme) ?? defaultTheme;
 
@@ -843,12 +846,12 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   /* The red frame and the red dot go away as soon as the field they point at is fixed */
   const problemNow = firstProblem(draft);
   /* leaving with the name or a contact number missing: the work is kept as a draft, and the store does not go live with it */
-  const asDraft = !!problemNow && !mine && !templateMode && !trying && (problemNow.id === "name" || problemNow.id === "whatsapp" || problemNow.id === "phone" || problemNow.id === "contact" || problemNow.id === "email");
+  const asDraft = !!problemNow && !templateMode && !trying && (problemNow.id === "name" || problemNow.id === "whatsapp" || problemNow.id === "phone" || problemNow.id === "contact" || problemNow.id === "email");
   const attnNow = attn && problemNow?.id === attn.id ? attn : null;
   /* The save button turns green and says "Saved" for a moment after a save */
   const justSaved = !dirty && (flash === "saved" || flash === "savedExcept");
   /* A save here goes straight to the store customers visit (not the starter template, a private template or the fake demo), so the bar says so */
-  const live = !templateMode && !mine && !readOnly;
+  const live = !templateMode && !readOnly;
   /* a store that was never saved can be saved as it is: that first save opens it to customers */
   const canSave = dirty || (live && !isOpen);
   const saveLabel = justSaved ? (
@@ -903,11 +906,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
         <span className="min-w-0 max-w-[12rem] truncate text-sm font-extrabold">{activeTheme || t.themeName}</span>
         {templateMode ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
-            {t.templateBadge}
-          </span>
-        ) : mine ? (
-          <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
-            {t.mineBadge}
+            {catalogTheme ? `${t.catalogBadge}: ${catalogTheme.name}` : t.templateBadge}
           </span>
         ) : readOnly ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
@@ -1047,7 +1046,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
             <span className="text-amber-600">{live ? <><span className="xl:hidden">{t.unsaved}</span><span className="hidden xl:inline">{t.unsavedLive}</span></> : t.unsaved}</span>
           ) : null}
         </span>
-        {templateMode && (
+        {templateMode && !catalogTheme && (
           <button
             type="button"
             onClick={() => {
@@ -1064,7 +1063,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
         )}
         {templateMode && templateErr && (
           <span role="alert" className="text-xs font-semibold text-rose-600">
-            {lang === "ar" ? "لم يُحفظ القالب في الخادم. سجّل الدخول إلى الديوان ثم احفظ مجددًا." : "The template was not saved on the server. Sign in to Diwan, then save again."}
+            {catalogTheme ? t.catalogSaveFail : lang === "ar" ? "لم يُحفظ القالب في الخادم. سجّل الدخول إلى الديوان ثم احفظ مجددًا." : "The template was not saved on the server. Sign in to Diwan, then save again."}
           </span>
         )}
         <div className="flex items-center">
@@ -1100,8 +1099,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18" /></svg>
                 {TRANSLATE_WORDS[lang].menu}
               </button>
-              <a href={templateMode || mine ? "/store?original=1" : `/store?theme=${originalTheme.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{railIcons.external}{t.starter}</a>
-              {!templateMode && !mine && (
+              <a href={templateMode ? "/store?original=1" : `/store?theme=${originalTheme.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{railIcons.external}{t.starter}</a>
+              {!templateMode && (
                 /* the design the store is built on, as it first came, back in the draft: one step Undo can take back, saved only with Save */
                 <button
                   type="button"
@@ -1120,26 +1119,8 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
                   {t.restoreOriginal}
                 </button>
               )}
-              {templateMode && (
+              {templateMode && !catalogTheme && (
                 <a href="/store?starter=1" target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{railIcons.external}{t.templatePreview}</a>
-              )}
-              {mine && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!window.confirm(t.mineResetAsk)) return;
-                    resetMine(themeId);
-                    const f = freshMine(lang, themeId);
-                    setDraft({ config: f.config, identity: f.identity });
-                    setSaved(JSON.stringify({ config: f.config, identity: f.identity }));
-                    setEditing(null);
-                    setMoreMenu(false);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft"
-                >
-                  {railIcons.reset}
-                  {t.mineReset}
-                </button>
               )}
               {themeName === null ? (
                 <button type="button" disabled={readOnly} title={readOnly ? t.demoBlocked : undefined} onClick={() => setThemeName(t.themeDefaultName)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent">{railIcons.bookmark}{t.saveAsTheme}</button>
@@ -1172,12 +1153,10 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
             Changing it keeps the changes not saved yet. (On a phone it is in the "more" menu.) */}
         <span className="hidden shrink-0 sm:block"><LangSwitch /></span>
 
-        {!mine && (
         <a href="/preview" target="_blank" rel="noreferrer" aria-label={t.previewBtn} className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-fg/15 px-2.5 text-sm font-semibold transition hover:bg-soft sm:px-3">
           {railIcons.eye}
           <span className="hidden sm:inline lg:hidden xl:inline">{t.previewBtn}</span>
         </a>
-        )}
 
         {/* calm like the buttons beside it (red only under the pointer), with its name where the bar has room */}
         <button ref={exitBtn} type="button" onClick={() => tryExit()} aria-label={t.exit} title={t.exit} className="flex h-9 min-w-9 shrink-0 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold text-muted transition hover:bg-rose-500/10 hover:text-rose-600 xl:border xl:border-fg/15 xl:px-3">
@@ -1273,7 +1252,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
                   </div>
                 </div>
               )}
-              <p className="text-xs text-muted">{templateMode ? t.templateNote : live ? t.note : t.noteMine}</p>
+              <p className="text-xs text-muted">{catalogTheme ? t.catalogNote : templateMode ? t.templateNote : live ? t.note : t.noteMine}</p>
             </div>
           </aside>
           </OpenPage.Provider>
@@ -1336,7 +1315,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
             </button>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button type="button" autoFocus onClick={() => setExiting(false)} className="h-11 whitespace-nowrap rounded-xl border border-fg/15 px-3 text-sm font-semibold transition hover:bg-soft">{t.modal.stay}</button>
-              <button type="button" onClick={() => { if (!mine && !templateMode) keepDraft(null); setSaved(JSON.stringify(draft)); leave(); }} className="h-11 whitespace-nowrap rounded-xl px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
+              <button type="button" onClick={() => { if (!templateMode) keepDraft(null); setSaved(JSON.stringify(draft)); leave(); }} className="h-11 whitespace-nowrap rounded-xl px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
             </div>
           </div>
         </div>

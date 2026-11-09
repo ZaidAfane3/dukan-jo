@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { savedMobile } from "@/components/phone";
 import { answer, checkPassword, guarded, noteLogin, readJson, sameOrigin, startSession, tooMany } from "@/server/auth";
+import { emailKey, phoneKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { touchShop } from "@/server/shops";
 
@@ -22,8 +23,9 @@ export const POST = guarded(async (req: NextRequest) => {
   const { rows } = await pool.query(
     `SELECT a.id, a.email, a.name, a.phone, a.password_hash, a.totp_on, COALESCE(s.status = 'suspended', false) AS suspended
        FROM accounts a LEFT JOIN shops s ON s.account_id = a.id
-      WHERE a.email = $1 OR (a.phone <> '' AND a.phone = $2) LIMIT 1`,
-    [id, savedMobile(id)],
+      WHERE a.email_hash = $1 OR a.phone_hash = $2 LIMIT 1`,
+    /* found by fingerprints: the email and mobile themselves are stored encrypted */
+    [emailKey(id), phoneKey(savedMobile(id)) ?? ""],
   );
   const a = rows[0];
   if (!a) return answer({ result: "none" }, 401);

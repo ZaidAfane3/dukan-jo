@@ -1,3 +1,4 @@
+import { PRIVATE_PARAMS, seal } from "./crypto";
 import { db } from "./db";
 
 /* Puts a message in a merchant's bell (the notifications table). The bell shows it in their language from the kind and
@@ -16,6 +17,11 @@ export type NotifyKind =
   | "ticketReplied" | "ticketStatus" | "domainStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
   | "planChanged" | "paymentReceived" | "supportViewed";
 
+/* the free-text details (a ticket's subject, a staff note, a suspension reason) are stored encrypted; numbers, kinds
+   and statuses stay plain so the bell can find a ticket's notices. db() opens them again on the way out. */
+const sealParams = (p: Record<string, string | number>) =>
+  Object.fromEntries(Object.entries(p).map(([k, v]) => [k, PRIVATE_PARAMS.includes(k) && typeof v === "string" ? seal(v) : v]));
+
 export async function notify(accountId: string | number, kind: NotifyKind, params: Record<string, string | number> = {}): Promise<void> {
-  await (await db()).query(`INSERT INTO notifications (account_id, kind, params) VALUES ($1, $2, $3)`, [accountId, kind, JSON.stringify(params)]);
+  await (await db()).query(`INSERT INTO notifications (account_id, kind, params) VALUES ($1, $2, $3)`, [accountId, kind, JSON.stringify(sealParams(params))]);
 }

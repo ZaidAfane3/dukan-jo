@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
 import { REPORT_LIMITS, REPORT_REASONS, type ReportReason } from "@/components/storeReports";
 import { answer, readJson } from "@/server/auth";
+import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 
@@ -74,13 +75,13 @@ export const POST = staffRoute("complaints", async (req: NextRequest, me) => {
   const found = /^\d{1,18}$/.test(shop)
     ? await pool.query(`SELECT id FROM accounts WHERE id = $1`, [shop])
     : shop.includes("@")
-      ? await pool.query(`SELECT id FROM accounts WHERE lower(email) = $1`, [shop])
+      ? await pool.query(`SELECT id FROM accounts WHERE email_hash = $1`, [emailKey(shop)])
       : await pool.query(`SELECT account_id AS id FROM shops WHERE lower(slug) = $1`, [shop]);
   const accountId = found.rows[0]?.id;
   if (!accountId) return answer({ result: "no-shop" }, 404);
   const { rows } = await pool.query(
     `INSERT INTO store_reports (account_id, reporter_kind, reporter_contact, reason, body, handled_by) VALUES ($1, 'staff', $2, $3, $4, $5) RETURNING id`,
-    [accountId, me.email, reason, text, me.id],
+    [accountId, seal(me.email), reason, seal(text), me.id],
   );
   await audit(req, me.id, "complaint.add", { type: "store_report", id: rows[0].id }, null, { shop: String(accountId), reason });
   return answer({ result: "ok", id: String(rows[0].id) });

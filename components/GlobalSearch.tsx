@@ -24,6 +24,7 @@ const pages = [
   { href: "/themes/mine", en: "My themes", ar: "ثيماتي", kw: "my themes bought owned ثيماتي ثيمات مشتريات" },
   { href: "/design", en: "Store design", ar: "تصميم المتجر", kw: "design theme storefront colors header footer sections editor تصميم ثيم ألوان واجهة المتجر" },
   { href: "/pages", en: "Info pages", ar: "الصفحات التعريفية", kw: "pages policy privacy terms return about صفحات سياسة الخصوصية الأحكام والشروط الاسترجاع من نحن" },
+  { href: "/from-dukkan", en: "From Dukkan", ar: "من دكّان", kw: "dukkan news guides rules help updates أخبار أدلة قواعد مساعدة تحديثات دكان" },
   { href: "/support", en: "Support tickets", ar: "تذاكر الدعم", kw: "support help ticket contact دعم مساعدة تذكرة" },
   { href: "/settings", en: "Account settings", ar: "إعدادات الحساب", kw: "settings profile password phone email name إعدادات الملف الشخصي كلمة المرور" },
   { href: "/settings/notifications", en: "Notifications settings", ar: "إعدادات الإشعارات", kw: "notification email alerts إشعارات تنبيهات بريد" },

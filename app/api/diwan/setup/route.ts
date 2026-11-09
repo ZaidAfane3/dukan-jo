@@ -2,8 +2,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { audit } from "@/server/staff";
+import { audit, DEV_EMAIL } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +14,11 @@ export const dynamic = "force-dynamic";
 const setupKey = () => process.env.DIWAN_SETUP_KEY ?? "";
 const sha = (s: string) => createHash("sha256").update(s).digest();
 
+/* staff other than the local dev owner (server/staff.ts): that row has no password, so it never counts as an owner */
+const REAL_STAFF = `SELECT 1 FROM staff WHERE email_hash IS DISTINCT FROM $1`;
+
 async function noStaff(): Promise<boolean> {
-  const { rows } = await (await db()).query(`SELECT NOT EXISTS (SELECT 1 FROM staff) AS empty`);
+  const { rows } = await (await db()).query(`SELECT NOT EXISTS (${REAL_STAFF}) AS empty`, [emailKey(DEV_EMAIL)]);
   return rows[0].empty;
 }
 
@@ -46,12 +50,12 @@ export const POST = guarded(async (req: NextRequest) => {
     await c.query("BEGIN");
     /* two people trying at once: only the first one gets in */
     await c.query("LOCK TABLE staff IN EXCLUSIVE MODE");
-    const { rows } = await c.query(`SELECT EXISTS (SELECT 1 FROM staff) AS any`);
+    const { rows } = await c.query(`SELECT EXISTS (${REAL_STAFF}) AS any`, [emailKey(DEV_EMAIL)]);
     if (rows[0].any) {
       await c.query("ROLLBACK");
       return answer({ result: "closed" }, 409);
     }
-    const r = await c.query(`INSERT INTO staff (email, name, role, password_hash) VALUES ($1, $2, 'owner', $3) RETURNING id`, [who.email, who.name, hash]);
+    const r = await c.query(`INSERT INTO staff (email, email_hash, name, role, password_hash) VALUES ($1, $2, $3, 'owner', $4) RETURNING id`, [seal(who.email), emailKey(who.email), who.name, hash]);
     id = String(r.rows[0].id);
     await c.query("COMMIT");
   } catch (e) {

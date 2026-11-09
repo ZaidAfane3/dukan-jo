@@ -11,6 +11,7 @@ import { loadSetup } from "./setup";
 import { cleanOrder, money, parseList, typedMoney } from "./records";
 import { StoreStatus } from "./StoreStatus";
 import { AnnouncementBanner } from "./AnnouncementBanner";
+import { MerchantPopup } from "./MerchantPopup";
 
 const TOTAL_TASKS = 6;
 
@@ -143,6 +144,8 @@ export function Dashboard() {
       <main data-lang-fade className="mx-auto max-w-[1720px] space-y-6 px-5 py-8 md:px-10">
         {/* Dukkan's announcements meant for this shop (signed in only) */}
         <AnnouncementBanner />
+        {/* a pop-up from Dukkan's team (Diwan: Pop-ups), once per shop */}
+        <MerchantPopup />
         {/* Greeting */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>

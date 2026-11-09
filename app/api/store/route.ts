@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { answer, currentAccount, guarded, readJson, sameOrigin } from "@/server/auth";
 import { cleanSetup } from "@/components/safeAccount";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
 
@@ -69,12 +70,13 @@ export const PUT = guarded(async (req: NextRequest) => {
     if (remove.length) await client.query(`DELETE FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, remove]);
     for (const [k, v] of set) {
       await client.query(
-        `INSERT INTO store_data (account_id, key, value) VALUES ($1, $2, $3)
-         ON CONFLICT (account_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [a.id, k, v],
+        /* stored encrypted (server/crypto.ts); plain_len keeps the size limit about what the merchant saved */
+        `INSERT INTO store_data (account_id, key, value, plain_len) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (account_id, key) DO UPDATE SET value = EXCLUDED.value, plain_len = EXCLUDED.plain_len, updated_at = now()`,
+        [a.id, k, seal(v as string), (v as string).length],
       );
     }
-    const { rows } = await client.query(`SELECT COALESCE(SUM(length(key) + length(value)), 0)::bigint AS total FROM store_data WHERE account_id = $1`, [a.id]);
+    const { rows } = await client.query(`SELECT COALESCE(SUM(length(key) + COALESCE(plain_len, length(value))), 0)::bigint AS total FROM store_data WHERE account_id = $1`, [a.id]);
     if (Number(rows[0].total) > MAX_TOTAL) {
       await client.query("ROLLBACK");
       return answer({ result: "too-big" }, 413);

@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { cleanDeleteReason, deleteReasonOk } from "@/components/orderDeleteRule";
 import { cleanLine } from "@/components/safe";
 import { answer, currentAccount, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export const POST = guarded(async (req: NextRequest) => {
   await (await db()).query(
     `INSERT INTO order_deletions (account_id, order_id, order_no, reason, deleted_by) VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (account_id, order_id) DO NOTHING`,
-    [a.id, orderId, orderNo, reason, await deletedBy(req, a.email)],
+    [a.id, orderId, orderNo, seal(reason), seal(await deletedBy(req, a.email))],
   );
   return answer({ result: "ok" });
 });

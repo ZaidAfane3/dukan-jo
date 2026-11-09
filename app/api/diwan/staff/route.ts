@@ -1,6 +1,8 @@
+import { isRole } from "@/components/diwan/perms";
 import type { NextRequest } from "next/server";
 import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, hashPassword, readJson } from "@/server/auth";
+import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 
@@ -27,7 +29,7 @@ export const GET = staffRoute("staff", async (_req, me) => {
 export const POST = staffRoute("staff", async (req: NextRequest, me) => {
   const body = await readJson(req, 2_000);
   const who = cleanStaff({ name: body?.name, email: body?.email });
-  const role = body?.role === "owner" || body?.role === "support" ? body.role : null;
+  const role = isRole(body?.role) ? body.role : null;
   if (!who || !role) return answer({ result: "invalid" }, 400);
   const problem = staffPasswordProblem(body?.password);
   if (problem) return answer({ result: "weak", problem }, 400);
@@ -35,8 +37,8 @@ export const POST = staffRoute("staff", async (req: NextRequest, me) => {
   let id: string;
   try {
     const { rows } = await (await db()).query(
-      `INSERT INTO staff (email, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, true) RETURNING id`,
-      [who.email, who.name, role, hash],
+      `INSERT INTO staff (email, email_hash, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, true) RETURNING id`,
+      [seal(who.email), emailKey(who.email), who.name, role, hash],
     );
     id = String(rows[0].id);
   } catch (e) {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { FilterBar } from "@/components/diwan/Filters";
 
 /* Documents: papers shops send for checking (courier proof, commercial registration for .jo domains). Staff approve
    or reject each one with a note; the merchant's bell is told (documentStatus) and the activity log keeps it. Live
@@ -49,13 +50,15 @@ export default function DocumentsPage() {
             {count(x, s.data?.counts) !== null && <span className="ms-1.5 tabular-nums opacity-75">{count(x, s.data?.counts)}</span>}
           </button>
         ))}
-        <select className={`${field} ms-auto w-auto`} value={kind} onChange={(e) => setKind(e.target.value)} aria-label={t("Kind", "النوع")}>
+      </div>
+      <FilterBar count={kind ? 1 : 0} onClear={() => setKind("")} className="mb-4">
+        <select className={`${field} sm:max-w-xs`} value={kind} onChange={(e) => setKind(e.target.value)} aria-label={t("Kind", "النوع")}>
           <option value="">{t("Every kind", "كل الأنواع")}</option>
           {(["courier_proof", "commercial_registration", "other"] as Kind[]).map((k) => (
             <option key={k} value={k}>{kindName(k)}</option>
           ))}
         </select>
-      </div>
+      </FilterBar>
 
       <Loaded s={s}>
         {(d) =>

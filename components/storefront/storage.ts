@@ -89,6 +89,9 @@ function read(key: string): StorefrontConfig | null {
   }
 }
 
+/** A design kept anywhere else (a theme made in Diwan, sent by the server) as a whole design: checked, missing parts filled in */
+export const designFrom = (raw: unknown): StorefrontConfig => merge(sanitizeDesign(raw));
+
 /** The platform's template: what new stores start from. Null when the admin has not made one. */
 export const loadTemplate = () => read(TEMPLATE_KEY);
 
@@ -114,6 +117,16 @@ export function refreshTemplate(force = false): Promise<void> {
 export async function sendTemplate(config: StorefrontConfig): Promise<boolean> {
   try {
     const r = await fetch("/api/diwan/settings/template", { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Saves the design of a theme made in Diwan (/design?catalog=<id>; Dukkan staff only, checked by the route) */
+export async function sendThemeDesign(id: string, config: StorefrontConfig): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/diwan/themes/${encodeURIComponent(id)}/design`, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) });
     return r.ok;
   } catch {
     return false;
@@ -201,6 +214,3 @@ export function clearTemplate() {
   }
 }
 
-/* Reading and writing a design under any key (used by the private /saad template) */
-export const readConfigKey = read;
-export const writeConfigKey = write;

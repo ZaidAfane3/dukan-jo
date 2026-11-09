@@ -16,7 +16,7 @@ export const DIWAN_SCHEMA = `
     id            BIGSERIAL PRIMARY KEY,
     email         TEXT NOT NULL UNIQUE,
     name          TEXT NOT NULL,
-    role          TEXT NOT NULL CHECK (role IN ('owner', 'support')),
+    role          TEXT NOT NULL CHECK (role IN ('owner', 'support', 'developer')),
     password_hash TEXT NOT NULL,
     totp_secret   TEXT,
     totp_on       BOOLEAN NOT NULL DEFAULT false,
@@ -351,4 +351,113 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS documents_status ON documents (status, created_at DESC);
   CREATE INDEX IF NOT EXISTS store_reports_status ON store_reports (status, created_at DESC);
   CREATE INDEX IF NOT EXISTS store_reports_account ON store_reports (account_id, created_at DESC);
+
+  /* encryption (server/crypto.ts): private columns hold sealed text, so they must be TEXT without value checks, and
+     emails and mobiles are found by their fingerprints. The unique indexes on the fingerprints are made by
+     encryptOldRows (server/encryptData.ts) once every row has one. */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_hash TEXT;
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS phone_hash TEXT;
+  ALTER TABLE staff    ADD COLUMN IF NOT EXISTS email_hash TEXT;
+  ALTER TABLE accounts ALTER COLUMN dob TYPE TEXT USING dob::text;
+  ALTER TABLE accounts DROP CONSTRAINT IF EXISTS accounts_gender_check;
+  ALTER TABLE store_data ADD COLUMN IF NOT EXISTS plain_len INT;
+  /* the theme the store's design is built on (seen-themes: the active one, or the theme a saved copy came from) */
+  ALTER TABLE shops ADD COLUMN IF NOT EXISTS theme_id TEXT NOT NULL DEFAULT 'dukkan';
+
+  /* The theme store's list, run from Diwan (components/themeListing.ts). A "code" theme's look is in the code and its
+     empty words fall back to the code's; a "design" theme is all here (design: the whole store design, as JSON). The
+     two code themes sold today start live at their prices. Dukkan's free designs (dukkan, mada) are every store's and
+     are not listed. */
+  CREATE TABLE IF NOT EXISTS catalog_themes (
+    id          TEXT PRIMARY KEY,
+    source      TEXT NOT NULL CHECK (source IN ('code', 'design')),
+    status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'live', 'hidden')),
+    name        JSONB,
+    tagline     JSONB,
+    about       JSONB,
+    features    JSONB,
+    tags        JSONB,
+    price       NUMERIC(10, 3) NOT NULL DEFAULT 0 CHECK (price >= 0),
+    sort        INT NOT NULL DEFAULT 100,
+    featured    BOOLEAN NOT NULL DEFAULT false,
+    demo        JSONB,
+    design      JSONB,
+    released_at TIMESTAMPTZ,
+    created_by  BIGINT REFERENCES staff (id),
+    updated_by  BIGINT REFERENCES staff (id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS catalog_themes_store ON catalog_themes (status, sort);
+
+  /* Pages Dukkan's team publishes for merchants, read inside their dashboard (guides, news, rules). Made in Diwan's
+     developer portal (/diwan/pages): draft → live → hidden. audience as in announcements (server/announce.ts). Not
+     private, so not sealed. */
+  /* the Developer role (components/diwan/perms.ts): a database made before it allows it too */
+  DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'staff_role_check' AND pg_get_constraintdef(oid) NOT LIKE '%developer%') THEN
+      ALTER TABLE staff DROP CONSTRAINT staff_role_check;
+      ALTER TABLE staff ADD CONSTRAINT staff_role_check CHECK (role IN ('owner', 'support', 'developer'));
+    END IF;
+  END $$;
+
+  CREATE TABLE IF NOT EXISTS dukkan_pages (
+    id           BIGSERIAL PRIMARY KEY,
+    slug         TEXT NOT NULL UNIQUE,
+    title_en     TEXT NOT NULL,
+    title_ar     TEXT NOT NULL,
+    summary_en   TEXT NOT NULL DEFAULT '',
+    summary_ar   TEXT NOT NULL DEFAULT '',
+    body_en      TEXT NOT NULL DEFAULT '',
+    body_ar      TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'live', 'hidden')),
+    in_menu      BOOLEAN NOT NULL DEFAULT false,
+    sort         INT NOT NULL DEFAULT 100,
+    audience     JSONB NOT NULL DEFAULT '{"all": true}',
+    published_at TIMESTAMPTZ,
+    created_by   BIGINT REFERENCES staff (id),
+    updated_by   BIGINT REFERENCES staff (id),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS dukkan_page_views (
+    page_id    BIGINT NOT NULL REFERENCES dukkan_pages (id) ON DELETE CASCADE,
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (page_id, account_id)
+  );
+
+  /* Pop-ups Dukkan's team shows merchants in their dashboard (an offer, a new feature, a notice), made in Diwan's
+     developer portal (/diwan/popups): draft → live → ended, between starts_at and ends_at, to an audience as in
+     announcements. Each merchant sees one at most once (popup_views); "clicked" counts its button. */
+  CREATE TABLE IF NOT EXISTS popups (
+    id          BIGSERIAL PRIMARY KEY,
+    title_en    TEXT NOT NULL,
+    title_ar    TEXT NOT NULL,
+    body_en     TEXT NOT NULL DEFAULT '',
+    body_ar     TEXT NOT NULL DEFAULT '',
+    image       TEXT NOT NULL DEFAULT '',
+    button_en   TEXT NOT NULL DEFAULT '',
+    button_ar   TEXT NOT NULL DEFAULT '',
+    button_link TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'live', 'ended')),
+    audience    JSONB NOT NULL DEFAULT '{"all": true}',
+    starts_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ends_at     TIMESTAMPTZ,
+    priority    INT NOT NULL DEFAULT 0,
+    created_by  BIGINT REFERENCES staff (id),
+    updated_by  BIGINT REFERENCES staff (id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS popup_views (
+    popup_id   BIGINT NOT NULL REFERENCES popups (id) ON DELETE CASCADE,
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    clicked_at TIMESTAMPTZ,
+    PRIMARY KEY (popup_id, account_id)
+  );
+  INSERT INTO catalog_themes (id, source, status, price, sort, released_at) VALUES
+    ('atelier', 'code', 'live', 19.99, 10, now()), ('lamma', 'code', 'live', 39, 20, now())
+  ON CONFLICT (id) DO NOTHING;
 `;

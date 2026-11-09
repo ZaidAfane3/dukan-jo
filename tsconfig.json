@@ -38,7 +38,8 @@
     ".next-fa/types/**/*.ts",
     ".next-fc/types/**/*.ts",
     ".next-ff/types/**/*.ts",
-    ".next-fork/types/**/*.ts"
+    ".next-fork/types/**/*.ts",
+    ".next-diwan/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
