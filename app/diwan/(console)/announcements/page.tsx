@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { askConfirm } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 
 /* Announcements to merchants: written in English and Arabic, for everyone, or chosen shops, shown in the
@@ -47,12 +48,23 @@ export default function AnnouncementsPage() {
   };
 
   const end = async (r: Row) => {
-    if (!window.confirm(t(`End “${r.titleEn}” now? Merchants stop seeing it.`, `إنهاء «${r.titleAr}» الآن؟ لن يراه التجار بعد ذلك.`))) return;
+    const yes = await askConfirm({
+      title: t("End this announcement", "إنهاء هذا الإعلان"),
+      body: t(`End “${r.titleEn}” now? Merchants stop seeing it.`, `إنهاء «${r.titleAr}» الآن؟ لن يراه التجار بعد ذلك.`),
+      confirm: t("End now", "إنهاء الآن"),
+    });
+    if (!yes) return;
     await send(`/api/diwan/announcements/${r.id}`, "PATCH", { end: true });
     s.reload();
   };
   const remove = async (r: Row) => {
-    if (!window.confirm(t(`Delete “${r.titleEn}”? It disappears from every merchant's bell and its read count is lost.`, `حذف «${r.titleAr}»؟ سيختفي من إشعارات كل التجار ويُفقد عدد القراءات.`))) return;
+    const yes = await askConfirm({
+      title: t("Delete this announcement", "حذف هذا الإعلان"),
+      body: t(`Delete “${r.titleEn}”? It disappears from every merchant's bell and its read count is lost.`, `حذف «${r.titleAr}»؟ سيختفي من إشعارات كل التجار ويُفقد عدد القراءات.`),
+      confirm: t("Delete", "حذف"),
+      danger: true,
+    });
+    if (!yes) return;
     await send(`/api/diwan/announcements/${r.id}`, "DELETE");
     s.reload();
   };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { askConfirm } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { ThemePreview } from "@/components/ThemePreview";
 import { defaultConfig } from "@/components/storefront/config";
@@ -324,7 +325,7 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
                 </a>
               )}
               {row.source === "design" && row.status !== "live" && n.bought === 0 && (
-                <button type="button" disabled={busy} onClick={() => (window.confirm(t("Delete this theme for good?", "حذف هذا الثيم نهائيًا؟")) ? remove() : null)} className="text-sm font-semibold text-red-600 hover:underline">
+                <button type="button" disabled={busy} onClick={async () => (await askConfirm({ title: t("Delete this theme for good?", "حذف هذا الثيم نهائيًا؟"), confirm: t("Delete", "حذف"), danger: true })) && remove()} className="text-sm font-semibold text-red-600 hover:underline">
                   {t("Delete this theme", "حذف هذا الثيم")}
                 </button>
               )}

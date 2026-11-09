@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { LIMITS, PAY_METHODS, type PlatformSettings, type SettingKey } from "@/components/diwan/platformSettings";
 import { THEME_CATALOG } from "@/components/diwan/themeCatalog";
+import { askConfirm } from "@/components/diwan/dialogs";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 
 /* Platform settings (owners): each setting has its own form and its own Save, checked again by the server, and every save
@@ -228,7 +229,11 @@ function TemplateCard({ info, onChange }: { info: Data["template"]; onChange: ()
   const f = useFmt();
   const [busy, setBusy] = useState(false);
   const reset = async () => {
-    if (!window.confirm(t("New stores will start from Dukkan's original design again. Continue?", "ستبدأ المتاجر الجديدة من تصميم دكّان الأصلي مجددًا. متابعة؟"))) return;
+    const yes = await askConfirm({
+      title: t("Back to the original design", "العودة إلى التصميم الأصلي"),
+      body: t("New stores will start from Dukkan's original design again. Continue?", "ستبدأ المتاجر الجديدة من تصميم دكّان الأصلي مجددًا. متابعة؟"),
+    });
+    if (!yes) return;
     setBusy(true);
     await send("/api/diwan/settings/template", "DELETE");
     setBusy(false);
