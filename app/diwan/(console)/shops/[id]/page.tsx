@@ -79,7 +79,7 @@ export default function ShopPage({ params }: { params: { id: string } }) {
         return (
           <>
             <Link href="/diwan/shops" className="mb-3 inline-block text-sm font-semibold text-primary hover:underline">
-              ← {t("Shops", "المتاجر")}
+              ← {t("Stores", "المتاجر")}
             </Link>
             <PageHead
               title={sh.name || t("(no name yet)", "(بلا اسم بعد)")}
@@ -247,7 +247,7 @@ export default function ShopPage({ params }: { params: { id: string } }) {
                 rows={d.documents}
                 row={(r) => [r.kind, r.name, r.status, f.date(r.created_at)]}
               />
-              <Section title={t("Activity on this shop", "النشاط على هذا المتجر")} empty={t("Nothing logged yet.", "لا يوجد نشاط مسجّل بعد.")}
+              <Section title={t("Activity on this store", "النشاط على هذا المتجر")} empty={t("Nothing logged yet.", "لا يوجد نشاط مسجّل بعد.")}
                 head={[t("When", "متى"), t("Staff", "الموظف"), t("Action", "الإجراء"), t("Reason", "السبب")]}
                 rows={d.activity}
                 row={(r) => [f.dateTime(r.at), r.staff ?? "—", <code key="a" className="text-xs">{r.action}</code>, r.reason ?? ""]}

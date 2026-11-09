@@ -8,7 +8,7 @@ export type NavItem = { href: string; en: string; ar: string; perm: Perm; group:
 
 export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan", en: "Overview", ar: "نظرة عامة", perm: "shops.read", group: null },
-  { href: "/diwan/shops", en: "Shops", ar: "المتاجر", perm: "shops.read", group: "stores" },
+  { href: "/diwan/shops", en: "Stores", ar: "المتاجر", perm: "shops.read", group: "stores" },
   { href: "/diwan/plans", en: "Plans and payments", ar: "الباقات والمدفوعات", perm: "billing", group: "stores" },
   { href: "/diwan/funnel", en: "Onboarding funnel", ar: "مراحل البدء", perm: "shops.read", group: "stores" },
   { href: "/diwan/tickets", en: "Tickets", ar: "التذاكر", perm: "tickets", group: "support" },

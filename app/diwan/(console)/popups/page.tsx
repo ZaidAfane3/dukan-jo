@@ -59,7 +59,7 @@ export default function PopupsPage() {
     <div>
       <PageHead
         title={t("Pop-ups", "النوافذ المنبثقة")}
-        sub={t("A box in the middle of the merchants' home page: an offer, a new feature, a notice. Each shop sees it once.", "نافذة في وسط الصفحة الرئيسية للتجار: عرض، ميزة جديدة، تنبيه. يراها كل متجر مرة واحدة.")}
+        sub={t("A box in the middle of the merchants' home page: an offer, a new feature, a notice. Each store sees it once.", "نافذة في وسط الصفحة الرئيسية للتجار: عرض، ميزة جديدة، تنبيه. يراها كل متجر مرة واحدة.")}
         actions={!form && <Btn onClick={() => setForm(blank())}>{t("New pop-up", "نافذة جديدة")}</Btn>}
       />
       <Loaded s={s}>
@@ -88,7 +88,7 @@ function useAudienceText() {
     const a = r.audience as Record<string, unknown>;
     if (Array.isArray(a.accounts)) {
       const names = (a.accounts as unknown[]).map((id) => d.shops[String(id)]?.name ?? `#${id}`);
-      return t(`Shops: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
+      return t(`Stores: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
     }
     if (Array.isArray(a.plans)) {
       const names = (a.plans as string[]).map((k) => {
@@ -97,7 +97,7 @@ function useAudienceText() {
       });
       return t(`Plans: ${names.join(", ")}`, `الباقات: ${names.join("، ")}`);
     }
-    return t("Every shop", "كل المتاجر");
+    return t("Every store", "كل المتاجر");
   };
 }
 
@@ -114,8 +114,8 @@ function PopupRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => voi
   };
   const moveWord = (to: PopupStatus) => (to === "live" ? (r.status === "ended" ? t("Show again", "إظهارها مجددًا") : t("Release", "نشر")) : to === "ended" ? t("End now", "إنهاء الآن") : t("Back to draft", "إلى مسودة"));
   const askWord = (a: PopupStatus | "delete") =>
-    a === "live" ? t(`Shops it is for will see it on their home page${r.startsAt && new Date(r.startsAt) > new Date() ? " from its start" : " right away"}. Shops that saw it already won't see it again.`, `ستراها المتاجر المعنية في صفحتها الرئيسية${r.startsAt && new Date(r.startsAt) > new Date() ? " من وقت بدايتها" : " فورًا"}. المتاجر التي رأتها لن تراها مجددًا.`)
-    : a === "ended" ? t("No shop sees it from now. Its numbers stay.", "لن يراها أي متجر من الآن. تبقى أرقامها.")
+    a === "live" ? t(`Stores it is for will see it on their home page${r.startsAt && new Date(r.startsAt) > new Date() ? " from its start" : " right away"}. Stores that saw it already won't see it again.`, `ستراها المتاجر المعنية في صفحتها الرئيسية${r.startsAt && new Date(r.startsAt) > new Date() ? " من وقت بدايتها" : " فورًا"}. المتاجر التي رأتها لن تراها مجددًا.`)
+    : a === "ended" ? t("No store sees it from now. Its numbers stay.", "لن يراها أي متجر من الآن. تبقى أرقامها.")
     : t("Delete this draft for good?", "حذف هذه المسودة نهائيًا؟");
 
   const act = async (a: PopupStatus | "delete") => {
@@ -228,7 +228,7 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
     image: t("The picture must be a PNG, JPG or WebP up to 400 KB, a picture on Dukkan (/...), or an https address.", "يجب أن تكون الصورة PNG أو JPG أو WebP حتى 400 ك.ب، أو صورة على دكّان (/...)، أو عنوان https."),
     buttonLink: t("The button link must be a Dukkan page (starting with /) or an https address.", "رابط الزر يجب أن يكون صفحة في دكّان (يبدأ بـ /) أو عنوان https."),
     button: t("A button needs its words in English and Arabic and a link (or leave all three empty).", "الزر يحتاج كلماته بالعربية والإنجليزية ورابطًا (أو اترك الثلاثة فارغة)."),
-    audience: t("Choose who it is for (at least one shop or plan).", "اختر لمن هي (متجر أو باقة واحدة على الأقل)."),
+    audience: t("Choose who it is for (at least one store or plan).", "اختر لمن هي (متجر أو باقة واحدة على الأقل)."),
     startsAt: t("Check the start date.", "تحقق من تاريخ البداية."),
     endsAt: t("The end must be after the start.", "يجب أن تكون النهاية بعد البداية."),
     priority: t("Priority is a whole number from 0 to 100.", "الأولوية رقم صحيح من 0 إلى 100."),
@@ -311,7 +311,7 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
               {(["all", "accounts", "plans"] as const).map((w) => (
                 <label key={w} className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ${form.who === w ? "bg-primary/10 ring-primary" : "ring-fg/15"}`}>
                   <input type="radio" name="pwho" checked={form.who === w} onChange={() => set("who", w)} />
-                  {w === "all" ? t("Every shop", "كل المتاجر") : w === "accounts" ? t("Chosen shops", "متاجر محددة") : t("Shops on plans", "متاجر بباقات معينة")}
+                  {w === "all" ? t("Every store", "كل المتاجر") : w === "accounts" ? t("Chosen stores", "متاجر محددة") : t("Stores on plans", "متاجر بباقات معينة")}
                 </label>
               ))}
             </div>
@@ -366,7 +366,7 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
               <input id="ppr" inputMode="numeric" dir="ltr" className={field} value={form.priority} onChange={(e) => set("priority", e.target.value.replace(/\D/g, "").slice(0, 3))} />
             </div>
           </div>
-          <p className="-mt-2 text-xs text-muted">{t("A shop sees one pop-up at a time: the highest priority first, then the newest.", "يرى المتجر نافذة واحدة في كل مرة: الأعلى أولوية أولًا، ثم الأحدث.")}</p>
+          <p className="-mt-2 text-xs text-muted">{t("A store sees one pop-up at a time: the highest priority first, then the newest.", "يرى المتجر نافذة واحدة في كل مرة: الأعلى أولوية أولًا، ثم الأحدث.")}</p>
 
           {err && <p role="alert" className="text-sm font-semibold text-red-600">{err}</p>}
           <div className="flex flex-wrap gap-2">

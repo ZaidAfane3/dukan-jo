@@ -98,14 +98,14 @@ function ShopsOverview() {
 
                 <section className="min-w-0">
                   <div className="mb-3 flex items-baseline justify-between gap-3">
-                    <h2 className="text-lg font-extrabold tracking-tight">{t("Newest shops", "أحدث المتاجر")}</h2>
+                    <h2 className="text-lg font-extrabold tracking-tight">{t("Newest stores", "أحدث المتاجر")}</h2>
                     <Link href="/diwan/shops" className="text-sm font-semibold text-primary hover:underline">
-                      {t("All shops", "كل المتاجر")}
+                      {t("All stores", "كل المتاجر")}
                     </Link>
                   </div>
                   <DataTable
                     head={[t("Store", "المتجر"), t("Owner", "المالك"), t("Status", "الحالة"), t("Setup", "الإعداد"), t("Signed up", "التسجيل")]}
-                    empty={!d.newest.length && t("No shops have signed up yet.", "لم يسجّل أي متجر بعد.")}
+                    empty={!d.newest.length && t("No stores have signed up yet.", "لم يسجّل أي متجر بعد.")}
                   >
                     {d.newest.map((r) => (
                       <tr key={r.id} className="transition-colors hover:bg-fg/[0.025]">
@@ -150,7 +150,7 @@ function PortalHome() {
     "/diwan/popups": { en: "Pop-ups merchants see once in their dashboard.", ar: "نوافذ يراها التجار مرة واحدة في لوحة التحكم." },
     "/diwan/announcements": { en: "Notices in the merchants' bell and banner.", ar: "إشعارات في جرس التجار وشريط الإعلانات." },
     "/diwan/marketplace": { en: "Outside developers and the work they send.", ar: "المطورون الخارجيون وما يرسلونه من أعمال." },
-    "/diwan/flags": { en: "Turn features on or off, for everyone or some shops.", ar: "شغّل الميزات أو أوقفها للجميع أو لبعض المتاجر." },
+    "/diwan/flags": { en: "Turn features on or off, for everyone or some stores.", ar: "شغّل الميزات أو أوقفها للجميع أو لبعض المتاجر." },
     "/diwan/activity": { en: "Who changed what, and when.", ar: "من غيّر ماذا، ومتى." },
   };
   const list = staff ? DIWAN_NAV.filter((i) => i.href !== "/diwan" && can(staff, i.perm)) : [];

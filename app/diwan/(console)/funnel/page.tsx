@@ -18,7 +18,7 @@ export default function FunnelPage() {
     <>
       <PageHead
         title={t("Onboarding funnel", "مراحل البدء")}
-        sub={t("Of the shops that signed up in the period, how many reached each step.", "من المتاجر التي سجّلت في الفترة، كم منها وصل إلى كل مرحلة.")}
+        sub={t("Of the stores that signed up in the period, how many reached each step.", "من المتاجر التي سجّلت في الفترة، كم منها وصل إلى كل مرحلة.")}
         actions={
           <Select
             label={t("Period", "الفترة")}
@@ -42,7 +42,7 @@ export default function FunnelPage() {
             { n: d.published, label: t("Published the store", "نشر المتجر") },
             { n: d.ordered, label: t("Got a first order", "حصل على أول طلب") },
           ];
-          if (!d.signed_up) return <p className={`${card} text-sm text-muted`}>{t("No shops signed up in this period.", "لم يسجّل أي متجر في هذه الفترة.")}</p>;
+          if (!d.signed_up) return <p className={`${card} text-sm text-muted`}>{t("No stores signed up in this period.", "لم يسجّل أي متجر في هذه الفترة.")}</p>;
           return (
             <ol className="space-y-3">
               {steps.map((st, i) => {
@@ -77,7 +77,7 @@ export default function FunnelPage() {
       </Loaded>
       <p className="mt-4 text-xs text-muted">
         {t(
-          "Each step counts the shops that reached it, in whatever order they did things, so a later step can be higher than an earlier one.",
+          "Each step counts the stores that reached it, in whatever order they did things, so a later step can be higher than an earlier one.",
           "كل مرحلة تعد المتاجر التي وصلتها بغض النظر عن الترتيب، لذا قد تكون مرحلة لاحقة أعلى من سابقتها.",
         )}
       </p>

@@ -50,7 +50,7 @@ export default function ComplaintsPage() {
     <div>
       <PageHead
         title={t("Store reports", "بلاغات المتاجر")}
-        sub={t("Reports about stores from customers and staff. Check each one; suspend a store from its shop page.", "بلاغات عن المتاجر من العملاء والفريق. تحقّق من كل بلاغ، وأوقف المتجر من صفحته.")}
+        sub={t("Reports about stores from customers and staff. Check each one; suspend a store from its store page.", "بلاغات عن المتاجر من العملاء والفريق. تحقّق من كل بلاغ، وأوقف المتجر من صفحته.")}
         actions={!adding && <Btn onClick={() => setAdding(true)}>{t("Add a report", "إضافة بلاغ")}</Btn>}
       />
       {adding && <AddReport onDone={(added) => { setAdding(false); if (added) s.reload(); }} />}
@@ -131,7 +131,7 @@ function ReportCard({ row, statusName, onDone }: { row: Row; statusName: (x: Sta
           <p className="mt-1 text-xs text-muted">
             {f.dateTime(row.createdAt)} · {row.from === "staff" ? t("Found by staff", "وجده الفريق") : t("From a customer", "من عميل")}
             {row.contact && <> · <span dir="ltr">{row.contact}</span></>}
-            {row.shopReports > 1 && <> · {t(`${row.shopReports} reports about this shop`, `${row.shopReports} بلاغات عن هذا المتجر`)}</>}
+            {row.shopReports > 1 && <> · {t(`${row.shopReports} reports about this store`, `${row.shopReports} بلاغات عن هذا المتجر`)}</>}
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -161,7 +161,7 @@ function ReportCard({ row, statusName, onDone }: { row: Row; statusName: (x: Sta
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Btn type="submit" disabled={busy || !changed}>{busy ? t("Saving…", "جارٍ الحفظ…") : t("Save", "حفظ")}</Btn>
         <Link href={`/diwan/shops/${row.shopId}`} className="text-sm font-semibold text-primary hover:underline">
-          {t("Open the shop (suspend it there)", "افتح المتجر (الإيقاف من هناك)")}
+          {t("Open the store (suspend it there)", "افتح المتجر (الإيقاف من هناك)")}
         </Link>
       </div>
     </form>
@@ -188,7 +188,7 @@ function AddReport({ onDone }: { onDone: (added: boolean) => void }) {
     else
       setErr(
         r.data?.result === "no-shop"
-          ? t("No shop matches. Use the shop's number, its owner's email or its store link.", "لا يوجد متجر مطابق. استخدم رقم المتجر أو بريد صاحبه أو رابط المتجر.")
+          ? t("No store matches. Use the store's number, its owner's email or its store link.", "لا يوجد متجر مطابق. استخدم رقم المتجر أو بريد صاحبه أو رابط المتجر.")
           : t("Check the fields and try again.", "تحقق من الحقول وحاول مجددًا."),
       );
   };
@@ -198,7 +198,7 @@ function AddReport({ onDone }: { onDone: (added: boolean) => void }) {
     <form onSubmit={submit} className={`${card} mb-4 space-y-4`}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label htmlFor="ar-shop" className={label}>{t("Shop (number, owner's email or store link)", "المتجر (الرقم أو بريد صاحبه أو رابطه)")}</label>
+          <label htmlFor="ar-shop" className={label}>{t("Store (number, owner's email or store link)", "المتجر (الرقم أو بريد صاحبه أو رابطه)")}</label>
           <input id="ar-shop" dir="ltr" className={field} required maxLength={254} value={shop} onChange={(e) => setShop(e.target.value)} autoComplete="off" />
         </div>
         <div>

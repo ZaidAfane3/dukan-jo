@@ -64,7 +64,7 @@ export default function ShopsPage() {
     const j = await r.json().catch(() => null);
     setExporting(false);
     if (!r.ok || !j?.rows) return;
-    downloadCsv(`dukkan-shops-${new Date().toISOString().slice(0, 10)}.csv`, [
+    downloadCsv(`dukkan-stores-${new Date().toISOString().slice(0, 10)}.csv`, [
       ["id", "store", "link", "owner", "email", "phone", "plan", "plan ends", "status", "setup", "published", "dukkan ship", "products", "orders", "total sales JOD", "last seen", "signed up"],
       ...(j.rows as Row[]).map((r) => [
         r.id,
@@ -92,8 +92,8 @@ export default function ShopsPage() {
   return (
     <>
       <PageHead
-        title={t("Shops", "المتاجر")}
-        sub={s.data ? t(`${s.data.total} shops match`, `${s.data.total} متجرًا مطابقًا`) : undefined}
+        title={t("Stores", "المتاجر")}
+        sub={s.data ? t(`${s.data.total} stores match`, `${s.data.total} متجرًا مطابقًا`) : undefined}
         actions={
           s.data?.canExport ? (
             <Btn kind="ghost" onClick={exportCsv} disabled={exporting || !s.data.total}>
@@ -117,7 +117,7 @@ export default function ShopsPage() {
             onChange={(e) => setTyped(e.target.value)}
             maxLength={100}
             placeholder={t("Store name or link, or the full email or mobile", "اسم المتجر أو رابطه، أو البريد أو الهاتف كاملًا")}
-            aria-label={t("Search shops", "البحث في المتاجر")}
+            aria-label={t("Search stores", "البحث في المتاجر")}
             className={field}
           />
         }
@@ -198,8 +198,8 @@ export default function ShopsPage() {
               empty={
                 !d.rows.length &&
                 (q || Object.entries(filters).some(([k, v]) => k !== "sort" && v)
-                  ? t("No shops match this search.", "لا توجد متاجر مطابقة للبحث.")
-                  : t("No shops have signed up yet.", "لم يسجّل أي متجر بعد."))
+                  ? t("No stores match this search.", "لا توجد متاجر مطابقة للبحث.")
+                  : t("No stores have signed up yet.", "لم يسجّل أي متجر بعد."))
               }
             >
               {d.rows.map((r) => (

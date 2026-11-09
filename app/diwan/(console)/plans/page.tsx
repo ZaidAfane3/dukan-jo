@@ -105,7 +105,7 @@ function Plans() {
     if (!r.ok)
       return setError(
         r.data?.result === "trial-stays"
-          ? t("The trial plan stays on offer: every new shop starts on it.", "تبقى الباقة التجريبية متاحة: كل متجر جديد يبدأ بها.")
+          ? t("The trial plan stays on offer: every new store starts on it.", "تبقى الباقة التجريبية متاحة: كل متجر جديد يبدأ بها.")
           : t("Check the fields: both names, prices in JOD, limits as whole numbers or empty.", "تحقق من الحقول: الاسمان، والأسعار بالدينار، والحدود أرقام صحيحة أو فارغة."),
       );
     setEditing(null);
@@ -155,7 +155,7 @@ function Plans() {
             </label>
             <label className="flex items-center gap-2 text-sm sm:mt-6">
               <input type="checkbox" checked={editing.v.active} onChange={(e) => set("active")(e.target.checked)} />
-              {t("On offer (can be given to shops)", "متاحة (يمكن منحها للمتاجر)")}
+              {t("On offer (can be given to stores)", "متاحة (يمكن منحها للمتاجر)")}
             </label>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -173,7 +173,7 @@ function Plans() {
       <Loaded s={s}>
         {(d) => (
           <DataTable
-            head={[t("Plan", "الباقة"), t("Monthly", "شهريًا"), t("Yearly", "سنويًا"), t("Products", "المنتجات"), t("Own domain", "نطاق خاص"), t("Staff", "الموظفون"), t("Shops now", "متاجر حاليًا"), t("Status", "الحالة"), ""]}
+            head={[t("Plan", "الباقة"), t("Monthly", "شهريًا"), t("Yearly", "سنويًا"), t("Products", "المنتجات"), t("Own domain", "نطاق خاص"), t("Staff", "الموظفون"), t("Stores now", "متاجر حاليًا"), t("Status", "الحالة"), ""]}
             empty={!d.plans.length && t("No plans yet.", "لا توجد باقات بعد.")}
           >
             {d.plans.map((p) => (
@@ -225,7 +225,7 @@ function Plans() {
         )}
       </Loaded>
       <p className="text-xs text-muted">
-        {t("A plan that shops have had can't be deleted: switch it off instead.", "لا يمكن حذف باقة اشتركت بها متاجر: أوقفها بدلًا من ذلك.")}
+        {t("A plan that stores have had can't be deleted: switch it off instead.", "لا يمكن حذف باقة اشتركت بها متاجر: أوقفها بدلًا من ذلك.")}
       </p>
     </div>
   );
@@ -260,7 +260,7 @@ function Subscriptions() {
     const rows = await fetchRows<Sub>(`/api/diwan/subscriptions?${q}&export=1`);
     if (!rows) return;
     downloadCsv(`dukkan-subscriptions-${view}-${todayJo()}.csv`, [
-      ["id", "shop id", "store", "owner", "email", "plan", "status", "starts", "ends", "set by", "note"],
+      ["id", "store id", "store", "owner", "email", "plan", "status", "starts", "ends", "set by", "note"],
       ...rows.map((r) => [r.id, r.shop_id, r.shop ?? "", r.owner, r.email, r.name_en, r.status, r.starts_at, r.ends_at ?? "", r.set_by ?? "", r.note ?? ""]),
     ]);
   };
@@ -299,7 +299,7 @@ function Subscriptions() {
               (view === "ending"
                 ? t("Nothing ends in this period.", "لا شيء ينتهي في هذه الفترة.")
                 : view === "expired"
-                  ? t("No shop is without a plan.", "لا يوجد متجر بلا باقة.")
+                  ? t("No store is without a plan.", "لا يوجد متجر بلا باقة.")
                   : t("No subscriptions yet.", "لا توجد اشتراكات بعد."))
             }
           >
@@ -347,7 +347,7 @@ function Payments() {
     const rows = await fetchRows<Pay>(`/api/diwan/payments?${params}&export=1`);
     if (!rows) return;
     downloadCsv(`dukkan-payments-${todayJo()}.csv`, [
-      ["id", "shop id", "store", "owner", "email", "paid on", "amount JOD", "method", "reference", "marked by", "note"],
+      ["id", "store id", "store", "owner", "email", "paid on", "amount JOD", "method", "reference", "marked by", "note"],
       ...rows.map((r) => [r.id, r.shop_id, r.shop ?? "", r.owner, r.email, String(r.paid_on).slice(0, 10), r.amount, r.method, r.reference, r.marked_by ?? "", r.note]),
     ]);
   };

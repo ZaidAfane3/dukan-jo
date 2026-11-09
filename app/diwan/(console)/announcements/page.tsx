@@ -61,7 +61,7 @@ export default function AnnouncementsPage() {
     const a = r.audience as Record<string, unknown>;
     if (Array.isArray(a.accounts)) {
       const names = (a.accounts as unknown[]).map((id) => d.shops[String(id)]?.name ?? `#${id}`);
-      return t(`Shops: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
+      return t(`Stores: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
     }
     if (Array.isArray(a.plans)) {
       const names = (a.plans as string[]).map((k) => {
@@ -70,7 +70,7 @@ export default function AnnouncementsPage() {
       });
       return t(`Plans: ${names.join(", ")}`, `الباقات: ${names.join("، ")}`);
     }
-    return t("Every shop", "كل المتاجر");
+    return t("Every store", "كل المتاجر");
   };
 
   return (
@@ -108,7 +108,7 @@ export default function AnnouncementsPage() {
                     </div>
                     <div className="text-end">
                       <p className="text-2xl font-bold tabular-nums">{f.num(r.reads)}<span className="text-sm font-medium text-muted"> / {f.num(r.reach)}</span></p>
-                      <p className="text-xs text-muted">{t("shops read it", "متجر قرأه")}</p>
+                      <p className="text-xs text-muted">{t("stores read it", "متجر قرأه")}</p>
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 border-t border-fg/10 pt-3">
@@ -150,7 +150,7 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
     titleAr: t("Write the title in Arabic.", "اكتب العنوان بالعربية."),
     bodyEn: t("Write the text in English.", "اكتب النص بالإنجليزية."),
     bodyAr: t("Write the text in Arabic.", "اكتب النص بالعربية."),
-    audience: t("Choose who it is for (at least one shop or plan).", "اختر لمن هو (متجر أو باقة واحدة على الأقل)."),
+    audience: t("Choose who it is for (at least one store or plan).", "اختر لمن هو (متجر أو باقة واحدة على الأقل)."),
     startsAt: t("Check the start date.", "تحقق من تاريخ البداية."),
     endsAt: t("The end must be after the start.", "يجب أن تكون النهاية بعد البداية."),
   };
@@ -196,7 +196,7 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
           {(["all", "accounts", "plans"] as const).map((w) => (
             <label key={w} className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ${form.who === w ? "bg-primary/10 ring-primary" : "ring-fg/15"}`}>
               <input type="radio" name="who" checked={form.who === w} onChange={() => set("who", w)} />
-              {w === "all" ? t("Every shop", "كل المتاجر") : w === "accounts" ? t("Chosen shops", "متاجر محددة") : t("Shops on plans", "متاجر بباقات معينة")}
+              {w === "all" ? t("Every store", "كل المتاجر") : w === "accounts" ? t("Chosen stores", "متاجر محددة") : t("Stores on plans", "متاجر بباقات معينة")}
             </label>
           ))}
         </div>

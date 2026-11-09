@@ -72,7 +72,7 @@ export default function TicketsPage() {
             }}
             className="flex gap-2"
           >
-            <input id="tq" className={field} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("Shop, email, number or subject", "المتجر أو البريد أو الرقم أو الموضوع")} placeholder={t("Shop, email, number or subject…", "المتجر أو البريد أو الرقم أو الموضوع…")} />
+            <input id="tq" className={field} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("Store, email, number or subject", "المتجر أو البريد أو الرقم أو الموضوع")} placeholder={t("Store, email, number or subject…", "المتجر أو البريد أو الرقم أو الموضوع…")} />
             <Btn kind="ghost" type="submit">{t("Find", "بحث")}</Btn>
           </form>
         }
@@ -109,7 +109,7 @@ export default function TicketsPage() {
         {(d) => (
           <>
             <DataTable
-              head={[t("Ticket", "التذكرة"), t("Shop", "المتجر"), t("Status", "الحالة"), t("Priority", "الأولوية"), t("Assigned", "المسؤول"), t("Last activity", "آخر نشاط")]}
+              head={[t("Ticket", "التذكرة"), t("Store", "المتجر"), t("Status", "الحالة"), t("Priority", "الأولوية"), t("Assigned", "المسؤول"), t("Last activity", "آخر نشاط")]}
               empty={d.rows.length === 0 && t("No tickets match.", "لا توجد تذاكر مطابقة.")}
             >
               {d.rows.map((r) => (
