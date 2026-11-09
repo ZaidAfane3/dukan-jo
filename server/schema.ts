@@ -222,6 +222,8 @@ export const DIWAN_SCHEMA = `
     paid_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (account_id, theme_id)
   );
+  -- the way it was paid (card, cliq, paypal), for the payment numbers in Diwan; purchases from before have none
+  ALTER TABLE theme_purchases ADD COLUMN IF NOT EXISTS method TEXT;
 
   /* ---------- papers staff check (courier proof, commercial registration) ---------- */
   CREATE TABLE IF NOT EXISTS documents (

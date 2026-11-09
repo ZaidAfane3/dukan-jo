@@ -28,8 +28,8 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!method || !s.payment_methods[method].on) return answer({ result: "method-off" }, 400);
   const price = s.default_themes.includes(themeId as string) ? 0 : listed;
   await (await db()).query(
-    `INSERT INTO theme_purchases (account_id, theme_id, price) VALUES ($1, $2, $3) ON CONFLICT (account_id, theme_id) DO NOTHING`,
-    [a.id, themeId, price],
+    `INSERT INTO theme_purchases (account_id, theme_id, price, method) VALUES ($1, $2, $3, $4) ON CONFLICT (account_id, theme_id) DO NOTHING`,
+    [a.id, themeId, price, method],
   );
   return answer({ result: "ok" });
 });
