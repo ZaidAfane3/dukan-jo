@@ -27,6 +27,8 @@ export const themeWords = {
       doneBody: "was added to My themes. Use it from there, then customize it in the store designer.",
       note: "Prototype: no payment is taken. The purchase is only saved on this device.",
       noMethod: "No way to pay is open right now. Please try again later.",
+      methodOff: "This way to pay was just switched off. Choose another one.",
+      failed: "The purchase didn't go through. Nothing was charged. Please try again.",
       close: "Close",
     },
     mine: {
@@ -101,6 +103,8 @@ export const themeWords = {
       doneBody: "أُضيف إلى ثيماتي. استخدمه من هناك، ثم خصّصه في مصمّم المتجر.",
       note: "نسخة تجريبية: لا يتم سحب أي مبلغ. تُحفظ عملية الشراء على هذا الجهاز فقط.",
       noMethod: "لا توجد طريقة دفع متاحة الآن. حاول مرة أخرى لاحقًا.",
+      methodOff: "أُوقفت طريقة الدفع هذه للتو. اختر طريقة أخرى.",
+      failed: "لم تكتمل عملية الشراء ولم يُسحب أي مبلغ. حاول مرة أخرى.",
       close: "إغلاق",
     },
     mine: {

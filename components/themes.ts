@@ -2,7 +2,7 @@ import type { Lang } from "./content";
 import { demoSeed } from "./demoData";
 import { demoActive, isOwnCopy } from "./demoSandbox";
 import { merchantCall, onServer } from "./merchantApi";
-import { publicSettings } from "./platformPublic";
+import { publicSettings, refreshPublicSettings } from "./platformPublic";
 import { THEME_PRICES } from "./themePrices";
 import { loadSetup } from "./setup";
 import { atelierConfig } from "./storefront/atelierTheme";
@@ -321,13 +321,22 @@ export function withoutUnboughtLooks(c: StorefrontConfig): StorefrontConfig {
 
 /** Adds the theme to the merchant's themes (prototype: no payment is taken). `method`: the way he chose to pay (one Diwan
     has on; the server checks it again). */
-export function buyTheme(t: ThemeInfo, method?: string): ThemeState {
+export async function buyTheme(t: ThemeInfo, method?: string): Promise<{ ok: true; state: ThemeState } | { ok: false; why: "method-off" | "failed" }> {
+  /* a signed-in account asks Dukkan first (/api/themes/purchase takes the price from the theme store's list on the server and
+     checks the way to pay is still open); the theme is saved as theirs only when the server took it */
+  if (onServer()) {
+    const r = await merchantCall("/api/themes/purchase", "POST", { themeId: t.id, method });
+    if (!r || r.status >= 300) {
+      const why = r?.data?.result === "method-off" ? "method-off" : "failed";
+      /* the way to pay was switched off since the page last asked: get the current ones so the checkout shows them */
+      if (why === "method-off") void refreshPublicSettings(true);
+      return { ok: false, why };
+    }
+  }
   const s = loadThemeState();
   if (!s.owned.some((o) => o.id === t.id)) s.owned = [...s.owned, { id: t.id, at: Date.now(), paid: t.price }];
   saveThemeState(s);
-  /* a signed-in account also tells Dukkan (/api/themes/purchase takes the price from the theme store's list on the server, not from the page) */
-  if (onServer()) void merchantCall("/api/themes/purchase", "POST", { themeId: t.id, method });
-  return s;
+  return { ok: true, state: s };
 }
 
 /** The look of a store design, copied so later edits to the design never change a saved theme. */

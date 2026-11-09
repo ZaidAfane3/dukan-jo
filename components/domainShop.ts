@@ -47,12 +47,16 @@ const papersFor = (ending: string) => ending === ".jo" || ending.endsWith(".jo")
 
 export type Ending = { ending: string; price: number; needsPapers: boolean };
 
+/** An ending a domain can really have: "example" + it passes the same check as buying (cleanDomain) */
+export const endingOk = (ending: string) => cleanDomain(`example${ending}`) === `example${ending}`;
+
 /** The endings for sale at these prices, in the page's order: the usual ones first, the ones staff added after them */
 export function endingsFor(prices: DomainPrices): Ending[] {
   const known = ENDINGS.map((e) => e.ending);
   const rank = (e: string) => (known.includes(e) ? known.indexOf(e) : known.length);
   return Object.entries(prices)
-    .filter(([, price]) => Number.isFinite(price) && price >= 0)
+    /* an ending a real name can't have (".j", ".com-") is never offered: buying would refuse every name with it */
+    .filter(([ending, price]) => Number.isFinite(price) && price >= 0 && endingOk(ending))
     .map(([ending, price]) => ({ ending, price, needsPapers: papersFor(ending) }))
     .sort((a, b) => rank(a.ending) - rank(b.ending) || a.price - b.price || a.ending.localeCompare(b.ending));
 }

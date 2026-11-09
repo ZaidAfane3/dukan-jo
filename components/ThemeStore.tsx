@@ -141,9 +141,10 @@ export function ThemeStore() {
         <Checkout
           theme={buying}
           onClose={() => setBuying(null)}
-          onDone={(method) => {
-            buyTheme(buying, method);
-            setState(loadThemeState());
+          onDone={async (method) => {
+            const r = await buyTheme(buying, method);
+            if (r.ok) setState(loadThemeState());
+            return r.ok ? null : r.why;
           }}
         />
       )}
@@ -167,7 +168,7 @@ function Modal({ children, onClose, label, wide = false }: { children: React.Rea
 }
 
 /* The checkout. Prototype: it asks for nothing and takes nothing; it only adds the theme to My themes. */
-function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () => void; onDone: (method: ThemePay) => void }) {
+function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () => void; onDone: (method: ThemePay) => Promise<"method-off" | "failed" | null> }) {
   const { lang } = usePrefs();
   const w = themeWords[lang];
   const platform = usePublicSettings();
@@ -177,13 +178,17 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
   /* one switched off in Diwan while the window is open is never kept: the first one still on is chosen */
   const method: ThemePay | null = open.includes(picked) ? picked : open[0] ?? null;
   const [step, setStep] = useState<"pick" | "paying" | "done">("pick");
+  const [refused, setRefused] = useState<"method-off" | "failed" | null>(null);
 
   const pay = () => {
     if (!method) return;
     setStep("paying");
-    setTimeout(() => {
-      onDone(method);
-      setStep("done");
+    setRefused(null);
+    setTimeout(async () => {
+      /* "done" only when the purchase went through; otherwise back to choosing, with the reason */
+      const why = await onDone(method);
+      setRefused(why);
+      setStep(why ? "pick" : "done");
     }, 1200);
   };
 
@@ -223,6 +228,7 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
             ))}
           </div>
           {method && payNote(platform, method) && <p dir="auto" className="mt-2 text-xs text-muted">{payNote(platform, method)}</p>}
+          {refused && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{refused === "method-off" ? w.checkout.methodOff : w.checkout.failed}</p>}
 
           <div className="mt-5 flex items-center justify-between border-t border-fg/10 pt-4">
             <span className="text-sm text-muted">{w.checkout.total}</span>

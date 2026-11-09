@@ -258,8 +258,9 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     ...(x.source !== undefined ? { source: count(x.source, 0, 20) } : {}),
     ...(items.length ? { items } : {}),
     ...(x.fulfil === "pickup" || x.fulfil === "delivery" ? { fulfil: x.fulfil } : {}),
-    /* only a city of the list (in either language): anything else was never offered */
-    ...(isKnownCity(x.city) ? { city: x.city } : {}),
+    /* a city of the list (in either language), or one staff added to Dukkan Ship's cities in Diwan: a short plain name,
+       kept only when it needs no cleaning */
+    ...(isKnownCity(x.city) || (typeof x.city === "string" && x.city !== "" && cleanLine(x.city, 40) === x.city) ? { city: x.city } : {}),
     ...(typeof x.address === "string" ? { address: cleanLine(x.address, 200) } : {}),
     ...(typeof x.note === "string" ? { note: cleanLines(x.note, 500) } : {}),
     ...(x.pay !== undefined ? { pay: oneOf(x.pay, ["cliq", "cash", "card"] as const, "cash") } : {}),
