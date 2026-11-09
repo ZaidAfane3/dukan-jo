@@ -48,7 +48,8 @@ const EVENT = "seen-notifications";
 function localList(): AppNotification[] {
   try {
     const raw = sessionStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as AppNotification[]) : [];
+    /* the old local welcome is now an announcement from Diwan: one saved before has no words any more, so it is left out */
+    return raw ? (JSON.parse(raw) as AppNotification[]).filter((n) => (n.kind as string) !== "welcome") : [];
   } catch {
     return [];
   }

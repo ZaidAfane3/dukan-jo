@@ -83,7 +83,8 @@ function ThemeGiftPopup({ slots, lang, act, titleId }: TemplateProps) {
   const image = valueOf(slots, "image") || findTheme(valueOf(slots, "theme"))?.shot || "";
   const w = (k: string) => textOf(slots, k, lang);
   return (
-    <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="w-full max-w-md overflow-hidden rounded-2xl bg-card text-fg shadow-2xl ring-1 ring-fg/10">
+    /* never taller than the screen: page scrolling is off while a pop-up is open, so its buttons must stay reachable */
+    <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-card text-fg shadow-2xl ring-1 ring-fg/10">
       {/* the whole store page, scrolling slowly down and back up by itself (paused under the mouse), as on the landing page */}
       <div className="group relative h-[var(--box)] overflow-hidden bg-soft [--box:12rem]">
         {image ? (
