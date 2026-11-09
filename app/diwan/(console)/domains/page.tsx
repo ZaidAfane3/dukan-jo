@@ -66,7 +66,7 @@ export default function DomainsPage() {
       <PageHead
         title={t("Domains", "النطاقات")}
         sub={t(
-          "Domains shops connect or buy. Set each one up, then mark it Checking, Active or Failed. The merchant is told each time.",
+          "Domains stores connect or buy. Set each one up, then mark it Checking, Active or Failed. The merchant is told each time.",
           "النطاقات التي تربطها المتاجر أو تشتريها. جهّز كل نطاق ثم اجعله قيد الفحص أو فعّالًا أو فاشلًا، ويُبلَّغ التاجر في كل مرة.",
         )}
       />
@@ -90,12 +90,12 @@ export default function DomainsPage() {
         className="mb-4"
         count={(kind ? 1 : 0) + (sort !== "new" ? 1 : 0) + (papers ? 1 : 0)}
         onClear={() => { setKind(""); setSort("new"); setPapers(false); }}
-        search={<input className={field} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t("Search domain, shop or email", "ابحث بالنطاق أو المتجر أو البريد")} aria-label={t("Search", "بحث")} />}
+        search={<input className={field} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t("Search domain, store or email", "ابحث بالنطاق أو المتجر أو البريد")} aria-label={t("Search", "بحث")} />}
       >
       <div className="grid gap-3 sm:grid-cols-3">
         <select className={field} value={kind} onChange={(e) => setKind(e.target.value)} aria-label={t("Kind", "النوع")}>
           <option value="">{t("Connected and bought", "المربوطة والمشتراة")}</option>
-          <option value="connect">{t("Connected by the shop", "يربطها المتجر")}</option>
+          <option value="connect">{t("Connected by the store", "يربطها المتجر")}</option>
           <option value="bought">{t("Bought through Dukkan", "مشتراة من دكان")}</option>
         </select>
         <select className={field} value={sort} onChange={(e) => setSort(e.target.value)} aria-label={t("Sort", "الترتيب")}>
@@ -152,7 +152,7 @@ function DomainCard({ row, statusName, onDone }: { row: Row; statusName: (x: Sta
     if (r.ok) {
       setNext(null);
       onDone();
-    } else setErr(r.data?.result === "removed" ? t("The shop removed this domain.", "حذف المتجر هذا النطاق.") : t("That didn't work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
+    } else setErr(r.data?.result === "removed" ? t("The store removed this domain.", "حذف المتجر هذا النطاق.") : t("That didn't work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
   };
 
   return (

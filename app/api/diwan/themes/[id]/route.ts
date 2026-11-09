@@ -73,12 +73,12 @@ export const PATCH = staffRoute("marketplace", async (req: NextRequest, me, { pa
   return answer({ result: "ok" });
 });
 
-/** Deletes a design theme that never reached a merchant: a draft (or one sent back to draft) nobody bought. A theme that was
-    in the store is hidden instead, so the merchants who have it keep it. Answers "ok", "missing", "not-allowed". */
+/** Deletes a design theme that is not in the store and that nobody bought. A theme someone bought is hidden instead, so
+    the merchants who have it keep it. Answers "ok", "missing", "not-allowed". */
 export const DELETE = staffRoute("marketplace", async (req: NextRequest, me, { params }) => {
   const pool = await db();
   const { rows } = await pool.query(
-    `DELETE FROM catalog_themes c WHERE c.id = $1 AND c.source = 'design' AND c.status IN ('draft', 'review')
+    `DELETE FROM catalog_themes c WHERE c.id = $1 AND c.source = 'design' AND c.status <> 'live'
         AND NOT EXISTS (SELECT 1 FROM theme_purchases p WHERE p.theme_id = c.id)
      RETURNING id, name`,
     [params.id],

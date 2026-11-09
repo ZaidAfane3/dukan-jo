@@ -8,6 +8,7 @@ import { cleanLine, isPickupAddress, visibleLength } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { inLang } from "./safeOrder";
 import { usePrefs } from "./Prefs";
+import { shipWords, usePublicSettings } from "./platformPublic";
 import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 
 /* The delivery options a merchant chose in setup. Until now there was no place to change them. */
@@ -29,7 +30,8 @@ type Mode = "own" | "seen";
 export function Delivery() {
   const { lang } = usePrefs();
   const w = words[lang];
-  const s = content[lang].onboarding.shipping;
+  /* Dukkan Ship's price, pickup cities and points are the ones Dukkan's staff set in Diwan */
+  const s = { ...content[lang].onboarding.shipping, ...shipWords(usePublicSettings(), lang) };
 
   const [ready, setReady] = useState(false);
   const [setup, setSetup] = useState<SavedSetup | null>(null);

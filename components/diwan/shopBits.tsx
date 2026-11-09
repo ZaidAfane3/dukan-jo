@@ -2,13 +2,13 @@
 
 import { Badge, type Tone, useT } from "./ui";
 
-/* Small pieces the shop pages share (Overview, Shops, a shop, Plans). */
+/* Small pieces the shop pages share (Overview, Shops, a shop, Payments). */
 
 export type ShopStatus = "trial" | "active" | "expired" | "suspended";
 
 const STATUS: Record<ShopStatus, { en: string; ar: string; tone: Tone }> = {
   trial: { en: "Trial", ar: "تجريبي", tone: "blue" },
-  active: { en: "Active (paying)", ar: "فعّال (مدفوع)", tone: "green" },
+  active: { en: "Active", ar: "فعّال", tone: "green" },
   expired: { en: "Expired", ar: "منتهي", tone: "amber" },
   suspended: { en: "Suspended", ar: "موقوف", tone: "red" },
 };
@@ -27,13 +27,18 @@ export const statusText = (t: (en: string, ar: string) => string, status: string
   return t(s.en, s.ar);
 };
 
-/** A plan's name in the page's language */
-export const planName = (t: (en: string, ar: string) => string, p: { name_en?: string | null; name_ar?: string | null; plan_en?: string | null; plan_ar?: string | null }) =>
-  t(p.name_en ?? p.plan_en ?? "", p.name_ar ?? p.plan_ar ?? "") || "—";
-
 export const METHODS = ["bank", "cliq", "cash", "card"] as const;
 export const methodText = (t: (en: string, ar: string) => string, m: string) =>
-  ({ bank: t("Bank transfer", "حوالة بنكية"), cliq: "CliQ", cash: t("Cash", "نقدًا"), card: t("Card", "بطاقة") })[m] ?? m;
+  ({ bank: t("Bank transfer", "حوالة بنكية"), cliq: t("CliQ", "كليك"), cash: t("Cash", "نقدًا"), card: t("Card", "بطاقة") })[m] ?? m;
+
+/* each payment method keeps one colour wherever it shows (no saffron: that is kept for what needs someone) */
+const METHOD_TONE: Record<string, Tone> = { bank: "blue", cliq: "primary", cash: "green", card: "grey" };
+
+/** How a payment was made, as a small coloured word */
+export function MethodBadge({ method }: { method: string }) {
+  const t = useT();
+  return <Badge tone={METHOD_TONE[method] ?? "grey"}>{methodText(t, method)}</Badge>;
+}
 
 /** The store link as people see it */
 export const storeLink = (slug: string | null | undefined) => (slug ? `dukkan.store/${slug}` : "");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { askText } from "@/components/diwan/dialogs";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 
 /* The theme and app marketplace: outside developers, what they sent in and where each item is on its way to the store
@@ -64,7 +65,15 @@ function Items({ data, reload }: { data: Data; reload: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
 
   const move = async (it: Item, to: ItemStatus) => {
-    const note = window.prompt(t(`${w.move(to)}: "${it.name}". A note for the developer (optional):`, `${w.move(to)}: "${it.name}". ملاحظة للمطور (اختيارية):`), it.note);
+    const note = await askText({
+      title: `${w.move(to)}: "${it.name}"`,
+      label: t("A note for the developer", "ملاحظة للمطور"),
+      optional: true,
+      initial: it.note,
+      /* the server keeps 600 characters of the note, on one line */
+      maxLength: 600,
+      confirm: w.move(to),
+    });
     if (note === null) return;
     setBusy(it.id);
     setErr("");

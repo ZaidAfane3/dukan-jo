@@ -8,6 +8,7 @@ import { inLang } from "./safeOrder";
 import { FlagJO } from "./Flag";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
+import { shipWords, usePublicSettings } from "./platformPublic";
 import { pushNotification } from "./notifications";
 import { SeenShipLogo, SeenShipMark } from "./SeenShip";
 import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
@@ -1119,7 +1120,8 @@ function ProductStep({ store, onSave }: StepProps) {
 function ShippingStep({ store, onSave }: StepProps) {
   const { lang } = usePrefs();
   const c = content[lang].onboarding;
-  const s = c.shipping;
+  /* Dukkan Ship's price, the line under it, pickup cities and points are the ones Dukkan's staff set in Diwan */
+  const s = { ...c.shipping, ...shipWords(usePublicSettings(), lang) };
 
   const saved = store.shipping;
   const [mode, setMode] = useState<"own" | "seen" | null>(saved?.mode ?? null);

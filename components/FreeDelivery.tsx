@@ -5,6 +5,7 @@ import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { money, typedMoney } from "./records";
 import { loadFreeDelivery, saveFreeDelivery } from "./freeDeliveryStore";
+import { jod, usePublicSettings } from "./platformPublic";
 import { usePrefs } from "./Prefs";
 import { RequiredMark } from "./Required";
 
@@ -21,7 +22,8 @@ const copy = {
     save: "Save",
     saved: "Saved",
     err: "Enter an amount above zero.",
-    shipNote: "If you deliver with Dukkan Ship, the delivery fee of each free-delivery order is paid by you: it is deducted from the order amount that is paid out to you. The customer pays nothing for delivery.",
+    /* fee: Dukkan Ship's price per order, as Dukkan's staff set it in Diwan */
+    shipNote: (fee: string) => `If you deliver with Dukkan Ship, the delivery fee (${fee}) of each free-delivery order is paid by you: it is deducted from the order amount that is paid out to you. The customer pays nothing for delivery.`,
   },
   ar: {
     title: "التوصيل المجاني",
@@ -35,7 +37,7 @@ const copy = {
     save: "حفظ",
     saved: "تم الحفظ",
     err: "أدخل مبلغًا أكبر من صفر.",
-    shipNote: "إذا كنت توصّل عبر شحن دكان، فإن رسوم التوصيل لكل طلب مشمول بالتوصيل المجاني يتحمّلها المتجر: تُخصم من مبلغ الطلب المستحق لك، ولا يدفع العميل أي رسوم توصيل.",
+    shipNote: (fee: string) => `إذا كنت توصّل عبر شحن دكان، فإن رسوم التوصيل (${fee}) لكل طلب مشمول بالتوصيل المجاني يتحمّلها المتجر: تُخصم من مبلغ الطلب المستحق لك، ولا يدفع العميل أي رسوم توصيل.`,
   },
 };
 
@@ -46,6 +48,7 @@ const field =
 export function FreeDelivery() {
   const { lang } = usePrefs();
   const c = copy[lang];
+  const ship = usePublicSettings().dukkan_ship;
   const [on, setOn] = useState(false);
   const [min, setMin] = useState("25");
   const [flash, setFlash] = useState(false);
@@ -98,7 +101,7 @@ export function FreeDelivery() {
 
           <p className="mt-5 rounded-xl bg-primary/10 px-4 py-3 text-sm text-deep dark:text-primary">{on && Number(min) > 0 ? c.preview(min) : c.off}</p>
 
-          <p className="mt-3 rounded-xl border border-fg/10 px-4 py-3 text-xs leading-relaxed text-muted">{c.shipNote}</p>
+          <p className="mt-3 rounded-xl border border-fg/10 px-4 py-3 text-xs leading-relaxed text-muted">{c.shipNote(jod(ship.price, lang))}</p>
 
           <div className="mt-6 flex items-center gap-3">
             <button type="submit" className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{c.save}</button>

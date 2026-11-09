@@ -39,8 +39,9 @@ export const isKnownCity = (s: unknown): s is string => typeof s === "string" &&
 export const FULFILS = ["delivery", "pickup"] as const;
 export type Fulfil = (typeof FULFILS)[number];
 
-/** A city orders are delivered to now (in either language). */
-export const isCity = (s: unknown): s is string => typeof s === "string" && (CITIES.en.includes(s) || CITIES.ar.includes(s));
+/** A city orders are delivered to now (in either language): Dukkan Ship's cities from Diwan when given, else the list above. */
+export const isCity = (s: unknown, list: { en: readonly string[]; ar: readonly string[] } = CITIES): s is string =>
+  typeof s === "string" && (list.en.includes(s) || list.ar.includes(s));
 
 /** A choice from a list kept in two languages (a city) in the language of the page. It is saved in the language it was chosen
     in, so it is found in either; a value that is not on the list comes back as it was. */
@@ -200,8 +201,9 @@ export type CheckoutField = "name" | "phone" | "city" | "address" | "note" | "pa
 export type CheckoutValue = { customer: string; phone: string; email: string; fulfil: Fulfil; city: string; address: string; note: string; pay: Payment };
 
 /** Checks the checkout form. Returns the cleaned order details, or the fields that are wrong. The city and the
-    address are asked only for delivery; "pickup" counts only when the store allows it (`pickup`). */
-export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
+    address are asked only for delivery; "pickup" counts only when the store allows it (`pickup`). `pays`: the ways to
+    pay Dukkan offers now (platform settings in Diwan); one that is switched off is refused like one that does not exist. */
+export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] } } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
   const errors: CheckoutField[] = [];
   const name = cleanText(f.name, ORDER_LIMITS.name).replace(/\s+/g, " ").trim();
   if (visible(name) < 2) errors.push("name");
@@ -213,11 +215,11 @@ export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boole
   const fulfil: Fulfil = opts.pickup && f.fulfil === "pickup" ? "pickup" : "delivery";
   const delivered = fulfil === "delivery";
   const city = delivered && typeof f.city === "string" ? f.city : "";
-  if (delivered && !isCity(city)) errors.push("city");
+  if (delivered && !isCity(city, opts.cities)) errors.push("city");
   const address = delivered ? cleanText(f.address, ORDER_LIMITS.address).replace(/\s+/g, " ").trim() : "";
   if (delivered && visible(address) < 3) errors.push("address");
   const note = cleanParagraph(f.note, ORDER_LIMITS.note).trim();
-  const pay = PAYMENTS.find((p) => p === f.pay);
+  const pay = (opts.pays ?? PAYMENTS).find((p) => p === f.pay);
   if (!pay) errors.push("pay");
   if (errors.length || !pay) return { ok: false, errors };
   return { ok: true, value: { customer: name, phone: mobile ? `+962${mobile}` : "", email, fulfil, city, address, note, pay } };

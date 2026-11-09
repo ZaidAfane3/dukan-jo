@@ -7,32 +7,28 @@ import { audit, staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
-/* Dukkan's pages for merchants (components/dukkanPages.tsx), run from Diwan's developer portal */
+/* Dukkan's pages for merchants (components/dukkanPages.tsx), run from Diwan's marketing pages */
 
 const MAX = 120_000;
 
-/** Every page with its numbers: how many shops it is for (reach) and how many opened it (views). Also the plans (for the
-    audience picker) and the names of the shops chosen in each. */
+/** Every page with its numbers: how many shops it is for (reach) and how many opened it (views). Also the names of the shops
+    chosen in each. */
 export const GET = staffRoute("announce", async () => {
   const pool = await db();
-  const [list, plans] = await Promise.all([
-    pool.query(
+  const list = await pool.query(
       `SELECT a.*, st.name AS by,
               (SELECT count(*)::int FROM dukkan_page_views v WHERE v.page_id = a.id) AS views,
               (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id")}) AS reach
          FROM dukkan_pages a LEFT JOIN staff st ON st.id = a.updated_by
         ORDER BY CASE a.status WHEN 'live' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, a.sort, a.updated_at DESC
         LIMIT 500`,
-    ),
-    pool.query(`SELECT key, name_en, name_ar FROM plans ORDER BY price_month, id`),
-  ]);
+  );
   const ids = Array.from(new Set(list.rows.flatMap((r) => (Array.isArray(r.audience?.accounts) ? r.audience.accounts : []).map(String))));
   const shops = ids.length
     ? (await pool.query(`SELECT a.id, COALESCE(NULLIF(s.name, ''), a.name) AS name, a.email FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = ANY($1::bigint[])`, [ids])).rows
     : [];
   return answer({
     result: "ok",
-    plans: plans.rows.map((p) => ({ key: p.key, nameEn: p.name_en, nameAr: p.name_ar })),
     shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, email: s.email }])),
     pages: list.rows.map((r) => ({
       id: String(r.id), slug: r.slug,

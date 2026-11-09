@@ -10,6 +10,7 @@ import { ACCOUNT_LIMITS, cleanDomains, reservedSlugError, type CustomDomain as C
 import { loadSetup, saveSetup } from "./setup";
 import { buyDomain, searchDomains, type DomainOffer } from "./domainShop";
 import { merchantCall, onServer } from "./merchantApi";
+import { publicSettings, refreshPublicSettings, usePublicSettings } from "./platformPublic";
 
 const KEY = "seen-domains";
 /* set once this account's domains kept in the browser were sent to the server: from then on the server's list wins */
@@ -207,6 +208,8 @@ export function Domain() {
   const { lang } = usePrefs();
   const c = copy[lang];
   const locale = dateLocale(lang);
+  /* the endings for sale and their prices are the ones Dukkan's staff set in Diwan (the server charges the same) */
+  usePublicSettings();
 
   const [slug, setSlug] = useState("");
   const [ready, setReady] = useState(false);
@@ -416,7 +419,9 @@ export function Domain() {
   const search = async () => {
     setBuyMsg(null);
     setOffers("searching");
-    setOffers(await searchDomains(wanted));
+    /* the prices may have changed in Diwan since the page opened (asked again at most once a minute) */
+    await refreshPublicSettings();
+    setOffers(await searchDomains(wanted, publicSettings().domain_prices));
   };
 
   const confirmBuy = async () => {

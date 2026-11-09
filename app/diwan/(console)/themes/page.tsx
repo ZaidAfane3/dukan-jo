@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { askConfirm } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { ThemePreview } from "@/components/ThemePreview";
 import { defaultConfig } from "@/components/storefront/config";
@@ -11,9 +12,9 @@ import { LISTING_LIMITS, NEXT_STATUS, THEME_ID, themeIdOk, type Bi, type Listing
 /* The theme store, run by Dukkan's staff. Every theme merchants can buy is listed here (components/themeListing.ts):
    - Dukkan's code themes (Misk, Lamma): their look is in the code; here staff show or hide them, set the price, the order,
      "featured" and their words.
-   - Themes made here: a copy of a design, changed in the store designer (/design?catalog=<id>), then sent through
-     Draft → In review → Live. Live puts it in the merchants' theme store at once; Hidden takes it out (merchants who
-     bought it keep it). Every change is in the activity log.
+   - Themes made here: a copy of a design, changed in the store designer (/design?catalog=<id>). It starts
+     Hidden (only staff see it); Live puts it in the merchants' theme store at once, and Hidden takes it out again (merchants
+     who bought it keep it). Every change is in the activity log.
    The two free designs every store has (Dukkan, Mada) are shown last, with their numbers; they are not sold. */
 
 type Nums = { stores: number; bought: number; revenue: number };
@@ -27,12 +28,9 @@ const FREE = [defaultTheme, madaTheme];
 function useWords() {
   const t = useT();
   return {
-    status: (s: ThemeStatus) => ({ draft: t("Draft", "مسودة"), review: t("In review", "قيد المراجعة"), live: t("Live", "منشور"), hidden: t("Hidden", "مخفي") })[s],
-    move: (from: ThemeStatus, to: ThemeStatus) =>
-      to === "review" ? t("Send to review", "إرسال للمراجعة")
-      : to === "live" ? (from === "hidden" ? t("Put back in the store", "إعادته إلى المتجر") : t("Release to the store", "نشره في المتجر"))
-      : to === "hidden" ? t("Hide from the store", "إخفاؤه من المتجر")
-      : t("Back to draft", "إعادته إلى مسودة"),
+    /* draft and review only exist in old rows, which start-up turns into hidden */
+    status: (s: ThemeStatus) => (s === "live" ? t("Live", "منشور") : t("Hidden", "مخفي")),
+    move: (_from: ThemeStatus, to: ThemeStatus) => (to === "live" ? t("Put in the store", "نشره في المتجر") : t("Hide from the store", "إخفاؤه من المتجر")),
     ask: (to: ThemeStatus) =>
       to === "live" ? t("Merchants will see it in the theme store and can buy it right away.", "سيظهر للتجار في متجر الثيمات ويمكنهم شراؤه فورًا.")
       : to === "hidden" ? t("Merchants can no longer find or buy it. Those who bought it keep it.", "لن يجده التجار ولن يستطيعوا شراءه. من اشتراه يبقى معه.")
@@ -51,14 +49,14 @@ function entryOf(row: ListingRow): Entry | null {
   return code ? { row, theme: withListing(code, row) } : null;
 }
 
-type Filter = "all" | "live" | "work" | "hidden";
+type Filter = "live" | "hidden";
 
 export default function ThemesPage() {
   const t = useT();
   const s = useApi<Data>("/api/diwan/themes");
   const [openId, setOpenId] = useState<string | null>(null);
   const [making, setMaking] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>("live");
   return (
     <div>
       <PageHead
@@ -78,14 +76,14 @@ export default function ThemesPage() {
             <div className="space-y-10">
               <section>
                 <div className="mb-3 flex flex-wrap gap-2" role="tablist">
-                  {(["all", "live", "work", "hidden"] as Filter[]).map((f) => (
+                  {(["live", "hidden"] as Filter[]).map((f) => (
                     <button key={f} type="button" role="tab" aria-selected={filter === f} onClick={() => setFilter(f)} className={`h-9 rounded-full px-4 text-sm font-semibold transition ${filter === f ? "bg-ink text-onink" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}>
-                      {{ all: t("All", "الكل"), live: t("In the store", "في المتجر"), work: t("Being made", "قيد الإعداد"), hidden: t("Hidden", "مخفية") }[f]} <span className="tabular-nums opacity-70">{count(f)}</span>
+                      {{ live: t("Live", "منشورة"), hidden: t("Hidden", "مخفية") }[f]} <span className="tabular-nums opacity-70">{count(f)}</span>
                     </button>
                   ))}
                 </div>
                 {shown.length === 0 ? (
-                  <p className={`${card} text-sm text-muted`}>{filter === "work" ? t("No theme is being made. Start one with New theme.", "لا يوجد ثيم قيد الإعداد. ابدأ واحدًا من «ثيم جديد».") : t("Nothing here.", "لا شيء هنا.")}</p>
+                  <p className={`${card} text-sm text-muted`}>{filter === "hidden" ? t("No hidden theme. A new theme starts here.", "لا يوجد ثيم مخفي. الثيم الجديد يبدأ هنا.") : t("No theme is in the store.", "لا يوجد ثيم في المتجر.")}</p>
                 ) : (
                   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {shown.map((e) => <ThemeCard key={e.row.id} theme={e.theme} row={e.row} nums={d.nums[e.row.id] ?? noNums} onOpen={() => setOpenId(e.row.id)} />)}
@@ -108,7 +106,7 @@ export default function ThemesPage() {
                   onClose={() => setMaking(false)}
                   onMade={(id) => {
                     setMaking(false);
-                    setFilter("all");
+                    setFilter("hidden");
                     s.reload();
                     setOpenId(id);
                   }}
@@ -122,25 +120,22 @@ export default function ThemesPage() {
   );
 }
 
-const inFilter = (s: ThemeStatus, f: Filter) => f === "all" || (f === "live" ? s === "live" : f === "hidden" ? s === "hidden" : s === "draft" || s === "review");
+const inFilter = (s: ThemeStatus, f: Filter) => (f === "live" ? s === "live" : s !== "live");
 
 /* The way a theme goes, so staff know what each step means */
 function Steps() {
   const t = useT();
   const w = useWords();
   const steps: [ThemeStatus, string][] = [
-    ["draft", t("Being made. Only staff see it.", "قيد الصنع. يراه الفريق فقط.")],
-    ["review", t("Ready: someone checks it.", "جاهز: يراجعه أحد الفريق.")],
     ["live", t("In the theme store: merchants can buy it.", "في متجر الثيمات: يستطيع التجار شراءه.")],
-    ["hidden", t("Out of the store. Buyers keep it.", "خارج المتجر. يبقى مع من اشتراه.")],
+    ["hidden", t("Out of the store: new themes wait here, and buyers keep the ones they have.", "خارج المتجر: الثيمات الجديدة تنتظر هنا، ومن اشترى ثيمًا يبقى معه.")],
   ];
   return (
-    <ol className="mb-6 grid gap-x-6 gap-y-3 border-y border-fg/10 py-4 sm:grid-cols-4">
+    <ol className="mb-6 grid gap-x-6 gap-y-3 border-y border-fg/10 py-4 sm:grid-cols-2">
       {steps.map(([s, text], i) => (
         <li key={s} className="text-sm">
           <p className="flex items-center gap-2 font-bold">
             {w.status(s)}
-            {i < steps.length - 1 && <span aria-hidden className="text-muted/60 rtl:-scale-x-100">→</span>}
           </p>
           <p className="mt-0.5 text-muted">{text}</p>
         </li>
@@ -254,7 +249,7 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
     if (r.ok) {
       onClose();
       reload();
-    } else setMsg({ ok: false, text: t("Only a draft nobody bought can be deleted. Hide it instead.", "يمكن حذف المسودة التي لم يشترها أحد فقط. أخفِه بدلًا من ذلك.") });
+    } else setMsg({ ok: false, text: t("Only a hidden theme nobody bought can be deleted. Hide it instead.", "يمكن حذف الثيم المخفي الذي لم يشترِه أحد فقط. أخفِه بدلًا من ذلك.") });
   };
 
   return (
@@ -288,9 +283,8 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
                 <p className="text-sm font-bold">{t("Where it is", "أين هو الآن")}</p>
                 <p className="text-sm text-muted">
                   {row.status === "live" ? t("In the theme store: merchants can see and buy it.", "في متجر الثيمات: يراه التجار ويستطيعون شراءه.")
-                    : row.status === "hidden" ? t("Out of the theme store. Merchants who bought it keep it.", "خارج متجر الثيمات. يبقى مع التجار الذين اشتروه.")
-                    : row.status === "review" ? t("Waiting to be checked. Merchants don't see it yet.", "بانتظار المراجعة. لا يراه التجار بعد.")
-                    : t("Being made. Merchants don't see it yet.", "قيد الصنع. لا يراه التجار بعد.")}
+                    : row.releasedAt ? t("Out of the theme store. Merchants who bought it keep it.", "خارج متجر الثيمات. يبقى مع التجار الذين اشتروه.")
+                    : t("Not in the theme store yet: only staff see it.", "ليس في متجر الثيمات بعد: يراه الفريق فقط.")}
                 </p>
                 {asking ? (
                   <div className="rounded-xl bg-amber-500/10 p-3 text-sm ring-1 ring-amber-500/30">
@@ -304,7 +298,7 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {next.map((to) => (
-                      <Btn key={to} kind={to === "hidden" ? "ghost" : to === "draft" ? "ghost" : "primary"} disabled={busy} onClick={() => (to === "live" || to === "hidden" ? setAsking(to) : move(to))}>
+                      <Btn key={to} kind={to === "hidden" ? "ghost" : "primary"} disabled={busy} onClick={() => (to === "live" || to === "hidden" ? setAsking(to) : move(to))}>
                         {w.move(row.status, to)}
                       </Btn>
                     ))}
@@ -325,14 +319,14 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
                 <div className="flex justify-between gap-2"><dt>{t("First released", "أول نشر")}</dt><dd>{f.date(row.releasedAt)}</dd></div>
                 <div className="flex justify-between gap-2"><dt>{t("Last changed", "آخر تعديل")}</dt><dd>{f.dateTime(row.updatedAt)}</dd></div>
               </dl>
-              {(row.status === "live" || row.status === "hidden") && (
+              {(row.status === "live" || row.releasedAt) && (
                 <a href={`/store?theme=${row.id}`} target="_blank" rel="noreferrer" className="block rounded-xl border border-fg/15 px-3 py-2 text-center text-sm font-semibold hover:bg-soft">
                   {t("Open the full sample store", "فتح المتجر التجريبي كاملًا")}
                 </a>
               )}
-              {row.source === "design" && (row.status === "draft" || row.status === "review") && n.bought === 0 && (
-                <button type="button" disabled={busy} onClick={() => (window.confirm(t("Delete this theme for good?", "حذف هذا الثيم نهائيًا؟")) ? remove() : null)} className="text-sm font-semibold text-red-600 hover:underline">
-                  {t("Delete this draft", "حذف هذه المسودة")}
+              {row.source === "design" && row.status !== "live" && n.bought === 0 && (
+                <button type="button" disabled={busy} onClick={async () => (await askConfirm({ title: t("Delete this theme for good?", "حذف هذا الثيم نهائيًا؟"), confirm: t("Delete", "حذف"), danger: true })) && remove()} className="text-sm font-semibold text-red-600 hover:underline">
+                  {t("Delete this theme", "حذف هذا الثيم")}
                 </button>
               )}
             </div>
@@ -511,7 +505,7 @@ function NewTheme({ from, taken, onClose, onMade }: { from: ThemeInfo[]; taken: 
   return (
     <Modal label={t("New theme", "ثيم جديد")} onClose={close} wide={false}>
       <form onSubmit={make} className="space-y-4 overflow-y-auto p-5">
-        <p className="text-sm text-muted">{t("It starts as a draft: only staff see it. Then change its look in the designer, write its details, and release it.", "يبدأ كمسودة يراها الفريق فقط. بعدها غيّر شكله في المصمّم، واكتب تفاصيله، ثم انشره.")}</p>
+        <p className="text-sm text-muted">{t("It starts hidden: only staff see it. Then change its look in the designer, write its details, and put it in the store.", "يبدأ مخفيًا يراه الفريق فقط. بعدها غيّر شكله في المصمّم، واكتب تفاصيله، ثم انشره في المتجر.")}</p>
         <fieldset className="space-y-1.5">
           <legend className="mb-1 text-sm font-semibold">{t("Name", "الاسم")}</legend>
           <input dir="ltr" lang="en" maxLength={LISTING_LIMITS.name} className={field} placeholder="In English" aria-label={t("Name in English", "الاسم بالإنجليزية")} value={name.en} onChange={(e) => setName({ ...name, en: e.target.value })} autoFocus />
@@ -529,7 +523,7 @@ function NewTheme({ from, taken, onClose, onMade }: { from: ThemeInfo[]; taken: 
         </label>
         {err && <p role="alert" className="text-sm font-semibold text-red-600">{err}</p>}
         <div className="flex gap-2">
-          <Btn type="submit" disabled={busy}>{busy ? t("Making…", "جارٍ الإنشاء…") : t("Make the draft", "إنشاء المسودة")}</Btn>
+          <Btn type="submit" disabled={busy}>{busy ? t("Making…", "جارٍ الإنشاء…") : t("Make the theme", "إنشاء الثيم")}</Btn>
           <Btn type="button" kind="ghost" onClick={close}>{t("Cancel", "إلغاء")}</Btn>
         </div>
       </form>

@@ -5,7 +5,7 @@ import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, 
 import { PAGE_LIMITS, PAGE_NEXT, PAGE_SLUG, PageBody, type PageStatus } from "@/components/dukkanPages";
 
 /* Dukkan's pages for merchants (guides, news, rules), read in the merchant dashboard at /from-dukkan. Written here in
-   English and Arabic, for every shop, chosen shops or plans; Draft → Live → Hidden. "In the menu" pins a page at the top
+   English and Arabic, for every shop, or chosen shops; Draft → Live → Hidden. "In the menu" pins a page at the top
    of their list. Every change is in the activity log. */
 
 type Audience = { all: true } | { accounts: (number | string)[] } | { plans: string[] };
@@ -14,7 +14,7 @@ type Row = {
   status: PageStatus; inMenu: boolean; sort: number; audience: Audience; publishedAt: string | null; updatedAt: string; by: string | null;
   views: number; reach: number;
 };
-type Data = { pages: Row[]; plans: { key: string; nameEn: string; nameAr: string }[]; shops: Record<string, { name: string; email: string }> };
+type Data = { pages: Row[]; shops: Record<string, { name: string; email: string }> };
 type Shop = { id: string; name: string; email: string };
 type Form = {
   id: string | null; slug: string; slugTouched: boolean; titleEn: string; titleAr: string; summaryEn: string; summaryAr: string; bodyEn: string; bodyAr: string;
@@ -65,7 +65,7 @@ export default function PagesPage() {
       <Loaded s={s}>
         {(d) => (
           <>
-            {form && <Editor form={form} setForm={setForm} plans={d.plans} onSaved={() => { setForm(null); s.reload(); }} />}
+            {form && <Editor form={form} setForm={setForm} onSaved={() => { setForm(null); s.reload(); }} />}
             <div className="space-y-3">
               {d.pages.length === 0 && !form && (
                 <div className={`${card} text-center`}>
@@ -86,16 +86,10 @@ function audienceText(t: ReturnType<typeof useT>, r: Row, d: Data) {
   const a = r.audience as Record<string, unknown>;
   if (Array.isArray(a.accounts)) {
     const names = (a.accounts as unknown[]).map((id) => d.shops[String(id)]?.name ?? `#${id}`);
-    return t(`Shops: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
+    return t(`Stores: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
   }
-  if (Array.isArray(a.plans)) {
-    const names = (a.plans as string[]).map((k) => {
-      const p = d.plans.find((x) => x.key === k);
-      return p ? t(p.nameEn, p.nameAr) : k;
-    });
-    return t(`Plans: ${names.join(", ")}`, `الباقات: ${names.join("، ")}`);
-  }
-  return t("Every shop", "كل المتاجر");
+  if (Array.isArray(a.plans)) return t("Stores on certain plans (older setting)", "متاجر بباقات معينة (إعداد قديم)");
+  return t("Every store", "كل المتاجر");
 }
 
 function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void; reload: () => void }) {
@@ -145,7 +139,7 @@ function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void
         </div>
         <div className="text-end">
           <p className="text-2xl font-bold tabular-nums">{f.num(r.views)}<span className="text-sm font-medium text-muted"> / {f.num(r.reach)}</span></p>
-          <p className="text-xs text-muted">{t("shops opened it", "متجر فتحها")}</p>
+          <p className="text-xs text-muted">{t("stores opened it", "متجر فتحها")}</p>
         </div>
       </div>
       <div className="mt-3 border-t border-fg/10 pt-3">
@@ -173,7 +167,7 @@ function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void
   );
 }
 
-function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Form | null) => void; plans: Data["plans"]; onSaved: () => void }) {
+function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: () => void }) {
   const t = useT();
   const [q, setQ] = useState("");
   const [found, setFound] = useState<Shop[]>([]);
@@ -199,7 +193,7 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
     titleEn: t("Write the title in English.", "اكتب العنوان بالإنجليزية."),
     titleAr: t("Write the title in Arabic.", "اكتب العنوان بالعربية."),
     sort: t("The place must be a whole number.", "يجب أن يكون الترتيب رقمًا صحيحًا."),
-    audience: t("Choose who it is for (at least one shop or plan).", "اختر لمن هي (متجر أو باقة واحدة على الأقل)."),
+    audience: t("Choose who it is for (at least one store).", "اختر لمن هي (متجر واحد على الأقل)."),
   };
 
   const save = async (e: React.FormEvent) => {
@@ -289,10 +283,10 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
       <fieldset>
         <legend className={label}>{t("Who sees it", "لمن تظهر")}</legend>
         <div className="flex flex-wrap gap-2">
-          {(["all", "accounts", "plans"] as const).map((w) => (
+          {(["all", "accounts"] as const).map((w) => (
             <label key={w} className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ${form.who === w ? "bg-primary/10 ring-primary" : "ring-fg/15"}`}>
               <input type="radio" name="pwho" checked={form.who === w} onChange={() => set("who", w)} />
-              {w === "all" ? t("Every shop", "كل المتاجر") : w === "accounts" ? t("Chosen shops", "متاجر محددة") : t("Shops on plans", "متاجر بباقات معينة")}
+              {w === "all" ? t("Every store", "كل المتاجر") : t("Chosen stores", "متاجر محددة")}
             </label>
           ))}
         </div>
@@ -321,15 +315,11 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
             )}
           </div>
         )}
+        {/* plans are gone: an older one set for stores on certain plans keeps that audience until another is chosen */}
         {form.who === "plans" && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {plans.map((p) => (
-              <label key={p.key} className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ring-fg/15">
-                <input type="checkbox" checked={form.plans.includes(p.key)} onChange={(e) => set("plans", e.target.checked ? [...form.plans, p.key] : form.plans.filter((k) => k !== p.key))} />
-                {t(p.nameEn, p.nameAr)}
-              </label>
-            ))}
-          </div>
+          <p className="mt-3 text-sm text-muted">
+            {t("This was set for stores on certain plans, before plans were removed. It stays as it is unless you choose above.", "ضُبط هذا لمتاجر بباقات معينة قبل إلغاء الباقات، ويبقى كما هو ما لم تختر أعلاه.")}
+          </p>
         )}
       </fieldset>
 

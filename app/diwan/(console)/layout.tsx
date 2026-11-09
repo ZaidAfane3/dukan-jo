@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { DialogHost } from "@/components/diwan/dialogs";
 import { DiwanShell } from "@/components/diwan/Shell";
 import { STAFF_COOKIE, staffFromToken } from "@/server/staff";
 
@@ -16,5 +17,11 @@ export const metadata: Metadata = {
 export default async function DiwanLayout({ children }: { children: React.ReactNode }) {
   const s = await staffFromToken(cookies().get(STAFF_COOKIE)?.value);
   if (!s || !s.verified) redirect("/diwan/login");
-  return <DiwanShell staff={{ name: s.name, email: s.email, role: s.role }}>{children}</DiwanShell>;
+  /* the host draws the questions any page asks with askConfirm / askText / tell (components/diwan/dialogs.tsx) */
+  return (
+    <>
+      <DiwanShell staff={{ name: s.name, email: s.email, role: s.role }}>{children}</DiwanShell>
+      <DialogHost />
+    </>
+  );
 }

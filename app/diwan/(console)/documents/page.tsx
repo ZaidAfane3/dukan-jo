@@ -35,7 +35,7 @@ export default function DocumentsPage() {
     <div>
       <PageHead
         title={t("Documents", "المستندات")}
-        sub={t("Papers shops send for checking. Approve or reject each one; the merchant is told.", "الأوراق التي ترسلها المتاجر للمراجعة. اقبل كل مستند أو ارفضه، ويُبلَّغ التاجر.")}
+        sub={t("Papers stores send for checking. Approve or reject each one; the merchant is told.", "الأوراق التي ترسلها المتاجر للمراجعة. اقبل كل مستند أو ارفضه، ويُبلَّغ التاجر.")}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -65,7 +65,7 @@ export default function DocumentsPage() {
           d.documents.length === 0 ? (
             <div className={`${card} text-center text-sm text-muted`}>
               <p>{t("No documents here.", "لا توجد مستندات هنا.")}</p>
-              <p className="mt-1 text-xs">{t("Shops can't upload papers yet: uploads come once file storage is set up.", "لا تستطيع المتاجر رفع الأوراق بعد: يأتي الرفع بعد تجهيز تخزين الملفات.")}</p>
+              <p className="mt-1 text-xs">{t("Stores can't upload papers yet: uploads come once file storage is set up.", "لا تستطيع المتاجر رفع الأوراق بعد: يأتي الرفع بعد تجهيز تخزين الملفات.")}</p>
             </div>
           ) : (
             <div className="grid gap-3">

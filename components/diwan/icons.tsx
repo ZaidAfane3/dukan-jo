@@ -6,7 +6,7 @@ import { useId } from "react";
 const P = {
   overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
   shops: "M4 9l1.5-5h13L20 9M4 9h16M4 9c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s1-.3 1-.3M5 12v8h14v-8M10 20v-5h4v5",
-  plans: "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18M7 15h3",
+  payments: "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18M7 15h3",
   funnel: "M4 5h16l-6 7.5V19l-4 1.5v-8z",
   tickets: "M4 8a2 2 0 0 0 0 4v0a2 2 0 0 1 0 4v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1a2 2 0 0 1 0-4 2 2 0 0 1 0-4V7a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1zM14 6v12",
   feedback: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1v.5h6V15c0-.4.2-.8.5-1.1A6 6 0 0 0 12 3z",
@@ -45,9 +45,9 @@ export function Icon({ name, className = "h-5 w-5", strokeWidth = 1.8 }: { name:
 
 /* Each Diwan page's picture, by its address (the sidebar and the page title use the same one) */
 const BY_PATH: [string, IconName][] = [
-  ["/diwan/shops", "shops"], ["/diwan/plans", "plans"], ["/diwan/funnel", "funnel"], ["/diwan/tickets", "tickets"],
+  ["/diwan/shops", "shops"], ["/diwan/payments", "payments"], ["/diwan/funnel", "funnel"], ["/diwan/tickets", "tickets"],
   ["/diwan/feedback", "feedback"], ["/diwan/domains", "domains"], ["/diwan/documents", "documents"], ["/diwan/complaints", "complaints"],
-  ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
+  ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/website", "domains"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
   ["/diwan/marketplace", "developers"], ["/diwan/flags", "flags"], ["/diwan/settings", "settings"], ["/diwan/staff", "staff"],
   ["/diwan/activity", "activity"],
 ];

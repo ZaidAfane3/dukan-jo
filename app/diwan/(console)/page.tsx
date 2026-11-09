@@ -16,9 +16,8 @@ type Overview = {
   active: number;
   inactive: number;
   suspended: number;
-  paying: number;
-  expiring: number;
-  expiringTrials: number;
+  published: number;
+  onTrial: number;
   waiting: { tickets: number; domains: number; reports: number; documents: number };
   newest: { id: string; name: string; slug: string | null; owner: string; created_at: string; setup_done: number; status: string }[];
 };
@@ -29,7 +28,7 @@ const RUQAA = { fontFamily: "var(--font-ruqaa), var(--font-sans)" };
    (counts and totals only: Diwan never looks at a merchant's products, orders or customers). */
 export default function OverviewPage() {
   const staff = useStaff();
-  /* a staff member who can't see shops (a developer) gets the developer portal's home instead of the shops' figures */
+  /* a staff member who can't see shops (the Marketing role) gets the marketing home instead of the shops' figures */
   if (staff && !can(staff, "shops.read")) return <PortalHome />;
   return <ShopsOverview />;
 }
@@ -64,12 +63,12 @@ function ShopsOverview() {
                     { label: t("New this week", "جديدة هذا الأسبوع"), value: f.num(d.newWeek), note: t("signed up in the last 7 days", "سجّلت خلال آخر 7 أيام") },
                     { label: t("Active", "النشطة"), value: f.num(d.active), note: t(`${f.num(d.inactive)} quiet for 14 days or more`, `${f.num(d.inactive)} بلا دخول منذ 14 يومًا أو أكثر`) },
                     {
-                      label: t("Paying", "تدفع"),
-                      value: f.num(d.paying),
+                      label: t("Published", "منشورة"),
+                      value: f.num(d.published),
                       note: t(`of ${f.num(d.total)} stores`, `من ${f.num(d.total)} متجر`),
-                      extra: <Share part={d.paying} whole={d.total} />,
+                      extra: <Share part={d.published} whole={d.total} />,
                     },
-                    { label: t("Ending in 14 days", "تنتهي خلال 14 يومًا"), value: f.num(d.expiring), note: t(`${f.num(d.expiringTrials)} of them trials`, `منها ${f.num(d.expiringTrials)} تجريبية`) },
+                    { label: t("On trial", "في الفترة التجريبية"), value: f.num(d.onTrial), note: t("in their free trial now", "في الفترة المجانية الآن") },
                   ]}
                 />
               </section>
@@ -98,14 +97,14 @@ function ShopsOverview() {
 
                 <section className="min-w-0">
                   <div className="mb-3 flex items-baseline justify-between gap-3">
-                    <h2 className="text-lg font-extrabold tracking-tight">{t("Newest shops", "أحدث المتاجر")}</h2>
+                    <h2 className="text-lg font-extrabold tracking-tight">{t("Newest stores", "أحدث المتاجر")}</h2>
                     <Link href="/diwan/shops" className="text-sm font-semibold text-primary hover:underline">
-                      {t("All shops", "كل المتاجر")}
+                      {t("All stores", "كل المتاجر")}
                     </Link>
                   </div>
                   <DataTable
                     head={[t("Store", "المتجر"), t("Owner", "المالك"), t("Status", "الحالة"), t("Setup", "الإعداد"), t("Signed up", "التسجيل")]}
-                    empty={!d.newest.length && t("No shops have signed up yet.", "لم يسجّل أي متجر بعد.")}
+                    empty={!d.newest.length && t("No stores have signed up yet.", "لم يسجّل أي متجر بعد.")}
                   >
                     {d.newest.map((r) => (
                       <tr key={r.id} className="transition-colors hover:bg-fg/[0.025]">
@@ -140,7 +139,7 @@ function ShopsOverview() {
   );
 }
 
-/* The developer portal's home: the welcome, then an index of the pages this staff member may open */
+/* The marketing home: the welcome, then an index of the pages this staff member may open */
 function PortalHome() {
   const t = useT();
   const staff = useStaff();
@@ -150,14 +149,14 @@ function PortalHome() {
     "/diwan/popups": { en: "Pop-ups merchants see once in their dashboard.", ar: "نوافذ يراها التجار مرة واحدة في لوحة التحكم." },
     "/diwan/announcements": { en: "Notices in the merchants' bell and banner.", ar: "إشعارات في جرس التجار وشريط الإعلانات." },
     "/diwan/marketplace": { en: "Outside developers and the work they send.", ar: "المطورون الخارجيون وما يرسلونه من أعمال." },
-    "/diwan/flags": { en: "Turn features on or off, for everyone or some shops.", ar: "شغّل الميزات أو أوقفها للجميع أو لبعض المتاجر." },
+    "/diwan/flags": { en: "Turn features on or off, for everyone or some stores.", ar: "شغّل الميزات أو أوقفها للجميع أو لبعض المتاجر." },
     "/diwan/activity": { en: "Who changed what, and when.", ar: "من غيّر ماذا، ومتى." },
   };
   const list = staff ? DIWAN_NAV.filter((i) => i.href !== "/diwan" && can(staff, i.perm)) : [];
   return (
     <>
       <Welcome line={t("What Dukkan sends out to merchants, in one place. Pick up where you left off.", "كل ما ترسله دكّان إلى التجار، في مكان واحد. تابع من حيث توقفت.")} />
-      <PageHead title={t("Developer portal", "بوابة المطورين")} eyebrow={t("Your pages", "صفحاتك")} />
+      <PageHead title={t("Marketing", "التسويق")} eyebrow={t("Your pages", "صفحاتك")} />
       <ul className={`${card} divide-y divide-fg/[0.06] p-0`}>
         {list.map((i) => (
           <li key={i.href}>

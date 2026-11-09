@@ -25,12 +25,16 @@ export const GET = staffRoute("staff", async (_req, me) => {
 });
 
 /** Adds a staff member with a temporary password the owner gives them; they choose their own at the first sign-in,
-    and set up their 2-step code then too. Answers: "ok", "taken", "invalid", "weak". */
+    and set up their 2-step code then too. Answers: "ok", "taken", "invalid", "weak", "role-later". */
 export const POST = staffRoute("staff", async (req: NextRequest, me) => {
   const body = await readJson(req, 2_000);
   const who = cleanStaff({ name: body?.name, email: body?.email });
   const role = isRole(body?.role) ? body.role : null;
   if (!who || !role) return answer({ result: "invalid" }, 400);
+  /* TODO(roles): allow support/developer again. For now everyone added is an owner, while the other roles' pages and
+     limits are being reworked; the staff page shows them greyed out as coming later. Staff who already have one of
+     them keep it and keep working (perms.ts still knows every role). */
+  if (role !== "owner") return answer({ result: "role-later" }, 400);
   const problem = staffPasswordProblem(body?.password);
   if (problem) return answer({ result: "weak", problem }, 400);
   const hash = await hashPassword(body!.password as string);

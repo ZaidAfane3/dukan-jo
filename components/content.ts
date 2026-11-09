@@ -1,5 +1,5 @@
-/* Page content in both languages. Short UI strings (nav, hero headline,
-   buttons) live in Prefs.tsx, the rest of the page lives here. */
+/* Page content in both languages. The landing page's own words (hero, industries, features, testimonials, footer...)
+   are edited in Diwan and live in components/siteContent.ts; what is here is the rest of the site. */
 
 export type Lang = "en" | "ar";
 
@@ -28,8 +28,6 @@ export type ReportWidget = {
   rateRange?: [number, number];
 };
 
-type Feature = { id: string; tag: string; title: string; body: string; points: string[] };
-
 export type Content = {
   dashboard: {
     revenueLabel: string;
@@ -37,13 +35,6 @@ export type Content = {
     storeLabel: string;
     orders: { name: string; total: string; status: string }[];
     products: { name: string; price: string }[];
-  };
-  experience: {
-    title: string;
-    captions: string[];
-    login: { brand: string; title: string; label: string; code: string; placeholder: string; button: string; link: string };
-    pay: { title: string; options: string[]; button: string };
-    track: { title: string; order: string; steps: string[] };
   };
   signup: {
     tabs: { login: string; create: string };
@@ -173,18 +164,16 @@ export type Content = {
       pickupHint: string;
       modes: { title: string; desc: string }[];
       seenName: string;
-      price: string;
+      /* Dukkan Ship's price, its line under the price, pickup cities and points are platform settings (Diwan, dukkan_ship):
+         components/platformPublic.ts shipWords gives them in the page's language */
       perOrder: string;
-      priceNote: string;
       change: string;
       cityLabel: string;
       cityPh: string;
-      /* the cities offered; allCities: every governorate a city may have been saved as before */
-      cities: string[];
+      /* every governorate a city may have been saved as before */
       allCities: string[];
       addressLabel: string;
       addressPh: string;
-      features: string[];
       previewSeen: string;
       errCity: string;
       errName: string;
@@ -479,21 +468,6 @@ export type Content = {
       mismatch: string;
     };
   };
-  featuresTitle: string;
-  features: Feature[];
-  testimonialsTitle: string;
-  quotes: { q: string; n: string; s: string; avatar?: string }[];
-  finalCta: { title: string; body: string };
-  footer: {
-    tagline: string;
-    cols: { title: string; links: string[] }[];
-    industriesTitle: string;
-    availableIn: string;
-    country: string;
-    contact: { phone: string; place: string; email: string };
-    social: string[];
-    legal: string;
-  };
 };
 
 export const content: Record<Lang, Content> = {
@@ -513,33 +487,6 @@ export const content: Record<Lang, Content> = {
         { name: "Utility Jacket", price: "JOD 62" },
         { name: "Canvas Cap", price: "JOD 14" },
       ],
-    },
-    experience: {
-      title: "Delight your customers with an easy buying experience",
-      captions: [
-        "Buy directly, with no account needed",
-        "Familiar payment methods your customers already trust",
-        "Track every order, step by step, to the doorstep",
-      ],
-      login: {
-        brand: "Perfume Store",
-        title: "Log in",
-        label: "Mobile number",
-        code: "+962",
-        placeholder: "7 7123 4567",
-        button: "Continue",
-        link: "Log in with email instead",
-      },
-      pay: {
-        title: "Choose a payment method",
-        options: ["Visa", "Apple Pay", "CliQ", "Cash on delivery (COD)"],
-        button: "Pay now",
-      },
-      track: {
-        title: "Your order is on its way",
-        order: "Order #10428",
-        steps: ["Confirmed", "Preparing", "Shipped", "Delivered"],
-      },
     },
     signup: {
       tabs: { login: "Log in", create: "Create account" },
@@ -694,17 +641,15 @@ export const content: Record<Lang, Content> = {
           { title: "Use Dukkan Ship", desc: "Our own delivery service. One flat price for every order." },
         ],
         seenName: "Dukkan Ship",
-        price: "JOD 3",
+        /* Dukkan Ship's price, the line under it, its pickup cities and its points are platform settings Dukkan's staff
+           change in Diwan (dukkan_ship): components/platformPublic.ts shipWords */
         perOrder: "per order",
-        priceNote: "Billed per order. No monthly fee and no contract.",
         change: "Change delivery option",
         cityLabel: "Pickup city",
         cityPh: "Choose a city",
-        cities: ["Irbid", "Amman", "Salt"],
         allCities: ["Amman", "Irbid", "Zarqa", "Balqa", "Madaba", "Karak", "Tafilah", "Ma'an", "Aqaba", "Jerash", "Ajloun", "Mafraq", "Salt"],
         addressLabel: "Pickup address",
         addressPh: "Street, building number, landmark",
-        features: ["Pickup from your address", "Tracking for every order", "Flat price, no contracts"],
         previewSeen: "This is how Dukkan Ship will appear in your account",
         errCity: "Choose a pickup city.",
         errName: "Enter their name, at least 2 letters.",
@@ -1102,70 +1047,6 @@ export const content: Record<Lang, Content> = {
         mismatch: "The two passwords don't match.",
       },
     },
-    featuresTitle: "Dukkan supports every step of your journey",
-    features: [
-      {
-        id: "solutions",
-        tag: "Launch",
-        title: "Start easy, even if you're busy",
-        body: "No experience or full-time commitment needed to start selling.",
-        points: ["Guided setup that gets you live fast", "Orders, products and reports in one dashboard", "Explore a ready demo store before you start"],
-      },
-      {
-        id: "design",
-        tag: "Design",
-        title: "A store that stands out at first glance",
-        body: "Design your store yourself, with no coding.",
-        points: ["Click any element and edit it live", "Hero and website background in picture, GIF or video", "Arrange your sections your way"],
-      },
-      {
-        id: "payments",
-        tag: "Payments",
-        title: "Secure payments, lasting trust",
-        body: "Manage store and customer payments with one integrated system.",
-        points: ["Cards, wallets and local payment methods", "Activate payments within a day", "Payouts 24 hours after each order"],
-      },
-      {
-        id: "shipping",
-        tag: "Shipping",
-        title: "A complete shipping fleet for your products",
-        body: "Connect your store to carriers without contracts or friction.",
-        points: ["Dukkan Ship: our own delivery at a flat price per order", "Already have a courier? Add them and keep working together", "Track every order from pickup to the doorstep"],
-      },
-      {
-        id: "marketing",
-        tag: "Marketing",
-        title: "Every marketing tool in one place",
-        body: "Reach more customers with campaigns made for your store.",
-        points: ["Discount coupons that close the sale", "Full control of offers and promotions", "Abandoned-cart recovery and ad management"],
-      },
-    ],
-    testimonialsTitle: "Be the next success story",
-    quotes: [
-      { q: "Setup took an afternoon. Our first order came in that same night.", n: "Omar K.", s: "Fashion store", avatar: "/avatars/omar.jpg" },
-      { q: "Shipping and payments finally live in one dashboard. That alone saves me hours.", n: "Layla A.", s: "Home goods", avatar: "/avatars/layla.jpg" },
-      { q: "We went from a side project to a real brand without changing platform.", n: "Sara M.", s: "Beauty brand", avatar: "/avatars/sara.jpg" },
-      { q: "Customers pay by CliQ or cash on delivery, and every order shows up in one place.", n: "Yazan H.", s: "Gifts", avatar: "/avatars/yazan.jpg" },
-      { q: "The store designer let me change the look myself, without calling anyone.", n: "Ahmad S.", s: "Jewelry", avatar: "/avatars/ahmad.jpg" },
-      { q: "The reports show me which products get left in carts, so I know who to remind.", n: "Noor S.", s: "Electronics", avatar: "/avatars/noor.jpg" },
-    ],
-    finalCta: {
-      title: "Own a professional store on Dukkan",
-      body: "Create your store now with flexible tools and complete solutions to grow your sales.",
-    },
-    footer: {
-      tagline: "Smart commerce for Jordan and beyond.",
-      cols: [
-        { title: "About Dukkan", links: ["Join the Dukkan team", "Terms of use", "Privacy policy"] },
-        { title: "Resources", links: ["Help center", "FAQ", "Contact us"] },
-      ],
-      industriesTitle: "Industries",
-      availableIn: "Available in:",
-      country: "Jordan",
-      contact: { phone: "+962 6 000 0000", place: "Amman, Jordan", email: "hello@dukkan.store" },
-      social: ["TikTok", "X", "YouTube", "Instagram"],
-      legal: "© 2026 Dukkan. All rights reserved. Prototype, not a live service.",
-    },
   },
 
   ar: {
@@ -1184,33 +1065,6 @@ export const content: Record<Lang, Content> = {
         { name: "جاكيت عملي", price: "62 د.أ" },
         { name: "كاب قماشي", price: "14 د.أ" },
       ],
-    },
-    experience: {
-      title: "أسعد عملاءك بتجربة شراء سهلة",
-      captions: [
-        "شراء مباشر دون تعقيد أو إنشاء حساب",
-        "طرق دفع مألوفة يثق بها عملاؤك",
-        "تتبّع كل طلب خطوة بخطوة حتى باب البيت",
-      ],
-      login: {
-        brand: "متجر عطور",
-        title: "تسجيل الدخول",
-        label: "رقم الجوال",
-        code: "+962",
-        placeholder: "7 7123 4567",
-        button: "متابعة",
-        link: "تسجيل الدخول بالبريد الإلكتروني",
-      },
-      pay: {
-        title: "اختر طريقة الدفع",
-        options: ["فيزا", "ابل باي", "كليك", "الدفع عند الاستلام"],
-        button: "ادفع الآن",
-      },
-      track: {
-        title: "طلبك في الطريق",
-        order: "طلب رقم 10428",
-        steps: ["تم التأكيد", "قيد التجهيز", "تم الشحن", "تم التسليم"],
-      },
     },
     signup: {
       tabs: { login: "تسجيل الدخول", create: "إنشاء حساب" },
@@ -1365,17 +1219,13 @@ export const content: Record<Lang, Content> = {
           { title: "استخدم شحن دكان", desc: "خدمة التوصيل الخاصة بنا، بسعر ثابت لكل طلب." },
         ],
         seenName: "شحن دكان",
-        price: "3 د.أ",
         perOrder: "لكل طلب",
-        priceNote: "تُحتسب لكل طلب. بلا اشتراك شهري ولا عقود.",
         change: "تغيير خيار التوصيل",
         cityLabel: "مدينة الاستلام",
         cityPh: "اختر المدينة",
-        cities: ["إربد", "عمّان", "السلط"],
         allCities: ["عمّان", "إربد", "الزرقاء", "البلقاء", "مأدبا", "الكرك", "الطفيلة", "معان", "العقبة", "جرش", "عجلون", "المفرق", "السلط"],
         addressLabel: "عنوان الاستلام",
         addressPh: "الشارع، رقم المبنى، أقرب معلم",
-        features: ["استلام من عنوانك", "تتبّع لكل طلب", "سعر ثابت بلا عقود"],
         previewSeen: "هكذا سيظهر شحن دكان في حسابك",
         errCity: "اختر مدينة الاستلام.",
         errName: "أدخل الاسم، حرفان على الأقل.",
@@ -1772,70 +1622,6 @@ export const content: Record<Lang, Content> = {
         short: "يجب ألا تقل كلمة المرور الجديدة عن 8 أحرف.",
         mismatch: "كلمتا المرور غير متطابقتين.",
       },
-    },
-    featuresTitle: "يدعمك دكان في كل خطوة من رحلتك",
-    features: [
-      {
-        id: "solutions",
-        tag: "الانطلاق",
-        title: "ابدأ بسهولة حتى مع انشغالك",
-        body: "لا تحتاج إلى خبرة سابقة أو تفرّغ كامل لتبدأ البيع.",
-        points: ["إعداد موجَّه يجعل متجرك جاهزًا بسرعة", "الطلبات والمنتجات والتقارير في لوحة واحدة", "جرّب متجرًا تجريبيًا جاهزًا قبل أن تبدأ"],
-      },
-      {
-        id: "design",
-        tag: "التصميم",
-        title: "متجر يلفت النظر من أول لمحة",
-        body: "صمّم متجرك بنفسك، بدون أي خبرة برمجية.",
-        points: ["اضغط على أي عنصر وعدّله مباشرة", "غلاف وخلفية بصورة أو GIF أو فيديو", "رتّب أقسام متجرك كما تريد"],
-      },
-      {
-        id: "payments",
-        tag: "المدفوعات",
-        title: "مدفوعات آمنة وثقة تدوم",
-        body: "أدر مدفوعات متجرك وعملائك عبر نظام متكامل واحد.",
-        points: ["بطاقات ومحافظ إلكترونية ووسائل دفع محلية", "فعّل المدفوعات خلال يوم واحد", "تحويل المبالغ بعد 24 ساعة من كل طلب"],
-      },
-      {
-        id: "shipping",
-        tag: "الشحن",
-        title: "أسطول شحن متكامل لخدمة منتجاتك",
-        body: "اربط متجرك بشركات الشحن بلا عقود ولا تعقيد.",
-        points: ["شحن دكان: توصيلنا الخاص بسعر ثابت لكل طلب", "لديك شركة توصيل؟ أضفها وواصل العمل معها", "تتبّع كل طلب من الاستلام حتى باب البيت"],
-      },
-      {
-        id: "marketing",
-        tag: "التسويق",
-        title: "كل أدوات التسويق في مكان واحد",
-        body: "صِل إلى عملاء أكثر بحملات مصممة لمتجرك.",
-        points: ["كوبونات خصم تساعد على إتمام الشراء", "تحكم كامل في العروض والخصومات", "استرجاع السلات المتروكة وإدارة الإعلانات"],
-      },
-    ],
-    testimonialsTitle: "كن صاحب قصة النجاح القادمة",
-    quotes: [
-      { q: "استغرق الإعداد عصر يوم واحد، وجاءنا أول طلب في الليلة نفسها.", n: "عمر ك.", s: "متجر أزياء", avatar: "/avatars/omar.jpg" },
-      { q: "أخيرًا صار الشحن والمدفوعات في لوحة واحدة، وهذا وحده يوفّر عليّ ساعات.", n: "ليلى أ.", s: "مستلزمات منزلية", avatar: "/avatars/layla.jpg" },
-      { q: "انتقلنا من مشروع جانبي إلى علامة تجارية حقيقية دون أن نغيّر المنصة.", n: "سارة م.", s: "علامة تجميل", avatar: "/avatars/sara.jpg" },
-      { q: "عملاؤنا يدفعون بكليك أو عند الاستلام، وكل الطلبات تصلني في مكان واحد.", n: "يزن ح.", s: "متجر هدايا", avatar: "/avatars/yazan.jpg" },
-      { q: "مصمم المتجر سمح لي بتغيير الشكل بنفسي دون أن أتصل بأحد.", n: "أحمد س.", s: "متجر مجوهرات", avatar: "/avatars/ahmad.jpg" },
-      { q: "التقارير تُريني المنتجات التي تُترك في السلات، فأعرف لمن أرسل التذكير.", n: "نور س.", s: "متجر إلكترونيات", avatar: "/avatars/noor.jpg" },
-    ],
-    finalCta: {
-      title: "امتلك متجرًا احترافيًا مع دكان",
-      body: "أنشئ متجرك الآن بأدوات مرنة وحلول متكاملة تساعدك على نمو مبيعاتك.",
-    },
-    footer: {
-      tagline: "تجارة ذكية للأردن وما بعده.",
-      cols: [
-        { title: "عن دكان", links: ["انضم لفريق دكان", "شروط الاستخدام", "سياسة الخصوصية"] },
-        { title: "الموارد", links: ["مركز المساعدة", "الأسئلة الشائعة", "تواصل معنا"] },
-      ],
-      industriesTitle: "القطاعات",
-      availableIn: "متاح في:",
-      country: "الأردن",
-      contact: { phone: "+962 6 000 0000", place: "عمّان، الأردن", email: "hello@dukkan.store" },
-      social: ["تيك توك", "إكس", "يوتيوب", "إنستغرام"],
-      legal: "© 2026 دكان. جميع الحقوق محفوظة. نموذج أولي وليس خدمة فعلية.",
     },
   },
 };

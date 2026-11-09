@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { askConfirm } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 
-/* Announcements to merchants: written in English and Arabic, for everyone, chosen shops or plans, shown in the
+/* Announcements to merchants: written in English and Arabic, for everyone, or chosen shops, shown in the
    merchants' bell (and as a banner on their home page when asked) between a start and an optional end. "Read by" counts
    the shops that opened or dismissed it. Everything here is live from the database; every change is in the activity log. */
 
@@ -12,7 +13,7 @@ type Row = {
   id: string; titleEn: string; titleAr: string; bodyEn: string; bodyAr: string; audience: Audience; banner: boolean;
   startsAt: string; endsAt: string | null; createdAt: string; by: string | null; status: "scheduled" | "live" | "ended"; reads: number; reach: number;
 };
-type Data = { announcements: Row[]; plans: { key: string; nameEn: string; nameAr: string }[]; shops: Record<string, { name: string; email: string }> };
+type Data = { announcements: Row[]; shops: Record<string, { name: string; email: string }> };
 type Shop = { id: string; name: string; email: string };
 type Form = {
   id: string | null; titleEn: string; titleAr: string; bodyEn: string; bodyAr: string;
@@ -47,12 +48,23 @@ export default function AnnouncementsPage() {
   };
 
   const end = async (r: Row) => {
-    if (!window.confirm(t(`End “${r.titleEn}” now? Merchants stop seeing it.`, `إنهاء «${r.titleAr}» الآن؟ لن يراه التجار بعد ذلك.`))) return;
+    const yes = await askConfirm({
+      title: t("End this announcement", "إنهاء هذا الإعلان"),
+      body: t(`End “${r.titleEn}” now? Merchants stop seeing it.`, `إنهاء «${r.titleAr}» الآن؟ لن يراه التجار بعد ذلك.`),
+      confirm: t("End now", "إنهاء الآن"),
+    });
+    if (!yes) return;
     await send(`/api/diwan/announcements/${r.id}`, "PATCH", { end: true });
     s.reload();
   };
   const remove = async (r: Row) => {
-    if (!window.confirm(t(`Delete “${r.titleEn}”? It disappears from every merchant's bell and its read count is lost.`, `حذف «${r.titleAr}»؟ سيختفي من إشعارات كل التجار ويُفقد عدد القراءات.`))) return;
+    const yes = await askConfirm({
+      title: t("Delete this announcement", "حذف هذا الإعلان"),
+      body: t(`Delete “${r.titleEn}”? It disappears from every merchant's bell and its read count is lost.`, `حذف «${r.titleAr}»؟ سيختفي من إشعارات كل التجار ويُفقد عدد القراءات.`),
+      confirm: t("Delete", "حذف"),
+      danger: true,
+    });
+    if (!yes) return;
     await send(`/api/diwan/announcements/${r.id}`, "DELETE");
     s.reload();
   };
@@ -61,16 +73,10 @@ export default function AnnouncementsPage() {
     const a = r.audience as Record<string, unknown>;
     if (Array.isArray(a.accounts)) {
       const names = (a.accounts as unknown[]).map((id) => d.shops[String(id)]?.name ?? `#${id}`);
-      return t(`Shops: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
+      return t(`Stores: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
     }
-    if (Array.isArray(a.plans)) {
-      const names = (a.plans as string[]).map((k) => {
-        const p = d.plans.find((x) => x.key === k);
-        return p ? t(p.nameEn, p.nameAr) : k;
-      });
-      return t(`Plans: ${names.join(", ")}`, `الباقات: ${names.join("، ")}`);
-    }
-    return t("Every shop", "كل المتاجر");
+    if (Array.isArray(a.plans)) return t("Stores on certain plans (older setting)", "متاجر بباقات معينة (إعداد قديم)");
+    return t("Every store", "كل المتاجر");
   };
 
   return (
@@ -84,7 +90,7 @@ export default function AnnouncementsPage() {
       <Loaded s={s}>
         {(d) => (
           <>
-            {form && <Editor form={form} setForm={setForm} plans={d.plans} onSaved={() => { setForm(null); s.reload(); }} />}
+            {form && <Editor form={form} setForm={setForm} onSaved={() => { setForm(null); s.reload(); }} />}
 
             <div className="space-y-3">
               {d.announcements.length === 0 && <p className={`${card} text-center text-sm text-muted`}>{t("No announcements yet.", "لا توجد إعلانات بعد.")}</p>}
@@ -108,7 +114,7 @@ export default function AnnouncementsPage() {
                     </div>
                     <div className="text-end">
                       <p className="text-2xl font-bold tabular-nums">{f.num(r.reads)}<span className="text-sm font-medium text-muted"> / {f.num(r.reach)}</span></p>
-                      <p className="text-xs text-muted">{t("shops read it", "متجر قرأه")}</p>
+                      <p className="text-xs text-muted">{t("stores read it", "متجر قرأه")}</p>
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 border-t border-fg/10 pt-3">
@@ -126,7 +132,7 @@ export default function AnnouncementsPage() {
   );
 }
 
-function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Form | null) => void; plans: Data["plans"]; onSaved: () => void }) {
+function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: () => void }) {
   const t = useT();
   const [q, setQ] = useState("");
   const [found, setFound] = useState<Shop[]>([]);
@@ -150,7 +156,7 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
     titleAr: t("Write the title in Arabic.", "اكتب العنوان بالعربية."),
     bodyEn: t("Write the text in English.", "اكتب النص بالإنجليزية."),
     bodyAr: t("Write the text in Arabic.", "اكتب النص بالعربية."),
-    audience: t("Choose who it is for (at least one shop or plan).", "اختر لمن هو (متجر أو باقة واحدة على الأقل)."),
+    audience: t("Choose who it is for (at least one store).", "اختر لمن هو (متجر واحد على الأقل)."),
     startsAt: t("Check the start date.", "تحقق من تاريخ البداية."),
     endsAt: t("The end must be after the start.", "يجب أن تكون النهاية بعد البداية."),
   };
@@ -193,10 +199,10 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
       <fieldset>
         <legend className={label}>{t("Who sees it", "لمن يظهر")}</legend>
         <div className="flex flex-wrap gap-2">
-          {(["all", "accounts", "plans"] as const).map((w) => (
+          {(["all", "accounts"] as const).map((w) => (
             <label key={w} className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ${form.who === w ? "bg-primary/10 ring-primary" : "ring-fg/15"}`}>
               <input type="radio" name="who" checked={form.who === w} onChange={() => set("who", w)} />
-              {w === "all" ? t("Every shop", "كل المتاجر") : w === "accounts" ? t("Chosen shops", "متاجر محددة") : t("Shops on plans", "متاجر بباقات معينة")}
+              {w === "all" ? t("Every store", "كل المتاجر") : t("Chosen stores", "متاجر محددة")}
             </label>
           ))}
         </div>
@@ -230,15 +236,11 @@ function Editor({ form, setForm, plans, onSaved }: { form: Form; setForm: (f: Fo
             )}
           </div>
         )}
+        {/* plans are gone: an older one set for stores on certain plans keeps that audience until another is chosen */}
         {form.who === "plans" && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {plans.map((p) => (
-              <label key={p.key} className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ring-fg/15">
-                <input type="checkbox" checked={form.plans.includes(p.key)} onChange={(e) => set("plans", e.target.checked ? [...form.plans, p.key] : form.plans.filter((k) => k !== p.key))} />
-                {t(p.nameEn, p.nameAr)}
-              </label>
-            ))}
-          </div>
+          <p className="mt-3 text-sm text-muted">
+            {t("This was set for stores on certain plans, before plans were removed. It stays as it is unless you choose above.", "ضُبط هذا لمتاجر بباقات معينة قبل إلغاء الباقات، ويبقى كما هو ما لم تختر أعلاه.")}
+          </p>
         )}
       </fieldset>
 

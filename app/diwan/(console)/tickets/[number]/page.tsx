@@ -125,7 +125,7 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
 
         <aside className="space-y-4">
           <section className={card}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">{t("Shop", "المتجر")}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">{t("Store", "المتجر")}</p>
             <Link href={`/diwan/shops/${tk.shop.accountId}`} className="mt-1 block text-lg font-bold text-primary hover:underline">{tk.shop.name}</Link>
             <p className="text-sm">{tk.shop.owner}</p>
             <p className="text-sm text-muted" dir="ltr">{tk.shop.email}</p>

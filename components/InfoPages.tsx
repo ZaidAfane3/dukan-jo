@@ -8,6 +8,7 @@ import { cleanLine, cleanLines, visibleLength } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
+import { publicSettings, refreshPublicSettings } from "./platformPublic";
 
 type Bi = { en: string; ar: string };
 export type InfoPage = {
@@ -32,39 +33,17 @@ const card = "rounded-2xl bg-card shadow-sm ring-1 ring-fg/10";
 const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
 
-/* The pages every store starts with. The text is a starting point he can edit. */
-const defaults: Omit<InfoPage, "id" | "created">[] = [
-  {
-    type: 1,
-    published: true,
-    footer: true,
-    title: { en: "Return and exchange policy", ar: "سياسة الاستبدال والاسترجاع" },
-    content: {
-      en: "Return and exchange policy\n\nYou can return or exchange an item within 7 days of receiving it, as long as it is unused and in its original packaging.\n\nTo start a return, contact the store with your order number. Once we receive the item and check it, we refund the amount using the same payment method, or exchange it for another item.\n\nDelivery fees are not refunded unless the item arrived damaged or was not what you ordered.",
-      ar: "سياسة الاستبدال والاسترجاع\n\nيمكنك إرجاع المنتج أو استبداله خلال 7 أيام من استلامه، بشرط أن يكون غير مستخدم وفي عبوته الأصلية.\n\nللبدء بطلب الإرجاع، تواصل مع المتجر ومعك رقم الطلب. بعد استلام المنتج وفحصه، نعيد المبلغ بنفس طريقة الدفع أو نستبدله بمنتج آخر.\n\nلا تُسترد رسوم التوصيل إلا إذا وصل المنتج تالفًا أو مختلفًا عمّا طلبته.",
-    },
-  },
-  {
-    type: 2,
-    published: true,
-    footer: true,
-    title: { en: "Terms and conditions", ar: "الأحكام والشروط" },
-    content: {
-      en: "Terms and conditions\n\nBy using this store and placing an order you agree to these terms.\n\nPrices are shown in Jordanian dinars. We may cancel an order if a product is unavailable or a price was shown by mistake, and in that case you are refunded in full.\n\nAll content on this store, including text, images and logos, belongs to the store and may not be used without permission.\n\nThe store may update these terms from time to time. The version published here is the one that applies.",
-      ar: "الأحكام والشروط\n\nباستخدامك هذا المتجر وإتمامك طلبًا فإنك توافق على هذه الأحكام.\n\nتُعرض الأسعار بالدينار الأردني. يحق للمتجر إلغاء الطلب إذا كان المنتج غير متوفر أو عُرض بسعر خاطئ، وفي هذه الحالة يُعاد إليك المبلغ كاملًا.\n\nجميع محتويات المتجر، بما في ذلك النصوص والصور والشعارات، ملك للمتجر ولا يجوز استخدامها دون إذن.\n\nقد يحدّث المتجر هذه الأحكام من وقت لآخر، والنسخة المنشورة هنا هي المعتمدة.",
-    },
-  },
-  {
-    type: 2,
-    published: true,
-    footer: true,
-    title: { en: "Privacy policy", ar: "سياسة الخصوصية" },
-    content: {
-      en: "Privacy policy\n\nWe collect only what we need to process your order: your name, phone number, email and delivery address.\n\nWe use this information to prepare and deliver your order and to contact you about it. We do not sell your personal information.\n\nYou can ask us to see, correct or delete your information at any time by contacting the store.",
-      ar: "سياسة الخصوصية\n\nنجمع فقط ما نحتاجه لإتمام طلبك: اسمك ورقم جوالك وبريدك الإلكتروني وعنوان التوصيل.\n\nنستخدم هذه المعلومات لتجهيز طلبك وتوصيله والتواصل معك بشأنه. ولا نبيع بياناتك الشخصية.\n\nيمكنك في أي وقت أن تطلب الاطلاع على بياناتك أو تصحيحها أو حذفها بالتواصل مع المتجر.",
-    },
-  },
-];
+/* The pages every store starts with: the return policy, the terms and the privacy policy Dukkan's staff write in Diwan
+   (platform settings, store_legal_templates; the copy this browser has, or the original text). The text is a starting point
+   he can edit: once his pages are saved they are his, and a later change in Diwan reaches only new stores. */
+const defaults = (): Omit<InfoPage, "id" | "created">[] => {
+  const t = publicSettings().store_legal_templates;
+  return [
+    { type: 1, published: true, footer: true, title: { ...t.returns.title }, content: { ...t.returns.body } },
+    { type: 2, published: true, footer: true, title: { ...t.terms.title }, content: { ...t.terms.body } },
+    { type: 2, published: true, footer: true, title: { ...t.privacy.title }, content: { ...t.privacy.body } },
+  ];
+};
 
 const copy = {
   en: {
@@ -154,7 +133,7 @@ export function load(): InfoPage[] {
     /* fall through to the defaults */
   }
   const now = Date.now();
-  return defaults.map((d, i) => ({ ...d, id: i + 1, created: now - i * 1000 }));
+  return defaults().map((d, i) => ({ ...d, id: i + 1, created: now - i * 1000 }));
 }
 
 /** Saves the list of pages (the same list the Info pages dashboard shows) */
@@ -251,8 +230,23 @@ export function InfoPages() {
   }, [lang, c]);
 
   useEffect(() => {
-    setPages(load());
-    setReady(true);
+    /* A store with no pages saved yet gets them now (they are saved below), so it first asks Dukkan for the templates its
+       staff wrote in Diwan: a store opening this page for the first time starts from the latest ones. */
+    let gone = false;
+    let saved = true;
+    try {
+      saved = localStorage.getItem(pagesScope()) !== null;
+    } catch {
+      /* storage blocked: nothing is kept anyway */
+    }
+    void (saved ? Promise.resolve(true) : refreshPublicSettings()).then(() => {
+      if (gone) return;
+      setPages(load());
+      setReady(true);
+    });
+    return () => {
+      gone = true;
+    };
   }, []);
 
   useEffect(() => {

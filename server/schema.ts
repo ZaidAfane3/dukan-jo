@@ -389,9 +389,11 @@ export const DIWAN_SCHEMA = `
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS catalog_themes_store ON catalog_themes (status, sort);
+  -- themes are only live or hidden now: a draft or a theme in review becomes hidden (still only staff see it)
+  UPDATE catalog_themes SET status = 'hidden' WHERE status IN ('draft', 'review');
 
   /* Pages Dukkan's team publishes for merchants, read inside their dashboard (guides, news, rules). Made in Diwan's
-     developer portal (/diwan/pages): draft → live → hidden. audience as in announcements (server/announce.ts). Not
+     marketing pages (/diwan/pages): draft → live → hidden. audience as in announcements (server/announce.ts). Not
      private, so not sealed. */
   /* the Developer role (components/diwan/perms.ts): a database made before it allows it too */
   DO $$ BEGIN
@@ -428,7 +430,7 @@ export const DIWAN_SCHEMA = `
   );
 
   /* Pop-ups Dukkan's team shows merchants in their dashboard (an offer, a new feature, a notice), made in Diwan's
-     developer portal (/diwan/popups): draft → live → ended, between starts_at and ends_at, to an audience as in
+     marketing pages (/diwan/popups): draft → live → ended, between starts_at and ends_at, to an audience as in
      announcements. Each merchant sees one at most once (popup_views); "clicked" counts its button. */
   CREATE TABLE IF NOT EXISTS popups (
     id          BIGSERIAL PRIMARY KEY,

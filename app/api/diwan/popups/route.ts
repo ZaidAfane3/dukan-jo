@@ -6,17 +6,16 @@ import { audit, staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
-/* Pop-ups to merchants, run from Diwan's developer portal (/diwan/popups). A pop-up is made as a draft, then released
+/* Pop-ups to merchants, run from Diwan's marketing pages (/diwan/popups). A pop-up is made as a draft, then released
    (live: shown once to each shop it is for, between its start and end), then ended. Pictures may be picture data, so a
    pop-up can be up to about 600 KB. */
 const MAX = 700_000;
 
 /** Every pop-up, newest first: its step and whether it is showing now, how many shops it is for, saw it and pressed its
-    button. Also the plans (for the audience picker) and the names of the shops chosen in each one. */
+    button. Also the names of the shops chosen in each one. */
 export const GET = staffRoute("announce", async () => {
   const pool = await db();
-  const [list, plans] = await Promise.all([
-    pool.query(
+  const list = await pool.query(
       `SELECT a.*, st.name AS by,
               CASE WHEN a.status <> 'live' THEN a.status
                    WHEN a.starts_at > now() THEN 'scheduled'
@@ -28,16 +27,13 @@ export const GET = staffRoute("announce", async () => {
          FROM popups a LEFT JOIN staff st ON st.id = a.created_by
         ORDER BY a.created_at DESC
         LIMIT 200`,
-    ),
-    pool.query(`SELECT key, name_en, name_ar FROM plans ORDER BY price_month, id`),
-  ]);
+  );
   const ids = Array.from(new Set(list.rows.flatMap((r) => (Array.isArray(r.audience?.accounts) ? r.audience.accounts : []).map(String))));
   const shops = ids.length
     ? (await pool.query(`SELECT a.id, COALESCE(NULLIF(s.name, ''), a.name) AS name, a.email FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = ANY($1::bigint[])`, [ids])).rows
     : [];
   return answer({
     result: "ok",
-    plans: plans.rows.map((p) => ({ key: p.key, nameEn: p.name_en, nameAr: p.name_ar })),
     shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, email: s.email }])),
     popups: list.rows.map((r) => ({
       id: String(r.id),

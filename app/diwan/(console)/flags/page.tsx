@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { askConfirm } from "@/components/diwan/dialogs";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 
 /* Feature flags: a new feature can be off, on for some shops (to try it with a few merchants first) or on for all. The
@@ -20,13 +21,13 @@ export default function FlagsPage() {
   const s = useApi<{ flags: Flag[] }>("/api/diwan/flags");
   /* the flag being edited: its key, or "" for a new one */
   const [editing, setEditing] = useState<string | null>(null);
-  const modeName = (m: Mode) => (m === "off" ? t("Off", "متوقفة") : m === "some" ? t("Some shops", "بعض المتاجر") : t("All shops", "كل المتاجر"));
+  const modeName = (m: Mode) => (m === "off" ? t("Off", "متوقفة") : m === "some" ? t("Some stores", "بعض المتاجر") : t("All stores", "كل المتاجر"));
 
   return (
     <div>
       <PageHead
         title={t("Feature flags", "تفعيل الميزات")}
-        sub={t("Turn a feature on for a few shops first, then for everyone.", "فعّل الميزة لبعض المتاجر أولًا، ثم للجميع.")}
+        sub={t("Turn a feature on for a few stores first, then for everyone.", "فعّل الميزة لبعض المتاجر أولًا، ثم للجميع.")}
         actions={editing === null && <Btn onClick={() => setEditing("")}>{t("New flag", "ميزة جديدة")}</Btn>}
       />
       {editing === "" && <FlagForm start={blank} isNew onDone={() => { setEditing(null); s.reload(); }} />}
@@ -51,7 +52,7 @@ export default function FlagsPage() {
                     </div>
                     {fl.mode === "some" && (
                       <p className="mt-3 text-sm">
-                        {fl.shops.length ? fl.shops.map((x) => x.name).join("، ") : <span className="text-muted">{t("No shops chosen yet: it is on for nobody.", "لم تُختر متاجر بعد: الميزة غير مفعّلة لأحد.")}</span>}
+                        {fl.shops.length ? fl.shops.map((x) => x.name).join("، ") : <span className="text-muted">{t("No stores chosen yet: it is on for nobody.", "لم تُختر متاجر بعد: الميزة غير مفعّلة لأحد.")}</span>}
                       </p>
                     )}
                     <p className="mt-3 text-xs text-muted">{t(`Changed ${f.dateTime(fl.updatedAt)}${fl.by ? ` by ${fl.by}` : ""}`, `عُدّلت ${f.dateTime(fl.updatedAt)}${fl.by ? ` بواسطة ${fl.by}` : ""}`)}</p>
@@ -100,7 +101,13 @@ function FlagForm({ start, isNew = false, onDone }: { start: Draft; isNew?: bool
     else setErr(why(r.data?.result));
   };
   const remove = async () => {
-    if (!window.confirm(t(`Remove the flag "${v.name}"? The feature goes off for every shop.`, `حذف الميزة "${v.name}"؟ ستتوقف لكل المتاجر.`))) return;
+    const yes = await askConfirm({
+      title: t("Remove this flag", "حذف هذه الميزة"),
+      body: t(`Remove the flag "${v.name}"? The feature goes off for every store.`, `حذف الميزة "${v.name}"؟ ستتوقف لكل المتاجر.`),
+      confirm: t("Remove", "حذف"),
+      danger: true,
+    });
+    if (!yes) return;
     setBusy(true);
     const r = await send(`/api/diwan/flags/${encodeURIComponent(v.key)}`, "DELETE");
     setBusy(false);
@@ -131,14 +138,14 @@ function FlagForm({ start, isNew = false, onDone }: { start: Draft; isNew?: bool
           {(["off", "some", "all"] as Mode[]).map((m) => (
             <label key={m} className={`cursor-pointer rounded-xl border px-3 py-2 text-sm font-medium ${v.mode === m ? "border-primary bg-primary/10" : "border-fg/15"}`}>
               <input type="radio" name="fl-mode" className="sr-only" checked={v.mode === m} onChange={() => setV({ ...v, mode: m })} />
-              {m === "off" ? t("Off", "متوقفة") : m === "some" ? t("Some shops", "بعض المتاجر") : t("All shops", "كل المتاجر")}
+              {m === "off" ? t("Off", "متوقفة") : m === "some" ? t("Some stores", "بعض المتاجر") : t("All stores", "كل المتاجر")}
             </label>
           ))}
         </div>
       </fieldset>
       {v.mode === "some" && (
         <div className="space-y-2">
-          <label htmlFor="fl-q" className={label}>{t("Add shops (search by store name, name or email)", "إضافة متاجر (ابحث باسم المتجر أو الاسم أو البريد)")}</label>
+          <label htmlFor="fl-q" className={label}>{t("Add stores (search by store name, name or email)", "إضافة متاجر (ابحث باسم المتجر أو الاسم أو البريد)")}</label>
           <input id="fl-q" className={field} value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
           {found.length > 0 && (
             <ul className="max-h-56 divide-y divide-fg/10 overflow-y-auto rounded-xl border border-fg/10">
@@ -156,7 +163,7 @@ function FlagForm({ start, isNew = false, onDone }: { start: Draft; isNew?: bool
               })}
             </ul>
           )}
-          {q.trim().length >= 2 && !found.length && <p className="text-xs text-muted">{t("No shop matches.", "لا يوجد متجر مطابق.")}</p>}
+          {q.trim().length >= 2 && !found.length && <p className="text-xs text-muted">{t("No store matches.", "لا يوجد متجر مطابق.")}</p>}
           <div className="flex flex-wrap gap-2">
             {v.shops.map((x) => (
               <span key={x.id} className="inline-flex items-center gap-1.5 rounded-full bg-soft px-3 py-1 text-sm">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCatalog } from "./catalog";
+import { usePublicSettings } from "./platformPublic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -29,6 +30,8 @@ export function MyThemes() {
   const w = themeWords[lang].mine;
   /* the themes he bought keep their names and looks from the theme store's list (a theme made in Diwan comes from it) */
   useCatalog();
+  /* the free designs are the default themes Dukkan's staff pick in Diwan */
+  usePublicSettings();
   const [state, setState] = useState<ThemeState | null>(null);
   const [asking, setAsking] = useState<{ id: string; kind: "use" | "reset" | "delete" } | null>(null);
   /* the small filter above the cards: the free designs, the themes he bought (and his copies of them), the designs he saved himself */
@@ -51,7 +54,7 @@ export function MyThemes() {
   /* Drawn once the browser's state is read: the previews show his own store, which the server cannot know (no hydration mismatch) */
   /* the name he gave a theme, if he renamed it */
   const named = (t: ThemeInfo): ThemeInfo => (state?.names?.[t.id] ? { ...t, name: { en: state.names[t.id], ar: state.names[t.id] } } : t);
-  const all = !state ? [] : [...freeThemes.map((t) => ({ at: 0, theme: named(t), kind: "default" as const })), ...bought.map((x) => ({ ...x, theme: named(x.theme), kind: "bought" as const })), ...saved.map((x) => ({ ...x, kind: x.theme.from ? ("copy" as const) : ("saved" as const) }))];
+  const all = !state ? [] : [...freeThemes().map((t) => ({ at: 0, theme: named(t), kind: "default" as const })), ...bought.map((x) => ({ ...x, theme: named(x.theme), kind: "bought" as const })), ...saved.map((x) => ({ ...x, kind: x.theme.from ? ("copy" as const) : ("saved" as const) }))];
   const saveName = () => {
     if (renaming) setState(renameTheme(renaming.id, renaming.name));
     setRenaming(null);
@@ -249,8 +252,8 @@ export function MyThemes() {
         })}
         </div>
 
-        {/* Only the two free designs so far: they are his, so the page does not say "no themes", it points to more */}
-        {state && all.length === freeThemes.length && (
+        {/* Only the free designs so far: they are his, so the page does not say "no themes", it points to more */}
+        {state && all.length === freeThemes().length && (
           <section className={`${card} flex flex-wrap items-center justify-between gap-4 px-6 py-5`}>
             <div className="flex items-center gap-4">
               <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-soft text-primary">
