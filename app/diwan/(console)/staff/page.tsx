@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { roleName } from "@/components/diwan/perms";
 import { passwordWords, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
 
@@ -84,7 +85,7 @@ export default function StaffPage() {
                       >
                         <option value="owner">{t("Owner", "المالك")}</option>
                         <option value="support">{t("Support", "الدعم")}</option>
-                        <option value="developer">{t("Developer", "المطوّر")}</option>
+                        <option value="developer">{t(roleName("developer").en, roleName("developer").ar)}</option>
                       </select>
                     </td>
                     <td className={td}>
@@ -158,7 +159,7 @@ function AddForm({ onDone, why }: { onDone: (text: string) => void; why: (r: { d
         <label htmlFor="st-role" className={label}>{t("Role", "الدور")}</label>
         <select id="st-role" className={field} value={v.role} onChange={(e) => setV({ ...v, role: e.target.value })}>
           <option value="support">{t("Support", "الدعم")}</option>
-          <option value="developer">{t("Marketing (announcements, pop-ups, pages, themes)", "التسويق (الإعلانات والنوافذ والصفحات والثيمات)")}</option>
+          <option value="developer">{t(`${roleName("developer").en} (announcements, pop-ups, pages, themes)`, `${roleName("developer").ar} (الإعلانات والنوافذ والصفحات والثيمات)`)}</option>
           <option value="owner">{t("Owner", "المالك")}</option>
         </select>
       </div>

@@ -57,10 +57,11 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
       /* storage blocked or unreadable: start from the page you are on */
     }
   }, []);
-  /* going to a page in a section you had closed opens it again */
+  /* going to a page in a section you had closed opens it again (watching the address too: a shop's page and the shop
+     list are both in Stores, so the section alone would not change) */
   useEffect(() => {
     if (here) setFolds((f) => (f[here] === false ? { ...f, [here]: true } : f));
-  }, [here]);
+  }, [here, path]);
   const isOpen = (g: NavGroup) => folds[g] ?? g === here;
   const toggle = (g: NavGroup) =>
     setFolds((f) => {
