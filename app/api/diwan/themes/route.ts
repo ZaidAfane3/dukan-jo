@@ -27,7 +27,7 @@ export const GET = staffRoute("marketplace", async () => {
   return answer({ themes, nums });
 });
 
-/** A new theme, made from a copy of a design: { id, name: {en, ar}, design }. It starts as a draft, free, at the end of
+/** A new theme, made from a copy of a design: { id, name: {en, ar}, design }. It starts hidden (only staff see it), free, at the end of
     the list. Answers "ok", "invalid", "taken" (the code name is used). */
 export const POST = staffRoute("marketplace", async (req: NextRequest, me) => {
   const body = await readJson(req, MAX);
@@ -37,7 +37,7 @@ export const POST = staffRoute("marketplace", async (req: NextRequest, me) => {
   if (!themeIdOk(id) || !name || !design || !Array.isArray(design.sections)) return answer({ result: "invalid" }, 400);
   const { rowCount } = await (await db()).query(
     `INSERT INTO catalog_themes (id, source, status, name, price, sort, design, created_by, updated_by)
-     VALUES ($1, 'design', 'draft', $2, 0, (SELECT COALESCE(max(sort), 0) + 10 FROM catalog_themes), $3, $4, $4)
+     VALUES ($1, 'design', 'hidden', $2, 0, (SELECT COALESCE(max(sort), 0) + 10 FROM catalog_themes), $3, $4, $4)
      ON CONFLICT (id) DO NOTHING`,
     [id, JSON.stringify(name), JSON.stringify(design), me.id],
   );

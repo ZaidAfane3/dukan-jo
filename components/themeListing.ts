@@ -9,8 +9,9 @@ import { cleanLine, cleanLines, visibleLength } from "./safe";
    - "design": a theme made in Diwan from a copy of a design, edited in the store designer (/design?catalog=<id>) and kept
      on the server. Everything about it is in the database.
 
-   The steps a theme goes through: draft (being made) → review (ready to check) → live (in the theme store) → hidden
-   (out of the store; merchants who bought it keep it). A code theme is only ever live or hidden. */
+   A theme is either live (in the theme store) or hidden (out of it). A new theme starts hidden, so only staff see it
+   until it is released; a theme taken out of the store stays with the merchants who bought it. The old draft and review
+   steps are gone: start-up turns any left into hidden (server/schema.ts), and they may only move on from there. */
 
 export type Bi = { en: string; ar: string };
 export const THEME_STATUSES = ["draft", "review", "live", "hidden"] as const;
@@ -39,8 +40,8 @@ export type ListingRow = {
 
 /** Where a theme can go from each step */
 export const NEXT_STATUS: Record<ThemeSource, Record<ThemeStatus, ThemeStatus[]>> = {
-  code: { draft: ["live"], review: ["live"], live: ["hidden"], hidden: ["live"] },
-  design: { draft: ["review"], review: ["live", "draft"], live: ["hidden"], hidden: ["live", "draft"] },
+  code: { draft: ["live", "hidden"], review: ["live", "hidden"], live: ["hidden"], hidden: ["live"] },
+  design: { draft: ["live", "hidden"], review: ["live", "hidden"], live: ["hidden"], hidden: ["live"] },
 };
 
 export const LISTING_LIMITS = { name: 40, tagline: 120, about: 1200, feature: 140, features: 12, tag: 30, tags: 6, maxPrice: 1000 };

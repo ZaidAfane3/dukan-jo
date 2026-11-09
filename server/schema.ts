@@ -389,6 +389,8 @@ export const DIWAN_SCHEMA = `
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS catalog_themes_store ON catalog_themes (status, sort);
+  -- themes are only live or hidden now: a draft or a theme in review becomes hidden (still only staff see it)
+  UPDATE catalog_themes SET status = 'hidden' WHERE status IN ('draft', 'review');
 
   /* Pages Dukkan's team publishes for merchants, read inside their dashboard (guides, news, rules). Made in Diwan's
      marketing pages (/diwan/pages): draft → live → hidden. audience as in announcements (server/announce.ts). Not
