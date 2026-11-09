@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
      reset2step                                 forget their 2-step code: they set up a new one at the next sign-in
      password  { password }                     a new temporary password; they choose their own at the next sign-in
    Diwan always keeps one active owner, and an owner can't take away their own role or access here.
-   Answers: "ok", "invalid", "self", "last-owner", "missing", "weak". */
+   Answers: "ok", "invalid", "self", "last-owner", "missing", "weak", "role-later". */
 export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }) => {
   const id = /^\d{1,18}$/.test(params.id ?? "") ? params.id : null;
   const body = await readJson(req, 2_000);
@@ -22,6 +22,9 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
   const reason = cleanLine(body?.reason ?? "", 300) || null;
   if (!id || typeof action !== "string") return answer({ result: "invalid" }, 400);
   if ((action === "role" || action === "active") && id === me.id) return answer({ result: "self" }, 400);
+  /* TODO(roles): allow support/developer again. For now a role can only be changed to owner (the staff page shows the
+     others greyed out as coming later); staff who already have another role keep it until they are made owners. */
+  if (action === "role" && isRole(body?.role) && body.role !== "owner") return answer({ result: "role-later" }, 400);
 
   let hash: string | null = null;
   if (action === "password") {

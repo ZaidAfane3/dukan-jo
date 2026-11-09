@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { askConfirm } from "@/components/diwan/dialogs";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 
 /* Feature flags: a new feature can be off, on for some shops (to try it with a few merchants first) or on for all. The
@@ -100,7 +101,13 @@ function FlagForm({ start, isNew = false, onDone }: { start: Draft; isNew?: bool
     else setErr(why(r.data?.result));
   };
   const remove = async () => {
-    if (!window.confirm(t(`Remove the flag "${v.name}"? The feature goes off for every shop.`, `حذف الميزة "${v.name}"؟ ستتوقف لكل المتاجر.`))) return;
+    const yes = await askConfirm({
+      title: t("Remove this flag", "حذف هذه الميزة"),
+      body: t(`Remove the flag "${v.name}"? The feature goes off for every shop.`, `حذف الميزة "${v.name}"؟ ستتوقف لكل المتاجر.`),
+      confirm: t("Remove", "حذف"),
+      danger: true,
+    });
+    if (!yes) return;
     setBusy(true);
     const r = await send(`/api/diwan/flags/${encodeURIComponent(v.key)}`, "DELETE");
     setBusy(false);

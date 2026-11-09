@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { METHODS, methodText, planName, Select, todayJo } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, DataTable, downloadCsv, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { askConfirm, tell } from "@/components/diwan/dialogs";
 import { FilterBar } from "@/components/diwan/Filters";
 
 type Plan = {
@@ -113,9 +114,14 @@ function Plans() {
   };
 
   const remove = async (p: Plan) => {
-    if (!confirm(t(`Delete the plan "${p.name_en}"?`, `حذف الباقة "${p.name_ar}"؟`))) return;
+    const yes = await askConfirm({ title: t(`Delete the plan "${p.name_en}"?`, `حذف الباقة "${p.name_ar}"؟`), confirm: t("Delete", "حذف"), danger: true });
+    if (!yes) return;
     const r = await send(`/api/diwan/plans/${p.id}`, "DELETE");
-    if (!r.ok) alert(t("This plan has subscriptions, so it can't be deleted. Switch it off instead.", "لهذه الباقة اشتراكات فلا يمكن حذفها. أوقفها بدلًا من ذلك."));
+    if (!r.ok)
+      await tell({
+        title: t("This plan can't be deleted", "لا يمكن حذف هذه الباقة"),
+        body: t("This plan has subscriptions, so it can't be deleted. Switch it off instead.", "لهذه الباقة اشتراكات فلا يمكن حذفها. أوقفها بدلًا من ذلك."),
+      });
     s.reload();
   };
 
