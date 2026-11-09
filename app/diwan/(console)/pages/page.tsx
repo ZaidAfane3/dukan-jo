@@ -1,27 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { AudiencePicker, audienceBody, audienceForm, blankAudience, useAudienceText, type Audience, type AudienceForm, type ShopNames } from "@/components/diwan/AudiencePicker";
+import { MockDashboard, PreviewPanel, PreviewTabs, Screens, type Look } from "@/components/diwan/MerchantPreview";
+import { fromDukkanWords, PageArticle, PageListCard } from "@/components/FromDukkan";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
-import { PAGE_LIMITS, PAGE_NEXT, PAGE_SLUG, PageBody, type PageStatus } from "@/components/dukkanPages";
+import { PAGE_LIMITS, PAGE_NEXT, PAGE_SLUG, type PageStatus } from "@/components/dukkanPages";
 
 /* Dukkan's pages for merchants (guides, news, rules), read in the merchant dashboard at /from-dukkan. Written here in
-   English and Arabic, for every shop, or chosen shops; Draft → Live → Hidden. "In the menu" pins a page at the top
+   English and Arabic, for every store, new stores or chosen stores; Draft → Live → Hidden. "In the menu" pins a page at the top
    of their list. Every change is in the activity log. */
 
-type Audience = { all: true } | { accounts: (number | string)[] } | { plans: string[] };
 type Row = {
   id: string; slug: string; titleEn: string; titleAr: string; summaryEn: string; summaryAr: string; bodyEn: string; bodyAr: string;
   status: PageStatus; inMenu: boolean; sort: number; audience: Audience; publishedAt: string | null; updatedAt: string; by: string | null;
   views: number; reach: number;
 };
-type Data = { pages: Row[]; shops: Record<string, { name: string; email: string }> };
-type Shop = { id: string; name: string; email: string };
+type Data = { pages: Row[]; shops: ShopNames };
 type Form = {
   id: string | null; slug: string; slugTouched: boolean; titleEn: string; titleAr: string; summaryEn: string; summaryAr: string; bodyEn: string; bodyAr: string;
-  inMenu: boolean; sort: string; who: "all" | "accounts" | "plans"; shops: Shop[]; plans: string[];
+  inMenu: boolean; sort: string; audience: AudienceForm;
 };
 
-const blank = (): Form => ({ id: null, slug: "", slugTouched: false, titleEn: "", titleAr: "", summaryEn: "", summaryAr: "", bodyEn: "", bodyAr: "", inMenu: false, sort: "100", who: "all", shops: [], plans: [] });
+const blank = (): Form => ({ id: null, slug: "", slugTouched: false, titleEn: "", titleAr: "", summaryEn: "", summaryAr: "", bodyEn: "", bodyAr: "", inMenu: false, sort: "100", audience: blankAudience() });
 const STATUS_TONE: Record<PageStatus, Tone> = { draft: "grey", live: "green", hidden: "red" };
 const slugOf = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 61);
 
@@ -44,13 +45,10 @@ export default function PagesPage() {
   const [form, setForm] = useState<Form | null>(null);
 
   const edit = (r: Row, d: Data) => {
-    const a = r.audience as Record<string, unknown>;
     setForm({
       id: r.id, slug: r.slug, slugTouched: true, titleEn: r.titleEn, titleAr: r.titleAr, summaryEn: r.summaryEn, summaryAr: r.summaryAr, bodyEn: r.bodyEn, bodyAr: r.bodyAr,
       inMenu: r.inMenu, sort: String(r.sort),
-      who: Array.isArray(a.accounts) ? "accounts" : Array.isArray(a.plans) ? "plans" : "all",
-      shops: Array.isArray(a.accounts) ? (a.accounts as unknown[]).map((id) => ({ id: String(id), name: d.shops[String(id)]?.name ?? `#${id}`, email: d.shops[String(id)]?.email ?? "" })) : [],
-      plans: Array.isArray(a.plans) ? (a.plans as string[]) : [],
+      audience: audienceForm(r.audience, d.shops),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -82,20 +80,11 @@ export default function PagesPage() {
   );
 }
 
-function audienceText(t: ReturnType<typeof useT>, r: Row, d: Data) {
-  const a = r.audience as Record<string, unknown>;
-  if (Array.isArray(a.accounts)) {
-    const names = (a.accounts as unknown[]).map((id) => d.shops[String(id)]?.name ?? `#${id}`);
-    return t(`Stores: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
-  }
-  if (Array.isArray(a.plans)) return t("Stores on certain plans (older setting)", "متاجر بباقات معينة (إعداد قديم)");
-  return t("Every store", "كل المتاجر");
-}
-
 function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void; reload: () => void }) {
   const t = useT();
   const f = useFmt();
   const w = useWords();
+  const audienceOf = useAudienceText();
   const [asking, setAsking] = useState<PageStatus | "delete" | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -124,7 +113,7 @@ function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={STATUS_TONE[r.status]}>{w.status(r.status)}</Badge>
             {r.inMenu && <Badge tone="primary">{t("Pinned", "مثبّتة")}</Badge>}
-            <span className="text-xs text-muted">{audienceText(t, r, d)}</span>
+            <span className="text-xs text-muted">{audienceOf(r.audience, d.shops)}</span>
           </div>
           <h2 className="mt-2 break-words font-bold">{t(r.titleEn, r.titleAr)}</h2>
           {t(r.summaryEn, r.summaryAr) && <p className="mt-1 line-clamp-2 break-words text-sm text-muted">{t(r.summaryEn, r.summaryAr)}</p>}
@@ -169,24 +158,12 @@ function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void
 
 function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: () => void }) {
   const t = useT();
-  const [q, setQ] = useState("");
-  const [found, setFound] = useState<Shop[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [look, setLook] = useState<"en" | "ar">("ar");
+  const [look, setLook] = useState<Look>({ lang: "ar", phone: false });
+  const [view, setView] = useState<"list" | "page">("list");
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm({ ...form, [k]: v });
   const slug = form.slugTouched ? form.slug : slugOf(form.titleEn);
-
-  /* shop search, a moment after typing stops (the same search as announcements) */
-  useEffect(() => {
-    if (form.who !== "accounts" || q.trim().length < 2) return setFound([]);
-    const id = window.setTimeout(async () => {
-      const r = await fetch(`/api/diwan/announcements/shops?q=${encodeURIComponent(q.trim())}`, { credentials: "same-origin" });
-      const j = await r.json().catch(() => null);
-      setFound(Array.isArray(j?.shops) ? j.shops : []);
-    }, 300);
-    return () => window.clearTimeout(id);
-  }, [q, form.who]);
 
   const fields: Record<string, string> = {
     slug: t("The address: small English letters, digits and dashes (at least 2).", "العنوان: أحرف إنجليزية صغيرة وأرقام وشَرطات (حرفان على الأقل)."),
@@ -200,10 +177,9 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
     e.preventDefault();
     setErr("");
     if (!PAGE_SLUG.test(slug)) return setErr(fields.slug);
-    const audience = form.who === "all" ? { all: true } : form.who === "accounts" ? { accounts: form.shops.map((x) => x.id) } : { plans: form.plans };
     const body = {
       slug, titleEn: form.titleEn, titleAr: form.titleAr, summaryEn: form.summaryEn, summaryAr: form.summaryAr, bodyEn: form.bodyEn, bodyAr: form.bodyAr,
-      inMenu: form.inMenu, sort: Number(form.sort || 100), audience,
+      inMenu: form.inMenu, sort: Number(form.sort || 100), audience: audienceBody(form.audience),
     };
     setBusy(true);
     const r = form.id ? await send(`/api/diwan/pages/${form.id}`, "PATCH", body) : await send("/api/diwan/pages", "POST", body);
@@ -218,115 +194,106 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
     "Blank line: new paragraph · “## ” heading · “- ” list · [words](https://… or /path) link",
     "سطر فارغ: فقرة جديدة · «## » عنوان · «- » قائمة · [كلمات](https://… أو /path) رابط",
   );
-  const pv = look === "en" ? { title: form.titleEn, summary: form.summaryEn, body: form.bodyEn } : { title: form.titleAr, summary: form.summaryAr, body: form.bodyAr };
+  const toLang = (l: "en" | "ar") => () => setLook({ ...look, lang: l });
+
+  /* the preview: "From Dukkan" in the side menu, the page in its list (pinned ones first), and the page opened */
+  const L = look.lang;
+  const w = fromDukkanWords[L];
+  const page = {
+    slug, titleEn: form.titleEn || "Title", titleAr: form.titleAr || "العنوان", summaryEn: form.summaryEn, summaryAr: form.summaryAr,
+    bodyEn: form.bodyEn || "No text yet.", bodyAr: form.bodyAr || "لا يوجد نص بعد.", inMenu: form.inMenu, publishedAt: new Date().toISOString(), seen: false,
+  };
+  const other = <div className="space-y-3 rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10"><span className="block h-2.5 w-1/4 rounded-full bg-fg/10" /><span className="block h-4 w-2/3 rounded-full bg-fg/[0.08]" /><span className="block h-2.5 w-1/2 rounded-full bg-fg/10" /></div>;
+  const list = (
+    <>
+      <div>
+        <h1 className="text-xl font-extrabold">{w.title}</h1>
+        <p className="mt-1 text-sm text-muted">{w.sub}</p>
+      </div>
+      <div className="space-y-3">
+        {!form.inMenu && other}
+        <div className="rounded-2xl ring-2 ring-primary ring-offset-2 ring-offset-page"><PageListCard page={page} lang={L} href={null} /></div>
+        {other}
+      </div>
+    </>
+  );
+  const opened = (
+    <>
+      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted"><span aria-hidden className="rtl:-scale-x-100">←</span>{w.back}</span>
+      <PageArticle page={page} lang={L} />
+    </>
+  );
+  const dash = (key: string, drawer: boolean, children: React.ReactNode) => (
+    <MockDashboard key={key} {...look} active="dukkan" tab={w.title} drawer={drawer} bell={{ unread: 0, items: null }}>{children}</MockDashboard>
+  );
 
   return (
-    <form onSubmit={save} className={`${card} mb-6 space-y-5`}>
-      <h2 className="text-lg font-bold">{form.id ? t("Edit page", "تعديل الصفحة") : t("New page", "صفحة جديدة")}</h2>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div dir="ltr" lang="en">
-          <label className={label} htmlFor="pten">Title (English) *</label>
-          <input id="pten" className={field} maxLength={PAGE_LIMITS.title} value={form.titleEn} onChange={(e) => set("titleEn", e.target.value)} />
-          <label className={`${label} mt-3`} htmlFor="psen">Short line (English)</label>
-          <input id="psen" className={field} maxLength={PAGE_LIMITS.summary} value={form.summaryEn} onChange={(e) => set("summaryEn", e.target.value)} />
-          <label className={`${label} mt-3`} htmlFor="pben">Text (English)</label>
-          <textarea id="pben" className={area} rows={10} maxLength={PAGE_LIMITS.body} value={form.bodyEn} onChange={(e) => set("bodyEn", e.target.value)} />
-        </div>
-        <div dir="rtl" lang="ar">
-          <label className={label} htmlFor="ptar">العنوان (بالعربية) *</label>
-          <input id="ptar" className={field} maxLength={PAGE_LIMITS.title} value={form.titleAr} onChange={(e) => set("titleAr", e.target.value)} />
-          <label className={`${label} mt-3`} htmlFor="psar">سطر قصير (بالعربية)</label>
-          <input id="psar" className={field} maxLength={PAGE_LIMITS.summary} value={form.summaryAr} onChange={(e) => set("summaryAr", e.target.value)} />
-          <label className={`${label} mt-3`} htmlFor="pbar">النص (بالعربية)</label>
-          <textarea id="pbar" className={area} rows={10} maxLength={PAGE_LIMITS.body} value={form.bodyAr} onChange={(e) => set("bodyAr", e.target.value)} />
-        </div>
-      </div>
-      <p className="-mt-2 text-xs text-muted">{hint}</p>
-
-      {/* how the merchant sees it */}
-      <div className="rounded-2xl bg-soft p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <p className="text-sm font-bold">{t("How merchants see it", "كيف يراها التجار")}</p>
-          <div className="flex gap-1 rounded-lg bg-card p-1 text-xs font-semibold" role="tablist">
-            {(["ar", "en"] as const).map((l) => (
-              <button key={l} type="button" role="tab" aria-selected={look === l} onClick={() => setLook(l)} className={`rounded-md px-3 py-1 ${look === l ? "bg-ink text-onink" : "text-muted hover:text-fg"}`}>
-                {l === "ar" ? "العربية" : "English"}
-              </button>
-            ))}
-          </div>
-        </div>
-        <article dir={look === "ar" ? "rtl" : "ltr"} lang={look} className="rounded-xl bg-card p-5 ring-1 ring-fg/10">
-          <h1 className="text-xl font-extrabold">{pv.title || <span className="text-muted">{look === "ar" ? "العنوان" : "Title"}</span>}</h1>
-          {pv.summary && <p className="mt-1 text-sm text-muted">{pv.summary}</p>}
-          {pv.body ? <PageBody text={pv.body} className="mt-4" /> : <p className="mt-4 text-sm text-muted">{look === "ar" ? "لا يوجد نص بعد." : "No text yet."}</p>}
-        </article>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div>
-          <label className={label} htmlFor="pslug">{t("Address", "العنوان في الرابط")}</label>
-          <div className="flex items-center gap-1" dir="ltr">
-            <span className="text-xs text-muted">/from-dukkan/</span>
-            <input id="pslug" className={field} maxLength={61} value={slug} onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase(), slugTouched: true })} />
-          </div>
-        </div>
-        <div>
-          <label className={label} htmlFor="psort">{t("Place in the list", "الترتيب في القائمة")}</label>
-          <input id="psort" inputMode="numeric" dir="ltr" className={field} value={form.sort} onChange={(e) => set("sort", e.target.value.replace(/\D/g, ""))} />
-        </div>
-        <label className="flex items-center gap-2 self-end pb-2 text-sm font-semibold">
-          <input type="checkbox" checked={form.inMenu} onChange={(e) => set("inMenu", e.target.checked)} />
-          {t("Pin it at the top of their list", "تثبيتها أعلى قائمتهم")}
-        </label>
-      </div>
-
-      <fieldset>
-        <legend className={label}>{t("Who sees it", "لمن تظهر")}</legend>
-        <div className="flex flex-wrap gap-2">
-          {(["all", "accounts"] as const).map((w) => (
-            <label key={w} className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ${form.who === w ? "bg-primary/10 ring-primary" : "ring-fg/15"}`}>
-              <input type="radio" name="pwho" checked={form.who === w} onChange={() => set("who", w)} />
-              {w === "all" ? t("Every store", "كل المتاجر") : t("Chosen stores", "متاجر محددة")}
-            </label>
-          ))}
-        </div>
-        {form.who === "accounts" && (
-          <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap gap-2">
-              {form.shops.map((x) => (
-                <span key={x.id} className="inline-flex items-center gap-1.5 rounded-full bg-soft px-3 py-1 text-xs font-semibold">
-                  {x.name}
-                  <button type="button" onClick={() => set("shops", form.shops.filter((y) => y.id !== x.id))} aria-label={t("Remove", "إزالة")} className="text-muted hover:text-red-600">×</button>
-                </span>
-              ))}
+    <form onSubmit={save} className={`${card} mb-6`}>
+      <h2 className="mb-4 text-lg font-bold">{form.id ? t("Edit page", "تعديل الصفحة") : t("New page", "صفحة جديدة")}</h2>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div dir="ltr" lang="en">
+              <label className={label} htmlFor="pten">Title (English) *</label>
+              <input id="pten" className={field} maxLength={PAGE_LIMITS.title} value={form.titleEn} onChange={(e) => set("titleEn", e.target.value)} onFocus={toLang("en")} />
+              <label className={`${label} mt-3`} htmlFor="psen">Short line (English)</label>
+              <input id="psen" className={field} maxLength={PAGE_LIMITS.summary} value={form.summaryEn} onChange={(e) => set("summaryEn", e.target.value)} onFocus={toLang("en")} />
+              <label className={`${label} mt-3`} htmlFor="pben">Text (English)</label>
+              <textarea id="pben" className={area} rows={10} maxLength={PAGE_LIMITS.body} value={form.bodyEn} onChange={(e) => set("bodyEn", e.target.value)} onFocus={() => { setLook({ ...look, lang: "en" }); setView("page"); }} />
             </div>
-            <input className={`${field} max-w-md`} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search by store name or email…", "ابحث باسم المتجر أو البريد…")} />
-            {!!found.length && (
-              <ul className="max-w-md divide-y divide-fg/10 rounded-xl ring-1 ring-fg/10">
-                {found.map((x) => (
-                  <li key={x.id}>
-                    <button type="button" disabled={form.shops.some((y) => y.id === x.id)} onClick={() => set("shops", [...form.shops, x])} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-start text-sm hover:bg-soft disabled:opacity-50">
-                      <span className="font-medium">{x.name}</span>
-                      <span className="text-xs text-muted" dir="ltr">{x.email}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div dir="rtl" lang="ar">
+              <label className={label} htmlFor="ptar">العنوان (بالعربية) *</label>
+              <input id="ptar" className={field} maxLength={PAGE_LIMITS.title} value={form.titleAr} onChange={(e) => set("titleAr", e.target.value)} onFocus={toLang("ar")} />
+              <label className={`${label} mt-3`} htmlFor="psar">سطر قصير (بالعربية)</label>
+              <input id="psar" className={field} maxLength={PAGE_LIMITS.summary} value={form.summaryAr} onChange={(e) => set("summaryAr", e.target.value)} onFocus={toLang("ar")} />
+              <label className={`${label} mt-3`} htmlFor="pbar">النص (بالعربية)</label>
+              <textarea id="pbar" className={area} rows={10} maxLength={PAGE_LIMITS.body} value={form.bodyAr} onChange={(e) => set("bodyAr", e.target.value)} onFocus={() => { setLook({ ...look, lang: "ar" }); setView("page"); }} />
+            </div>
           </div>
-        )}
-        {/* plans are gone: an older one set for stores on certain plans keeps that audience until another is chosen */}
-        {form.who === "plans" && (
-          <p className="mt-3 text-sm text-muted">
-            {t("This was set for stores on certain plans, before plans were removed. It stays as it is unless you choose above.", "ضُبط هذا لمتاجر بباقات معينة قبل إلغاء الباقات، ويبقى كما هو ما لم تختر أعلاه.")}
-          </p>
-        )}
-      </fieldset>
+          <p className="-mt-2 text-xs text-muted">{hint}</p>
 
-      {err && <p role="alert" className="text-sm font-semibold text-red-600">{err}</p>}
-      <div className="flex flex-wrap gap-2">
-        <Btn type="submit" disabled={busy}>{busy ? t("Saving…", "جارٍ الحفظ…") : form.id ? t("Save changes", "حفظ التعديلات") : t("Save as draft", "حفظ كمسودة")}</Btn>
-        <Btn kind="ghost" type="button" onClick={() => setForm(null)}>{t("Cancel", "إلغاء")}</Btn>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className={label} htmlFor="pslug">{t("Address", "العنوان في الرابط")}</label>
+              <div className="flex items-center gap-1" dir="ltr">
+                <span className="shrink-0 whitespace-nowrap text-xs text-muted">/from-dukkan/</span>
+                <input id="pslug" className={field} maxLength={61} value={slug} onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase(), slugTouched: true })} />
+              </div>
+            </div>
+            <div>
+              <label className={label} htmlFor="psort">{t("Place in the list", "الترتيب في القائمة")}</label>
+              <input id="psort" inputMode="numeric" dir="ltr" className={field} value={form.sort} onChange={(e) => set("sort", e.target.value.replace(/\D/g, ""))} />
+            </div>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm font-semibold">
+              <input type="checkbox" checked={form.inMenu} onChange={(e) => { set("inMenu", e.target.checked); setView("list"); }} />
+              {t("Pin it at the top of their list", "تثبيتها أعلى قائمتهم")}
+            </label>
+          </div>
+
+          <AudiencePicker name="pwho" value={form.audience} onChange={(v) => set("audience", v)} />
+
+          {err && <p role="alert" className="text-sm font-semibold text-red-600">{err}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Btn type="submit" disabled={busy}>{busy ? t("Saving…", "جارٍ الحفظ…") : form.id ? t("Save changes", "حفظ التعديلات") : t("Save as draft", "حفظ كمسودة")}</Btn>
+            <Btn kind="ghost" type="button" onClick={() => setForm(null)}>{t("Cancel", "إلغاء")}</Btn>
+          </div>
+        </div>
+
+        <div className="min-w-0 xl:sticky xl:top-20 xl:self-start">
+          <PreviewPanel
+            look={look}
+            setLook={setLook}
+            tools={<PreviewTabs value={view} onChange={setView} label={t("View", "العرض")} items={[["list", t("In the list", "في القائمة")], ["page", t("Opened", "مفتوحة")]]} />}
+            caption={view === "list"
+              ? t("Under “From Dukkan” in their side menu, in the list of Dukkan's pages.", "تحت «من دكّان» في القائمة الجانبية، ضمن قائمة صفحات دكّان.")
+              : t("The page, when they open it from the list.", "الصفحة عندما يفتحونها من القائمة.")}
+          >
+            <Screens phone={look.phone}>
+              {view === "list" && look.phone ? dash("menu", true, list) : null}
+              {view === "list" ? dash("list", false, list) : dash("page", false, opened)}
+            </Screens>
+          </PreviewPanel>
+        </div>
       </div>
     </form>
   );

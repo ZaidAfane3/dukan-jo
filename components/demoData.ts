@@ -144,7 +144,6 @@ export function demoSeed(lang: Lang): { local: Record<string, string>; session: 
       "seen-freedelivery": JSON.stringify({ on: true, min: 25 }),
     },
     session: {
-      "seen-welcomed": "1",
       "seen-notifications": JSON.stringify(notifications),
       "seen-account-profile": JSON.stringify({ name: L("Demo owner", "صاحب المتجر"), email: "demo@example.com", phone: "70 000 0000" }),
     },

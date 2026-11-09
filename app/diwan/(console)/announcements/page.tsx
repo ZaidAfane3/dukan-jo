@@ -1,23 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { AudiencePicker, audienceBody, audienceForm, blankAudience, useAudienceText, type Audience, type AudienceForm, type ShopNames } from "@/components/diwan/AudiencePicker";
 import { askConfirm } from "@/components/diwan/dialogs";
+import { HomeSketch, MockDashboard, PreviewPanel, Screens, type Look } from "@/components/diwan/MerchantPreview";
+import { AnnouncementCard } from "@/components/AnnouncementBanner";
+import { content } from "@/components/content";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 
 /* Announcements to merchants: written in English and Arabic, for everyone, or chosen shops, shown in the
    merchants' bell (and as a banner on their home page when asked) between a start and an optional end. "Read by" counts
    the shops that opened or dismissed it. Everything here is live from the database; every change is in the activity log. */
 
-type Audience = { all: true } | { accounts: (number | string)[] } | { plans: string[] };
 type Row = {
   id: string; titleEn: string; titleAr: string; bodyEn: string; bodyAr: string; audience: Audience; banner: boolean;
   startsAt: string; endsAt: string | null; createdAt: string; by: string | null; status: "scheduled" | "live" | "ended"; reads: number; reach: number;
 };
-type Data = { announcements: Row[]; shops: Record<string, { name: string; email: string }> };
-type Shop = { id: string; name: string; email: string };
+type Data = { announcements: Row[]; shops: ShopNames };
 type Form = {
   id: string | null; titleEn: string; titleAr: string; bodyEn: string; bodyAr: string;
-  who: "all" | "accounts" | "plans"; shops: Shop[]; plans: string[]; banner: boolean; startsAt: string; endsAt: string;
+  audience: AudienceForm; banner: boolean; startsAt: string; endsAt: string;
 };
 
 /** An ISO time as the value of a datetime-local field (in this computer's time) */
@@ -26,7 +28,7 @@ const toLocal = (iso: string | null) => {
   const d = new Date(iso);
   return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
-const blank = (): Form => ({ id: null, titleEn: "", titleAr: "", bodyEn: "", bodyAr: "", who: "all", shops: [], plans: [], banner: true, startsAt: toLocal(new Date().toISOString()), endsAt: "" });
+const blank = (): Form => ({ id: null, titleEn: "", titleAr: "", bodyEn: "", bodyAr: "", audience: blankAudience(), banner: true, startsAt: toLocal(new Date().toISOString()), endsAt: "" });
 const STATUS_TONE: Record<Row["status"], Tone> = { scheduled: "blue", live: "green", ended: "grey" };
 
 export default function AnnouncementsPage() {
@@ -36,12 +38,9 @@ export default function AnnouncementsPage() {
   const [form, setForm] = useState<Form | null>(null);
 
   const edit = (r: Row, d: Data) => {
-    const a = r.audience as Record<string, unknown>;
     setForm({
       id: r.id, titleEn: r.titleEn, titleAr: r.titleAr, bodyEn: r.bodyEn, bodyAr: r.bodyAr,
-      who: Array.isArray(a.accounts) ? "accounts" : Array.isArray(a.plans) ? "plans" : "all",
-      shops: Array.isArray(a.accounts) ? (a.accounts as unknown[]).map((id) => ({ id: String(id), name: d.shops[String(id)]?.name ?? `#${id}`, email: d.shops[String(id)]?.email ?? "" })) : [],
-      plans: Array.isArray(a.plans) ? (a.plans as string[]) : [],
+      audience: audienceForm(r.audience, d.shops),
       banner: r.banner, startsAt: toLocal(r.startsAt), endsAt: toLocal(r.endsAt),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -69,15 +68,8 @@ export default function AnnouncementsPage() {
     s.reload();
   };
 
-  const audienceText = (r: Row, d: Data) => {
-    const a = r.audience as Record<string, unknown>;
-    if (Array.isArray(a.accounts)) {
-      const names = (a.accounts as unknown[]).map((id) => d.shops[String(id)]?.name ?? `#${id}`);
-      return t(`Stores: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`, `متاجر: ${names.slice(0, 4).join("، ")}${names.length > 4 ? ` +${names.length - 4}` : ""}`);
-    }
-    if (Array.isArray(a.plans)) return t("Stores on certain plans (older setting)", "متاجر بباقات معينة (إعداد قديم)");
-    return t("Every store", "كل المتاجر");
-  };
+  const audienceOf = useAudienceText();
+  const audienceText = (r: Row, d: Data) => audienceOf(r.audience, d.shops);
 
   return (
     <div>
@@ -134,22 +126,10 @@ export default function AnnouncementsPage() {
 
 function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: () => void }) {
   const t = useT();
-  const [q, setQ] = useState("");
-  const [found, setFound] = useState<Shop[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [look, setLook] = useState<Look>({ lang: "ar", phone: false });
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm({ ...form, [k]: v });
-
-  /* shop search, a moment after typing stops */
-  useEffect(() => {
-    if (form.who !== "accounts" || q.trim().length < 2) return setFound([]);
-    const id = window.setTimeout(async () => {
-      const r = await fetch(`/api/diwan/announcements/shops?q=${encodeURIComponent(q.trim())}`, { credentials: "same-origin" });
-      const j = await r.json().catch(() => null);
-      setFound(Array.isArray(j?.shops) ? j.shops : []);
-    }, 300);
-    return () => window.clearTimeout(id);
-  }, [q, form.who]);
 
   const fields: Record<string, string> = {
     titleEn: t("Write the title in English.", "اكتب العنوان بالإنجليزية."),
@@ -164,9 +144,8 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr("");
-    const audience = form.who === "all" ? { all: true } : form.who === "accounts" ? { accounts: form.shops.map((x) => x.id) } : { plans: form.plans };
     const body = {
-      titleEn: form.titleEn, titleAr: form.titleAr, bodyEn: form.bodyEn, bodyAr: form.bodyAr, audience, banner: form.banner,
+      titleEn: form.titleEn, titleAr: form.titleAr, bodyEn: form.bodyEn, bodyAr: form.bodyAr, audience: audienceBody(form.audience), banner: form.banner,
       startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : null,
       endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
     };
@@ -178,91 +157,81 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
   };
 
   const label = "mb-1 block text-sm font-semibold";
+  /* the preview: the banner on the home page (when asked for) and the bell, open, with the announcement at the top */
+  const L = look.lang;
+  const title = (L === "ar" ? form.titleAr : form.titleEn) || (L === "ar" ? "العنوان هنا" : "Your title");
+  const text = L === "ar" ? form.bodyAr : form.bodyEn;
+  const bellItems = [{ id: "preview", kind: "announcement" as const, read: false, text: title, body: text, when: new Intl.RelativeTimeFormat(L, { numeric: "auto" }).format(-1, "minute") }];
+  const tab = content[L].home.summaryTab;
+  const banner = form.banner ? <AnnouncementCard lang={L} title={title} body={text} /> : null;
+  const toLang = (l: "en" | "ar") => () => setLook({ ...look, lang: l });
   return (
-    <form onSubmit={save} className={`${card} mb-6 space-y-4`}>
-      <h2 className="text-lg font-bold">{form.id ? t("Edit announcement", "تعديل الإعلان") : t("New announcement", "إعلان جديد")}</h2>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div dir="ltr">
-          <label className={label} htmlFor="ten">Title (English) *</label>
-          <input id="ten" className={field} maxLength={120} value={form.titleEn} onChange={(e) => set("titleEn", e.target.value)} />
-          <label className={`${label} mt-3`} htmlFor="ben">Text (English) *</label>
-          <textarea id="ben" className={area} rows={4} maxLength={2000} value={form.bodyEn} onChange={(e) => set("bodyEn", e.target.value)} />
-        </div>
-        <div dir="rtl">
-          <label className={label} htmlFor="tar">العنوان (بالعربية) *</label>
-          <input id="tar" className={field} maxLength={120} value={form.titleAr} onChange={(e) => set("titleAr", e.target.value)} />
-          <label className={`${label} mt-3`} htmlFor="bar">النص (بالعربية) *</label>
-          <textarea id="bar" className={area} rows={4} maxLength={2000} value={form.bodyAr} onChange={(e) => set("bodyAr", e.target.value)} />
-        </div>
-      </div>
-
-      <fieldset>
-        <legend className={label}>{t("Who sees it", "لمن يظهر")}</legend>
-        <div className="flex flex-wrap gap-2">
-          {(["all", "accounts"] as const).map((w) => (
-            <label key={w} className={`flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm ring-1 ${form.who === w ? "bg-primary/10 ring-primary" : "ring-fg/15"}`}>
-              <input type="radio" name="who" checked={form.who === w} onChange={() => set("who", w)} />
-              {w === "all" ? t("Every store", "كل المتاجر") : t("Chosen stores", "متاجر محددة")}
-            </label>
-          ))}
-        </div>
-        {form.who === "accounts" && (
-          <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap gap-2">
-              {form.shops.map((x) => (
-                <span key={x.id} className="inline-flex items-center gap-1.5 rounded-full bg-soft px-3 py-1 text-xs font-semibold">
-                  {x.name}
-                  <button type="button" onClick={() => set("shops", form.shops.filter((y) => y.id !== x.id))} aria-label={t("Remove", "إزالة")} className="text-muted hover:text-red-600">×</button>
-                </span>
-              ))}
+    <form onSubmit={save} className={`${card} mb-6`}>
+      <h2 className="mb-4 text-lg font-bold">{form.id ? t("Edit announcement", "تعديل الإعلان") : t("New announcement", "إعلان جديد")}</h2>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div dir="ltr" lang="en">
+              <label className={label} htmlFor="ten">Title (English) *</label>
+              <input id="ten" className={field} maxLength={120} value={form.titleEn} onChange={(e) => set("titleEn", e.target.value)} onFocus={toLang("en")} />
+              <label className={`${label} mt-3`} htmlFor="ben">Text (English) *</label>
+              <textarea id="ben" className={area} rows={4} maxLength={2000} value={form.bodyEn} onChange={(e) => set("bodyEn", e.target.value)} onFocus={toLang("en")} />
             </div>
-            <input className={`${field} max-w-md`} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search by store name or email…", "ابحث باسم المتجر أو البريد…")} />
-            {!!found.length && (
-              <ul className="max-w-md divide-y divide-fg/10 rounded-xl ring-1 ring-fg/10">
-                {found.map((x) => (
-                  <li key={x.id}>
-                    <button
-                      type="button"
-                      disabled={form.shops.some((y) => y.id === x.id)}
-                      onClick={() => set("shops", [...form.shops, x])}
-                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-start text-sm hover:bg-soft disabled:opacity-50"
-                    >
-                      <span className="font-medium">{x.name}</span>
-                      <span className="text-xs text-muted" dir="ltr">{x.email}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div dir="rtl" lang="ar">
+              <label className={label} htmlFor="tar">العنوان (بالعربية) *</label>
+              <input id="tar" className={field} maxLength={120} value={form.titleAr} onChange={(e) => set("titleAr", e.target.value)} onFocus={toLang("ar")} />
+              <label className={`${label} mt-3`} htmlFor="bar">النص (بالعربية) *</label>
+              <textarea id="bar" className={area} rows={4} maxLength={2000} value={form.bodyAr} onChange={(e) => set("bodyAr", e.target.value)} onFocus={toLang("ar")} />
+            </div>
           </div>
-        )}
-        {/* plans are gone: an older one set for stores on certain plans keeps that audience until another is chosen */}
-        {form.who === "plans" && (
-          <p className="mt-3 text-sm text-muted">
-            {t("This was set for stores on certain plans, before plans were removed. It stays as it is unless you choose above.", "ضُبط هذا لمتاجر بباقات معينة قبل إلغاء الباقات، ويبقى كما هو ما لم تختر أعلاه.")}
-          </p>
-        )}
-      </fieldset>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div>
-          <label className={label} htmlFor="sa">{t("Starts", "يبدأ")}</label>
-          <input id="sa" type="datetime-local" className={field} value={form.startsAt} onChange={(e) => set("startsAt", e.target.value)} />
-        </div>
-        <div>
-          <label className={label} htmlFor="ea">{t("Ends (optional)", "ينتهي (اختياري)")}</label>
-          <input id="ea" type="datetime-local" className={field} value={form.endsAt} onChange={(e) => set("endsAt", e.target.value)} />
-        </div>
-        <label className="flex items-center gap-2 self-end pb-2 text-sm font-semibold">
-          <input type="checkbox" checked={form.banner} onChange={(e) => set("banner", e.target.checked)} />
-          {t("Also show as a banner on their home page", "أظهره أيضًا كشريط في صفحتهم الرئيسية")}
-        </label>
-      </div>
+          <AudiencePicker name="who" value={form.audience} onChange={(v) => set("audience", v)} />
 
-      {err && <p className="text-sm text-red-600">{err}</p>}
-      <div className="flex flex-wrap gap-2">
-        <Btn type="submit" disabled={busy}>{busy ? t("Saving…", "جارٍ الحفظ…") : form.id ? t("Save changes", "حفظ التعديلات") : t("Publish", "نشر")}</Btn>
-        <Btn kind="ghost" type="button" onClick={() => setForm(null)}>{t("Cancel", "إلغاء")}</Btn>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={label} htmlFor="sa">{t("Starts", "يبدأ")}</label>
+              <input id="sa" type="datetime-local" className={field} value={form.startsAt} onChange={(e) => set("startsAt", e.target.value)} />
+            </div>
+            <div>
+              <label className={label} htmlFor="ea">{t("Ends (optional)", "ينتهي (اختياري)")}</label>
+              <input id="ea" type="datetime-local" className={field} value={form.endsAt} onChange={(e) => set("endsAt", e.target.value)} />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm font-semibold">
+            <input type="checkbox" checked={form.banner} onChange={(e) => set("banner", e.target.checked)} />
+            {t("Also show as a banner on their home page", "أظهره أيضًا كشريط في صفحتهم الرئيسية")}
+          </label>
+
+          {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Btn type="submit" disabled={busy}>{busy ? t("Saving…", "جارٍ الحفظ…") : form.id ? t("Save changes", "حفظ التعديلات") : t("Publish", "نشر")}</Btn>
+            <Btn kind="ghost" type="button" onClick={() => setForm(null)}>{t("Cancel", "إلغاء")}</Btn>
+          </div>
+        </div>
+
+        <div className="min-w-0 xl:sticky xl:top-20 xl:self-start">
+          <PreviewPanel
+            look={look}
+            setLook={setLook}
+            caption={form.banner
+              ? t("In the bell on every merchant page, and as a banner at the top of their home page until they close it.", "في الإشعارات في كل صفحة، وكشريط أعلى صفحتهم الرئيسية حتى يغلقوه.")
+              : t("In the bell on every merchant page (no banner).", "في الإشعارات في كل صفحة (بلا شريط).")}
+          >
+            <Screens phone={look.phone}>
+              {/* a phone's open bell covers the page, so on a phone the banner gets a screen of its own */}
+              {look.phone && banner ? (
+                <MockDashboard key="home" {...look} active="home" tab={tab} bell={{ unread: 1, items: null }}>
+                  {banner}
+                  <HomeSketch {...look} />
+                </MockDashboard>
+              ) : null}
+              <MockDashboard key="bell" {...look} active="home" tab={tab} bell={{ unread: 1, items: bellItems }}>
+                {!look.phone && banner}
+                <HomeSketch {...look} />
+              </MockDashboard>
+            </Screens>
+          </PreviewPanel>
+        </div>
       </div>
     </form>
   );

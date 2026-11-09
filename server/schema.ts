@@ -463,6 +463,65 @@ export const DIWAN_SCHEMA = `
     clicked_at TIMESTAMPTZ,
     PRIMARY KEY (popup_id, account_id)
   );
+  /* A pop-up is drawn by one of the coded templates (components/popupTemplateRules.ts: "card", "theme-gift", ...) with
+     its slots filled in (slots: { key: {en, ar} | "text" | {en: [...], ar: [...]} }, checked by server/popups.ts).
+     title_en/title_ar keep its title for Diwan's lists and the activity log; the other text columns are a card's, kept
+     filled for cards. placement: 'home' (the dashboard home only) or 'any' (any merchant page after sign-in). Not
+     private, so not sealed (like the columns above). */
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS template  TEXT NOT NULL DEFAULT 'card';
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS slots     JSONB NOT NULL DEFAULT '{}';
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS placement TEXT NOT NULL DEFAULT 'home';
+  DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'popups_placement_check') THEN
+      ALTER TABLE popups ADD CONSTRAINT popups_placement_check CHECK (placement IN ('home', 'any'));
+    END IF;
+  END $$;
+  -- pop-ups made before templates were cards: their words move into the card's slots (once: only while slots are empty)
+  UPDATE popups SET slots = jsonb_build_object(
+      'title', jsonb_build_object('en', title_en, 'ar', title_ar),
+      'body', jsonb_build_object('en', body_en, 'ar', body_ar),
+      'image', image,
+      'button', jsonb_build_object('en', button_en, 'ar', button_ar),
+      'buttonLink', button_link)
+   WHERE template = 'card' AND slots = '{}'::jsonb;
+
+  /* What start-up put in once (a pop-up, an announcement), by name, so it is never put in again: not even after staff
+     delete or end it. */
+  CREATE TABLE IF NOT EXISTS start_seeds (
+    key     TEXT PRIMARY KEY,
+    done_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  DO $$
+  DECLARE nid BIGINT;
+  BEGIN
+    /* The founders' gift (Mada, Dukkan's free theme) used to be written into the pages (components/ThemePopup.tsx) and
+       shown once to every account after it signed in. It is a pop-up run from Diwan now, with the same words, for the
+       stores that sign up while it is live, on whichever merchant page they open first. */
+    IF NOT EXISTS (SELECT 1 FROM start_seeds WHERE key = 'founders-gift') THEN
+      INSERT INTO popups (template, slots, title_en, title_ar, status, audience, placement, priority)
+      VALUES ('theme-gift', jsonb_build_object(
+          'badge', jsonb_build_object('en', 'A gift for you', 'ar', 'هدية لك'),
+          'title', jsonb_build_object('en', 'Dukkan Founders', 'ar', 'مؤسسو دكان'),
+          'body', jsonb_build_object('en', 'Because you are one of Dukkan''s founders, we are gifting you this free theme for your store.', 'ar', 'لأنك من مؤسسي دكان، نهديك هذا التصميم مجانًا لتستخدمه في متجرك.'),
+          'note', jsonb_build_object('en', 'It stays in My themes, so you can use it any time.', 'ar', 'يبقى في «ثيماتي» لتستخدمه في أي وقت.'),
+          'theme', 'mada',
+          'image', '/themes/mada.jpg',
+          'use', jsonb_build_object('en', 'Use it on my store', 'ar', 'استخدمه في متجري'),
+          'preview', jsonb_build_object('en', 'Preview', 'ar', 'معاينة'),
+          'later', jsonb_build_object('en', 'Later', 'ar', 'لاحقًا')),
+        'Dukkan Founders', 'مؤسسو دكان', 'live', '{"newStores": true}', 'any', 10);
+      INSERT INTO start_seeds (key) VALUES ('founders-gift');
+    END IF;
+    /* The welcome in the bell used to be added by the page itself (components/DashboardBar.tsx). It is an announcement
+       now (bell only, no banner) for the stores that sign up while it runs; each store reads it once, as any other. */
+    IF NOT EXISTS (SELECT 1 FROM start_seeds WHERE key = 'welcome-note') THEN
+      INSERT INTO announcements (title_en, title_ar, body_en, body_ar, audience, banner)
+      VALUES ('Welcome to Dukkan!', 'أهلًا بك في دكان!', 'Finish setting up your store to start selling.', 'أكمل إعداد متجرك لتبدأ البيع.', '{"newStores": true}', false)
+      RETURNING id INTO nid;
+      INSERT INTO notifications (account_id, announcement_id, kind) VALUES (NULL, nid, 'announcement');
+      INSERT INTO start_seeds (key) VALUES ('welcome-note');
+    END IF;
+  END $$;
   INSERT INTO catalog_themes (id, source, status, price, sort, released_at) VALUES
     ('atelier', 'code', 'live', 19.99, 10, now()), ('lamma', 'code', 'live', 39, 20, now())
   ON CONFLICT (id) DO NOTHING;

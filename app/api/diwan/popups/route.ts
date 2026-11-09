@@ -6,8 +6,9 @@ import { audit, staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
-/* Pop-ups to merchants, run from Diwan's marketing pages (/diwan/popups). A pop-up is made as a draft, then released
-   (live: shown once to each shop it is for, between its start and end), then ended. Pictures may be picture data, so a
+/* Pop-ups to merchants, run from Diwan's marketing pages (/diwan/popups). A pop-up is one of the coded templates with its
+   slots filled in (components/popupTemplateRules.ts). It is made as a draft, then released (live: shown once to each shop
+   it is for, between its start and end, on the home page or any merchant page), then ended. Pictures may be picture data, so a
    pop-up can be up to about 600 KB. */
 const MAX = 700_000;
 
@@ -37,8 +38,7 @@ export const GET = staffRoute("announce", async () => {
     shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, email: s.email }])),
     popups: list.rows.map((r) => ({
       id: String(r.id),
-      titleEn: r.title_en, titleAr: r.title_ar, bodyEn: r.body_en, bodyAr: r.body_ar,
-      image: r.image, buttonEn: r.button_en, buttonAr: r.button_ar, buttonLink: r.button_link,
+      template: r.template, slots: r.slots, placement: r.placement, titleEn: r.title_en, titleAr: r.title_ar,
       status: r.status, shown: r.shown, audience: r.audience, priority: r.priority,
       startsAt: r.starts_at, endsAt: r.ends_at, createdAt: r.created_at, updatedAt: r.updated_at, by: r.by,
       reach: r.reach, seen: r.seen, clicked: r.clicked,
@@ -52,12 +52,13 @@ export const POST = staffRoute("announce", async (req, me) => {
   if (!body) return answer({ result: "bad" }, 400);
   const p = await cleanPopup(body);
   if ("bad" in p) return answer({ result: "bad", field: p.bad }, 400);
+  const c = p.columns;
   const { rows } = await (await db()).query(
-    `INSERT INTO popups (title_en, title_ar, body_en, body_ar, image, button_en, button_ar, button_link, audience, starts_at, ends_at, priority, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13) RETURNING id`,
-    [p.titleEn, p.titleAr, p.bodyEn, p.bodyAr, p.image, p.buttonEn, p.buttonAr, p.buttonLink, JSON.stringify(p.audience), p.startsAt, p.endsAt, p.priority, me.id],
+    `INSERT INTO popups (template, slots, placement, title_en, title_ar, body_en, body_ar, image, button_en, button_ar, button_link, audience, starts_at, ends_at, priority, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16) RETURNING id`,
+    [p.template, JSON.stringify(p.slots), p.placement, c.titleEn, c.titleAr, c.bodyEn, c.bodyAr, c.image, c.buttonEn, c.buttonAr, c.buttonLink, JSON.stringify(p.audience), p.startsAt, p.endsAt, p.priority, me.id],
   );
   const id = String(rows[0].id);
-  await audit(req, me.id, "popup.create", { type: "popup", id }, null, { title: p.titleEn, audience: p.audience });
+  await audit(req, me.id, "popup.create", { type: "popup", id }, null, { title: c.titleEn, template: p.template, placement: p.placement, audience: p.audience });
   return answer({ result: "ok", id });
 });

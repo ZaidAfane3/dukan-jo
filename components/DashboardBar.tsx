@@ -6,6 +6,7 @@ import { demoActive } from "./demoSandbox";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content, dateLocale } from "./content";
+import { MerchantPopup } from "./MerchantPopup";
 import { Logo } from "./Nav";
 import {
   NOTIFICATION_TAB,
@@ -14,7 +15,6 @@ import {
   markRead,
   notificationLink,
   onNotificationsChange,
-  pushNotification,
   refreshServerNotifications,
   serverNotificationText,
   serverMode,
@@ -27,7 +27,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
 import { AccountBanners } from "./SupportBanner";
 
-type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
+export type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -40,7 +40,8 @@ const ico = {
   "aria-hidden": true,
 };
 
-const icons = {
+/* the bar's icons (Diwan's preview of the dashboard draws the same ones) */
+export const barIcons = {
   home: <svg {...ico}><path d="M4 11 12 4l8 7v9H4v-9ZM10 20v-6h4v6" /></svg>,
   orders: <svg {...ico}><path d="M3 4h2l2.4 11h11l2-8H6.2M9 20a1 1 0 1 0 0 .01M17 20a1 1 0 1 0 0 .01" /></svg>,
   products: <svg {...ico}><path d="M9 3h6l1 4-4 2-4-2 1-4ZM8 8c-1 4-2 8-3 13h14c-1-5-2-9-3-13" /></svg>,
@@ -61,6 +62,65 @@ const icons = {
   palette: <svg {...ico}><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.5-.8 1.2-1.6-.4-1 .2-2 1.3-2H17a4 4 0 0 0 4-4c0-5-4-10.4-9-10.4Z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10.5" cy="7" r="1" /><circle cx="15.5" cy="7.5" r="1" /></svg>,
   chevron: <svg {...ico} className="h-4 w-4 shrink-0"><path d="m15 6-6 6 6 6" /></svg>,
 };
+const icons = barIcons;
+
+export type MenuEntry = {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  href?: string;
+  section?: Section;
+  sub?: { label: string; href: string | null }[];
+};
+
+/** The dashboard's side menu: its entries, their icons and links (entries without a link are not built yet). Drawn by
+    the bar, and by Diwan's preview of the merchant dashboard (components/diwan/MerchantPreview.tsx). */
+export function menuEntries(lang: "en" | "ar", tour = false): MenuEntry[] {
+  const nav = content[lang].onboarding.nav;
+  const mk = content[lang].marketing.menu;
+  const rp = content[lang].reports.menu;
+  return [
+    { key: "home", label: nav[1], icon: icons.home, href: "/dashboard", section: "home" },
+    {
+      key: "orders",
+      label: nav[2],
+      icon: icons.orders,
+      section: "orders",
+      sub: ordersCopy[lang].menu.map((label, i) => ({ label, href: ["/orders", "/orders/invoices"][i] })),
+    },
+    { key: "products", label: nav[3], icon: icons.products, href: "/products", section: "products" },
+    {
+      key: "marketing",
+      label: nav[4],
+      icon: icons.marketing,
+      section: "marketing",
+      sub: mk.map((label, i) => ({ label, href: ["/marketing/abandoned-carts", "/marketing/coupons", "/marketing/repurchase", "/marketing/free-delivery"][i] ?? null })),
+    },
+    {
+      key: "store",
+      label: lang === "ar" ? "المتجر" : "Store",
+      icon: icons.channels,
+      section: "store",
+      sub: [
+        { label: lang === "ar" ? "تصميم المتجر" : "Store design", href: "/design" },
+        { label: lang === "ar" ? "رابط المتجر" : "Store link", href: "/store-link" },
+        { label: lang === "ar" ? "ثيماتي" : "My themes", href: "/themes/mine" },
+        { label: lang === "ar" ? "متجر الثيمات" : "Theme store", href: "/themes" },
+        ...(tour ? [] : [{ label: lang === "ar" ? "خيارات التوصيل" : "Delivery options", href: "/delivery" }]),
+      ],
+    },
+    { key: "pages", label: lang === "ar" ? "الصفحات التعريفية" : "Info pages", icon: icons.doc, href: "/pages", section: "pages" },
+    /* guides, news and rules Dukkan's team publishes for merchants (Diwan's marketing pages: /diwan/pages) */
+    ...(tour ? [] : [{ key: "dukkan", label: lang === "ar" ? "من دكّان" : "From Dukkan", icon: icons.bell, href: "/from-dukkan", section: "dukkan" as Section }]),
+    {
+      key: "reports",
+      label: nav[6],
+      icon: icons.reports,
+      section: "reports",
+      sub: [{ label: rp[0], href: "/reports" }],
+    },
+  ];
+}
 
 /* ====================================================================
    Notifications: the bell and its panel
@@ -76,6 +136,59 @@ function TopTip({ children, hide = false }: { children: React.ReactNode; /* whil
   );
 }
 
+/** One line of the bell's list, as the panel draws it */
+export type BellItem = { id: string; kind: AppNotification["kind"]; read: boolean; text: string; body?: string; when: string };
+
+/** The bell's open panel: its title, "mark all as read", the tabs and the list. Drawn by the bell, and by Diwan's preview
+    of an announcement (components/diwan/MerchantPreview.tsx), so both show the same thing. */
+export function BellPanel({
+  lang, items, tab, setTab, unread, onMarkAll, onPick,
+  className = "absolute end-0 top-full z-50 mt-3 w-[26rem] max-w-[92vw] animate-[fadeIn_0.2s_ease]",
+}: {
+  lang: "en" | "ar"; items: BellItem[]; tab: number; setTab: (i: number) => void; unread: number;
+  onMarkAll: () => void; onPick: (id: string) => void; className?: string;
+}) {
+  const n = content[lang].notifications;
+  return (
+    <div role="dialog" aria-label={n.title} className={`${className} overflow-hidden rounded-2xl border border-fg/10 bg-card text-fg shadow-2xl`}>
+      <div className="flex items-center justify-between gap-3 px-5 pt-5">
+        <h2 className="text-lg font-bold">{n.title}</h2>
+        <button type="button" onClick={onMarkAll} disabled={unread === 0} className="text-xs font-semibold text-primary transition hover:underline disabled:cursor-default disabled:text-muted disabled:no-underline">
+          {n.markAll}
+        </button>
+      </div>
+
+      <div role="tablist" className="mx-4 mt-4 flex flex-wrap gap-1 rounded-xl bg-soft p-1 text-sm font-medium">
+        {n.tabs.map((label, i) => (
+          <button key={label} role="tab" aria-selected={tab === i} type="button" onClick={() => setTab(i)} className={`rounded-lg px-3.5 py-2 transition ${tab === i ? "bg-card font-semibold shadow-sm" : "text-muted hover:text-fg"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <ul className="mt-3 max-h-72 divide-y divide-fg/10 overflow-y-auto">
+        {items.map((item) => (
+          <li key={item.id}>
+            <button type="button" onClick={() => onPick(item.id)} className={`flex w-full items-center gap-3 px-5 py-4 text-start transition-colors hover:bg-soft/60 ${item.read ? "" : "bg-primary/5"}`}>
+              <span className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-soft text-primary">
+                {icons.bell}
+                {!item.read && <span className="absolute -start-1 bottom-0 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-card" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                {item.kind === "announcement" && <span className="mb-0.5 block text-[11px] font-bold uppercase tracking-wide text-primary">{n.server.announcement}</span>}
+                <span className={`block break-words text-sm ${item.read ? "font-medium" : "font-bold"}`}>{item.text}</span>
+                {item.body && <span className="mt-1 block whitespace-pre-line break-words text-xs text-muted">{item.body}</span>}
+                <span className="mt-1 block text-xs text-muted">{item.when}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {items.length === 0 && <p className="px-5 py-12 text-center text-sm text-muted">{n.empty}</p>}
+    </div>
+  );
+}
+
 function NotificationBell() {
   const { lang } = usePrefs();
   const n = content[lang].notifications;
@@ -87,16 +200,8 @@ function NotificationBell() {
   const wrapper = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    /* the welcome a new store gets is an announcement from Diwan now (seeded at start-up, server/schema.ts), read once */
     const sync = () => setList(getNotifications());
-    /* A first visit gets one welcome message. */
-    try {
-      if (getNotifications().length === 0 && !sessionStorage.getItem("seen-welcomed")) {
-        sessionStorage.setItem("seen-welcomed", "1");
-        pushNotification("welcome");
-      }
-    } catch {
-      /* ignore */
-    }
     sync();
     return onNotificationsChange(sync);
   }, []);
@@ -189,43 +294,25 @@ function NotificationBell() {
       </button>
 
       {open && (
-        <div role="dialog" aria-label={n.title} className="absolute end-0 top-full z-50 mt-3 w-[26rem] max-w-[92vw] animate-[fadeIn_0.2s_ease] overflow-hidden rounded-2xl border border-fg/10 bg-card text-fg shadow-2xl">
-          <div className="flex items-center justify-between gap-3 px-5 pt-5">
-            <h2 className="text-lg font-bold">{n.title}</h2>
-            <button type="button" onClick={markAllRead} disabled={unread === 0} className="text-xs font-semibold text-primary transition hover:underline disabled:cursor-default disabled:text-muted disabled:no-underline">
-              {n.markAll}
-            </button>
-          </div>
-
-          <div role="tablist" className="mx-4 mt-4 flex flex-wrap gap-1 rounded-xl bg-soft p-1 text-sm font-medium">
-            {n.tabs.map((label, i) => (
-              <button key={label} role="tab" aria-selected={tab === i} type="button" onClick={() => setTab(i)} className={`rounded-lg px-3.5 py-2 transition ${tab === i ? "bg-card font-semibold shadow-sm" : "text-muted hover:text-fg"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <ul className="mt-3 max-h-72 divide-y divide-fg/10 overflow-y-auto">
-            {shown.map((item) => (
-              <li key={item.id}>
-                <button type="button" onClick={() => pick(item)} className={`flex w-full items-center gap-3 px-5 py-4 text-start transition-colors hover:bg-soft/60 ${item.read ? "" : "bg-primary/5"}`}>
-                  <span className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-soft text-primary">
-                    {icons.bell}
-                    {!item.read && <span className="absolute -start-1 bottom-0 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-card" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    {item.kind === "announcement" && <span className="mb-0.5 block text-[11px] font-bold uppercase tracking-wide text-primary">{n.server.announcement}</span>}
-                    <span className={`block text-sm ${item.read ? "font-medium" : "font-bold"}`}>{textOf(item)}</span>
-                    {item.kind === "announcement" && <span className="mt-1 block whitespace-pre-line text-xs text-muted">{lang === "ar" ? item.params.bodyAr : item.params.bodyEn}</span>}
-                    <span className="mt-1 block text-xs text-muted">{ago(item.ts)}</span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {shown.length === 0 && <p className="px-5 py-12 text-center text-sm text-muted">{n.empty}</p>}
-
-        </div>
+        <BellPanel
+          lang={lang}
+          tab={tab}
+          setTab={setTab}
+          unread={unread}
+          onMarkAll={markAllRead}
+          onPick={(id) => {
+            const item = shown.find((x) => x.id === id);
+            if (item) pick(item);
+          }}
+          items={shown.map((item) => ({
+            id: item.id,
+            kind: item.kind,
+            read: item.read,
+            text: textOf(item),
+            body: item.kind === "announcement" ? (lang === "ar" ? item.params.bodyAr : item.params.bodyEn) : undefined,
+            when: ago(item.ts),
+          }))}
+        />
       )}
     </div>
   );
@@ -305,67 +392,15 @@ export function DashboardBar({
   /* Page tabs in the header that the sidebar already shows as menu items are left out, so nothing appears twice */
   const inSidebar = new Set<string>();
   const sb = content[lang].sidebar;
-  const mk = content[lang].marketing.menu;
-  const rp = content[lang].reports.menu;
   const support = content[lang].support;
 
-  type Entry = {
-    key: string;
-    label: string;
-    icon: React.ReactNode;
-    href?: string;
-    section?: Section;
-    sub?: { label: string; href: string | null }[];
-  };
-
-  /* Entries without a link are not built yet. */
-  const entries: Entry[] = [
-    { key: "home", label: nav[1], icon: icons.home, href: "/dashboard", section: "home" },
-    {
-      key: "orders",
-      label: nav[2],
-      icon: icons.orders,
-      section: "orders",
-      sub: ordersCopy[lang].menu.map((label, i) => ({ label, href: ["/orders", "/orders/invoices"][i] })),
-    },
-    { key: "products", label: nav[3], icon: icons.products, href: "/products", section: "products" },
-    {
-      key: "marketing",
-      label: nav[4],
-      icon: icons.marketing,
-      section: "marketing",
-      sub: mk.map((label, i) => ({ label, href: ["/marketing/abandoned-carts", "/marketing/coupons", "/marketing/repurchase", "/marketing/free-delivery"][i] ?? null })),
-    },
-    {
-      key: "store",
-      label: lang === "ar" ? "المتجر" : "Store",
-      icon: icons.channels,
-      section: "store",
-      sub: [
-        { label: lang === "ar" ? "تصميم المتجر" : "Store design", href: "/design" },
-        { label: lang === "ar" ? "رابط المتجر" : "Store link", href: "/store-link" },
-        { label: lang === "ar" ? "ثيماتي" : "My themes", href: "/themes/mine" },
-        { label: lang === "ar" ? "متجر الثيمات" : "Theme store", href: "/themes" },
-        ...(tour ? [] : [{ label: lang === "ar" ? "خيارات التوصيل" : "Delivery options", href: "/delivery" }]),
-      ],
-    },
-    { key: "pages", label: lang === "ar" ? "الصفحات التعريفية" : "Info pages", icon: icons.doc, href: "/pages", section: "pages" },
-    /* guides, news and rules Dukkan's team publishes for merchants (Diwan's marketing pages: /diwan/pages) */
-    ...(tour ? [] : [{ key: "dukkan", label: lang === "ar" ? "من دكّان" : "From Dukkan", icon: icons.bell, href: "/from-dukkan", section: "dukkan" as Section }]),
-    {
-      key: "reports",
-      label: nav[6],
-      icon: icons.reports,
-      section: "reports",
-      sub: [{ label: rp[0], href: "/reports" }],
-    },
-  ];
+  const entries = menuEntries(lang, tour);
 
   entries.filter((e) => e.section === active).forEach((e) => e.sub?.forEach((s) => inSidebar.add(s.label)));
 
   /* In settings, the sidebar lists the settings pages instead. Only Account settings exists so far. */
   const settingsIcons = [icons.settings, icons.bell];
-  const settingsEntries: Entry[] = content[lang].settings.entries.map((label, i) => ({
+  const settingsEntries: MenuEntry[] = content[lang].settings.entries.map((label, i) => ({
     key: `settings-${i}`,
     label,
     icon: settingsIcons[i],
@@ -551,6 +586,9 @@ export function DashboardBar({
       </header>
       {/* Outside the sticky header, so it scrolls away with the page and is there again at the top */}
       <DemoStrip />
+      {/* Dukkan's pop-ups (Diwan: /diwan/popups): every merchant page draws this bar, so a pop-up for "any page" can show on
+          any of them, and one for the home page on /dashboard */}
+      <MerchantPopup />
     </>
   );
 }

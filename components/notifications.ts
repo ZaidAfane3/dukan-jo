@@ -10,7 +10,7 @@ import { bounceIfSuspended } from "./suspended";
      from /api/notifications when the bell opens and every minute while the page is in view; read marks go back to the
      server. Their ids start with "s:". */
 
-export type LocalKind = "welcome" | "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated";
+export type LocalKind = "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated";
 export type ServerKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
   | "planChanged" | "paymentReceived" | "supportViewed" | "announcement";
@@ -18,7 +18,6 @@ export type NotificationKind = LocalKind | ServerKind;
 
 /** Which filter tab a notification belongs to (matches the tab order in content.ts). */
 export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
-  welcome: 1, /* Important */
   taskDone: 5, /* Store activity */
   couponCreated: 5,
   ticketCreated: 5,

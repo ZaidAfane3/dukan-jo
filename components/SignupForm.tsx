@@ -1,6 +1,5 @@
 "use client";
 
-import { GIFT_FLAG } from "./ThemePopup";
 import { createAccount, logIn, logOut } from "./accounts";
 import { demoActive, endDemo } from "./demoSandbox";
 import { useRouter } from "next/navigation";
@@ -229,8 +228,6 @@ export function SignupForm() {
       }
       try {
         sessionStorage.setItem("seen-signed-in", "1");
-        /* a real account (not the tour): the founders' gift greets it on the next page, once per account */
-        if (!tour) sessionStorage.setItem(GIFT_FLAG, "1");
       } catch {
         /* storage unavailable */
       }
