@@ -13,7 +13,7 @@ import { oneSided, startingWords, textsNow, TRANSLATE_WORDS } from "./translatio
 import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
 import { StorefrontTheme } from "../storefront/StorefrontTheme";
 import { DesignerSkeleton } from "../StoreSkeletons";
-import { clearTemplate, dropServerTemplate, loadConfig, loadTemplate, refreshTemplate, saveConfig, saveTemplate, sendTemplate, storeIsLive } from "../storefront/storage";
+import { clearTemplate, dropServerTemplate, loadConfig, loadTemplate, refreshTemplate, saveConfig, saveTemplate, sendTemplate, sendThemeDesign, designFrom, storeIsLive } from "../storefront/storage";
 import { defaultConfig, headingFamily, type PicEdit, type SectionMove } from "../storefront/config";
 import { Canvas } from "./Canvas";
 import { HEX, input } from "./controls";
@@ -122,8 +122,8 @@ function initial(): Draft {
 }
 
 export function Designer() {
-  /* the starter template (/design?template=1) is staff work, never locked by the tour */
-  setOwnCopy(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("template") === "1");
+  /* the starter template (/design?template=1) and a theme made in Diwan (/design?catalog=<id>) are staff work, never locked by the tour */
+  setOwnCopy(typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("template") === "1" || !!new URLSearchParams(window.location.search).get("catalog")));
   useEffect(() => () => setOwnCopy(false), []);
   const { lang, setLang } = usePrefs();
   const t = dc[lang];
@@ -252,6 +252,9 @@ export function Designer() {
   const [templateMode, setTemplateMode] = useState(false);
   /* the server did not keep the last save of the starter template */
   const [templateErr, setTemplateErr] = useState(false);
+  /* /design?catalog=<id>: staff edit the design of a theme made in Diwan (the theme store's list). It works like the
+     starter template (templateMode), but it is saved to that theme on the server. */
+  const [catalogTheme, setCatalogTheme] = useState<{ id: string; name: string } | null>(null);
   const [exiting, setExiting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [attn, setAttn] = useState<{ id: Problem; tab: Tab; n: number } | null>(null);
@@ -291,7 +294,9 @@ export function Designer() {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     /* the starter template is staff work (checked below and by the server), never locked by the platform tour */
-    const template = q.get("template") === "1";
+    const catalogId = q.get("catalog");
+    const catalog = catalogId && /^[a-z][a-z0-9-]{1,30}$/.test(catalogId) ? catalogId : null;
+    const template = q.get("template") === "1" || !!catalog;
     const ro = template ? false : demoActive();
     setReadOnly(ro);
     const d = initial();
@@ -311,9 +316,18 @@ export function Designer() {
       void (async () => {
         const me = await fetch("/api/diwan/auth/me", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
         if (!me?.staff?.verified) return window.location.replace("/diwan/login");
-        if (!me.staff.settings) return window.location.replace("/diwan");
-        await refreshTemplate(true);
-        d.config = loadTemplate() ?? defaultConfig;
+        if (catalog) {
+          /* a theme made in Diwan: its design comes from the server (the route checks the staff member may change themes) */
+          const r = await fetch(`/api/diwan/themes/${catalog}/design`, { cache: "no-store" }).catch(() => null);
+          const j = r?.ok ? await r.json().catch(() => null) : null;
+          if (!j || j.result !== "ok") return window.location.replace("/diwan/themes");
+          d.config = j.design ? designFrom(j.design) : defaultConfig;
+          setCatalogTheme({ id: catalog, name: (lang === "ar" ? j.name?.ar : j.name?.en) || j.name?.en || j.name?.ar || catalog });
+        } else {
+          if (!me.staff.settings) return window.location.replace("/diwan");
+          await refreshTemplate(true);
+          d.config = loadTemplate() ?? defaultConfig;
+        }
         setDraft(d);
         setSaved(JSON.stringify(d));
       })();
@@ -703,7 +717,7 @@ export function Designer() {
     /* A look of a theme he has not bought can be tried in the preview, but the store keeps only what he owns */
     const kept = templateMode ? draft : { ...draft, config: withoutUnboughtLooks(draft.config) };
     /* the starter template's own copy is on the server (sent below); this browser's copy is only a cache, so a full storage doesn't stop it */
-    if (!(templateMode ? saveTemplate(draft.config) || true : saveConfig(kept.config))) {
+    if (!(templateMode ? catalogTheme || saveTemplate(draft.config) || true : saveConfig(kept.config))) {
       setFlash("full");
       setTimeout(() => setFlash(null), 4000);
       return false;
@@ -715,7 +729,7 @@ export function Designer() {
         const before = saved;
         setTemplateErr(false);
         /* not kept by the server (signed out, or no right to): the changes show as unsaved again */
-        void sendTemplate(draft.config).then((ok) => {
+        void (catalogTheme ? sendThemeDesign(catalogTheme.id, draft.config) : sendTemplate(draft.config)).then((ok) => {
           if (ok) return;
           setSaved(before);
           setFlash(null);
@@ -823,7 +837,7 @@ export function Designer() {
         <span className="min-w-0 max-w-[12rem] truncate text-sm font-extrabold">{activeTheme || t.themeName}</span>
         {templateMode ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
-            {t.templateBadge}
+            {catalogTheme ? `${t.catalogBadge}: ${catalogTheme.name}` : t.templateBadge}
           </span>
         ) : readOnly ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-800 dark:text-amber-300">
@@ -963,7 +977,7 @@ export function Designer() {
             <span className="text-amber-600">{live ? <><span className="xl:hidden">{t.unsaved}</span><span className="hidden xl:inline">{t.unsavedLive}</span></> : t.unsaved}</span>
           ) : null}
         </span>
-        {templateMode && (
+        {templateMode && !catalogTheme && (
           <button
             type="button"
             onClick={() => {
@@ -980,7 +994,7 @@ export function Designer() {
         )}
         {templateMode && templateErr && (
           <span role="alert" className="text-xs font-semibold text-rose-600">
-            {lang === "ar" ? "لم يُحفظ القالب في الخادم. سجّل الدخول إلى الديوان ثم احفظ مجددًا." : "The template was not saved on the server. Sign in to Diwan, then save again."}
+            {catalogTheme ? t.catalogSaveFail : lang === "ar" ? "لم يُحفظ القالب في الخادم. سجّل الدخول إلى الديوان ثم احفظ مجددًا." : "The template was not saved on the server. Sign in to Diwan, then save again."}
           </span>
         )}
         <div className="flex items-center">
@@ -1036,7 +1050,7 @@ export function Designer() {
                   {t.restoreOriginal}
                 </button>
               )}
-              {templateMode && (
+              {templateMode && !catalogTheme && (
                 <a href="/store?starter=1" target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition hover:bg-soft">{railIcons.external}{t.templatePreview}</a>
               )}
               {themeName === null ? (
@@ -1166,7 +1180,7 @@ export function Designer() {
                   )}
                 </div>
               )}
-              <p className="text-xs text-muted">{templateMode ? t.templateNote : live ? t.note : t.noteMine}</p>
+              <p className="text-xs text-muted">{catalogTheme ? t.catalogNote : templateMode ? t.templateNote : live ? t.note : t.noteMine}</p>
             </div>
           </aside>
           </OpenPage.Provider>

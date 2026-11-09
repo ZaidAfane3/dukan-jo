@@ -1,5 +1,6 @@
 "use client";
 
+import { dateLocale } from "./content";
 import { useEffect, useState } from "react";
 import { leaveSupportView, SUPPORT_VIEW, type SupportView } from "./accounts";
 import { replaceAccountData } from "./demoSandbox";
@@ -87,7 +88,7 @@ export function SupportBanner() {
   }, [view]);
 
   if (!view) return null;
-  const at = new Date(view.endsAt).toLocaleTimeString(lang === "ar" ? "ar-JO" : "en-GB", { hour: "2-digit", minute: "2-digit" });
+  const at = new Date(view.endsAt).toLocaleTimeString(dateLocale(lang), { hour: "2-digit", minute: "2-digit" });
   return (
     <div role="status" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 bg-amber-500 px-5 py-2 text-sm font-semibold text-black md:px-10">
       <p>

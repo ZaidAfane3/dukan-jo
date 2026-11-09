@@ -27,7 +27,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
 import { AccountBanners } from "./SupportBanner";
 
-type Section = "home" | "pages" | "domain" | "orders" | "products" | "marketing" | "reports" | "support" | "settings";
+type Section = "home" | "pages" | "domain" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -350,6 +350,8 @@ export function DashboardBar({
       ],
     },
     { key: "pages", label: lang === "ar" ? "الصفحات التعريفية" : "Info pages", icon: icons.doc, href: "/pages", section: "pages" },
+    /* guides, news and rules Dukkan's team publishes for merchants (Diwan's developer portal: /diwan/pages) */
+    ...(tour ? [] : [{ key: "dukkan", label: lang === "ar" ? "من دكّان" : "From Dukkan", icon: icons.bell, href: "/from-dukkan", section: "dukkan" as Section }]),
     {
       key: "reports",
       label: nav[6],

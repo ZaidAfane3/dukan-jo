@@ -1,5 +1,6 @@
 "use client";
 
+import { useCatalog } from "./catalog";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -26,6 +27,8 @@ export function MyThemes() {
   const { lang } = usePrefs();
   const router = useRouter();
   const w = themeWords[lang].mine;
+  /* the themes he bought keep their names and looks from the theme store's list (a theme made in Diwan comes from it) */
+  useCatalog();
   const [state, setState] = useState<ThemeState | null>(null);
   const [asking, setAsking] = useState<{ id: string; kind: "use" | "reset" | "delete" } | null>(null);
   /* the small filter above the cards: the free designs, the themes he bought (and his copies of them), the designs he saved himself */

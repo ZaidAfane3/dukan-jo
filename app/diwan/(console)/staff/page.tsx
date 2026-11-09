@@ -9,7 +9,7 @@ import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi,
    or a forgotten password. Diwan always keeps one active owner; the server refuses anything that would leave none. */
 
 type Member = {
-  id: string; name: string; email: string; role: "owner" | "support"; active: boolean; totpOn: boolean; mustChange: boolean;
+  id: string; name: string; email: string; role: "owner" | "support" | "developer"; active: boolean; totpOn: boolean; mustChange: boolean;
   lastLoginAt: string | null; createdAt: string; sessions: number;
 };
 type Data = { me: string; staff: Member[] };
@@ -84,6 +84,7 @@ export default function StaffPage() {
                       >
                         <option value="owner">{t("Owner", "المالك")}</option>
                         <option value="support">{t("Support", "الدعم")}</option>
+                        <option value="developer">{t("Developer", "المطوّر")}</option>
                       </select>
                     </td>
                     <td className={td}>
@@ -157,6 +158,7 @@ function AddForm({ onDone, why }: { onDone: (text: string) => void; why: (r: { d
         <label htmlFor="st-role" className={label}>{t("Role", "الدور")}</label>
         <select id="st-role" className={field} value={v.role} onChange={(e) => setV({ ...v, role: e.target.value })}>
           <option value="support">{t("Support", "الدعم")}</option>
+          <option value="developer">{t("Developer (developer portal only)", "المطوّر (بوابة المطورين فقط)")}</option>
           <option value="owner">{t("Owner", "المالك")}</option>
         </select>
       </div>

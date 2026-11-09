@@ -11,7 +11,8 @@ import { lammaConfig, lammaProducts } from "./storefront/lammaTheme";
 import { madaPages } from "./storefront/madaPages";
 import { madaConfig, madaProducts } from "./storefront/madaTheme";
 import { footerColumns, matchPage, pageIdOf, relinkPages, samplePageId, type Bi, type FooterColumn, type FooterTab, type StorefrontConfig } from "./storefront/config";
-import { loadConfig, loadTemplate, saveConfig } from "./storefront/storage";
+import { designFrom, loadConfig, loadTemplate, saveConfig } from "./storefront/storage";
+import type { ListingRow } from "./themeListing";
 import { defaultConfig } from "./storefront/config";
 import { sanitizeDesign } from "./safeDesign";
 import { toStoreProduct, type StoreProduct } from "./storefront/useStoreData";
@@ -176,7 +177,61 @@ export const defaultTheme: ThemeInfo = {
   build: () => loadTemplate() ?? defaultConfig,
 };
 
-export const findTheme = (id: string | null | undefined) => (id === DEFAULT_THEME_ID ? defaultTheme : themes.find((t) => t.id === id) ?? null);
+/* ---------------- The theme store's list, run from Diwan ---------------- */
+
+/* Dukkan's staff run the theme store from Diwan (components/themeListing.ts): which themes are in it, their order, prices and
+   words, and new themes made there from a design (a "design" theme: its whole look comes from the server). The list comes
+   from /api/themes/catalog (components/catalog.ts keeps it). Until it is known (the first visit, the platform tour, no
+   server), the store shows the code's own list as before. */
+let listing: Map<string, ListingRow> | null = null;
+let designThemes: ThemeInfo[] = [];
+
+/** A theme made in Diwan, as a theme the pages can show and use: its look is the design kept on the server */
+export function designTheme(r: ListingRow): ThemeInfo {
+  const none = bi("", "");
+  return {
+    id: r.id,
+    name: r.name ?? bi(r.id, r.id),
+    tagline: r.tagline ?? none,
+    about: r.about ?? none,
+    price: r.price,
+    tags: r.tags ?? [],
+    features: r.features ?? [],
+    demo: r.demo ? { ...r.demo, phone: "70 000 0000" } : undefined,
+    build: () => designFrom(r.design),
+  };
+}
+
+/** A code theme with its listing from Diwan put over it (its words where Diwan gave some, and the price) */
+export function withListing(t: ThemeInfo, l: ListingRow | undefined | null = listing?.get(t.id)): ThemeInfo {
+  if (!l || l.source !== "code") return t;
+  return { ...t, name: l.name ?? t.name, tagline: l.tagline ?? t.tagline, about: l.about ?? t.about, features: l.features ?? t.features, tags: l.tags ?? t.tags, price: l.price };
+}
+
+/** Takes the theme store's list from the server (components/catalog.ts) */
+export function setCatalog(rows: ListingRow[]) {
+  listing = new Map(rows.map((r) => [r.id, r]));
+  designThemes = rows.filter((r) => r.source === "design" && r.design).map(designTheme);
+}
+
+/** The themes in the theme store now, in the store's order */
+export function storeThemes(): ThemeInfo[] {
+  if (!listing) return themes.filter((t) => t.inStore !== false);
+  return Array.from(listing.values())
+    .filter((l) => l.status === "live")
+    .sort((a, b) => Number(b.featured) - Number(a.featured) || a.sort - b.sort)
+    .map((l) => findTheme(l.id))
+    .filter((t): t is ThemeInfo => !!t);
+}
+
+/** Whether the theme store marks this theme as featured */
+export const isFeatured = (id: string) => !!listing?.get(id)?.featured;
+
+export const findTheme = (id: string | null | undefined): ThemeInfo | null => {
+  if (id === DEFAULT_THEME_ID) return defaultTheme;
+  const t = themes.find((x) => x.id === id) ?? designThemes.find((x) => x.id === id);
+  return t ? withListing(t) : null;
+};
 
 /** The free designs every merchant has: always first in My themes, in this order, and never deleted. */
 export const freeThemes: ThemeInfo[] = [defaultTheme, madaTheme];
@@ -260,7 +315,7 @@ export function buyTheme(t: ThemeInfo): ThemeState {
   const s = loadThemeState();
   if (!s.owned.some((o) => o.id === t.id)) s.owned = [...s.owned, { id: t.id, at: Date.now(), paid: t.price }];
   saveThemeState(s);
-  /* a signed-in account also tells Dukkan (/api/themes/purchase takes the price from this file's list, not from the page) */
+  /* a signed-in account also tells Dukkan (/api/themes/purchase takes the price from the theme store's list on the server, not from the page) */
   if (onServer()) void merchantCall("/api/themes/purchase", "POST", { themeId: t.id });
   return s;
 }

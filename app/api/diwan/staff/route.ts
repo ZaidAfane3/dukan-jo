@@ -1,3 +1,4 @@
+import { isRole } from "@/components/diwan/perms";
 import type { NextRequest } from "next/server";
 import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, hashPassword, readJson } from "@/server/auth";
@@ -28,7 +29,7 @@ export const GET = staffRoute("staff", async (_req, me) => {
 export const POST = staffRoute("staff", async (req: NextRequest, me) => {
   const body = await readJson(req, 2_000);
   const who = cleanStaff({ name: body?.name, email: body?.email });
-  const role = body?.role === "owner" || body?.role === "support" ? body.role : null;
+  const role = isRole(body?.role) ? body.role : null;
   if (!who || !role) return answer({ result: "invalid" }, 400);
   const problem = staffPasswordProblem(body?.password);
   if (problem) return answer({ result: "weak", problem }, 400);

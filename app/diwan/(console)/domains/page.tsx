@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { FilterBar } from "@/components/diwan/Filters";
 
 /* Domains: the ones shops connect themselves and the ones they buy through Dukkan. Staff set each one up outside
    Diwan (DNS, the registrar) and move it along here: Checking, Active, or Failed with a note. Each change goes to the
@@ -85,8 +86,13 @@ export default function DomainsPage() {
         ))}
       </div>
 
-      <div className={`${card} mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
-        <input className={field} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t("Search domain, shop or email", "ابحث بالنطاق أو المتجر أو البريد")} aria-label={t("Search", "بحث")} />
+      <FilterBar
+        className="mb-4"
+        count={(kind ? 1 : 0) + (sort !== "new" ? 1 : 0) + (papers ? 1 : 0)}
+        onClear={() => { setKind(""); setSort("new"); setPapers(false); }}
+        search={<input className={field} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t("Search domain, shop or email", "ابحث بالنطاق أو المتجر أو البريد")} aria-label={t("Search", "بحث")} />}
+      >
+      <div className="grid gap-3 sm:grid-cols-3">
         <select className={field} value={kind} onChange={(e) => setKind(e.target.value)} aria-label={t("Kind", "النوع")}>
           <option value="">{t("Connected and bought", "المربوطة والمشتراة")}</option>
           <option value="connect">{t("Connected by the shop", "يربطها المتجر")}</option>
@@ -102,6 +108,7 @@ export default function DomainsPage() {
           {t("Needs papers (.jo, .com.jo)", "تحتاج أوراقًا (.jo و .com.jo)")}
         </label>
       </div>
+      </FilterBar>
 
       <Loaded s={s}>
         {(d) =>

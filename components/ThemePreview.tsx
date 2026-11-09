@@ -17,7 +17,8 @@ const SPEED = 28; /* px a second, while it scrolls by itself */
     mouse is over it), and the visitor can take it with the mouse and move it up or down himself; from then on it stays where he
     leaves it.
     With `scroll` the picture is a plain scrolling area (the preview window). */
-export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeInfo; height: number | string; scroll?: boolean }) {
+/* With `sample` the theme is always shown on its own made-up store, never on the store of whoever is looking (Diwan). */
+export function ThemePreview({ theme, height, scroll = false, sample = false }: { theme: ThemeInfo; height: number | string; scroll?: boolean; sample?: boolean }) {
   const { lang } = usePrefs();
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(380);
@@ -30,8 +31,8 @@ export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeIn
     } catch {
       /* no domains saved */
     }
-    setAddress(own || `dukkan.store/${loadSetup()?.slug || "your-store"}`);
-  }, []);
+    setAddress(sample ? `dukkan.store/${theme.id}` : own || `dukkan.store/${loadSetup()?.slug || "your-store"}`);
+  }, [sample, theme.id]);
 
   /* React 18 does not know the inert attribute yet, so it is set by hand */
   const still = useRef<HTMLDivElement>(null);
@@ -124,15 +125,15 @@ export function ThemePreview({ theme, height, scroll = false }: { theme: ThemeIn
   const config = useMemo(() => {
     if (theme.shot) return null;
     /* A design the merchant saved is shown on his own store (his logo and his products) */
-    if (theme.look) return composeDesign(loadConfig(), theme.look);
+    if (theme.look && !sample) return composeDesign(loadConfig(), theme.look);
     /* Dukkan's default design is shown on his own store too, so he sees what going back to it looks like */
-    if (theme.id === DEFAULT_THEME_ID) return composeDesign(loadConfig(), lookOf(theme.build(lang, { samples: false })));
+    if (theme.id === DEFAULT_THEME_ID && !sample) return composeDesign(loadConfig(), lookOf(theme.build(lang, { samples: false })));
     const c = theme.build(lang, { samples: true });
     c.identity.logo = { kind: "image", sample: "star", image: "/demo/perfume/logo.png" };
     return c;
-  }, [theme, lang]);
+  }, [theme, lang, sample]);
   /* his own store (a saved design, the default design): his products; any other theme: its sample products */
-  const own = !!theme.look || theme.id === DEFAULT_THEME_ID;
+  const own = !sample && (!!theme.look || theme.id === DEFAULT_THEME_ID);
   const products = useMemo(() => (theme.shot ? [] : own ? undefined : previewProducts(lang, theme)), [theme, lang, own]);
 
   /* The frame around the window takes the theme's own colors (its background, with a touch of its accent), so each theme feels like itself */

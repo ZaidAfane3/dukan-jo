@@ -8,6 +8,7 @@ import { defaultConfig, type StorefrontConfig } from "@/components/storefront/co
 import { StoreSkeleton } from "@/components/StoreSkeletons";
 import { loadConfig, loadTemplate } from "@/components/storefront/storage";
 import { accountName, loadSetup } from "@/components/setup";
+import { useCatalog } from "@/components/catalog";
 import { composeDesign, findTheme, loadThemeState, previewProducts } from "@/components/themes";
 import { safeStoredImage } from "@/components/safe";
 import type { StoreProduct } from "@/components/storefront/useStoreData";
@@ -29,6 +30,8 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   const { lang } = usePrefs();
   const b = banner[lang];
   const [config, setConfig] = useState<StorefrontConfig>(defaultConfig);
+  /* /store?theme=<id> can be a theme made in Diwan: shown once the theme store's list is here */
+  const catalog = useCatalog();
   const [demo, setDemo] = useState(false);
   /* /store?theme=mada: a ready theme's own made-up store, with its photos and products, to look at (nothing of his is shown or saved) */
   /* products: the theme's made-up ones; none: his own (a design he saved is shown on his own store) */
@@ -79,7 +82,7 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
     const m = loadMaintenance();
     setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && m.on ? m.message[lang] : null);
     setReady(true);
-  }, [lang, preview]);
+  }, [lang, preview, catalog]);
 
   useEffect(() => {
     const name = loadSetup()?.name || accountName();

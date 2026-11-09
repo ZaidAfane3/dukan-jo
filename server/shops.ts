@@ -18,13 +18,13 @@ import { db } from "./db";
    - first_order_at: the date of the oldest order (or now, when no order has a date) */
 
 /** The keys whose change can change the shops row */
-export const SHOP_KEYS = new Set(["seen-setup", "seen-products", "seen-orders", "seen-storefront", "seen-maintenance"]);
+export const SHOP_KEYS = new Set(["seen-setup", "seen-products", "seen-orders", "seen-storefront", "seen-maintenance", "seen-themes"]);
 
 type Q = Pick<PoolClient, "query">;
 
 /* The counts, worked out here from the opened values (store_data is encrypted, so SQL can't read inside it). Only
    the numbers leave this function. */
-type Counts = { product_count: number; order_count: number; total_sales: string; first_at: Date | null; published: boolean; paused: boolean };
+type Counts = { product_count: number; order_count: number; total_sales: string; first_at: Date | null; published: boolean; paused: boolean; theme_id: string };
 const parse = (v: string | undefined): unknown => {
   if (v == null) return null;
   try {
@@ -34,6 +34,15 @@ const parse = (v: string | undefined): unknown => {
   }
 };
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
+/* The theme in use: seen-themes.active, or for a design he saved from a theme ("mine-..."), the theme it came from. Only an
+   id from a fixed shape is kept (it is shown in Diwan and counted); anything else counts as Dukkan's default design. */
+function themeOf(v: unknown): string {
+  if (!isObj(v) || typeof v.active !== "string") return "dukkan";
+  const custom = Array.isArray(v.custom) ? v.custom.find((c): c is Record<string, unknown> => isObj(c) && c.id === v.active) : undefined;
+  const id = typeof custom?.from === "string" ? custom.from : v.active;
+  return /^[a-z0-9-]{1,40}$/.test(id) && !id.startsWith("mine-") ? id : "dukkan";
+}
+
 export function countShop(data: Map<string, string>): Counts {
   const products = parse(data.get("seen-products"));
   const orders = parse(data.get("seen-orders"));
@@ -57,6 +66,7 @@ export function countShop(data: Map<string, string>): Counts {
     first_at: first == null ? null : new Date(first),
     published: data.has("seen-storefront"),
     paused: isObj(maint) && maint.on === true,
+    theme_id: themeOf(parse(data.get("seen-themes"))),
   };
 }
 
@@ -90,17 +100,18 @@ export async function syncShop(accountId: string | number, q?: Q): Promise<void>
     k.order_count,
     k.total_sales,
     k.first_at,
+    k.theme_id,
   ];
   const sql = `
     INSERT INTO shops (account_id, name, slug, phone, color, setup_done, published, paused, ship_mode, pickup_city, pickup_address,
-                       product_count, order_count, total_sales, published_at, first_product_at, first_order_at, updated_at)
+                       product_count, order_count, total_sales, published_at, first_product_at, first_order_at, theme_id, updated_at)
     VALUES ($1, $2, $3::text, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-            CASE WHEN $7 THEN now() END, CASE WHEN $12 > 0 THEN now() END, CASE WHEN $13 > 0 THEN COALESCE($15, now()) END, now())
+            CASE WHEN $7 THEN now() END, CASE WHEN $12 > 0 THEN now() END, CASE WHEN $13 > 0 THEN COALESCE($15, now()) END, $16, now())
     ON CONFLICT (account_id) DO UPDATE SET
       name = EXCLUDED.name, slug = EXCLUDED.slug, phone = EXCLUDED.phone, color = EXCLUDED.color, setup_done = EXCLUDED.setup_done,
       published = EXCLUDED.published, paused = EXCLUDED.paused, ship_mode = EXCLUDED.ship_mode, pickup_city = EXCLUDED.pickup_city,
       pickup_address = EXCLUDED.pickup_address, product_count = EXCLUDED.product_count, order_count = EXCLUDED.order_count,
-      total_sales = EXCLUDED.total_sales,
+      total_sales = EXCLUDED.total_sales, theme_id = EXCLUDED.theme_id,
       published_at = COALESCE(shops.published_at, EXCLUDED.published_at),
       first_product_at = COALESCE(shops.first_product_at, EXCLUDED.first_product_at),
       first_order_at = COALESCE(shops.first_order_at, EXCLUDED.first_order_at),

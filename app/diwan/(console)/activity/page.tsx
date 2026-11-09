@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Btn, card, DataTable, field, Loaded, PageHead, td, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { Btn, DataTable, field, Loaded, PageHead, td, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { FilterBar } from "@/components/diwan/Filters";
 
 /* The activity log: everything staff opened or changed, newest first, 50 lines a page. It can only be added to (the
    database refuses changes and deletions), so this page only reads it. */
@@ -56,7 +57,8 @@ export default function ActivityPage() {
     <div>
       <PageHead title={t("Activity log", "سجل النشاط")} sub={t("Everything staff opened or changed. Nothing here can be edited or removed.", "كل ما فتحه الفريق أو غيّره. لا يمكن تعديل أي شيء هنا أو حذفه.")} />
 
-      <form onSubmit={apply} className={`${card} mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
+      <FilterBar count={Object.values(filters).filter((v) => v.trim()).length} onClear={() => { setDraft(none); setFilters(none); setPages([""]); }}>
+      <form onSubmit={apply} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label htmlFor="ac-staff" className={label}>{t("Staff", "العضو")}</label>
           <select id="ac-staff" className={field} value={draft.staff} onChange={(e) => setDraft({ ...draft, staff: e.target.value })}>
@@ -95,6 +97,7 @@ export default function ActivityPage() {
           <Btn type="button" kind="ghost" onClick={() => { setDraft(none); setFilters(none); setPages([""]); }}>{t("Clear", "مسح")}</Btn>
         </div>
       </form>
+      </FilterBar>
 
       <Loaded s={s}>
         {(d) => (
