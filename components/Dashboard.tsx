@@ -8,7 +8,8 @@ import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./Reports";
 import { demoActive } from "./demoSandbox";
 import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";
-import { cleanOrder, money, parseList, typedMoney } from "./records";
+import { cleanOrder, cleanProduct, money, parseList, typedMoney, type Order, type Product } from "./records";
+import { latestOrders, rangeSpan, salesFigures, salesSeries } from "./storeNumbers";
 import { StoreStatus } from "./StoreStatus";
 import { AnnouncementBanner } from "./AnnouncementBanner";
 
@@ -26,6 +27,35 @@ const icon = {
 };
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
+
+/* A real store's home page: what Dukkan does not count yet says so, instead of showing a 0 that looks like a fact */
+const words = {
+  en: { notTracked: "Not tracked yet", visitsNote: "{brand} does not count store visits yet.", cartsNote: "{brand} does not keep the carts customers leave yet.", avgOrder: "Average order", open: "Open order {id}" },
+  ar: { notTracked: "لا يُتتبّع بعد", visitsNote: "لا يحسب {brand} زيارات المتجر بعد.", cartsNote: "لا يحفظ {brand} السلات التي يتركها العملاء بعد.", avgOrder: "متوسط الطلب", open: "فتح الطلب {id}" },
+};
+
+/* The monthly sales goal he sets on the home page. A "seen-" key, so it is kept on the server with the rest of his store */
+const GOAL_KEY = "seen-goal";
+
+function readGoal(): number {
+  try {
+    return money(localStorage.getItem(GOAL_KEY)) ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+function NotTracked({ title, note }: { title: string; note: string }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+      <span className="grid h-20 w-20 place-items-center rounded-3xl bg-soft text-muted">
+        <svg {...icon} className="h-9 w-9"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+      </span>
+      <p className="mt-4 font-bold">{title}</p>
+      <p className="mt-1 max-w-[16rem] text-sm text-muted">{note}</p>
+    </div>
+  );
+}
 
 function EmptyState({ title, hint }: { title: string; hint: string }) {
   return (
@@ -52,6 +82,7 @@ export function Dashboard() {
   const h = content[lang].home;
   const r = content[lang].reports;
   const cur = r.currency;
+  const w = words[lang];
 
   const [sample, setSample] = useState(false);
   /* In the platform tour everything is already made-up data, so the sample switch is not needed */
@@ -68,6 +99,17 @@ export function Dashboard() {
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
   const [now, setNow] = useState<Date | null>(null);
+  /* A real store's own orders and products, read again by each refresh button */
+  const [data, setData] = useState<{ orders: Order[]; products: Product[] }>({ orders: [], products: [] });
+
+  const readData = useCallback(() => {
+    try {
+      setData({ orders: parseList(localStorage.getItem("seen-orders"), cleanOrder), products: parseList(localStorage.getItem("seen-products"), cleanProduct) });
+    } catch {
+      /* storage blocked: nothing to count */
+    }
+    setNow(new Date());
+  }, []);
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${h.pageTitle}`;
@@ -91,17 +133,33 @@ export function Dashboard() {
       }
       /* The store in the tour already has a monthly target */
       setGoal(2500);
+      setNow(new Date());
+    } else {
+      setGoal(readGoal());
+      readData();
     }
-    setNow(new Date());
-  }, []);
+  }, [readData]);
 
+  /* The tour draws a fresh set of sample numbers; a real store reads its orders again */
   const refresh = useCallback((id: string) => {
     setBusy((b) => ({ ...b, [id]: true }));
     window.setTimeout(() => {
       setSeed((s) => s + 1);
+      if (!demoActive()) readData();
       setBusy((b) => ({ ...b, [id]: false }));
     }, 900);
-  }, []);
+  }, [readData]);
+
+  /* A real store's goal is kept, so it is still there tomorrow and on his other devices */
+  const keepGoal = (v: number) => {
+    setGoal(v);
+    if (tour) return;
+    try {
+      localStorage.setItem(GOAL_KEY, String(v));
+    } catch {
+      /* storage blocked: the goal lasts until the page closes */
+    }
+  };
 
   /* ---------- Chart data (all zero for a new store) ---------- */
   const today = now ?? new Date(2026, 0, 1);
@@ -114,13 +172,20 @@ export function Dashboard() {
   const length = mode === "daily" ? new Date(year, month + 1, 0).getDate() : 12;
   const current = mode === "daily" ? today.getDate() - 1 : month;
   const rnd = mulberry32(seed * 9973 + (mode === "daily" ? 1 : 2));
-  const sales = Array.from({ length }, (_, i) => {
-    const v = Math.round((mode === "daily" ? 20 + rnd() * 140 : 600 + rnd() * 2400) * 100) / 100;
-    return sample && i <= current ? v : 0;
-  });
-  const orders = sales.map((v) => (v ? Math.max(1, Math.round(v / (16 + rnd() * 12))) : 0));
-  const netSales = sales.reduce((a, b) => a + b, 0);
-  const orderTotal = orders.reduce((a, b) => a + b, 0);
+  /* The tour's made-up numbers (unchanged); a real store's come from its own orders (storeNumbers.ts) */
+  const real = salesSeries(data.orders, today, mode);
+  const sales = sample
+    ? Array.from({ length }, (_, i) => {
+        const v = Math.round((mode === "daily" ? 20 + rnd() * 140 : 600 + rnd() * 2400) * 100) / 100;
+        return i <= current ? v : 0;
+      })
+    : real.sales;
+  const orders = sample ? sales.map((v) => (v ? Math.max(1, Math.round(v / (16 + rnd() * 12))) : 0)) : real.orders;
+  /* A real store's figures beside the chart are this month's in both views, like the title says (and the goal is a
+     monthly one); the tour keeps adding up its chart */
+  const thisMonth = sample ? null : salesFigures(data.orders, data.products, rangeSpan(2, today));
+  const netSales = thisMonth ? thisMonth.sales : sales.reduce((a, b) => a + b, 0);
+  const orderTotal = thisMonth ? thisMonth.orders : orders.reduce((a, b) => a + b, 0);
   const visits = sample ? Math.round(netSales * (6 + rnd() * 3)) + 1 + Math.floor(rnd() * 8) : 0;
   const peak = Math.max(...sales, 1);
   const shown = hover ?? current;
@@ -132,7 +197,12 @@ export function Dashboard() {
   const lastHourMax = Math.max(...lastHour, 1);
   const abandoned = sample ? Math.round(6 + rndSmall() * 18) : 0;
   const lost = sample ? Math.round(abandoned * (18 + rndSmall() * 14) * 100) / 100 : 0;
-  const latest = tour && tourOrders.length ? tourOrders.map((x) => ({ ...x, status: ordersCopy[lang].statuses[x.status] })) : sample ? h.latestSample : [];
+  const latest: { name: string; total: string; status: string; id?: number }[] =
+    tour && tourOrders.length
+      ? tourOrders.map((x) => ({ ...x, status: ordersCopy[lang].statuses[x.status] }))
+      : sample
+        ? h.latestSample
+        : latestOrders(data.orders).map((o) => ({ id: o.id, name: o.customer, total: fmt(o.total), status: ordersCopy[lang].statuses[o.status] }));
 
   const goalProgress = goal > 0 ? Math.min((netSales / goal) * 100, 100) : 0;
 
@@ -220,9 +290,11 @@ export function Dashboard() {
             {/* Totals */}
             <div dir={lang === "ar" ? "rtl" : "ltr"} className="space-y-5">
               {[
-                { title: h.visits, node: <AnimatedNumber value={visits} />, ico: <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" /> },
+                /* visits are not counted for a real store yet: it says so rather than show a 0 */
+                { title: h.visits, node: sample ? <AnimatedNumber value={visits} /> : <span className="text-base font-semibold text-muted">{w.notTracked}</span>, ico: <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" /> },
                 { title: h.netSales, node: <Money value={netSales} currency={cur} />, glyph: cur },
                 { title: h.orders, node: <AnimatedNumber value={orderTotal} />, ico: <path d="M4 7h16v13H4zM3 4h18v3H3zM10 11h4" /> },
+                ...(thisMonth ? [{ title: w.avgOrder, node: <Money value={thisMonth.average} currency={cur} />, ico: <path d="M4 19h16M7 15l3-4 3 2 4-6" /> }] : []),
               ].map((m) => (
                 <div key={m.title} className="flex items-center gap-4">
                   <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-card text-primary shadow-sm ring-1 ring-fg/10">{"glyph" in m ? <span className="text-sm font-bold leading-none">{m.glyph}</span> : <svg {...icon}>{m.ico}</svg>}</span>
@@ -240,7 +312,7 @@ export function Dashboard() {
 
           {/* Monthly goal */}
           <div className="mt-6 border-t border-fg/10 pt-5">
-            {goal > 0 ? (
+            {goal > 0 && !goalOpen ? (
               <div>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-bold">{h.goalLabel}</span>
@@ -249,7 +321,7 @@ export function Dashboard() {
                 <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-fg/10" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(goalProgress)}>
                   <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${goalProgress}%` }} />
                 </div>
-                <button type="button" onClick={() => { setGoal(0); setGoalOpen(true); }} className="mt-3 text-xs font-semibold text-primary hover:underline">{h.goalChange}</button>
+                <button type="button" onClick={() => { setGoalText(String(goal)); setGoalOpen(true); }} className="mt-3 text-xs font-semibold text-primary hover:underline">{h.goalChange}</button>
               </div>
             ) : goalOpen ? (
               <form
@@ -258,7 +330,7 @@ export function Dashboard() {
                   e.preventDefault();
                   const v = money(goalText) ?? 0;
                   if (v > 0) {
-                    setGoal(v);
+                    keepGoal(v);
                     setGoalOpen(false);
                     setGoalText("");
                   }
@@ -267,6 +339,12 @@ export function Dashboard() {
                 <label className="text-sm font-bold" htmlFor="goal">{h.goalLabel}</label>
                 <input id="goal" value={goalText} onChange={(e) => setGoalText(typedMoney(e.target.value))} inputMode="decimal" placeholder={cur} dir="ltr" className="h-11 w-40 rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
                 <button type="submit" disabled={!((money(goalText) ?? 0) > 0)} className="h-11 rounded-xl bg-ink px-5 text-sm font-semibold text-onink transition enabled:hover:bg-deep disabled:cursor-not-allowed disabled:opacity-50">{h.goalSave}</button>
+                {/* changing a saved goal can be given up: the old one stays */}
+                {goal > 0 && (
+                  <button type="button" onClick={() => { setGoalOpen(false); setGoalText(""); }} className="h-11 rounded-xl border border-fg/20 px-5 text-sm font-semibold transition hover:bg-soft">
+                    {lang === "ar" ? "إلغاء" : "Cancel"}
+                  </button>
+                )}
               </form>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -285,7 +363,7 @@ export function Dashboard() {
           <section className={`${card} flex flex-col`}>
             <div className="flex items-center justify-between gap-2">
               <h2 className="font-bold">{h.lastHourTitle}</h2>
-              <RefreshButton busy={!!busy.hour} onClick={() => refresh("hour")} label={r.refresh} />
+              {sample && <RefreshButton busy={!!busy.hour} onClick={() => refresh("hour")} label={r.refresh} />}
             </div>
             <div className={`flex flex-1 flex-col transition-opacity duration-300 ${busy.hour ? "opacity-40" : ""}`}>
               {sample ? (
@@ -306,7 +384,7 @@ export function Dashboard() {
                   </div>
                 </>
               ) : (
-                <EmptyState title={h.empty} hint={h.emptyVisits} />
+                <NotTracked title={w.notTracked} note={w.visitsNote.replace("{brand}", brandName(lang))} />
               )}
             </div>
           </section>
@@ -319,13 +397,26 @@ export function Dashboard() {
             <div className={`flex flex-1 flex-col transition-opacity duration-300 ${busy.orders ? "opacity-40" : ""}`}>
               {latest.length ? (
                 <ul className="mt-4 space-y-2">
-                  {latest.map((o) => (
-                    <li key={o.name} className="flex items-center justify-between rounded-xl bg-soft/70 px-3 py-2.5 text-sm">
-                      <span className="font-semibold">{o.name}</span>
-                      <span dir="ltr" className="text-muted">{o.total} {cur}</span>
-                      <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-deep dark:text-primary">{o.status}</span>
-                    </li>
-                  ))}
+                  {latest.map((o) => {
+                    const row = (
+                      <>
+                        <span className="min-w-0 truncate font-semibold">{o.name}</span>
+                        <span dir="ltr" className="shrink-0 text-muted">{o.total} {cur}</span>
+                        <span className="shrink-0 rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-deep dark:text-primary">{o.status}</span>
+                      </>
+                    );
+                    const cls = "flex items-center justify-between gap-3 rounded-xl bg-soft/70 px-3 py-2.5 text-sm";
+                    /* a real order opens on the Orders page (?open= is what the search uses too) */
+                    return (
+                      <li key={o.id ?? o.name}>
+                        {o.id ? (
+                          <a href={`/orders?open=${o.id}`} aria-label={`${w.open.replace("{id}", String(o.id))}: ${o.name}`} className={`${cls} transition hover:bg-soft`}>{row}</a>
+                        ) : (
+                          <div className={cls}>{row}</div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <EmptyState title={h.empty} hint={h.emptyOrders} />
@@ -336,8 +427,12 @@ export function Dashboard() {
           <section className={`${card} flex flex-col`}>
             <div className="flex items-center justify-between gap-2">
               <h2 className="font-bold">{h.cartsTitle}</h2>
-              <RefreshButton busy={!!busy.carts} onClick={() => refresh("carts")} label={r.refresh} />
+              {sample && <RefreshButton busy={!!busy.carts} onClick={() => refresh("carts")} label={r.refresh} />}
             </div>
+            {/* the carts customers leave are not kept for a real store yet */}
+            {!sample ? (
+              <NotTracked title={w.notTracked} note={w.cartsNote.replace("{brand}", brandName(lang))} />
+            ) : (
             <div className={`mt-4 flex flex-1 flex-col justify-center gap-5 transition-opacity duration-300 ${busy.carts ? "opacity-40" : ""}`}>
               <div>
                 <p className="text-sm text-muted">{h.cartsCount}</p>
@@ -349,6 +444,7 @@ export function Dashboard() {
               </div>
               <a href="/reports?section=abandoned" className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">{h.cartsLink}<svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg></a>
             </div>
+            )}
           </section>
         </div>
       </main>

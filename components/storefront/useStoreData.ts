@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Lang } from "../content";
-import { accountName, accountPhone } from "../setup";
+import { accountName, accountPhone, loadSetup } from "../setup";
 import { load as loadPages, pagesScope } from "../InfoPages";
 import type { SectionConfig } from "./config";
 import { isUnlimited, money, productId, productSizes, salePrice, sellableStock, type SizeStock } from "../safeOrder";
@@ -64,6 +64,9 @@ export type StoreData = {
   pages: { id: number; title: string; content: string; sections: SectionConfig[] }[];
   /* The merchant lets customers collect orders themselves (set on the delivery page) */
   pickup: boolean;
+  /* With his own courier: his delivery fee per order (0 is free). null with Dukkan Ship or no choice yet: the checkout
+     charges Dukkan Ship's price from Diwan */
+  ownFee: number | null;
   isDemo: boolean;
 };
 
@@ -209,11 +212,16 @@ function build(lang: Lang, sample: boolean): StoreData {
     links: pages,
     pages: pageList,
     pickup: setup?.pickup === true,
+    /* read through the setup's own checks (a fee that is not a valid amount is dropped, so delivery is free) */
+    ownFee: (() => {
+      const ship = loadSetup()?.shipping;
+      return ship?.mode === "own" ? ship.fee ?? 0 : null;
+    })(),
     isDemo,
   };
 }
 
-const empty: StoreData = { name: "", description: "", color: "#004956", phone: "", whatsapp: "", slug: "", logo: "", products: [], categories: [], links: [], pages: [], pickup: false, isDemo: true };
+const empty: StoreData = { name: "", description: "", color: "#004956", phone: "", whatsapp: "", slug: "", logo: "", products: [], categories: [], links: [], pages: [], pickup: false, ownFee: null, isDemo: true };
 
 export function useStoreData(lang: Lang, sample = false): StoreData {
   const [data, setData] = useState<StoreData>(empty);

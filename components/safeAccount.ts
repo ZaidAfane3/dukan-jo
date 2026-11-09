@@ -22,6 +22,8 @@ export const ACCOUNT_LIMITS = {
   subject: 80,
   message: 1000,
   tickets: 200,
+  /* their own delivery fee per order, in JOD (the same cap as Dukkan Ship's price in Diwan) */
+  shipFee: 100,
 };
 
 type Obj = Record<string, unknown>;
@@ -104,6 +106,8 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
           phone: savedPhone(sh.phone),
           city: cleanLine(sh.city, ACCOUNT_LIMITS.city),
           address: cleanLine(sh.address, ACCOUNT_LIMITS.address),
+          /* only his own courier has a fee of his; a fee that is not a valid amount is dropped (delivery is then free) */
+          ...(sh.mode !== "seen" && cleanMoney(sh.fee, ACCOUNT_LIMITS.shipFee) !== "" ? { fee: Number(cleanMoney(sh.fee, ACCOUNT_LIMITS.shipFee)) } : {}),
         }
       : null,
   };

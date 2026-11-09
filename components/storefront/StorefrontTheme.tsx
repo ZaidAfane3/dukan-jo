@@ -750,10 +750,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       {design && showCart && (
         /* the cart drawn inside the preview where he is looking, filled with the first products when nothing was added */
         <div className={`absolute inset-x-0 z-[60] ${cartAt ? "" : "top-0 h-[min(100%,880px)]"}`} style={cartAt ? { top: cartAt.top, height: cartAt.height } : undefined}>
-          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} />
+          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} />
         </div>
       )}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} />}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} />}
       <main>
         {shownProduct ? (
           <>
