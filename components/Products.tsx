@@ -427,6 +427,12 @@ export function Products() {
   const [cropAt, setCropAt] = useState<number | null>(null);
   /* the photo as it is being cropped, shown in its place right away (back to the old one on Cancel) */
   const [photoLive, setPhotoLive] = useState<string | null>(null);
+  /* the photo the cropper is working on; cleared when the cropper closes, so a crop finishing late changes nothing */
+  const cropSrc = useRef<string | null>(null);
+  useEffect(() => {
+    cropSrc.current = cropAt !== null ? photos[cropAt] ?? null : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cropAt]);
   const [focus, setFocus] = useState({ x: 50, y: 50 });
   const fileInput = useRef<HTMLInputElement>(null);
   /* The editor as it was when opened or last saved, to know if there are unsaved changes */
@@ -860,6 +866,17 @@ export function Products() {
                           <img src={i === cropAt && photoLive ? photoLive : u} alt="" onError={() => setBroken((b) => (b.includes(u) ? b : [...b, u]))} onLoad={() => setBroken((b) => b.filter((x) => x !== u))} className="h-full w-full object-cover" />
                           {broken.includes(u) && <span className="absolute inset-0 grid place-items-center bg-rose-600/80 p-1 text-center text-[10px] font-bold leading-tight text-white">{p.imageBroken}</span>}
                           {i === 0 && <span className="absolute start-1.5 top-1.5 rounded-md bg-primary px-2 py-0.5 text-[10px] font-bold text-white">{p.primary}</span>}
+                          {/* any other photo can become the main one: the one on the product card and first on its page (its visible
+                              part is chosen again, since it is a different picture) */}
+                          {i > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => { setCropAt(null); setPhotoLive(null); setFocus({ x: 50, y: 50 }); setPhotos((cur) => [cur[i], ...cur.filter((_, j) => j !== i)]); }}
+                              className="absolute start-1.5 top-1.5 rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-bold text-[#1c1a17] shadow-sm ring-1 ring-black/10 transition hover:bg-primary hover:text-white"
+                            >
+                              {lang === "ar" ? "اجعلها الأساسية" : "Make main"}
+                            </button>
+                          )}
                           {i > 0 && !demoActive() && (
                             <button type="button" onClick={() => setCropAt(i)} className="absolute bottom-1.5 start-1.5 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white opacity-0 transition focus:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
                               {lang === "ar" ? "قصّ" : "Crop"}
@@ -895,7 +912,7 @@ export function Products() {
                     </div>
                     {cropAt !== null && photos[cropAt] && (
                       <div className="mt-3">
-                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onLive={setPhotoLive} onCancel={() => { setCropAt(null); setPhotoLive(null); }} onDone={(url) => { const at = cropAt; setPhotos((cur) => cur.map((x, j) => (j === at ? url : x))); setCropAt(null); setPhotoLive(null); }} />
+                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onLive={setPhotoLive} onCancel={() => { setCropAt(null); setPhotoLive(null); }} onDone={(url) => { /* the photo that was being cropped, found by itself (not by its place: it may have moved, or the cropper closed) */ const was = cropSrc.current; if (!was) return; setPhotos((cur) => cur.map((x) => (x === was ? url : x))); cropSrc.current = null; setCropAt(null); setPhotoLive(null); }} />
                       </div>
                     )}
                     <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />

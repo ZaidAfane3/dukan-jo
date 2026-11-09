@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { accountName, loadSetup } from "./setup";
+import { fillMessage, loadMessages, messageIn, whatsappLink } from "./messageTemplates";
 import { brandName, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { STATUS_DOT, STATUS_KEYS, ordersCopy, type StatusKey } from "./ordersContent";
@@ -296,6 +298,24 @@ export function Orders() {
                     <h2 className="text-lg font-extrabold">{o.details}</h2>
                     <p className="mt-1 text-2xl font-extrabold">{current.customer}</p>
                     {(current.phone || current.email) && <p dir="ltr" className="mt-1 text-start text-sm text-muted">{current.phone || current.email}</p>}
+                    {/* the confirmation from Customer messages, opened in WhatsApp for this customer: he only presses send */}
+                    {(() => {
+                      const msgs = loadMessages();
+                      if (!msgs.whatsapp.on || !current.phone) return null;
+                      const text = fillMessage(messageIn(msgs.whatsapp.text, lang), {
+                        name: current.customer,
+                        order: String(current.id),
+                        total: `${fmt(current.total)} ${o.currency}`,
+                        store: loadSetup()?.name?.trim() || accountName() || (lang === "ar" ? "متجرنا" : "our store"),
+                      });
+                      const href = whatsappLink(current.phone, text);
+                      return href ? (
+                        <a href={href} target="_blank" rel="noreferrer" className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-[#25d366] px-4 text-sm font-bold text-[#08361c] transition hover:brightness-95">
+                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden><path d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3Zm4.4 12.6c-.2.5-1.1 1-1.6 1-.4.1-.9.1-1.5-.1-1.3-.4-2.9-1.4-4-2.8-.8-1-1.3-2-1.4-2.6-.1-.8.3-1.5.6-1.8.2-.2.4-.3.6-.3h.4c.1 0 .3 0 .4.3l.6 1.4c0 .1.1.3 0 .4l-.3.5-.3.3c-.1.1-.2.3-.1.4.3.6.8 1.2 1.3 1.6.5.5 1.1.8 1.6 1 .2.1.3 0 .4-.1l.6-.7c.1-.2.3-.2.4-.1l1.4.7c.2.1.3.2.3.3 0 .2 0 .7-.2 1Z" /></svg>
+                          {lang === "ar" ? "أرسل التأكيد عبر واتساب" : "Send confirmation on WhatsApp"}
+                        </a>
+                      ) : null;
+                    })()}
                     {current.fulfil === "pickup" ? <p className="mt-1 text-sm text-muted">{o.pickedUp}</p> : (current.city || current.address) && <p dir="auto" className="mt-1 text-sm text-muted">{[current.city && inLang(current.city, KNOWN_CITIES, lang), current.address].filter(Boolean).join(" · ")}</p>}
                   </div>
                   <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${current.status === "pending" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "bg-fg/10 text-fg"}`}>

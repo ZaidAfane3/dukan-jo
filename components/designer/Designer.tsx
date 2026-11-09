@@ -21,7 +21,7 @@ import { HEX, input } from "./controls";
 import { dc } from "./copy";
 import { BugReport } from "./BugReport";
 import { legibleOn } from "../storefront/footerColors";
-import { OptionsPanel, PageLookNow, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus, type OptionsScreen } from "./panels";
+import { OptionsPanel, PageLookNow, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, okEmail, okPhone, type Draft, type Focus, type OptionsScreen } from "./panels";
 import { hasStoreContact, visibleLength } from "../safe";
 import type { Design } from "../storefront/sections";
 
@@ -147,6 +147,21 @@ function initial(): Draft {
 }
 
 /* `mine` is Saad's private copy of the demo template at /saad (temporary, see mineTemplate.ts): fully editable, saved under its own key. */
+/* The store's pages in the side bar */
+const pageRail = {
+  ar: { group: "صفحات المتجر", home: "الصفحة الرئيسية", product: "صفحة المنتج", shop: "كل المنتجات", cart: "السلة" },
+  en: { group: "Store pages", home: "Home page", product: "Product page", shop: "All products", cart: "Cart" },
+} as const;
+const pageIcons = {
+  home: <svg {...ico}><path d="M4 11.5 12 5l8 6.5" /><path d="M6 10v9h12v-9" /><path d="M10 19v-5h4v5" /></svg>,
+  product: <svg {...ico}><path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9-9-9Z" /><circle cx="8" cy="8" r="1.500" /></svg>,
+  shop: <svg {...ico}><rect x="4" y="4" width="6.500" height="6.500" rx="1.500" /><rect x="13.500" y="4" width="6.500" height="6.500" rx="1.500" /><rect x="4" y="13.500" width="6.500" height="6.500" rx="1.500" /><rect x="13.500" y="13.500" width="6.500" height="6.500" rx="1.500" /></svg>,
+  cart: <svg {...ico}><path d="M6 7h12l-1 13H7L6 7Z" /><path d="M9 7a3 3 0 0 1 6 0" /></svg>,
+};
+
+/* the all-products page, in the page menu */
+const shopWord = { ar: "كل المنتجات", en: "All products" } as const;
+
 export function Designer({ mine: mineProp = false }: { mine?: boolean | string } = {}) {
   /* /saad shows the demo template; /saad/<theme> shows a ready theme of the theme store (kept under its own key) */
   const themeId = typeof mineProp === "string" && findTheme(mineProp) ? mineProp : undefined;
@@ -243,6 +258,13 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   const [productView, setProductView] = useState(false);
   /* The preview shows the store with its cart open (the cart design is seen there) */
   const [cartView, setCartView] = useState(false);
+  /* the all-products page in the preview (its page menu); any other page shown takes its place */
+  const [shopView, setShopView] = useState(false);
+  /* the preview at a phone's width (the switch beside the zoom), to check the store on phones */
+  const [phoneView, setPhoneView] = useState(false);
+  useEffect(() => {
+    if (openedPage !== null || productView || cartView) setShopView(false);
+  }, [openedPage, productView, cartView]);
   /* the sidebar settings are open: the store shows its sidebar open, to see the changes live */
   const [menuView, setMenuView] = useState(false);
   const onSub = useCallback((sub: string | null) => setMenuView(sub === "sidebarSettings"), []);
@@ -301,7 +323,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
   /* The side panel is one scrolling area for every tab. When a click in the preview opens a panel, it must start where that click
      belongs (the top, or the product card settings), not wherever the last panel was scrolled to. */
   const panelBox = useRef<HTMLDivElement>(null);
-  const scrollPanel = (to: "top" | "cards" | "productPage") =>
+  const scrollPanel = (to: "top" | "cards" | "productPage" | "cart") =>
     setTimeout(() => {
       const box = panelBox.current;
       if (!box) return;
@@ -829,7 +851,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
 
   saveRef.current = save;
   /* What a click in the preview does. The preview keeps one set of these (see Preview), and they always call the latest ones. */
-  acts.current = { select, selectProduct, moveBit, editPic, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); if (id !== null) setPanelOpen(true); }, sampleProducts: setSample };
+  acts.current = { select, selectProduct, moveBit, editPic, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); setShopView(false); if (id !== null) setPanelOpen(true); }, sampleProducts: setSample };
   /* the preview with sample products: offered while the store has no products of its own (a theme try-out and his own copy of a
      theme already show the theme's sample products, the starter template always shows them); it is only on screen, never saved */
   const sampleChoice = !trying && !mine && !templateMode && (!hasOwnProducts || sample) ? { on: sample, set: setSample } : null;
@@ -886,6 +908,52 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
     </button>
   );
 
+  /* The store's pages in the side bar: a press shows that page in the preview and opens its settings beside it */
+  type PageKey = "home" | "product" | "shop" | "cart";
+  const pageOn: Record<PageKey, boolean> = {
+    home: openedPage === null && !productView && !cartView && !shopView,
+    product: productView,
+    shop: shopView,
+    cart: cartView,
+  };
+  const goPage = (k: PageKey) => {
+    setOpenedPage(null);
+    setEditing(null);
+    setSelected(null);
+    setPic(null);
+    setPanelOpen(true);
+    setPagePanel(false);
+    setPagesMenu(false);
+    setProductView(k === "product");
+    setShopView(k === "shop");
+    setCartView(k === "cart");
+    /* the home page: its parts (header, elements, footer); the others: their screen in the design options */
+    if (k === "home") {
+      setTab("pages");
+      setOptionsAsk(null);
+      scrollPanel("top");
+    } else if (k === "cart") {
+      setTab("options");
+      setOptionsAsk(null);
+      scrollPanel("cart");
+    } else {
+      setTab("options");
+      setOptionsAsk({ screen: k === "product" ? "productPage" : "shopPage", n: Date.now() });
+    }
+  };
+  const pageBtn = (k: PageKey, label: string, ic: React.ReactNode) => (
+    <button
+      type="button"
+      onClick={() => goPage(k)}
+      aria-label={label}
+      title={label}
+      aria-pressed={pageOn[k]}
+      className={`grid h-9 w-9 place-items-center rounded-xl transition ${pageOn[k] ? "bg-fg/10 text-fg ring-1 ring-fg/20" : "text-muted hover:bg-fg/10 hover:text-fg"}`}
+    >
+      {ic}
+    </button>
+  );
+
   const pill = "rounded-xl border border-fg/15 px-2 py-2 sm:px-3 text-sm font-semibold transition hover:bg-soft";
 
   return (
@@ -931,7 +999,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
         {/* On a phone the page being edited sits at the end of the second row, with room for its name */}
         <div className="relative ms-auto min-w-0 shrink-0 lg:ms-0 lg:shrink">
           <button type="button" onClick={() => { setPagesMenu((o) => !o); setMoreMenu(false); }} aria-expanded={pagesMenu} className={`${pill} flex max-w-full items-center gap-2 whitespace-nowrap`}>
-            <span className="min-w-0 max-w-[8rem] truncate sm:max-w-[14rem] lg:max-w-[10rem] xl:max-w-none">{openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : cartView ? t.cartPage : t.pages[0]}</span>
+            <span className="min-w-0 max-w-[8rem] truncate sm:max-w-[14rem] lg:max-w-[10rem] xl:max-w-none">{openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : cartView ? t.cartPage : shopView ? shopWord[lang] : t.pages[0]}</span>
             <span className={`transition-transform ${pagesMenu ? "rotate-180" : ""}`}>{railIcons.chevron}</span>
           </button>
           {pagesMenu && (
@@ -942,11 +1010,11 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
                     type="button"
                     disabled={i > 1}
                     onClick={() => {
-                      setPagesMenu(false); setOpenedPage(null); setProductView(i === 1); setCartView(false);
+                      setPagesMenu(false); setOpenedPage(null); setProductView(i === 1); setCartView(false); setShopView(false);
                       /* the product page: its settings (in Store look) open beside it */
-                      if (i === 1) { setPic(null); setPanelOpen(true); setPagePanel(false); setTab("options"); scrollPanel("productPage"); }
+                      if (i === 1) { setPic(null); setPanelOpen(true); setPagePanel(false); setTab("options"); setOptionsAsk({ screen: "productPage", n: Date.now() }); }
                     }}
-                    className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-medium transition ${(i === 0 && openedPage === null && !productView && !cartView) || (i === 1 && productView) ? "bg-primary/15 font-bold text-primary" : i <= 1 ? "font-bold hover:bg-soft" : "text-muted/70"}`}
+                    className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-medium transition ${(i === 0 && openedPage === null && !productView && !cartView && !shopView) || (i === 1 && productView) ? "bg-primary/15 font-bold text-primary" : i <= 1 ? "font-bold hover:bg-soft" : "text-muted/70"}`}
                   >
                     {p}
                     {i > 1 && <span className="text-[10px] font-semibold">{t.soon}</span>}
@@ -956,10 +1024,19 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
               <li>
                 <button
                   type="button"
-                  onClick={() => { setPagesMenu(false); setOpenedPage(null); setProductView(false); setCartView(true); }}
+                  onClick={() => { setPagesMenu(false); setOpenedPage(null); setProductView(false); setShopView(false); setCartView(true); }}
                   className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-bold transition ${cartView ? "bg-primary/15 text-primary" : "hover:bg-soft"}`}
                 >
                   {t.cartPage}
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => { setPagesMenu(false); setOpenedPage(null); setProductView(false); setCartView(false); setShopView(true); setPic(null); setPanelOpen(true); setPagePanel(false); setTab("options"); setOptionsAsk({ screen: "shopPage", n: Date.now() }); }}
+                  className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-bold transition ${shopView ? "bg-primary/15 text-primary" : "hover:bg-soft"}`}
+                >
+                  {shopWord[lang]}
                 </button>
               </li>
               {storePages.map((p) => (
@@ -1194,7 +1271,14 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           </button>
           {railBtn("pages", t.rail.pages, railIcons.pages)}
           {railBtn("options", t.rail.options, railIcons.options)}
-          {railBtn("texts", t.rail.texts, railIcons.texts)}
+          {/* the store's pages: home, a product, all products, the cart */}
+          <span aria-hidden className="mx-0.5 h-6 w-px bg-fg/15 lg:mx-0 lg:my-1 lg:h-px lg:w-6" />
+          <div role="group" aria-label={pageRail[lang].group} className="flex items-center gap-2 lg:flex-col">
+            {pageBtn("home", pageRail[lang].home, pageIcons.home)}
+            {pageBtn("product", pageRail[lang].product, pageIcons.product)}
+            {pageBtn("shop", pageRail[lang].shop, pageIcons.shop)}
+            {pageBtn("cart", pageRail[lang].cart, pageIcons.cart)}
+          </div>
           {/* On a phone or a tablet: the settings or the store, each on the whole screen */}
           <div role="group" aria-label={t.rail.phoneSwitch} className="ms-auto flex shrink-0 rounded-xl border border-fg/15 p-0.5 lg:hidden">
             {([false, true] as const).map((store) => {
@@ -1252,8 +1336,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
               )}
               {pic && <ProductPicturePanel lang={lang} name={pic.name} image={pic.image} value={pic.focus} onChange={setPicFocus} onBack={() => setPic(null)} blocked={readOnly} onBlocked={blockedNote} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditingView} focus={focus} onSub={onSub} />}
-              {!pic && (openedPage === null || !pagePanel) && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
-              {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel key={optionsAsk?.n ?? 0} lang={lang} draft={draft} update={update} attn={attnNow?.id ?? (productView ? "productPage" : undefined)} ask={optionsAsk?.screen} cart={{ on: cartView, show: (on) => (on ? showCartPage() : setCartView(false)) }} product={(on) => { if (on) { setOpenedPage(null); setCartView(false); } setProductView(on); }} />}
+              {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel key={optionsAsk?.n ?? 0} lang={lang} draft={draft} update={update} attn={attnNow?.id ?? (productView ? "productPage" : undefined)} ask={optionsAsk?.screen} cart={{ on: cartView, show: (on) => (on ? showCartPage() : setCartView(false)) }} product={(on) => { if (on) { setOpenedPage(null); setCartView(false); setShopView(false); } setProductView(on); }} productOn={productView} shop={(on) => { if (on) { setOpenedPage(null); setCartView(false); setProductView(false); } setShopView(on); }} shopOn={shopView} />}
             </div>
             {/* What saving does (the one Save button is in the top bar). On a phone or a tablet the round "Bug or idea?" button sits
                 at the end of this strip, so the words leave it room. */}
@@ -1303,6 +1386,9 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
           showPage={openedPage}
           showProduct={productView}
           showCart={cartView}
+          showShop={shopView}
+          phoneView={phoneView}
+          setPhoneView={setPhoneView}
           showMenu={menuView && tab === "pages"}
           openCart={showCartPage}
           acts={acts}
@@ -1316,7 +1402,7 @@ export function Designer({ mine: mineProp = false }: { mine?: boolean | string }
         lift={phone && panelOpen && !phoneStore}
         where={[
           activeTheme || t.themeName,
-          openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : cartView ? t.cartPage : t.pages[0],
+          openedPage !== null ? storePages.find((p) => p.id === openedPage)?.title ?? t.pages[0] : productView ? t.pages[1] : cartView ? t.cartPage : shopView ? shopWord[lang] : t.pages[0],
           (() => { const sec = draft.config.sections.find((x) => x.id === (editing ?? selected)); return sec ? t.elements[sec.type] : ""; })(),
         ].filter(Boolean).join(" · ")}
       />
@@ -1352,7 +1438,7 @@ type Acts = Required<Omit<Design, "selected">>;
  * (a menu, a message, a panel opening). While a text is being typed it follows a moment later: when typing pauses, and at
  * least every quarter of a second, so the side panel keeps up with the keys.
  */
-const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, name, description, color, phone, selected, sample, products, showPage, showProduct, showCart, showMenu, openCart, acts }: {
+const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, name, description, color, phone, selected, sample, products, showPage, showProduct, showShop, showCart, showMenu, openCart, acts, phoneView, setPhoneView }: {
   lang: Lang;
   reveal: { id: string; n: number } | null;
   frameOn: string | null;
@@ -1368,6 +1454,10 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
   showPage: number | null;
   showProduct: boolean;
   showCart: boolean;
+  showShop: boolean;
+  /* the preview at a phone's width */
+  phoneView: boolean;
+  setPhoneView: (on: boolean) => void;
   showMenu: boolean;
   openCart: () => void;
   acts: React.MutableRefObject<Acts>;
@@ -1395,11 +1485,11 @@ const Preview = memo(function Preview({ lang, reveal, frameOn, config, typing, n
   );
   const closeCart = useCallback(() => acts.current.openPage(null), [acts]);
   const store = useMemo(
-    () => <StorefrontTheme config={now.config} device="auto" interactive={false} sample={sample} products={products} owner showPage={showPage} showProduct={showProduct} showCart={showCart} showMenu={showMenu} onCartClose={closeCart} onCartOpen={openCart} design={design} store={now.store} />,
-    [now, sample, products, showPage, showProduct, showCart, showMenu, closeCart, openCart, design],
+    () => <StorefrontTheme config={now.config} device={phoneView ? "mobile" : "auto"} interactive={false} sample={sample} products={products} owner showPage={showPage} showProduct={showProduct} showShop={showShop} showCart={showCart} showMenu={showMenu} onCartClose={closeCart} onCartOpen={openCart} design={design} store={now.store} />,
+    [now, phoneView, sample, products, showPage, showProduct, showShop, showCart, showMenu, closeCart, openCart, design],
   );
   return (
-    <Canvas lang={lang} reveal={reveal} frameOn={frameOn}>
+    <Canvas lang={lang} reveal={reveal} frameOn={frameOn} phone={phoneView} onPhone={setPhoneView}>
       {store}
     </Canvas>
   );

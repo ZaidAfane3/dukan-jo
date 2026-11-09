@@ -27,7 +27,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
 import { AccountBanners } from "./SupportBanner";
 
-type Section = "home" | "pages" | "domain" | "orders" | "products" | "marketing" | "reports" | "support" | "settings";
+type Section = "home" | "pages" | "messages" | "domain" | "orders" | "products" | "marketing" | "reports" | "support" | "settings";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -54,6 +54,7 @@ const icons = {
   bell: <svg {...ico}><path d="M6 17V11a6 6 0 1 1 12 0v6l2 2H4l2-2ZM10 21a2 2 0 0 0 4 0" /></svg>,
   shield: <svg {...ico}><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></svg>,
   language: <svg {...ico}><path d="M4 6h9M8.5 4v2M6 6c.5 3 2.5 5.5 5.5 7M12 6c-.5 3-3 6-7 7.5M13 20l4-9 4 9M14.4 17h5.2" /></svg>,
+  chat: <svg {...ico}><path d="M4 5h16v11H9l-5 4V5Z" /><path d="M8 9h8M8 12h5" /></svg>,
   doc: <svg {...ico}><path d="M6 3h9l4 4v14H6V3Z" /><path d="M15 3v4h4M9 12h6M9 16h6" /></svg>,
   receipt: <svg {...ico}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3ZM9 8h6M9 12h6" /></svg>,
   exportIcon: <svg {...ico}><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>,
@@ -350,6 +351,7 @@ export function DashboardBar({
       ],
     },
     { key: "pages", label: lang === "ar" ? "الصفحات التعريفية" : "Info pages", icon: icons.doc, href: "/pages", section: "pages" },
+    { key: "messages", label: lang === "ar" ? "رسائل العملاء" : "Customer messages", icon: icons.chat, href: "/messages", section: "messages" },
     {
       key: "reports",
       label: nav[6],

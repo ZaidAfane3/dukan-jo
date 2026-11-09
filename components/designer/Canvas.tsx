@@ -6,6 +6,8 @@ import { dc } from "./copy";
 import { useSpots, type Spot } from "../storefront/spotSignal";
 
 const BASE = 1100; /* the width of the store at 100% */
+/* the store at a phone's width (the phone view of the preview): the store draws its phone layout there, as customers on phones see it */
+const PHONE = 390;
 const MIN = 0.25; /* the smallest zoom of the buttons and the wheel */
 const FIT_MIN = 0.05; /* "Whole page" goes lower when a long page needs it */
 const MAX = 1.5;
@@ -62,8 +64,12 @@ const ic = { viewBox: "0 0 24 24", className: "h-5 w-5", fill: "none", stroke: "
  * the whole page at once, and moved by dragging the background, with the hand tool, or with the
  * scroll bars. Ctrl and the mouse wheel zoom too.
  */
-export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, children }: { lang: Lang; /* an element just added: the store scrolls down to it */ reveal?: { id: string; n: number } | null; /* a part of the store (its data-sf) being edited: on a narrow screen it is zoomed to a readable size */ frameOn?: string | null; children: React.ReactNode }) {
+export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, phone = false, onPhone, children }: { lang: Lang; /* the store shown at a phone's width, and the switch between computer and phone */ phone?: boolean; onPhone?: (on: boolean) => void; /* an element just added: the store scrolls down to it */ reveal?: { id: string; n: number } | null; /* a part of the store (its data-sf) being edited: on a narrow screen it is zoomed to a readable size */ frameOn?: string | null; children: React.ReactNode }) {
   const t = dc[lang].canvas;
+  /* the store's width now: a computer's or a phone's (read by the effects through baseNow, so they follow a switch) */
+  const base = phone ? PHONE : BASE;
+  const baseNow = useRef(base);
+  baseNow.current = base;
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -80,12 +86,24 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
   useEffect(() => {
     const b = box.current;
     if (!b) return;
-    const fitWidth = () => { if (autoZoom.current && !framed.current) setZoom(clamp(Math.floor(Math.min(1, (b.clientWidth - 40) / BASE) * 100) / 100)); };
+    const fitWidth = () => { if (autoZoom.current && !framed.current) setZoom(clamp(Math.floor(Math.min(1, (b.clientWidth - 40) / baseNow.current) * 100) / 100)); };
     fitWidth();
     const ro = new ResizeObserver(fitWidth);
     ro.observe(b);
     return () => ro.disconnect();
   }, []);
+
+  /* switching between computer and phone fits the new width again, from the top of the page */
+  const firstSwitch = useRef(true);
+  useEffect(() => {
+    if (firstSwitch.current) { firstSwitch.current = false; return; }
+    const b = box.current;
+    if (!b) return;
+    autoZoom.current = true;
+    framed.current = false;
+    setZoom(clamp(Math.floor(Math.min(1, (b.clientWidth - 40) / base) * 100) / 100));
+    b.scrollTo({ top: 0, left: 0 });
+  }, [base]);
 
   useEffect(() => {
     const el = frame.current;
@@ -159,9 +177,9 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
   useEffect(() => {
     const b = box.current;
     if (!b || b.clientWidth === 0) return;
-    const narrow = (b.clientWidth - 40) / BASE < READ - 0.1;
+    const narrow = (b.clientWidth - 40) / baseNow.current < READ - 0.1;
     if (!aimKey) {
-      if (framed.current && autoZoom.current) setZoom(clamp(Math.floor(Math.min(1, (b.clientWidth - 40) / BASE) * 100) / 100));
+      if (framed.current && autoZoom.current) setZoom(clamp(Math.floor(Math.min(1, (b.clientWidth - 40) / baseNow.current) * 100) / 100));
       framed.current = false;
       return;
     }
@@ -231,7 +249,7 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
       const r = hit.el.getBoundingClientRect();
       const rf = f.getBoundingClientRect();
       const left = Math.max(3, Math.round((r.left - rf.left) / z) - SPOT_GAP);
-      const right = Math.min(BASE - 3, Math.round((r.right - rf.left) / z) + SPOT_GAP);
+      const right = Math.min(baseNow.current - 3, Math.round((r.right - rf.left) / z) + SPOT_GAP);
       const top = Math.max(3, Math.round((r.top - rf.top) / z) - SPOT_GAP);
       const bottom = Math.round((r.bottom - rf.top) / z) + SPOT_GAP;
       const next = { top, left, width: right - left, height: bottom - top, label: hit.spot.label };
@@ -248,7 +266,7 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
   const fit = useCallback(() => {
     const b = box.current;
     if (!b) return;
-    const z = Math.min((b.clientWidth - 40) / BASE, (b.clientHeight - 40) / height);
+    const z = Math.min((b.clientWidth - 40) / baseNow.current, (b.clientHeight - 40) / height);
     autoZoom.current = false;
     framed.current = false;
     /* the whole page, however long it is: only a hard floor so the store never vanishes */
@@ -297,16 +315,16 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
         className={`h-full overflow-auto p-5 [background-image:radial-gradient(rgb(var(--fg)/0.14)_1px,transparent_1px)] [background-size:16px_16px] ${dragging ? "cursor-grabbing select-none" : hand ? "cursor-grab" : ""}`}
       >
         {/* The box has the size of the scaled store, so the scroll bars match what is shown */}
-        <div data-pan className="relative mx-auto" dir="ltr" style={{ width: BASE * zoom, height: height * zoom, minWidth: 0 }}>
+        <div data-pan className="relative mx-auto" dir="ltr" style={{ width: base * zoom, height: height * zoom, minWidth: 0 }}>
           {/* The name tag of a selected element sits over the store's header, so the first element's tag is not hidden under it */}
-          <div ref={frame} className="absolute start-0 top-0 overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/10 [&_[data-sf]>div>span:last-child]:z-30" style={{ width: BASE, transform: `scale(${zoom})`, transformOrigin: "top left" }}>
+          <div ref={frame} className={`absolute start-0 top-0 overflow-hidden bg-white shadow-2xl ${phone ? "rounded-[2rem] ring-[6px] ring-[#1c1a17]" : "rounded-2xl ring-1 ring-black/10"} [&_[data-sf]>div>span:last-child]:z-30`} style={{ width: base, transform: `scale(${zoom})`, transformOrigin: "top left" }}>
             {children}
             {/* what the open settings change: the same teal outline and name tag as a selected block */}
             {mark && (
               <>
                 <span aria-hidden data-spot-mark className="pointer-events-none absolute z-40 rounded-[10px] ring-2 ring-[#14b8a6] transition-[top,left,width,height] duration-200" style={{ top: mark.top, left: mark.left, width: mark.width, height: mark.height }} />
                 {mark.label && (
-                  <span aria-hidden dir={lang === "ar" ? "rtl" : "ltr"} className="pointer-events-none absolute z-40 max-w-[60%] -translate-y-1/2 truncate rounded-md bg-[#14b8a6] px-2.5 py-1 text-[11px] font-bold text-white shadow" style={{ /* at the very top of the page the tag would cover what it names: it sits on the outline's lower edge instead */ top: mark.top >= 14 ? mark.top : mark.top + mark.height, /* at the reading start of the outline, unless that would push it off the page's edge */ ...((lang === "ar" ? mark.left + mark.width > 240 : mark.left > BASE - 240) ? { right: BASE - mark.left - mark.width + 8 } : { left: mark.left + 8 }) }}>
+                  <span aria-hidden dir={lang === "ar" ? "rtl" : "ltr"} className="pointer-events-none absolute z-40 max-w-[60%] -translate-y-1/2 truncate rounded-md bg-[#14b8a6] px-2.5 py-1 text-[11px] font-bold text-white shadow" style={{ /* at the very top of the page the tag would cover what it names: it sits on the outline's lower edge instead */ top: mark.top >= 14 ? mark.top : mark.top + mark.height, /* at the reading start of the outline, unless that would push it off the page's edge */ ...((lang === "ar" ? mark.left + mark.width > 240 : mark.left > base - 240) ? { right: base - mark.left - mark.width + 8 } : { left: mark.left + 8 }) }}>
                     {mark.label}
                   </span>
                 )}
@@ -320,6 +338,20 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
       </div>
 
       <div className="absolute bottom-4 start-4 z-20 flex items-center gap-1 rounded-xl bg-card p-1 shadow-lg ring-1 ring-fg/10">
+        {/* computer or phone: how the store looks on each */}
+        {onPhone && (
+          <>
+            <div role="group" aria-label={t.view} className="flex items-center gap-0.5">
+              <button type="button" className={`${btn} ${!phone ? "bg-primary/15 !text-primary" : ""}`} onClick={() => onPhone(false)} aria-pressed={!phone} aria-label={t.desktop} title={t.desktop}>
+                <svg {...ic}><rect x="3" y="4" width="18" height="12" rx="1.5" /><path d="M8 20h8M12 16v4" /></svg>
+              </button>
+              <button type="button" className={`${btn} ${phone ? "bg-primary/15 !text-primary" : ""}`} onClick={() => onPhone(true)} aria-pressed={phone} aria-label={t.phone} title={t.phone}>
+                <svg {...ic}><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M11 18h2" /></svg>
+              </button>
+            </div>
+            <span className="mx-1 h-6 w-px bg-fg/10" />
+          </>
+        )}
         <button type="button" className={btn} onClick={() => step(-0.1)} disabled={zoom <= MIN} aria-label={t.out} title={t.out}>
           <svg {...ic}><path d="M5 12h14" /></svg>
         </button>

@@ -72,7 +72,8 @@ function merge(s: Partial<StorefrontConfig>): StorefrontConfig {
     pageBackground: { ...defaultConfig.pageBackground, ...s.pageBackground },
     cards: { ...defaultConfig.cards, ...s.cards },
     cart: { style: s.cart?.style ?? defaultConfig.cart?.style ?? "drawer" },
-    productPage: { style: s.productPage?.style ?? defaultConfig.productPage?.style ?? "classic" },
+    productPage: { ...s.productPage, style: s.productPage?.style ?? defaultConfig.productPage?.style ?? "classic" },
+    ...(s.shopPage ? { shopPage: { ...s.shopPage } } : {}),
     texts: { ...defaultConfig.texts, ...s.texts },
     /* a page he emptied on purpose stays empty (the designer asks before saving one); only a design with no list at all gets the starter blocks */
     sections: Array.isArray(s.sections) ? s.sections.map(upgrade) : defaultConfig.sections,

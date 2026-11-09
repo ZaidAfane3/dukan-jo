@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, useMemo } from "react";
+import { fillMessage, loadMessages, messageIn } from "../messageTemplates";
 import type { Lang } from "../content";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
@@ -8,7 +9,7 @@ import { jordanMobile } from "../phone";
 import { CITIES, checkCheckout, isUnlimited, ORDER_LIMITS, priceCart, productSizes, sellableStock, stock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, parseList, type Coupon, type CouponRefusal } from "../records";
 import type { CartStyle } from "./config";
-import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
+import { currency, icons, moneyIn, priceOf, ProductImage, wide } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
 
 /* The customer's basket: what is in it, the free delivery progress and a few suggestions, then the checkout (who, where,
@@ -216,7 +217,7 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
 }
 
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, look = "drawer", contained = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean }) {
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, look = "drawer", contained = false, compact = false, storeName }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ storeName?: string; compact?: boolean; contained?: boolean }) {
   const w = words[lang];
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", city: "", address: "", note: "" });
@@ -226,6 +227,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
   const fulfil: Fulfil = pickup ? fulfilRaw : "delivery";
   const [errors, setErrors] = useState<Partial<Record<"name" | "phone" | "city" | "address", string>>>({});
   const [doneId, setDoneId] = useState(0);
+  /* the order just placed: who ordered and its total (for the thank-you words) */
+  const [doneInfo, setDoneInfo] = useState({ name: "", total: 0 });
   /* the cart had to change at checkout (stock ran out or a price changed): he sees it before ordering */
   const [changed, setChanged] = useState(false);
   /* one order per press, even when the button is pressed again before the page updates */
@@ -322,6 +325,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
     }
     pushNotification("orderCreated", { id: String(id), name: checked.value.customer, total: amount(sum) });
     setDoneId(id);
+    setDoneInfo({ name: checked.value.customer, total: sum });
     setStep("done");
     setChanged(false);
     setCoupon("");
@@ -332,7 +336,11 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
     if (step !== "done") placing.current = false;
   }, [step]);
 
-  const s = skins[look] ?? skins.drawer;
+  /* the store is narrow (a phone, or the designer's phone view): rules that follow the window's size are left out */
+  const s = useMemo(() => {
+    const skin = skins[look] ?? skins.drawer;
+    return compact ? (Object.fromEntries(Object.entries(skin).map(([k, v]) => [k, typeof v === "string" ? wide(true, v) : v])) as typeof skin) : skin;
+  }, [look, compact]);
   const luxe = look === "luxe";
   const count = lines.reduce((n, l) => n + l.qty, 0);
   const progress = fd.on && fd.min > 0 ? Math.min(100, (subtotal / fd.min) * 100) : 100;
@@ -467,7 +475,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
         <h3 className={s.formTitle} style={luxe ? heading : undefined}>{w.details}</h3>
         <p className="text-[11px] opacity-60">{w.required.split("*")[0]}<span className="text-rose-600">*</span>{w.required.split("*")[1]}</p>
       </div>
-      <div className={luxe ? "grid gap-3 sm:grid-cols-2" : "space-y-3"}>
+      <div className={luxe ? wide(compact, "grid gap-3 sm:grid-cols-2") : "space-y-3"}>
         {(["name", "phone"] as const).map((k) => (
           <div key={k}>
             <label htmlFor={`co-${k}`} className={s.label}>{w[k]} <span className="text-rose-600">*</span></label>
@@ -491,7 +499,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
         </div>
       )}
       {fulfil === "delivery" && (
-        <div className={luxe ? "grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : "space-y-3"}>
+        <div className={luxe ? wide(compact, "grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]") : "space-y-3"}>
           <div>
             <label htmlFor="co-city" className={s.label}>{w.city} <span className="text-rose-600">*</span></label>
             <select id="co-city" value={form.city} onChange={(e) => set("city", e.target.value)} aria-invalid={!!errors.city} className={field(errors.city)}>
@@ -535,7 +543,14 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       </div>
     </div>
   );
-  const doneView = centered(check, w.doneTitle, w.doneText.replace("{id}", String(doneId)).replace("{phone}", jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase()), w.done);
+  /* his thank-you words (Customer messages), filled in for this order, before the order number and how he will be reached */
+  const thanks = (() => {
+    const msgs = loadMessages();
+    if (!msgs.screen.on) return "";
+    return fillMessage(messageIn(msgs.screen.text, lang), { name: doneInfo.name, order: String(doneId), total: amount(doneInfo.total), store: storeName ?? "" }).trim();
+  })();
+  const doneText = w.doneText.replace("{id}", String(doneId)).replace("{phone}", jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase());
+  const doneView = centered(check, w.doneTitle, thanks ? `${thanks} ${doneText}` : doneText, w.done);
   const emptyView = centered(icons.bag, w.empty, w.emptyHint, w.keepShopping);
 
   const back = (
@@ -608,10 +623,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
           ) : lines.length === 0 && step === "cart" ? (
             emptyView
           ) : luxe ? (
-            <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-[minmax(0,1fr)_330px] md:gap-10">
+            <div className={wide(compact, "mx-auto grid max-w-5xl gap-6 md:grid-cols-[minmax(0,1fr)_330px] md:gap-10")}>
               <div>{step === "details" ? detailsView : cartView}</div>
               {/* the summary stays beside the products (under them on a phone) */}
-              <aside className="self-start rounded-[var(--sf-r2,16px)] border border-[color-mix(in_srgb,var(--sf-accent)_28%,transparent)] bg-sf-text/[0.03] p-5 md:sticky md:top-0">
+              <aside className={wide(compact, "self-start rounded-[var(--sf-r2,16px)] border border-[color-mix(in_srgb,var(--sf-accent)_28%,transparent)] bg-sf-text/[0.03] p-5 md:sticky md:top-0")}>
                 <h3 className="text-lg" style={heading}>{w.summary}</h3>
                 {step === "details" && (
                   <ul className="mt-3 space-y-2 border-b border-sf-text/10 pb-3">

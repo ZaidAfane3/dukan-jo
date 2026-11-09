@@ -5,7 +5,7 @@ import { usePrefs } from "../Prefs";
 import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, shopTarget, type LogoConfig, type StorefrontConfig } from "./config";
 import { copy, currency, icons, LogoMark, money, moneyIn, onColor, picFill, priceLang, priceOf, readableOn, resolveLogo, drawerHeading } from "./parts";
 import { patterns } from "./patterns";
-import { basketKey, linkProps, ProductPage, renderSection, type Ctx, type Design } from "./sections";
+import { basketKey, linkProps, ProductPage, renderSection, ShopPage, shopOf, type Ctx, type Design } from "./sections";
 import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
 import { fontFamily, headingFamily } from "./config";
@@ -53,6 +53,8 @@ type Props = {
   showPage?: number | null;
   /* Designer only: show the page of the first product (the "product page" of the page menu) */
   showProduct?: boolean;
+  /* Designer only: show the all-products page (its page menu) */
+  showShop?: boolean;
   /* In the designer: the store with its cart open, so the cart design can be seen (closing it goes back to the home page) */
   showCart?: boolean;
   /* In the designer: the store with its sidebar open, while its settings are being edited, so every change shows live */
@@ -61,7 +63,7 @@ type Props = {
   onCartOpen?: () => void;
 };
 
-export function StorefrontTheme({ config = defaultConfig, device = "auto", interactive = true, store, design, sample = false, owner = false, products, showPage = null, showProduct = false, showCart = false, showMenu = false, onCartClose, onCartOpen }: Props) {
+export function StorefrontTheme({ config = defaultConfig, device = "auto", interactive = true, store, design, sample = false, owner = false, products, showPage = null, showProduct = false, showShop = false, showCart = false, showMenu = false, onCartClose, onCartOpen }: Props) {
   const { lang, setLang } = usePrefs();
   const c = copy[lang];
   const saved = useStoreData(lang, sample);
@@ -177,9 +179,20 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* The page of a product: pressing a product card opens it (in the designer it is the first product, from the page menu) */
   const [ownProduct, setOwnProduct] = useState<number | null>(null);
   const productId = design ? (showProduct ? (products ?? data.products)[0]?.id ?? null : null) : ownProduct;
+  /* The all-products page ("All products", or one category chosen); a product opened from it comes back to it */
+  const [ownShop, setOwnShop] = useState<{ category?: string } | null>(null);
+  const shopView = design ? (showShop ? {} : null) : ownShop;
+  const openShop = (category?: string) => {
+    if (design) return;
+    setPageId(null);
+    setOwnProduct(null);
+    setOwnShop({ category });
+    root.current?.scrollIntoView({ block: "start" });
+  };
   const openPage = (id: number) => {
     if (design) return design.openPage?.(id);
     setOwnProduct(null);
+    setOwnShop(null);
     setPageId(id);
     root.current?.scrollIntoView({ block: "start" });
   };
@@ -190,7 +203,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     root.current?.scrollIntoView({ block: "start" });
   };
   const closePage = () => {
+    /* from a product opened in the all-products page, back to that page */
+    if (!design && ownProduct !== null && ownShop) {
+      setOwnProduct(null);
+      root.current?.scrollIntoView({ block: "start" });
+      return;
+    }
     setOwnProduct(null);
+    setOwnShop(null);
     if (design) design.openPage?.(null);
     else setPageId(null);
   };
@@ -201,19 +221,20 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* What the sections are given. It stays the same object while nothing they use changes, so editing one section draws only that
      section again: the sections see only the look (theme, texts, cards) and the products, never the list of sections or the footer,
      and the actions below are stable and always call the newest version. */
-  const latest = useRef({ openPage, openProduct, showSection: (_: string) => {}, design });
-  latest.current = { ...latest.current, openPage, openProduct, design };
+  const latest = useRef({ openPage, openProduct, openShop, showSection: (_: string) => {}, design });
+  latest.current = { ...latest.current, openPage, openProduct, openShop, design };
+  const openShopS = useCallback((category?: string) => latest.current.openShop(category), []);
   const openPageS = useCallback((id: number) => latest.current.openPage(id), []);
   const openProductS = useCallback((id: number) => latest.current.openProduct(id), []);
   const showSectionS = useCallback((id: string) => {
     if (!latest.current.design) latest.current.showSection(id);
   }, []);
-  const look = useMemo(() => ({ theme: config.theme, texts: config.texts, cards: config.cards }), [config.theme, config.texts, config.cards]);
+  const look = useMemo(() => ({ theme: config.theme, texts: config.texts, cards: config.cards, productPage: config.productPage, shopPage: config.shopPage }), [config.theme, config.texts, config.cards, config.productPage, config.shopPage]);
   const goods = useMemo(() => ({ products: data.products, categories: data.categories, color: data.color, isDemo: data.isDemo }), [data.products, data.categories, data.color, data.isDemo]);
   const shop = shopTarget(config);
   const ctx: Ctx = useMemo(
-    () => ({ lang, compact, data: goods, config: look, shop, design, owner, query, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS }),
-    [lang, compact, goods, look, shop, design, owner, query, interactive, qty, setQty, openPageS, openProductS, showSectionS],
+    () => ({ lang, compact, data: goods, config: look, shop, design, owner, query, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, openShop: openShopS, showSection: showSectionS }),
+    [lang, compact, goods, look, shop, design, owner, query, interactive, qty, setQty, openPageS, openProductS, openShopS, showSectionS],
   );
 
   /* his text and title colors, unless they vanish on his background (the same color, or too close): then automatic ones that read */
@@ -414,7 +435,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
      home page; kept while a page or a product is open, since the home page is not drawn then */
   const [emptyParts, setEmptyParts] = useState<string[]>([]);
   useEffect(() => {
-    if (design || pageId !== null || productId !== null || !root.current) return;
+    if (design || pageId !== null || productId !== null || shopView || !root.current) return;
     const empty = config.sections.filter((s) => !root.current?.querySelector(`[data-sf="${CSS.escape(s.id)}"]`)?.childElementCount).map((s) => s.id);
     setEmptyParts((was) => (was.join() === empty.join() ? was : empty));
   });
@@ -446,6 +467,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     if (!r || r.kind === "dead") return;
     if (r.kind === "page") return openPage(r.id);
     if (r.kind === "section") return showSection(r.id);
+    if (r.kind === "shop") return openShop(r.category);
     if (design) return;
     if (r.blank) window.open(r.href, "_blank", "noreferrer");
     else window.location.href = r.href;
@@ -453,7 +475,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* From a page of the store back to the home page, then to its part */
   const showSection = (to: string) => {
     const scroll = () => root.current?.querySelector(`[data-sf="${CSS.escape(to)}"]`)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
-    if (pageId !== null || productId !== null) {
+    if (pageId !== null || productId !== null || shopView) {
+      setOwnShop(null);
       closePage();
       setTimeout(scroll, 60);
     } else scroll();
@@ -750,10 +773,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       {design && showCart && (
         /* the cart drawn inside the preview where he is looking, filled with the first products when nothing was added */
         <div className={`absolute inset-x-0 z-[60] ${cartAt ? "" : "top-0 h-[min(100%,880px)]"}`} style={cartAt ? { top: cartAt.top, height: cartAt.height } : undefined}>
-          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} />
+          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} compact={compact} storeName={data.name} />
         </div>
       )}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} />}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} look={config.cart?.style} compact={compact} storeName={data.name} />}
       <main>
         {shownProduct ? (
           <>
@@ -765,6 +788,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           )}
           <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} sections={config.sections} ask={whatsappHref(config.footer.whatsapp?.trim() || data.whatsapp)} />
           </>
+        ) : shopView ? (
+          <ShopPage ctx={ctx} category={shopView.category} onBack={closePage} onCategory={(c) => { if (!design) setOwnShop({ category: c || undefined }); }} />
         ) : shownPage ? (
           <>
             <section className={`${compact ? "px-4 pt-8" : "px-8 pt-12"} ${shownPage.sections.length || design ? "pb-2" : compact ? "min-h-[420px] pb-10" : "min-h-[640px] pb-16"}`}>
@@ -802,7 +827,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       </main>
 
       {/* "Report this store" is for customers on a live store: never in the designer, a static or theme preview, or the owner's own look */}
-      <Footer config={config} data={data} compact={compact} lang={lang} design={design} logo={logo} namePlace={namePlace} onPage={openPage} onSection={(id) => { if (!design) showSection(id); }} reportSlug={!design && interactive && !owner && !products && !data.isDemo ? data.slug : ""} />
+      <Footer config={config} data={data} compact={compact} lang={lang} design={design} logo={logo} namePlace={namePlace} onPage={openPage} onShop={openShop} onSection={(id) => { if (!design) showSection(id); }} reportSlug={!design && interactive && !owner && !products && !data.isDemo ? data.slug : ""} />
 
       {menu && (
         /* the sidebar opens from the side its button is on (the end, when the name and the menu button sit there) */
@@ -818,7 +843,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             {config.drawer.items.filter((it) => it.visible).map((it) => {
               const rows: { key: string | number; title: string; on: () => void; color?: string }[] =
                 it.kind === "categories"
-                  ? data.categories.map((name) => ({ key: name, title: name, on: () => setMenu(false) }))
+                  ? data.categories.map((name) => ({ key: name, title: name, on: () => { setMenu(false); openShop(name); } }))
                   : it.kind === "pages"
                     ? data.links.map((l) => ({ key: l.id, title: l.title, on: () => { setMenu(false); openPage(l.id); } }))
                     : it.kind === "custom"
@@ -961,7 +986,7 @@ function AnnouncementBar({ config, lang, design, reduceMotion, offer, offerColor
 /* Where a link the merchant wrote leads: a page of the store ("page:5", "dead" when that page is gone), a part of the page, or an address.
    mailto:, tel:, sms: and whatsapp: stay as written (in the same tab); a bare email or phone number becomes one; "@name" in a social
    field becomes that network's profile; javascript:/data: and loose words (spaces, no dot) are not links. */
-type Resolved = { kind: "page"; id: number } | { kind: "section"; id: string } | { kind: "url"; href: string; blank: boolean } | { kind: "dead" } | null;
+type Resolved = { kind: "page"; id: number } | { kind: "shop"; category?: string } | { kind: "section"; id: string } | { kind: "url"; href: string; blank: boolean } | { kind: "dead" } | null;
 type Network = "instagram" | "facebook" | "x" | "youtube" | "snapchat" | "tiktok";
 const profileOf: Record<Network, string> = { instagram: "https://instagram.com/", facebook: "https://facebook.com/", x: "https://x.com/", youtube: "https://youtube.com/@", snapchat: "https://snapchat.com/add/", tiktok: "https://tiktok.com/@" };
 function resolveLink(raw: string, opts: { pages?: number[]; sections?: string[]; social?: Network } = {}): Resolved {
@@ -969,6 +994,9 @@ function resolveLink(raw: string, opts: { pages?: number[]; sections?: string[];
   if (!l) return null;
   const pg = /^page:(\d+)$/.exec(l);
   if (pg) return !opts.pages || opts.pages.includes(Number(pg[1])) ? { kind: "page", id: Number(pg[1]) } : { kind: "dead" };
+  /* the all-products page, or it on one category */
+  const sh = shopOf(l);
+  if (sh !== undefined) return { kind: "shop", ...(sh ? { category: sh } : {}) };
   if (/^(javascript|data|vbscript|file):/i.test(l)) return null;
   if (/^(mailto|tel|sms|whatsapp):/i.test(l)) return { kind: "url", href: l, blank: false };
   /* any other kind of link (javascript:, data:, vbscript:, …) is never one, only "shop.com:8080" (a port) */
@@ -1000,7 +1028,7 @@ const telegramHref = (s: string) => {
   return /^\w{3,}$/.test(h) ? `https://t.me/${h}` : "";
 };
 
-function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, onSection, reportSlug = "" }: { config: StorefrontConfig; data: ReturnType<typeof useStoreData>; compact: boolean; lang: "en" | "ar"; design?: Design; logo: LogoConfig; /* the designer's empty place for the store name (none: the name) */ namePlace?: React.ReactNode; onPage: (id: number) => void; onSection: (id: string) => void; /* the store link "Report this store" is about (none: the link is not shown) */ reportSlug?: string }) {
+function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, onShop, onSection, reportSlug = "" }: { config: StorefrontConfig; data: ReturnType<typeof useStoreData>; compact: boolean; lang: "en" | "ar"; design?: Design; logo: LogoConfig; /* the designer's empty place for the store name (none: the name) */ namePlace?: React.ReactNode; onPage: (id: number) => void; onShop: (category?: string) => void; onSection: (id: string) => void; /* the store link "Report this store" is about (none: the link is not shown) */ reportSlug?: string }) {
   const c = copy[lang];
   const f = config.footer;
   const simple = f.style === "simple";
@@ -1048,6 +1076,7 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
     if (!to || to.kind === "dead") return null;
     if (design) return { href: "#", onClick: (e) => e.preventDefault() };
     if (to.kind === "page") return { href: "#", onClick: (e) => { e.preventDefault(); onPage(to.id); } };
+    if (to.kind === "shop") return { href: "#", onClick: (e) => { e.preventDefault(); onShop(to.category); } };
     if (to.kind === "section") return { href: `#${to.id}`, onClick: (e) => { e.preventDefault(); onSection(to.id); } };
     return to.blank ? { href: to.href, target: "_blank", rel: "noreferrer" } : { href: to.href };
   };
