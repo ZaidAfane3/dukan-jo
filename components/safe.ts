@@ -439,7 +439,7 @@ export const RESERVED_SLUGS = new Set([
   "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "cdn", "checkout", "dashboard", "demo", "design",
   "dev", "docs", "domain", "dukkan", "help", "home", "login", "logout", "mail", "marketing", "new", "null", "onboarding", "orders",
   "pages", "preview", "products", "register", "reports", "root", "seen", "settings", "shop", "signin", "signup", "staff",
-  "static", "status", "store", "store-link", "support", "system", "test", "themes", "undefined", "www",
+  "static", "status", "store", "support", "system", "test", "themes", "undefined", "www",
 ]);
 
 /** Turns what was typed into a store address: lower case, spaces become dashes, other characters go. */
@@ -448,3 +448,11 @@ export function typedSlug(s: unknown): string {
 }
 
 export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG_RULE.test(s) && !RESERVED_SLUGS.has(s);
+
+/* Names reserved later, for new choices only: a store that already took one keeps it (saved setups are read with isSlug,
+   so its link never disappears), but nobody can choose it from now on. "store-link" became a merchant page. */
+const RESERVED_FOR_NEW = new Set(["store-link"]);
+/** A name the platform keeps, when a store chooses or changes its link */
+export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s);
+/** A link a store may choose now */
+export const isNewSlug = (s: unknown): s is string => isSlug(s) && !RESERVED_FOR_NEW.has(s);

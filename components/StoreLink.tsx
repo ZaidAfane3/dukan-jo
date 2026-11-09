@@ -5,7 +5,7 @@ import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
-import { isSlug, RESERVED_SLUGS, SLUG_RULE, typedSlug } from "./safe";
+import { isNewSlug, reservedForNew, SLUG_RULE, typedSlug } from "./safe";
 import { reservedSlugError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { merchantCall, onServer } from "./merchantApi";
@@ -106,8 +106,8 @@ export function StoreLink() {
 
   const saveSlug = async () => {
     const v = draft.trim();
-    if (!isSlug(v)) {
-      setSlugError(SLUG_RULE.test(v) && RESERVED_SLUGS.has(v) ? reservedSlugError[lang] : c.invalid);
+    if (!isNewSlug(v)) {
+      setSlugError(SLUG_RULE.test(v) && reservedForNew(v) ? reservedSlugError[lang] : c.invalid);
       return;
     }
     /* a store link belongs to one store: a signed-in account asks Dukkan first (the save is refused anyway if taken) */
