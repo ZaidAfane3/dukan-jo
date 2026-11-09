@@ -151,21 +151,15 @@ function safeSet(key: string, value: string) {
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export function PrefsProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("en");
+  /* a first visit is Arabic and light; a saved choice wins (app/layout.tsx applies it before the first paint) */
+  const [lang, setLangState] = useState<Lang>("ar");
   const [theme, setTheme] = useState<Theme>("light");
 
-  /* Runs before paint so a saved Arabic page never flashes English first. */
+  /* Runs before paint so a saved English page never flashes Arabic first. */
   useIsoLayoutEffect(() => {
     const savedLang = safeGet("seen-lang");
     if (savedLang === "ar" || savedLang === "en") setLangState(savedLang);
-    const savedTheme = safeGet("seen-theme");
-    setTheme(
-      savedTheme === "dark" || savedTheme === "light"
-        ? savedTheme
-        : window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light",
-    );
+    setTheme(safeGet("seen-theme") === "dark" ? "dark" : "light");
     delete document.documentElement.dataset.boot;
   }, []);
 
