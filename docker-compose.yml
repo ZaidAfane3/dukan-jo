@@ -12,6 +12,9 @@ services:
       # Diwan (staff console): the key that lets /diwan/login create the first owner while there is no staff yet.
       # Put DIWAN_SETUP_KEY=a-long-random-key in .env; once the owner exists it does nothing (and can be removed).
       DIWAN_SETUP_KEY: ${DIWAN_SETUP_KEY:-}
+      # The key for encrypting stored data. Put DUKKAN_DATA_KEY=$(openssl rand -base64 32) in .env; keep it safe and
+      # never change it once data has been saved with it.
+      DUKKAN_DATA_KEY: ${DUKKAN_DATA_KEY:-}
     depends_on:
       db:
         condition: service_healthy
