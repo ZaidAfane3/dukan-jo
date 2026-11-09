@@ -3,6 +3,8 @@
    changes are sent to /api/store in small batches. On sign-in the whole store comes back from the server, so the
    merchant can close the site, come back days later or on another device, and carry on where they stopped. */
 
+import { bounceIfSuspended } from "./suspended";
+
 /* key -> new value, or null when it was removed */
 let pending = new Map<string, string | null>();
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -53,6 +55,8 @@ export async function flushSaves(): Promise<void> {
        store): sending it again would not help */
     retry = !(r.status === 401 || r.status === 400 || r.status === 413 || r.status === 403 || r.status === 409 || r.status === 423);
     /* the page already shows the change, so say it was not kept (SupportBanner listens for a view-only visit) */
+    /* signed out: maybe because Dukkan suspended the store while this tab was open, which the merchant should be told */
+    if (r.status === 401) void bounceIfSuspended();
     if (r.status === 403 || r.status === 409 || r.status === 423) {
       const why = ((await r.json().catch(() => null)) as { result?: string } | null)?.result ?? "refused";
       window.dispatchEvent(new CustomEvent(SAVE_REFUSED, { detail: why }));

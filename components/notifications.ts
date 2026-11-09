@@ -1,5 +1,6 @@
 import { content, dateLocale, type Lang } from "./content";
 import { demoActive, signedInAs } from "./demoSandbox";
+import { bounceIfSuspended } from "./suspended";
 
 /* The bell's list. Two sources, shown as one list:
    - this browser session: pages add to it when something happens here (a task is finished, a coupon is created, ...).
@@ -71,6 +72,8 @@ export function refreshServerNotifications(): Promise<void> {
   if (!serverMode()) return Promise.resolve();
   loading ??= fetch("/api/notifications", { credentials: "same-origin", cache: "no-store" })
     .then(async (r) => {
+      /* signed out while the page was open: if Dukkan suspended the store, the merchant is shown why */
+      if (r.status === 401) void bounceIfSuspended();
       if (!r.ok) return;
       const j = (await r.json()) as { items?: { id: string; kind: string; params: Record<string, unknown>; ts: number; read: boolean }[] };
       serverList = (j.items ?? [])
