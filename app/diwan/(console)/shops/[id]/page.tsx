@@ -108,6 +108,7 @@ export default function ShopPage({ params }: { params: { id: string } }) {
             {suspended && (
               <p className="mb-6 rounded-2xl bg-red-500/10 px-5 py-4 text-sm text-red-700 dark:text-red-300">
                 <b>{t("Suspended", "موقوف")}</b> {f.dateTime(sh.suspended_at)} — {sh.suspend_reason}
+                <span className="mt-1 block text-xs opacity-80">{t("The merchant sees this reason when they try to sign in.", "يرى التاجر هذا السبب عند محاولة الدخول.")}</span>
               </p>
             )}
 
@@ -333,11 +334,18 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
       <>
         <p className="text-sm text-muted">
           {t(
-            "The merchant is signed out everywhere, can't sign in and can't save anything until the store is reactivated. They get a message with the reason.",
-            "يُسجَّل خروج التاجر من كل الأجهزة، ولا يستطيع الدخول أو الحفظ حتى يُعاد تفعيل المتجر. تصله رسالة بالسبب.",
+            "The merchant is signed out everywhere, can't sign in and can't save anything until the store is reactivated.",
+            "يُسجَّل خروج التاجر من كل الأجهزة، ولا يستطيع الدخول أو الحفظ حتى يُعاد تفعيل المتجر.",
           )}
         </p>
-        {reasonBox(t("Reason (the merchant sees it)", "السبب (يراه التاجر)"))}
+        {/* the merchant reads it word for word on the suspended-store page (components/SuspendedNotice.tsx) */}
+        <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+          {t(
+            "The merchant sees this reason exactly as you write it: when they try to sign in, in any tab they had open, and in their notifications. Write it for them, calmly and clearly, and say what they can do.",
+            "يرى التاجر هذا السبب كما تكتبه تمامًا: عند محاولة الدخول، وفي أي صفحة كانت مفتوحة لديه، وفي إشعاراته. اكتبه موجّهًا إليه بهدوء ووضوح، واذكر ما يمكنه فعله.",
+          )}
+        </p>
+        {reasonBox(t("Reason shown to the merchant", "السبب الذي يظهر للتاجر"))}
       </>
     );
     submit = () => go(`${base}/status`, { action: "suspend", reason });
