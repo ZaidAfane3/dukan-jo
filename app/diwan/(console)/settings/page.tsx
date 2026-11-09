@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LIMITS, PAY_METHODS, type PlatformSettings, type SettingKey } from "@/components/diwan/platformSettings";
+import { LEGAL_PAGES, LIMITS, PAY_METHODS, type Bi, type PlatformSettings, type SettingKey } from "@/components/diwan/platformSettings";
 import { THEME_CATALOG } from "@/components/diwan/themeCatalog";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 
 /* Platform settings (owners): each setting has its own form and its own Save, checked again by the server, and every save
-   is written to the activity log with what it was before. The starter template is edited in the store designer. */
+   is written to the activity log with what it was before. The starter template is edited in the store designer.
+   The merchant pages and the stores read them (components/platformPublic.ts; the server re-checks prices and ways to pay),
+   so a save here reaches them: open pages pick it up within a minute or when their tab comes back into view. */
 
 type Entry<K extends SettingKey> = { value: PlatformSettings[K]; saved: boolean; updatedAt: string | null; by: string | null };
 type Data = { settings: { [K in SettingKey]: Entry<K> }; template: { updatedAt: string; by: string | null } | null };
@@ -26,8 +28,12 @@ export default function SettingsPage() {
             <DefaultThemes e={d.settings.default_themes} />
             <Seo e={d.settings.seo_defaults} />
             <DomainPrices e={d.settings.domain_prices} />
+            <DukkanShip e={d.settings.dukkan_ship} />
             <div className="xl:col-span-2">
               <Shipping e={d.settings.shipping_companies} />
+            </div>
+            <div className="xl:col-span-2">
+              <LegalTemplates e={d.settings.store_legal_templates} />
             </div>
           </div>
         )}
@@ -99,7 +105,7 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
   const t = useT();
   const s = useSaver("payment_methods", e);
   return (
-    <Section title={t("Payment methods", "طرق الدفع")} sub={t("Which ways to pay stores can offer, with a note shown beside each.", "طرق الدفع التي تستطيع المتاجر تقديمها، مع ملاحظة بجانب كل منها.")} info={s.info} state={s.state} onSave={() => s.save()}>
+    <Section title={t("Payment methods", "طرق الدفع")} sub={t("Which ways to pay are offered, with a note shown beside each: a store's checkout offers cash, CliQ and card; the theme checkout offers card, CliQ and PayPal.", "طرق الدفع المتاحة، مع ملاحظة تظهر بجانب كل منها: صفحة الدفع في المتجر تقدّم الدفع عند الاستلام وكليك والبطاقة، وشراء الثيمات يقدّم البطاقة وكليك وباي بال.")} info={s.info} state={s.state} onSave={() => s.save()}>
       {PAY_METHODS.map((m) => (
         <div key={m} className="grid gap-2 sm:grid-cols-[10rem_1fr] sm:items-center">
           <label className="flex items-center gap-2 text-sm font-medium">
@@ -118,7 +124,7 @@ function DefaultThemes({ e }: { e: Entry<"default_themes"> }) {
   const s = useSaver("default_themes", e);
   const toggle = (id: string, on: boolean) => s.setValue(on ? [...s.value, id] : s.value.filter((x) => x !== id));
   return (
-    <Section title={t("Default themes", "الثيمات الأساسية")} sub={t("Dukkan's own themes every new store gets.", "ثيمات دكّان التي يحصل عليها كل متجر جديد.")} info={s.info} state={s.state} onSave={() => s.save()}>
+    <Section title={t("Default themes", "الثيمات الأساسية")} sub={t("The free themes every store has in My themes. None picked: Dukkan and Mada.", "الثيمات المجانية الموجودة لدى كل متجر في ثيماتي. إن لم تختر شيئًا: دكّان ومدى.")} info={s.info} state={s.state} onSave={() => s.save()}>
       {THEME_CATALOG.map((th) => (
         <label key={th.id} className="flex items-center gap-2 text-sm">
           <input type="checkbox" className="h-4 w-4" checked={s.value.includes(th.id)} onChange={(x) => toggle(th.id, x.target.checked)} />
@@ -171,7 +177,7 @@ function DomainPrices({ e }: { e: Entry<"domain_prices"> }) {
     s.save(out);
   };
   return (
-    <Section title={t("Domain prices", "أسعار النطاقات")} sub={t("Yearly price in JOD for each ending Dukkan sells.", "السعر السنوي بالدينار لكل نهاية يبيعها دكّان.")} info={s.info} state={s.state} onSave={save}>
+    <Section title={t("Domain prices", "أسعار النطاقات")} sub={t("Yearly price in JOD for each ending Dukkan sells. An ending not on this list is not sold.", "السعر السنوي بالدينار لكل نهاية يبيعها دكّان. النهاية غير الموجودة هنا لا تُباع.")} info={s.info} state={s.state} onSave={save}>
       {rows.map((r, i) => (
         <div key={i} className="flex items-center gap-2">
           <input aria-label={t("Ending", "النهاية")} dir="ltr" className={`${field} w-32`} placeholder=".com" maxLength={41} value={r.ending} onChange={(x) => setRows(rows.map((y, j) => (j === i ? { ...y, ending: x.target.value } : y)))} />
@@ -219,6 +225,104 @@ function Shipping({ e }: { e: Entry<"shipping_companies"> }) {
       {rows.length < LIMITS.companies && (
         <button type="button" onClick={() => setRows([...rows, { name: "", phone: "", cities: "" }])} className="text-sm font-semibold text-primary hover:underline">{t("+ Add a company", "+ إضافة شركة")}</button>
       )}
+    </Section>
+  );
+}
+
+/* English and Arabic of one line, side by side */
+function BiInputs({ id, value, onChange, max, labels }: { id: string; value: Bi; onChange: (v: Bi) => void; max: number; labels: [string, string] }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      <div>
+        <label htmlFor={`${id}-en`} className="mb-1 block text-xs text-muted">{labels[0]}</label>
+        <input id={`${id}-en`} dir="ltr" className={field} maxLength={max} value={value.en} onChange={(x) => onChange({ ...value, en: x.target.value })} />
+      </div>
+      <div>
+        <label htmlFor={`${id}-ar`} className="mb-1 block text-xs text-muted">{labels[1]}</label>
+        <input id={`${id}-ar`} dir="rtl" className={field} maxLength={max} value={value.ar} onChange={(x) => onChange({ ...value, ar: x.target.value })} />
+      </div>
+    </div>
+  );
+}
+
+/* A list of English and Arabic lines (cities, points) edited as rows */
+function BiRows({ name, rows, setRows, max, maxRows, add }: { name: string; rows: Bi[]; setRows: (v: Bi[]) => void; max: number; maxRows: number; add: string }) {
+  const t = useT();
+  return (
+    <div className="space-y-2">
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input aria-label={`${name} ${i + 1} (${t("English", "إنجليزي")})`} dir="ltr" className={field} maxLength={max} value={r.en} onChange={(x) => setRows(rows.map((y, j) => (j === i ? { ...y, en: x.target.value } : y)))} />
+          <input aria-label={`${name} ${i + 1} (${t("Arabic", "عربي")})`} dir="rtl" className={field} maxLength={max} value={r.ar} onChange={(x) => setRows(rows.map((y, j) => (j === i ? { ...y, ar: x.target.value } : y)))} />
+          <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))} className="shrink-0 text-sm text-red-600 hover:underline dark:text-red-400">{t("Remove", "حذف")}</button>
+        </div>
+      ))}
+      {rows.length < maxRows && (
+        <button type="button" onClick={() => setRows([...rows, { en: "", ar: "" }])} className="text-sm font-semibold text-primary hover:underline">{add}</button>
+      )}
+    </div>
+  );
+}
+
+function DukkanShip({ e }: { e: Entry<"dukkan_ship"> }) {
+  const t = useT();
+  const s = useSaver("dukkan_ship", e);
+  /* the price is typed as text, so a half-typed amount ("2.") is not turned into a number while it is typed */
+  const [price, setPrice] = useState(String(e.value.price));
+  useEffect(() => setPrice(String(s.value.price)), [s.value.price]);
+  const set = (v: Partial<PlatformSettings["dukkan_ship"]>) => s.setValue({ ...s.value, ...v });
+  /* empty rows are left out; a row with only one language is sent as it is, so the server refuses it and nothing half written is saved */
+  const filled = (l: Bi[]) => l.filter((x) => x.en.trim() || x.ar.trim());
+  const save = () => s.save({ ...s.value, price: Number(price), cities: filled(s.value.cities), features: filled(s.value.features) });
+  return (
+    <Section title={t("Dukkan Ship", "دكّان شب")} sub={t("Dukkan's own delivery: the flat price of each order (what a store's customer pays for delivery), the cities it picks up from and what merchants read about it.", "خدمة التوصيل الخاصة بدكّان: السعر الثابت لكل طلب (ما يدفعه عميل المتجر للتوصيل)، والمدن التي تستلم منها، وما يقرؤه التجار عنها.")} info={s.info} state={s.state} onSave={save}>
+      <div>
+        <label htmlFor="ship-price" className={label}>{t("Price per order (JOD)", "السعر لكل طلب (د.أ)")}</label>
+        <input id="ship-price" type="number" min={0} max={LIMITS.shipPrice} step="0.001" dir="ltr" className={`${field} max-w-[10rem]`} value={price} onChange={(x) => setPrice(x.target.value)} />
+      </div>
+      <div>
+        <p className={label}>{t("Pickup cities (English, Arabic)", "مدن الاستلام (إنجليزي، عربي)")}</p>
+        <BiRows name={t("City", "مدينة")} rows={s.value.cities} setRows={(cities) => set({ cities })} max={LIMITS.city} maxRows={LIMITS.shipCities} add={t("+ Add a city", "+ إضافة مدينة")} />
+      </div>
+      <div>
+        <p className={label}>{t("Short policy under the price", "سياسة قصيرة تحت السعر")}</p>
+        <BiInputs id="ship-policy" value={s.value.policy} onChange={(policy) => set({ policy })} max={LIMITS.shipPolicy} labels={[t("English", "إنجليزي"), t("Arabic", "عربي")]} />
+      </div>
+      <div>
+        <p className={label}>{t("What it includes (English, Arabic)", "ما تشمله (إنجليزي، عربي)")}</p>
+        <BiRows name={t("Point", "ميزة")} rows={s.value.features} setRows={(features) => set({ features })} max={LIMITS.shipFeature} maxRows={LIMITS.shipFeatures} add={t("+ Add a point", "+ إضافة ميزة")} />
+      </div>
+    </Section>
+  );
+}
+
+const LEGAL_NAMES = { returns: ["Return policy", "سياسة الاسترجاع"], terms: ["Terms and conditions", "الأحكام والشروط"], privacy: ["Privacy policy", "سياسة الخصوصية"] } as const;
+
+function LegalTemplates({ e }: { e: Entry<"store_legal_templates"> }) {
+  const t = useT();
+  const s = useSaver("store_legal_templates", e);
+  return (
+    <Section title={t("Store legal pages", "الصفحات القانونية للمتاجر")} sub={t("The return, terms and privacy pages a new store starts with. Each store edits its own copy; stores that already have their pages keep them.", "صفحات الاسترجاع والأحكام والخصوصية التي يبدأ بها كل متجر جديد. يعدّل كل متجر نسخته؛ والمتاجر التي لديها صفحاتها تحتفظ بها.")} info={s.info} state={s.state} onSave={() => s.save()}>
+      {LEGAL_PAGES.map((k) => {
+        const page = s.value[k];
+        const set = (v: Partial<typeof page>) => s.setValue({ ...s.value, [k]: { ...page, ...v } });
+        return (
+          <fieldset key={k} className="space-y-3 rounded-xl border border-fg/10 p-3">
+            <legend className="px-1 text-sm font-semibold">{t(LEGAL_NAMES[k][0], LEGAL_NAMES[k][1])}</legend>
+            <BiInputs id={`legal-${k}`} value={page.title} onChange={(title) => set({ title })} max={LIMITS.legalTitle} labels={[t("Title (English)", "العنوان (إنجليزي)"), t("Title (Arabic)", "العنوان (عربي)")]} />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <label htmlFor={`legal-${k}-ben`} className="mb-1 block text-xs text-muted">{t("Text (English)", "النص (إنجليزي)")}</label>
+                <textarea id={`legal-${k}-ben`} dir="ltr" rows={8} className={`${field} h-auto py-2`} maxLength={LIMITS.legalBody} value={page.body.en} onChange={(x) => set({ body: { ...page.body, en: x.target.value } })} />
+              </div>
+              <div>
+                <label htmlFor={`legal-${k}-bar`} className="mb-1 block text-xs text-muted">{t("Text (Arabic)", "النص (عربي)")}</label>
+                <textarea id={`legal-${k}-bar`} dir="rtl" rows={8} className={`${field} h-auto py-2`} maxLength={LIMITS.legalBody} value={page.body.ar} onChange={(x) => set({ body: { ...page.body, ar: x.target.value } })} />
+              </div>
+            </div>
+          </fieldset>
+        );
+      })}
     </Section>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import type { Lang } from "../content";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
+import { payNote, storePayKey, storePays, usePublicSettings } from "../platformPublic";
 import { jordanMobile } from "../phone";
 import { CITIES, checkCheckout, isUnlimited, ORDER_LIMITS, priceCart, productSizes, sellableStock, stock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, parseList, type Coupon, type CouponRefusal } from "../records";
@@ -14,9 +15,6 @@ import { categoriesOf, type StoreProduct } from "./useStoreData";
 /* The customer's basket: what is in it, the free delivery progress and a few suggestions, then the checkout (who, where,
    how to pay) in the same place, and a thank-you. It has four looks a design picks (`look`, see the skins at the end). The order is saved with
    the merchant's orders, so it shows in his dashboard. Prototype: no payment is taken. */
-
-/* A flat delivery price until the merchant can set his own (orders reaching the free delivery amount pay nothing) */
-export const DELIVERY_FEE = 3;
 
 const cities = CITIES;
 
@@ -57,6 +55,7 @@ const words = {
     payCash: "Cash on delivery",
     payCard: "Card",
     cardNote: "Prototype: no card details are asked and nothing is charged.",
+    noPay: "This store can't take orders right now: no way to pay is open. Please try again later.",
     place: "Place the order",
     errName: "Enter your name.",
     errCity: "Choose your city.",
@@ -118,6 +117,7 @@ const words = {
     payCash: "الدفع عند الاستلام",
     payCard: "بطاقة",
     cardNote: "نسخة تجريبية: لا تُطلب بيانات البطاقة ولا يُخصم أي مبلغ.",
+    noPay: "لا يستقبل هذا المتجر طلبات الآن: لا توجد طريقة دفع متاحة. حاول مرة أخرى لاحقًا.",
     place: "تأكيد الطلب",
     errName: "اكتب اسمك.",
     errCity: "اختر مدينتك.",
@@ -220,7 +220,14 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
   const w = words[lang];
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", city: "", address: "", note: "" });
-  const [pay, setPay] = useState<Pay>("cliq");
+  /* What Dukkan's staff set in Diwan (platform settings): the ways to pay that are on, and the flat delivery price of Dukkan
+     Ship until the merchant can set his own (orders reaching the free delivery amount pay nothing) */
+  const platform = usePublicSettings();
+  const pays = storePays(platform);
+  const DELIVERY_FEE = platform.dukkan_ship.price;
+  const [payPicked, setPay] = useState<Pay>("cliq");
+  /* a way to pay switched off in Diwan while the page is open is never kept: the first one still on is chosen */
+  const pay: Pay | null = pays.includes(payPicked) ? payPicked : pays[0] ?? null;
   const [fulfilRaw, setFulfil] = useState<Fulfil>("delivery");
   /* if the store stops offering pickup, the order is delivered */
   const fulfil: Fulfil = pickup ? fulfilRaw : "delivery";
@@ -276,7 +283,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
 
   const place = () => {
     if (placing.current) return;
-    const checked = checkCheckout({ ...form, pay, fulfil }, { pickup });
+    const checked = checkCheckout({ ...form, pay, fulfil }, { pickup, pays });
     const bad = new Set<CheckoutField>(checked.ok ? [] : checked.errors);
     const next: typeof errors = {};
     if (bad.has("name")) next.name = w.errName;
@@ -513,13 +520,15 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       </div>
       <div role="radiogroup" aria-label={w.pay}>
         <p className={s.label}>{w.pay}</p>
-        <div className="grid grid-cols-3 gap-2">
-          {(["cliq", "cash", "card"] as const).map((k) => (
+        {!pays.length && <p role="alert" className="text-sm text-rose-600">{w.noPay}</p>}
+        <div className={`grid gap-2 ${pays.length === 1 ? "grid-cols-1" : pays.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+          {pays.map((k) => (
             <button key={k} type="button" role="radio" aria-checked={pay === k} onClick={() => setPay(k)} className={choice(pay === k)}>
               {k === "cliq" ? w.payCliq : k === "cash" ? w.payCash : w.payCard}
             </button>
           ))}
         </div>
+        {pay && payNote(platform, storePayKey(pay)) && <p dir="auto" className="mt-2 text-xs opacity-70">{payNote(platform, storePayKey(pay))}</p>}
         {pay === "card" && <p className="mt-2 text-xs opacity-70">{w.cardNote}</p>}
       </div>
     </div>

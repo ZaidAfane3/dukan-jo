@@ -9,17 +9,19 @@ import { PreviewEye, PreviewWindow } from "./ThemePopup";
 import { ThemePreview } from "./ThemePreview";
 import { themeWords } from "./themesContent";
 import { useCatalog } from "./catalog";
+import { payNote, themePays, usePublicSettings, type ThemePay } from "./platformPublic";
 import { buyTheme, isFeatured, isFreeTheme, loadThemeState, storeThemes, type ThemeInfo, type ThemeState } from "./themes";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 
 export const priceText = (n: number, lang: "en" | "ar", free: string) => (n === 0 ? free : `${n.toFixed(2)} ${lang === "ar" ? "د.أ" : "JOD"}`);
 
-const methods = [
+/* The theme checkout's ways to pay; only the ones Dukkan's staff have on in Diwan (platform settings) are offered */
+const methods: { key: ThemePay; logo: string; h: string }[] = [
   { key: "card", logo: "/logos/visa.png", h: "h-5" },
   { key: "cliq", logo: "/logos/cliq-tight.png", h: "h-7" },
   { key: "paypal", logo: "/logos/paypal.png", h: "h-5" },
-] as const;
+];
 
 /* A small eye beside a theme's name: it opens the theme in a new tab, as a whole store, to look at */
 export function ThemeStore() {
@@ -28,8 +30,9 @@ export function ThemeStore() {
   const [state, setState] = useState<ThemeState>({ owned: [], custom: [], active: "" });
   const [buying, setBuying] = useState<ThemeInfo | null>(null);
   const [previewing, setPreviewing] = useState<ThemeInfo | null>(null);
-  /* the list Dukkan's staff run from Diwan (what is in the store, its order and prices) */
+  /* the list Dukkan's staff run from Diwan (what is in the store, its order and prices), and the free designs */
   useCatalog();
+  usePublicSettings();
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${w.store.title}`;
@@ -138,8 +141,8 @@ export function ThemeStore() {
         <Checkout
           theme={buying}
           onClose={() => setBuying(null)}
-          onDone={() => {
-            buyTheme(buying);
+          onDone={(method) => {
+            buyTheme(buying, method);
             setState(loadThemeState());
           }}
         />
@@ -164,16 +167,22 @@ function Modal({ children, onClose, label, wide = false }: { children: React.Rea
 }
 
 /* The checkout. Prototype: it asks for nothing and takes nothing; it only adds the theme to My themes. */
-function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () => void; onDone: () => void }) {
+function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () => void; onDone: (method: ThemePay) => void }) {
   const { lang } = usePrefs();
   const w = themeWords[lang];
-  const [method, setMethod] = useState<(typeof methods)[number]["key"]>("card");
+  const platform = usePublicSettings();
+  const open = themePays(platform);
+  const offered = methods.filter((m) => open.includes(m.key));
+  const [picked, setMethod] = useState<ThemePay>("card");
+  /* one switched off in Diwan while the window is open is never kept: the first one still on is chosen */
+  const method: ThemePay | null = open.includes(picked) ? picked : open[0] ?? null;
   const [step, setStep] = useState<"pick" | "paying" | "done">("pick");
 
   const pay = () => {
+    if (!method) return;
     setStep("paying");
     setTimeout(() => {
-      onDone();
+      onDone(method);
       setStep("done");
     }, 1200);
   };
@@ -202,7 +211,8 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
 
           <p className="mt-5 text-sm font-semibold">{w.checkout.method}</p>
           <div className="mt-2 space-y-2" role="radiogroup" aria-label={w.checkout.method}>
-            {methods.map((m) => (
+            {!offered.length && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{w.checkout.noMethod}</p>}
+            {offered.map((m) => (
               <button key={m.key} type="button" role="radio" aria-checked={method === m.key} disabled={step === "paying"} onClick={() => setMethod(m.key)} className={`flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-start transition ${method === m.key ? "border-primary bg-primary/10" : "border-fg/15 hover:bg-soft"}`}>
                 <span className="text-sm font-semibold">{w.checkout.methods[m.key]}</span>
                 <span className="grid h-9 w-20 place-items-center rounded-lg bg-white">
@@ -212,6 +222,7 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
               </button>
             ))}
           </div>
+          {method && payNote(platform, method) && <p dir="auto" className="mt-2 text-xs text-muted">{payNote(platform, method)}</p>}
 
           <div className="mt-5 flex items-center justify-between border-t border-fg/10 pt-4">
             <span className="text-sm text-muted">{w.checkout.total}</span>
@@ -220,7 +231,7 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
           <p className="mt-3 text-xs text-muted">{w.checkout.note}</p>
 
           <div className="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
-            <button type="button" onClick={pay} disabled={step === "paying"} className="h-11 flex-1 rounded-xl bg-ink px-4 text-sm font-semibold text-onink transition hover:bg-deep disabled:cursor-wait disabled:opacity-60">
+            <button type="button" onClick={pay} disabled={step === "paying" || !method} className="h-11 flex-1 rounded-xl bg-ink px-4 text-sm font-semibold text-onink transition hover:bg-deep disabled:cursor-wait disabled:opacity-60">
               {step === "paying" ? w.checkout.paying : <>{w.checkout.pay} · <span dir="ltr">{priceText(theme.price, lang, w.store.free)}</span></>}
             </button>
             <button type="button" onClick={onClose} disabled={step === "paying"} className="h-11 flex-1 rounded-xl border border-fg/20 px-4 text-sm font-semibold transition hover:bg-soft disabled:opacity-40">{w.mine.cancel}</button>

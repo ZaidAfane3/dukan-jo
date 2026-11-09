@@ -2,6 +2,7 @@ import type { Lang } from "./content";
 import { demoSeed } from "./demoData";
 import { demoActive, isOwnCopy } from "./demoSandbox";
 import { merchantCall, onServer } from "./merchantApi";
+import { publicSettings } from "./platformPublic";
 import { THEME_PRICES } from "./themePrices";
 import { loadSetup } from "./setup";
 import { atelierConfig } from "./storefront/atelierTheme";
@@ -233,9 +234,17 @@ export const findTheme = (id: string | null | undefined): ThemeInfo | null => {
   return t ? withListing(t) : null;
 };
 
-/** The free designs every merchant has: always first in My themes, in this order, and never deleted. */
-export const freeThemes: ThemeInfo[] = [defaultTheme, madaTheme];
-export const isFreeTheme = (id: string | null | undefined) => freeThemes.some((t) => t.id === id);
+/* The code's own free designs, used while Dukkan's staff have not picked any in Diwan */
+const CODE_FREE: ThemeInfo[] = [defaultTheme, madaTheme];
+
+/** The free designs every merchant has: always first in My themes, in this order, and never deleted. They are the default
+    themes Dukkan's staff pick in Diwan (platform settings, default_themes), or Dukkan and Mada while none are picked. A
+    theme of the theme store picked there is free too (the server charges nothing for it). */
+export function freeThemes(): ThemeInfo[] {
+  const picked = publicSettings().default_themes.map((id) => findTheme(id)).filter((t): t is ThemeInfo => !!t);
+  return picked.length ? picked : CODE_FREE;
+}
+export const isFreeTheme = (id: string | null | undefined) => freeThemes().some((t) => t.id === id);
 
 /** The made-up perfumes a theme is previewed with (the same ones as the platform tour). */
 export function previewProducts(lang: Lang, theme?: ThemeInfo | null): StoreProduct[] {
@@ -310,13 +319,14 @@ export function withoutUnboughtLooks(c: StorefrontConfig): StorefrontConfig {
   return { ...c, sections, theme: { ...c.theme, titleStyle } };
 }
 
-/** Adds the theme to the merchant's themes (prototype: no payment is taken). */
-export function buyTheme(t: ThemeInfo): ThemeState {
+/** Adds the theme to the merchant's themes (prototype: no payment is taken). `method`: the way he chose to pay (one Diwan
+    has on; the server checks it again). */
+export function buyTheme(t: ThemeInfo, method?: string): ThemeState {
   const s = loadThemeState();
   if (!s.owned.some((o) => o.id === t.id)) s.owned = [...s.owned, { id: t.id, at: Date.now(), paid: t.price }];
   saveThemeState(s);
   /* a signed-in account also tells Dukkan (/api/themes/purchase takes the price from the theme store's list on the server, not from the page) */
-  if (onServer()) void merchantCall("/api/themes/purchase", "POST", { themeId: t.id });
+  if (onServer()) void merchantCall("/api/themes/purchase", "POST", { themeId: t.id, method });
   return s;
 }
 
