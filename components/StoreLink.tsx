@@ -5,7 +5,7 @@ import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
-import { isNewSlug, reservedForNew, SLUG_RULE, typedSlug } from "./safe";
+import { isNewSlug, isSlug, reservedForNew, SLUG_RULE, typedSlug } from "./safe";
 import { reservedSlugError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { merchantCall, onServer } from "./merchantApi";
@@ -106,7 +106,8 @@ export function StoreLink() {
 
   const saveSlug = async () => {
     const v = draft.trim();
-    if (!isNewSlug(v)) {
+    /* keeping the link the store already has is always allowed; a different one must be free to choose now */
+    if (!(v === slug && isSlug(v)) && !isNewSlug(v)) {
       setSlugError(SLUG_RULE.test(v) && reservedForNew(v) ? reservedSlugError[lang] : c.invalid);
       return;
     }

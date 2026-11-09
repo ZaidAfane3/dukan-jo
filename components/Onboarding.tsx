@@ -15,7 +15,7 @@ import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
 import { Tilt } from "./ui";
 import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, savedMobile, shownMobile, typedPhone } from "./phone";
-import { checkImage, cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isNewSlug, isPickupAddress, normalizeHex, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
+import { checkImage, cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isNewSlug, isPickupAddress, isSlug, normalizeHex, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
 import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
 import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
@@ -745,7 +745,8 @@ function LinkStep({ store, onSave }: StepProps) {
   const [tried, setTried] = useState(false);
   /* the link Dukkan said belongs to another store (asked on Save, like the Store link page) */
   const [taken, setTaken] = useState("");
-  const valid = isNewSlug(slug);
+  /* the link the store already has is always fine to keep; the rules for new choices apply to a different one */
+  const valid = (slug !== "" && slug === store.slug && isSlug(slug)) || isNewSlug(slug);
   /* Wrong after he leaves the field, or still empty after he pressed Save */
   const showError = (!valid && ((touched && slug !== "") || tried)) || (taken !== "" && taken === slug);
   const suggestion = slugify(store.name);
