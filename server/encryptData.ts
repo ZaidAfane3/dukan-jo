@@ -61,7 +61,7 @@ export async function encryptOldRows(pool: Pool): Promise<void> {
       /* raw_meta is JSON text (not a sealed value), so it comes back exactly as stored; reason and ip come back opened */
       for (const r of log.rows)
         await c.query(`UPDATE audit_log SET reason = $2, ip = $3, meta = $4::jsonb WHERE id = $1`, [
-          r.id, seal(r.raw_reason as string | null), seal(r.raw_ip as string), r.raw_meta == null ? null : JSON.stringify(sealDeep(JSON.parse(r.raw_meta as string))),
+          r.id, seal(r.raw_reason as string | null), seal(r.raw_ip as string), r.raw_meta == null ? null : JSON.stringify(sealDeep(JSON.parse(r.raw_meta as string), true)),
         ]);
       await c.query(`ALTER TABLE audit_log ENABLE TRIGGER audit_log_frozen`);
     }

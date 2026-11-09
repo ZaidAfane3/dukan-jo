@@ -51,38 +51,47 @@ export function seal(text: string | null | undefined): string | null {
   return MARK + Buffer.concat([iv, c.getAuthTag(), body]).toString("base64");
 }
 
+/* the text inside a sealed value, or null when it doesn't open with this key (or was never really sealed) */
+function decrypt(value: string): string | null {
+  const all = Buffer.from(value.slice(MARK.length), "base64");
+  if (all.length < 28) return null;
+  try {
+    const d = createDecipheriv("aes-256-gcm", loadKeys().enc, all.subarray(0, 12));
+    d.setAuthTag(all.subarray(12, 28));
+    return Buffer.concat([d.update(all.subarray(28)), d.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** Decrypts a value from the database (plain old values come back unchanged) */
 export function open(value: string): string;
 export function open(value: string | null | undefined): string | null;
 export function open(value: string | null | undefined): string | null {
   if (value == null) return null;
   if (!isSealed(value)) return value;
-  const all = Buffer.from(value.slice(MARK.length), "base64");
   /* a text that only looks sealed (someone typed "e1:..." into a plain field) is not one: give it back as it is */
-  if (all.length < 28) return value;
-  try {
-    const d = createDecipheriv("aes-256-gcm", loadKeys().enc, all.subarray(0, 12));
-    d.setAuthTag(all.subarray(12, 28));
-    return Buffer.concat([d.update(all.subarray(28)), d.final()]).toString("utf8");
-  } catch (e) {
-    /* In production this means the key is wrong: stop the request. Handing back the sealed text as if it were the data
-       would let the next save write it over the real data (a store's JSON read as "invalid", then replaced by defaults). */
-    if (process.env.NODE_ENV === "production") throw new Error("DUKKAN_DATA_KEY can't open the data saved with it (wrong key?)", { cause: e });
-    console.warn("[crypto] a value marked as encrypted could not be opened (wrong key, or not really encrypted)");
-    return value;
-  }
+  if (Buffer.from(value.slice(MARK.length), "base64").length < 28) return value;
+  const text = decrypt(value);
+  if (text != null) return text;
+  /* In production this means the key is wrong: stop the request. Handing back the sealed text as if it were the data
+     would let the next save write it over the real data (a store's JSON read as "invalid", then replaced by defaults). */
+  if (process.env.NODE_ENV === "production") throw new Error("DUKKAN_DATA_KEY can't open the data saved with it (wrong key?)");
+  console.warn("[crypto] a value marked as encrypted could not be opened (wrong key, or not really encrypted)");
+  return value;
 }
 
 /** Seals every text inside a JSON value (for JSON columns such as the activity log's details). Numbers, true/false and
     the keys stay as they are; db.ts opens the texts again on the way out. Below a few levels the rest is sealed as one
-    JSON text, since db.ts stops opening there. */
-export function sealDeep(v: unknown, depth = 0): unknown {
+    JSON text, since db.ts stops opening there. Every text is sealed, even one that starts like a sealed value (a note
+    may say "e1:..."). keepSealed is for sealing old rows only: a text that really opens with this key is kept as it is. */
+export function sealDeep(v: unknown, keepSealed = false, depth = 0): unknown {
   if (v == null) return v;
-  if (typeof v === "string") return isSealed(v) ? v : seal(v);
+  if (typeof v === "string") return keepSealed && isSealed(v) && decrypt(v) != null ? v : seal(v);
   if (typeof v !== "object") return v;
   if (depth >= 5) return seal(JSON.stringify(v));
-  if (Array.isArray(v)) return v.map((x) => sealDeep(x, depth + 1));
-  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, sealDeep(x, depth + 1)]));
+  if (Array.isArray(v)) return v.map((x) => sealDeep(x, keepSealed, depth + 1));
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, sealDeep(x, keepSealed, depth + 1)]));
 }
 
 /** A keyed fingerprint for finding a value without storing it (pass the value already in its saved form) */
