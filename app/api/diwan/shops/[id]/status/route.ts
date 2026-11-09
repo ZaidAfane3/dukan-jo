@@ -36,13 +36,25 @@ export const POST = staffRoute("shops.status", async (req, staff, ctx) => {
   }
   if (action === "reactivate") {
     const reason = reasonOf(b?.reason, 0) ?? "";
-    const { rowCount } = await pool.query(
-      `UPDATE shops SET status = 'active', suspend_reason = NULL, suspended_at = NULL, updated_at = now() WHERE account_id = $1 AND status = 'suspended'`,
-      [id],
-    );
+    /* the sessions kept while suspended (to tell open tabs why) end in the same transaction as the store opens again, so
+       none of them is ever valid on an active store, and a failure leaves the store suspended to try again */
+    const c = await pool.connect();
+    let rowCount = 0;
+    try {
+      await c.query("BEGIN");
+      await c.query(`DELETE FROM sessions WHERE account_id = $1`, [id]);
+      rowCount = (await c.query(
+        `UPDATE shops SET status = 'active', suspend_reason = NULL, suspended_at = NULL, updated_at = now() WHERE account_id = $1 AND status = 'suspended'`,
+        [id],
+      )).rowCount ?? 0;
+      await c.query(rowCount ? "COMMIT" : "ROLLBACK");
+    } catch (e) {
+      await c.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      c.release();
+    }
     if (!rowCount) return answer({ result: "already" }, 409);
-    /* the sessions kept while suspended (to tell open tabs why) end now */
-    await pool.query(`DELETE FROM sessions WHERE account_id = $1`, [id]);
     await audit(req, staff.id, "shop.reactivate", { type: "shop", id }, reason || null);
     await notify(id, "shopReactivated", {});
     return answer({ result: "ok" });

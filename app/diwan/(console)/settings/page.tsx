@@ -134,10 +134,17 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
           {PERIODS.map(([v, en, ar]) => <option key={v} value={v}>{t(en, ar)}</option>)}
         </select>
       </div>
+      {stats.error && (
+        <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-red-600 dark:text-red-400">
+          {t("The numbers couldn't be loaded.", "تعذّر تحميل الأرقام.")}
+          <button type="button" onClick={stats.reload} className="font-semibold underline">{t("Try again", "حاول مجددًا")}</button>
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         {PAY_METHODS.map((m) => {
           const on = s.value[m].on;
-          const u = stats.data?.use[m];
+          /* the numbers only for the period shown: none while the new period loads */
+          const u = stats.loading ? undefined : stats.data?.use[m];
           const look = PAY_LOOK[m];
           const name = t(PAY_NAMES[m][0], PAY_NAMES[m][1]);
           return (
@@ -179,7 +186,7 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
                   <div>
                     <dt className="text-xs text-muted">{t("Orders in stores", "طلبات المتاجر")}</dt>
                     <dd className="font-bold tabular-nums">
-                      {stats.loading && !u ? "…" : u ? <>{jod(u.ordersTotal)} <span className="font-normal text-muted">· {t(`${f.num(u.orders)} orders · ${f.num(u.stores)} stores`, `${f.num(u.orders)} طلب · ${f.num(u.stores)} متجر`)}</span></> : "—"}
+                      {stats.loading ? "…" : u ? <>{jod(u.ordersTotal)} <span className="font-normal text-muted">· {t(`${f.num(u.orders)} orders · ${f.num(u.stores)} stores`, `${f.num(u.orders)} طلب · ${f.num(u.stores)} متجر`)}</span></> : "—"}
                     </dd>
                   </div>
                 )}
@@ -187,7 +194,7 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
                   <div>
                     <dt className="text-xs text-muted">{t("Themes bought", "ثيمات مشتراة")}</dt>
                     <dd className="font-bold tabular-nums">
-                      {stats.loading && !u ? "…" : u ? <>{jod(u.themesTotal)} <span className="font-normal text-muted">· {t(`${f.num(u.themes)} bought · ${f.num(u.buyers)} stores`, `${f.num(u.themes)} عملية شراء · ${f.num(u.buyers)} متجر`)}</span></> : "—"}
+                      {stats.loading ? "…" : u ? <>{jod(u.themesTotal)} <span className="font-normal text-muted">· {t(`${f.num(u.themes)} bought · ${f.num(u.buyers)} stores`, `${f.num(u.themes)} عملية شراء · ${f.num(u.buyers)} متجر`)}</span></> : "—"}
                     </dd>
                   </div>
                 )}

@@ -1,6 +1,6 @@
 import { accountData, demoActive, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
 import { dropSaves, flushSaves, savesPending } from "./serverSync";
-import { asSuspension, rememberSuspension, SUSPENDED_PATH } from "./suspended";
+import { asSuspension, forgetSuspension, rememberSuspension, SUSPENDED_PATH } from "./suspended";
 
 /* The merchants' accounts. They live on the server (app/api/auth, the passwords hashed with scrypt, in a session cookie
    the page can't read). Each account has its own store: everything the dashboard saves is kept in this browser under
@@ -77,6 +77,7 @@ export async function createAccount(a: { email: string; name: string; phone: str
     the /suspended page); "code": the account has 2-step codes on, so logInCode must follow; "error": the server could
     not be reached. */
 export async function logIn(id: string, password: string): Promise<"ok" | "none" | "wrong" | "suspended" | "code" | "error"> {
+  forgetSuspension();
   const r = await call("/api/auth/login", "POST", { id, password });
   const result = r?.reply.result;
   const suspension = asSuspension(r?.reply);
@@ -100,6 +101,7 @@ export async function logInCode(code: string): Promise<"ok" | "wrong" | "expired
 }
 
 async function signedIn(a: PublicAccount) {
+  forgetSuspension();
   dropSaves();
   signInAs(a.email);
   rememberProfile(a);
@@ -119,6 +121,7 @@ function askTwoStep() {
 
 /** Logging out: what is left is sent first, then the session ends, and the next visitor sees no one's store */
 export async function logOut(): Promise<void> {
+  forgetSuspension();
   const wasSignedIn = !!signedInAs();
   /* flushSaves takes the waiting changes at once, so this browser can leave the account straight away (the next page
      must not open its store) while they are still on their way */

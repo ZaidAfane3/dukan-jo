@@ -15,24 +15,36 @@ export function asSuspension(reply: unknown): Suspension | null {
   return { reason: typeof r.reason === "string" ? r.reason : "", since: typeof r.since === "string" ? r.since : null };
 }
 
+/* also kept in memory: the sign-in page moves to /suspended without reloading, so the reason reaches it even when the
+   browser refuses storage (a suspended sign-in makes no session the page could ask the server with) */
+let memory: Suspension | null = null;
+/* a kept reason is shown for a short while only: it is never a lasting record of someone's store */
+const KEEP_MS = 30 * 60_000;
+
 export function rememberSuspension(s: Suspension) {
+  memory = s;
   try {
-    sessionStorage.setItem(KEY, JSON.stringify(s));
+    sessionStorage.setItem(KEY, JSON.stringify({ ...s, at: Date.now() }));
   } catch {
-    /* storage blocked: the page asks the server instead */
+    /* storage blocked: the copy in memory serves the next page */
   }
 }
 
 export function readSuspension(): Suspension | null {
+  if (memory) return memory;
   try {
     const v = JSON.parse(sessionStorage.getItem(KEY) ?? "null");
-    return v && typeof v === "object" ? asSuspension({ result: "suspended", ...v }) : null;
+    if (!v || typeof v !== "object" || typeof v.at !== "number" || Date.now() - v.at > KEEP_MS) return null;
+    return asSuspension({ result: "suspended", ...v });
   } catch {
     return null;
   }
 }
 
+/** Forgets the kept reason: at every sign-in attempt, sign-in and sign-out, so one merchant's reason is never shown
+    after the account in this tab changed */
 export function forgetSuspension() {
+  memory = null;
   try {
     sessionStorage.removeItem(KEY);
   } catch {
