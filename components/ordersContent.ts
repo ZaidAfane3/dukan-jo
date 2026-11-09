@@ -31,6 +31,7 @@ type OrdersCopy = {
   pickOne: string;
   details: string;
   items: string;
+  size: string;
   orderNo: string;
   date: string;
   channel: string;
@@ -100,6 +101,7 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     pickOne: "Select an order to see its details",
     details: "Order details",
     items: "What was ordered",
+    size: "Size",
     orderNo: "Order number",
     date: "Order date",
     channel: "Order source",
@@ -167,6 +169,7 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     pickOne: "اختر طلبًا لعرض تفاصيله",
     details: "تفاصيل الطلب",
     items: "المنتجات المطلوبة",
+    size: "المقاس",
     orderNo: "رقم الطلب",
     date: "تاريخ الطلب",
     channel: "مصدر الطلب",

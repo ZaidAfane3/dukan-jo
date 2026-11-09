@@ -12,10 +12,9 @@ services:
       # Diwan (staff console): the key that lets /diwan/login create the first owner while there is no staff yet.
       # Put DIWAN_SETUP_KEY=a-long-random-key in .env; once the owner exists it does nothing (and can be removed).
       DIWAN_SETUP_KEY: ${DIWAN_SETUP_KEY:-}
-      # The key that encrypts emails, mobiles, store data, tickets... in the database (server/crypto.ts). Put
-      # DUKKAN_DATA_KEY=<32 random bytes in base64> in .env and KEEP A COPY OUTSIDE THE SERVER: without it the data is
-      # gone for good. Missing, compose refuses to start (the running version stays up) instead of serving without it.
-      DUKKAN_DATA_KEY: ${DUKKAN_DATA_KEY:?set DUKKAN_DATA_KEY in .env (see docker-compose.yml)}
+      # The key for encrypting stored data. Run openssl rand -base64 32 in your shell, then put its output in .env as
+      # DUKKAN_DATA_KEY=<generated value>. Keep it safe and never change it once data has been saved with it.
+      DUKKAN_DATA_KEY: ${DUKKAN_DATA_KEY:-}
     depends_on:
       db:
         condition: service_healthy

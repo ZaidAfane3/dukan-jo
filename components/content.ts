@@ -190,7 +190,7 @@ export type Content = {
       errName: string;
       errAddress: string;
     };
-    service: { label: string; hint: string; phoneLabel: string; phonePh: string; invalid: string; previewHint: string; contact: string; useSame: string; registered: string; otherLabel: string };
+    service: { label: string; hint: string; phoneLabel: string; phonePh: string; invalid: string; previewHint: string; contact: string; useSame: string; registered: string; otherLabel: string; oneNeeded: string; waLabel: string; waHint: string; waOther: string; waEmpty: string; waInvalid: string; callLabel: string; callHint: string; callSame: string; callOther: string; callEmpty: string };
     domain: {
       label: string;
       hint: string;
@@ -721,6 +721,17 @@ export const content: Record<Lang, Content> = {
         useSame: "Use the same number registered in your account",
         registered: "Registered number",
         otherLabel: "Customer service phone number",
+        oneNeeded: "Add at least one: a WhatsApp number, a phone number for calls, or both.",
+        waLabel: "WhatsApp number",
+        waEmpty: "Leave it empty if you don't use WhatsApp, and add a phone number for calls.",
+        waHint: "Customers message you on it from the WhatsApp button in your store footer and on product pages.",
+        waOther: "WhatsApp number",
+        waInvalid: "Enter a valid Jordan mobile number for WhatsApp, e.g. 0791234567",
+        callLabel: "Phone number for calls",
+        callHint: "If you want customers to call you. It shows beside WhatsApp in your store footer.",
+        callSame: "Same number as WhatsApp",
+        callOther: "Phone number for calls",
+        callEmpty: "Leave it empty if you don't take calls.",
       },
       domain: {
         label: "Store domain",
@@ -1381,6 +1392,17 @@ export const content: Record<Lang, Content> = {
         useSame: "استخدام نفس الرقم المسجَّل في حسابك",
         registered: "الرقم المسجّل",
         otherLabel: "رقم جوال خدمة العملاء",
+        oneNeeded: "أضف رقمًا واحدًا على الأقل: واتساب، أو رقمًا للاتصال، أو الاثنين.",
+        waLabel: "رقم واتساب",
+        waEmpty: "اتركه فارغًا إن كنت لا تستخدم واتساب، وأضف رقمًا للاتصال.",
+        waHint: "يراسلك العملاء عليه من زر واتساب في تذييل متجرك وصفحات المنتجات.",
+        waOther: "رقم واتساب",
+        waInvalid: "أدخل رقم موبايل أردني صحيح لواتساب، مثل 0791234567",
+        callLabel: "رقم للاتصال",
+        callHint: "إن أردت أن يتصل بك العملاء هاتفيًا. يظهر بجانب واتساب في تذييل متجرك.",
+        callSame: "نفس رقم واتساب",
+        callOther: "رقم للاتصال",
+        callEmpty: "اتركه فارغًا إن كنت لا تستقبل اتصالات.",
       },
       domain: {
         label: "دومين المتجر",
@@ -1447,10 +1469,10 @@ export const content: Record<Lang, Content> = {
         ],
         inventory: [
           { id: "i-sold", kind: "stat", unit: "count", badge: true, title: "الكمية المباعة من المخزون", desc: "إجمالي عدد الوحدات المباعة من المنتجات المتوفرة في المخزون خلال الفترة الزمنية المحددة." },
-          { id: "i-notify", kind: "stat", unit: "count", tone: "bad", title: "منتجات عليها طلب 'أعلمني عند التوفر'", desc: "عدد المنتجات التي نفذت من المخزون وطلب العملاء إشعارًا عند توفرها مجددًا." },
+          { id: "i-notify", kind: "stat", unit: "count", tone: "bad", title: "منتجات عليها طلب 'أعلمني عند التوفر'", desc: "عدد المنتجات التي نفدت من المخزون وطلب العملاء إشعارًا عند توفرها مجددًا." },
           { id: "i-wish", kind: "list", title: "أكثر المنتجات إضافة لقوائم الأمنيات", desc: "قائمة بالمنتجات الأكثر إضافة إلى قوائم أمنيات عملاء متجرك خلال الفترة الزمنية المحددة.", items: ["حقيبة يومية", "قارورة معدنية", "جاكيت عملي", "كاب قماشي"] },
           { id: "i-req", kind: "list", title: "أكثر المنتجات طلبًا عبر 'أعلمني عند التوفر'", desc: "قائمة بالمنتجات التي طلب العملاء إشعارًا عند توفرها من جديد خلال الفترة الزمنية المحددة.", items: ["حقيبة يومية", "قارورة معدنية", "جاكيت عملي", "كاب قماشي"] },
-          { id: "i-stock", kind: "breakdown", title: "نسب توفّر مخزون المنتجات", desc: "يعرض حالة المخزون لجميع المنتجات حسب الكميات المتوفرة خلال الفترة الزمنية المحددة.", items: ["متوفر", "مخزون منخفض", "نفذ من المخزون"] },
+          { id: "i-stock", kind: "breakdown", title: "نسب توفّر مخزون المنتجات", desc: "يعرض حالة المخزون لجميع المنتجات حسب الكميات المتوفرة خلال الفترة الزمنية المحددة.", items: ["متوفر", "مخزون منخفض", "نفد من المخزون"] },
         ],
       },
       help: {

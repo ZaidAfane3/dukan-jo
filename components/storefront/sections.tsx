@@ -30,8 +30,10 @@ export type Ctx = {
   query: string;
   interactive: boolean;
   /* The basket: how many of each product, and a way to change it */
-  qty: Record<number, number>;
-  setQty: (p: StoreProduct, n: number) => void;
+  /* the basket: by product id, or "id|size" for a product in sizes (see basketKey) */
+  qty: Record<string, number>;
+  /* a product in sizes is added with its size; without one its page opens to choose it */
+  setQty: (p: StoreProduct, n: number, size?: string) => void;
   /* Opens a page of the store (an info page the merchant wrote) in place of the home page */
   openPage?: (id: number) => void;
   /* Shows a part of the home page (from a page of the store, it goes back home first) */
@@ -337,6 +339,10 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               </span>
             )
           ))}
+        {/* no stock left: said on the picture, so it shows even when the add button is off */}
+        {out && (
+          <span className="absolute end-2.5 top-2.5 rounded-full bg-black/75 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm">{c.soldOutTag}</span>
+        )}
       </div>
 
       <div className={`relative px-1.5 pb-1.5 ${centered ? "pt-4 text-center" : "pt-3"}`}>
@@ -348,7 +354,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
         ) : (
           <h3 className={`mt-0.5 text-sm font-bold ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}><Say>{p.name}</Say></h3>
         ))}
-        {k.showNotes && p.notes && <p className="mt-0.5 line-clamp-1 text-[13px] text-sf-text/70">{p.notes}</p>}
+        {/* the short line ("cotton · soft · light") is not on the card: it shows on the product page, under "Features" */}
         {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
         </div>
         {k.showPrice && (
@@ -426,7 +432,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
                 : "border-sf-primary/50 text-[var(--sf-primarytext,var(--sf-primary))] hover:bg-[var(--sf-primary)] hover:text-[var(--sf-on)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             }`}
           >
-            {out ? c.soldOut : <>{icons.bag}{c.add}</>}
+            {out ? c.soldOut : p.sizes?.length ? <>{icons.bag}{ctx.lang === "ar" ? "اختر المقاس" : "Choose a size"}</> : <>{icons.bag}{c.add}</>}
           </button>
         ))}
       </div>
@@ -440,15 +446,15 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
 const pageWords = {
   en: {
     home: "Store", crumbs: "You are here", save: "You save", left: (n: number) => `Only ${n} left`, inStock: "In stock", always: "Always available", noPrice: "Price on request",
-    qty: "Quantity", less: "Remove one", more: "Add one more", inCart: (n: number) => `In your cart: ${n}`, total: "Total", about: "About this product", details: "Details",
-    category: "Category", brand: "Brand", availability: "Availability", notes: "Highlights",
+    qty: "Quantity", size: "Size", sizeChart: "Size chart", pickSize: "Choose a size first", less: "Remove one", more: "Add one more", inCart: (n: number) => `In your cart: ${n}`, total: "Total", about: "About this product", details: "Details",
+    category: "Category", brand: "Brand", availability: "Availability", notes: "Description",
     freeFrom: "Free delivery on orders above", freeLeft: "Add", freeLeftEnd: "more for free delivery", freeHere: "Your order gets free delivery", ask: "Ask about this product", askText: (n: string) => `Hello, I have a question about: ${n}`, more2: "Read more", less2: "Show less",
     pickup: "Pick it up yourself", pickupD: "Collect your order from the store", picture: (i: number, n: number) => `Picture ${i} of ${n}`, prev: "Previous picture", next: "Next picture", also: "You may also like",
   },
   ar: {
     home: "المتجر", crumbs: "أنت هنا", save: "توفّر", left: (n: number) => `بقي ${n} فقط`, inStock: "متوفر", always: "متوفر دائمًا", noPrice: "السعر عند الطلب",
-    qty: "الكمية", less: "إنقاص", more: "زيادة", inCart: (n: number) => `في سلتك: ${n}`, total: "المجموع", about: "عن المنتج", details: "التفاصيل",
-    category: "التصنيف", brand: "العلامة", availability: "التوفر", notes: "المميزات",
+    qty: "الكمية", size: "المقاس", sizeChart: "جدول المقاسات", pickSize: "اختر المقاس أولًا", less: "إنقاص", more: "زيادة", inCart: (n: number) => `في سلتك: ${n}`, total: "المجموع", about: "عن المنتج", details: "التفاصيل",
+    category: "التصنيف", brand: "العلامة", availability: "التوفر", notes: "الوصف",
     freeFrom: "توصيل مجاني للطلبات فوق", freeLeft: "أضف", freeLeftEnd: "بعد للحصول على توصيل مجاني", freeHere: "طلبك يحصل على توصيل مجاني", ask: "اسأل عن هذا المنتج", askText: (n: string) => `مرحبًا، عندي سؤال عن: ${n}`, more2: "اقرأ المزيد", less2: "عرض أقل",
     pickup: "استلمه بنفسك", pickupD: "استلم طلبك من المتجر", picture: (i: number, n: number) => `الصورة ${i} من ${n}`, prev: "الصورة السابقة", next: "الصورة التالية", also: "قد يعجبك أيضًا",
   },
@@ -629,6 +635,9 @@ function Gallery({ p, ctx, look }: { p: StoreProduct; ctx: Ctx; look: ProductPag
 
 /** The page of one product: its pictures, name, price, stock and the way to buy it, then what the merchant wrote about it and other products.
     It has four looks (classic, editorial, luxe, pop); a theme picks one and the merchant can switch it in the designer. */
+/** The basket's entry for a product: its id, or "id|size" for one size of a product in sizes */
+export const basketKey = (id: number, size?: string | null) => (size ? `${id}|${size}` : String(id));
+
 export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = false, sections, ask }: {
   p: StoreProduct; ctx: Ctx; onBack: () => void; look?: ProductPageStyle; fd?: FreeDelivery; pickup?: boolean;
   /* the store's sections: the promises of its perks section (delivery, returns...) show on the page too, in the merchant's own words */
@@ -641,16 +650,25 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const s = pageSkins[look] ?? pageSkins.classic;
   const luxe = look === "luxe", pop = look === "pop", editorial = look === "editorial";
   const pl = priceLang(ctx.config.theme.prices, ctx.lang);
-  const out = p.quantity <= 0;
-  const unlimited = !!p.unlimited || p.quantity >= UNLIMITED_STOCK;
-  const low = !out && !unlimited && p.quantity <= 5;
-  const inBasket = ctx.qty[p.id] ?? 0;
+  /* clothing and shoes: the customer picks a size, and the stock and the basket are that size's */
+  const sized = !!p.sizes?.length;
+  const [size, setSize] = useState<string | null>(null);
+  /* the size chart, opened over the page */
+  const [chartOpen, setChartOpen] = useState(false);
+  const sizeLeft = sized && size ? p.sizes?.find((z) => z.name === size)?.quantity ?? 0 : p.quantity;
+  const out = sized && size ? sizeLeft <= 0 : p.quantity <= 0;
+  const unlimited = !sized && (!!p.unlimited || p.quantity >= UNLIMITED_STOCK);
+  const low = !out && !unlimited && sizeLeft <= 5;
+  const inBasket = sized ? (size ? ctx.qty[basketKey(p.id, size)] ?? 0 : 0) : ctx.qty[p.id] ?? 0;
   /* how many to add: chosen before adding; once it is in the basket the same buttons change the basket */
   const [pick, setPick] = useState(1);
   const [more, setMore] = useState(false);
-  useEffect(() => { setPick(1); setMore(false); }, [p.id]);
+  useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
+  useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
-  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n) : setPick(Math.max(1, Math.min(Math.max(1, p.quantity), n))));
+  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, sizeLeft), n))));
+  /* a product in sizes waits for its size before it can be added */
+  const needSize = sized && !size;
   const now = priceOf(p);
   const off = p.sale !== null && p.price ? Math.round((1 - p.sale / p.price) * 100) : 0;
   const saved = p.sale !== null && p.price ? p.price - p.sale : 0;
@@ -662,7 +680,10 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const about = p.description ?? "";
   const long = about.length > 360 || about.split("\n").length > 6;
   /* the free delivery offer follows what is already in the basket */
-  const basket = ctx.data.products.reduce((t, x) => t + (ctx.qty[x.id] ?? 0) * priceOf(x), 0);
+  const basket = Object.entries(ctx.qty).reduce((t, [key, n]) => {
+    const x = ctx.data.products.find((y) => String(y.id) === key.split("|")[0]);
+    return t + (x ? n * priceOf(x) : 0);
+  }, 0);
   const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
   if (fd?.on) {
     perks.push(
@@ -730,12 +751,12 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
     <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm font-semibold ${luxe ? "justify-center" : ""} ${editorial ? "text-xs uppercase tracking-[0.16em] rtl:tracking-normal" : ""}`}>
       <span className="inline-flex items-center gap-2">
         <span aria-hidden className={`h-2 w-2 rounded-full ${out ? "bg-rose-500" : low ? "bg-amber-500" : "bg-emerald-500"} ${!out && !low ? "shadow-[0_0_0_4px_rgba(16,185,129,0.18)]" : ""}`} />
-        {out ? c.soldOut : low ? w.left(p.quantity) : unlimited ? w.always : w.inStock}
+        {out ? c.soldOut : low ? w.left(sizeLeft) : unlimited ? w.always : w.inStock}
       </span>
       {/* a few left: five small bars, as many filled as there are pieces */}
       {low && (
         <span aria-hidden className="inline-flex gap-1">
-          {[1, 2, 3, 4, 5].map((n) => <span key={n} className={`h-1.5 w-4 rounded-full ${n <= p.quantity ? "bg-amber-500" : "bg-sf-text/15"}`} />)}
+          {[1, 2, 3, 4, 5].map((n) => <span key={n} className={`h-1.5 w-4 rounded-full ${n <= sizeLeft ? "bg-amber-500" : "bg-sf-text/15"}`} />)}
         </span>
       )}
     </div>
@@ -748,7 +769,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         <div dir="ltr" role="group" aria-label={w.qty} className={`inline-flex shrink-0 items-center ${s.stepper}`}>
           <button type="button" className={step} disabled={inBasket === 0 && pick <= 1} onClick={() => setCount(count - 1)} aria-label={`${w.less}: ${p.name}`}>−</button>
           <span aria-live="polite" className="min-w-[2.5rem] text-center text-base font-extrabold tabular-nums">{count}</span>
-          <button type="button" className={step} disabled={count >= p.quantity} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
+          <button type="button" className={step} disabled={count >= sizeLeft} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
         </div>
       )}
       {inBasket > 0 && !out ? (
@@ -759,14 +780,65 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
       ) : (
         <button
           type="button"
-          disabled={out || p.price === null}
-          onClick={() => ctx.setQty(p, pick)}
+          disabled={out || p.price === null || needSize}
+          onClick={() => ctx.setQty(p, pick, size ?? undefined)}
           className={`inline-flex min-w-[12rem] flex-1 items-center justify-center gap-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sf-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none ${s.buy}`}
         >
           {icons.bag}
-          {out ? c.soldOut : c.add}
-          {!out && p.price !== null && pick > 1 && <span className="opacity-80">· {amount(now * pick)}</span>}
+          {out ? c.soldOut : needSize ? w.pickSize : c.add}
+          {!out && !needSize && p.price !== null && pick > 1 && <span className="opacity-80">· {amount(now * pick)}</span>}
         </button>
+      )}
+    </div>
+  );
+
+  /* the sizes, each a button; a size that ran out is crossed out and cannot be picked */
+  const sizePicker = sized && (
+    <div className={luxe ? "text-center" : ""}>
+      <div className={`mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 ${luxe ? "justify-center" : "justify-between"}`}>
+        <p className={editorial || luxe ? "text-[11px] font-semibold uppercase tracking-[0.24em] text-sf-text/70 rtl:tracking-normal rtl:text-xs" : "text-sm font-bold"}>
+          {w.size}{size ? <span className="font-normal opacity-70"> · <bdi>{size}</bdi></span> : null}
+        </p>
+        {p.sizeChart && (
+          <button type="button" onClick={() => setChartOpen(true)} className="inline-flex items-center gap-1.5 text-sm font-semibold underline underline-offset-4 transition hover:opacity-70">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 8h18v8H3zM7 8v3M11 8v4M15 8v3M19 8v4" /></svg>
+            {w.sizeChart}
+          </button>
+        )}
+      </div>
+      <div role="radiogroup" aria-label={w.size} className={`flex flex-wrap gap-2 ${luxe ? "justify-center" : ""}`}>
+        {p.sizes?.map((z) => {
+          const gone = z.quantity <= 0;
+          const on = size === z.name;
+          return (
+            <button
+              key={z.name}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={gone}
+              onClick={() => setSize(z.name)}
+              title={gone ? c.soldOut : undefined}
+              className={`min-h-[44px] min-w-[3rem] border-2 px-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:line-through disabled:opacity-40 ${on ? "border-[var(--sf-text)] bg-[var(--sf-text)] text-[var(--sf-bg)]" : "border-black/15 hover:border-[var(--sf-text)]"}`}
+              style={{ borderRadius: pop ? "var(--sf-pill)" : "min(var(--sf-r), 12px)" }}
+            >
+              <bdi>{z.name}</bdi>
+            </button>
+          );
+        })}
+      </div>
+      {chartOpen && p.sizeChart && (
+        /* the chart over the page: a press outside it, its close button or Escape closes it */
+        <div role="dialog" aria-modal="true" aria-label={w.sizeChart} onClick={() => setChartOpen(false)} onKeyDown={(e) => e.key === "Escape" && setChartOpen(false)} className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4">
+          <div onClick={(e) => e.stopPropagation()} className="relative max-h-full max-w-3xl overflow-auto rounded-2xl bg-white p-3 shadow-2xl">
+            <div className="mb-2 flex items-center justify-between gap-4 px-1">
+              <p className="text-sm font-bold text-[#1c1a17]">{w.sizeChart}</p>
+              <button type="button" autoFocus onClick={() => setChartOpen(false)} aria-label={c.close} className="grid h-9 w-9 place-items-center rounded-full text-[#1c1a17] transition hover:bg-black/[0.06]">{icons.close}</button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={p.sizeChart} alt={w.sizeChart} className="mx-auto max-h-[75vh] w-auto rounded-lg object-contain" />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -894,6 +966,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
 
             <div className="mt-4">{stock}</div>
             {notesChips && <div className="mt-6">{notesChips}</div>}
+            {sizePicker && <div className="mt-6">{sizePicker}</div>}
             <div className="mt-6">{buy}</div>
             {askHref && (
               <div className={`mt-3 ${luxe ? "text-center" : ""}`}>
@@ -1466,6 +1539,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   const pos = s.textPos ?? "center";
   const low = pos !== "center";
   const mid = pos === "bottom-center";
+  /* a cover of normal height is only as tall as its words, so words "at the bottom" get some room to sink into (see min-h below) */
   /* the size he gave the cover in px; on a phone it keeps 70% of its height */
   const boxW = !s.fullWidth ? s.box?.width : undefined;
   const boxH = s.box?.height ? Math.round(s.box.height * (ctx.compact ? 0.7 : 1)) : undefined;
@@ -1478,7 +1552,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   return (
     <section className={full ? "" : ctx.compact ? "px-4 pt-4" : "px-8 pt-6"}>
       <div
-        className={`relative isolate flex flex-col overflow-hidden transition-colors duration-700 ${full ? "" : "rounded-[var(--sf-r)]"} ${low ? "justify-end" : "justify-center"} ${tall ? (ctx.compact ? "min-h-[520px]" : "min-h-[720px]") : ""} ${ctx.compact ? "px-6 py-9" : tall || full ? "px-14 py-14" : "px-10 py-11"} ${bgs.length > 1 ? "pb-16" : ""}`}
+        className={`relative isolate flex flex-col overflow-hidden transition-colors duration-700 ${full ? "" : "rounded-[var(--sf-r)]"} ${low ? "justify-end" : "justify-center"} ${tall ? (ctx.compact ? "min-h-[520px]" : "min-h-[720px]") : low && !boxH ? (ctx.compact ? "min-h-[420px]" : "min-h-[580px]") : ""} ${ctx.compact ? "px-6 py-9" : tall || full ? "px-14 py-14" : "px-10 py-11"} ${bgs.length > 1 ? "pb-16" : ""}`}
         style={{ color: heroOn, ...(boxW ? { maxWidth: boxW, marginInline: "auto" } : {}), ...(boxH ? { minHeight: boxH } : {}) }}
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
@@ -2512,6 +2586,9 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
   const [done, setDone] = useState(false);
   /* The pop-up after subscribing (when the merchant chose it): in the designer pressing the button shows it, to see and adjust it */
   const [pop, setPop] = useState(false);
+  /* while one of the pop-up's settings is open in the designer, the pop-up shows, so he sees what he changes */
+  const spots = useSpots();
+  const popEdited = !!ctx.design && s.after === "popup" && spots.some((x) => x.key === `sec:${id}:popup`);
   const l = ctx.lang;
   const other = l === "ar" ? "en" : "ar";
   const pick = (b?: { en: string; ar: string }) => b?.[l] || b?.[other] || "";
@@ -2601,7 +2678,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
           </form>
         )}
       </div>
-      {pop && (
+      {(pop || popEdited) && (
         /* A real pop-up on the store; in the designer it sits over the block itself, so it is seen where it is edited */
         <div className={`${ctx.design ? "absolute" : "fixed"} inset-0 z-50 grid place-items-center bg-black/55 p-4`} role="dialog" aria-modal="true" aria-label={popTitle} onClick={(e) => { e.stopPropagation(); setPop(false); }}>
           <div className="relative w-full max-w-md overflow-hidden text-center" onClick={(e) => e.stopPropagation()} style={{ background: pp?.background || "#ffffff", color: onColor(pp?.background || "#ffffff") === "#ffffff" ? "#ffffff" : "#1c1a17", border: "2px solid var(--sf-text)", borderRadius: "var(--sf-r2)", boxShadow: "6px 6px 0 var(--sf-text)" }}>

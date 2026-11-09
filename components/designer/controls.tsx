@@ -22,6 +22,30 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
   );
 }
 
+/**
+ * A setting that does nothing with the other choices: it stays in its place, greyed out and not pressable, with the reason
+ * (and what to change) under it. Settings are never hidden for this, so nobody wonders where one went.
+ */
+export function Blocked({ when, why, children }: { when: boolean; why: string; children: React.ReactNode }) {
+  /* not reachable with the keyboard either (set on the element: this React does not know the attribute) */
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.inert = when;
+  }, [when]);
+  if (!when) return <>{children}</>;
+  return (
+    <div>
+      <div ref={box} aria-disabled className="pointer-events-none select-none opacity-45">
+        {children}
+      </div>
+      <p className="mt-1 flex gap-1.5 text-[11px] leading-relaxed text-muted">
+        <svg viewBox="0 0 24 24" className="mt-[3px] h-3 w-3 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+        <span>{why}</span>
+      </p>
+    </div>
+  );
+}
+
 export function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <label className="relative flex cursor-pointer items-center justify-between gap-4 py-1">

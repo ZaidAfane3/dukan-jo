@@ -20,7 +20,7 @@ import { HEX, input } from "./controls";
 import { dc } from "./copy";
 import { BugReport } from "./BugReport";
 import { legibleOn } from "../storefront/footerColors";
-import { OptionsPanel, PageLookNow, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus } from "./panels";
+import { OptionsPanel, PageLookNow, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus, type OptionsScreen } from "./panels";
 import { hasStoreContact, visibleLength } from "../safe";
 import type { Design } from "../storefront/sections";
 
@@ -113,11 +113,35 @@ function changedPaths(a: unknown, b: unknown, path = "", out: { path: string; le
 }
 const TASKS = 6; /* the store design task is the last one of the setup list */
 
+/* Work he left before it could be saved (the store name or a contact number was missing): kept in this browser only, so the
+   store does not go live with it; the designer opens on it next time, and a real save or "leave without saving" clears it */
+const DRAFT_KEY = "seen-design-draft";
+function loadDraft(): Draft | null {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null");
+    return d && typeof d === "object" && d.config && d.identity ? (d as Draft) : null;
+  } catch {
+    return null;
+  }
+}
+function keepDraft(d: Draft | null) {
+  try {
+    if (d) localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+    else localStorage.removeItem(DRAFT_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function initial(): Draft {
   const s = loadSetup();
+  const config = loadConfig();
+  /* the WhatsApp number given in setup fills the footer's, until the design has one of its own */
+  const wa = s?.whatsapp ? `+962 ${shownMobile(s.whatsapp)}` : "";
   return {
-    config: loadConfig(),
-    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#004956", phone: shownMobile(s?.phone || accountPhone()) },
+    config: wa && !config.footer.whatsapp?.trim() ? { ...config, footer: { ...config.footer, whatsapp: wa } } : config,
+    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#004956", phone: shownMobile(s?.phone || (s?.whatsapp === undefined ? accountPhone() : "")) },
   };
 }
 
@@ -141,6 +165,8 @@ export function Designer() {
   const [typing, setTyping] = useState(false);
   const [saved, setSaved] = useState("");
   const [tab, setTab] = useState<Tab>("pages");
+  /* asks the design options to open one of its screens (a new n each time it is asked; null when a rail button was pressed) */
+  const [optionsAsk, setOptionsAsk] = useState<{ screen: OptionsScreen; n: number } | null>(null);
   const [panelOpen, setPanelOpenRaw] = useState(true);
   /* the panel's width on a big screen: he can drag its edge; remembered on this computer */
   const [panelW, setPanelW] = useState(PANEL_W);
@@ -333,6 +359,13 @@ export function Designer() {
       })();
       return;
     }
+    /* the unfinished work he left last time comes back, still unsaved (the store keeps what was saved before) */
+    const left = !ro && !mine && !tryTheme ? loadDraft() : null;
+    if (left) {
+      setDraft({ ...left, config: withoutUnboughtLooks(left.config) });
+      setSaved(JSON.stringify(d));
+      return;
+    }
     setDraft(d);
     setSaved(tryTheme ? baseline : JSON.stringify(d));
   }, []);
@@ -349,7 +382,13 @@ export function Designer() {
     () => startingWords([usingTheme, trying?.id], []),
     [usingTheme, trying],
   );
+  /* the language reminder he dismissed: it stays hidden until a new text is changed in one language only */
+  const [ignored, setIgnored] = useState({ en: 0, ar: 0 });
   const changedIn = useMemo(() => (draft && startTexts.current ? oneSided(startTexts.current, samples, draft.config) : { en: 0, ar: 0 }), [draft, samples]);
+  /* texts written in both languages again lower what was dismissed, so the next one-sided change shows the reminder */
+  useEffect(() => {
+    setIgnored((g) => (changedIn.en < g.en || changedIn.ar < g.ar ? { en: Math.min(g.en, changedIn.en), ar: Math.min(g.ar, changedIn.ar) } : g));
+  }, [changedIn]);
 
   /* One step back (or forward again), from the keys or from the arrows next to the save button */
   const travel = (redo: boolean) => {
@@ -460,13 +499,23 @@ export function Designer() {
     setPanelOpen(true);
     setSelected(id);
     if (id === "identity" || id === "cards") setPagePanel(false);
+    /* a product card: the Product card screen of the design options */
     if (id === "cards") {
       setTab("options");
-      scrollPanel("cards");
+      setOptionsAsk({ screen: "cards", n: Date.now() });
+      scrollPanel("top");
+      return;
+    }
+    /* the logo and name: Store identity, the first screen of the design options */
+    if (id === "identity") {
+      setTab("options");
+      setEditingRaw(null);
+      setOptionsAsk({ screen: "identity", n: Date.now() });
+      scrollPanel("top");
       return;
     }
     /* the header, its Store identity screen, the announcement bar and the footer are not parts of the page */
-    const frame = id === "header" || id === "identity" || id === "footer" || id === "announcement";
+    const frame = id === "header" || id === "footer" || id === "announcement";
     setPagePanel(!frame);
     setTab("pages");
     scrollPanel("top");
@@ -650,8 +699,8 @@ export function Designer() {
 
   /* The first thing that stops a save, and where it lives */
   const firstProblem = (d: Draft): { id: Problem; tab: Tab } | null => {
-    if (!templateMode && visibleLength(d.identity.name) < 2) return { id: "name", tab: "pages" };
-    if (!templateMode && !HEX.test(d.identity.color)) return { id: "color", tab: "pages" };
+    if (!templateMode && visibleLength(d.identity.name) < 2) return { id: "name", tab: "options" };
+    if (!templateMode && !HEX.test(d.identity.color)) return { id: "color", tab: "options" };
     if (!HEX.test(d.config.theme.background)) return { id: "background", tab: "options" };
     if (!HEX.test(d.config.theme.text)) return { id: "text", tab: "options" };
     /* The store's own contact details (a template has none) */
@@ -674,7 +723,7 @@ export function Designer() {
       setTimeout(() => setAttn((a) => (a && a.id === p.id ? null : a)), 6000);
       return;
     }
-    /* the name and the store color are in the header's Store identity screen */
+    /* the name and the store color are in Store identity, in the design options */
     if (p.id === "name" || p.id === "color") select("identity");
     else {
       setTab(p.tab);
@@ -747,6 +796,8 @@ export function Designer() {
       description: draft.identity.description.trim(),
       color: draft.identity.color,
       phone: savedPhone(draft.identity.phone),
+      /* the footer's WhatsApp is now the one: setup follows it, so a number removed here does not come back from setup */
+      whatsapp: savedPhone(kept.config.footer.whatsapp ?? ""),
       slug: prev?.slug ?? "",
       done: prev && prev.done.length === TASKS ? prev.done.map((v, i) => (i === TASKS - 1 ? true : v)) : Array.from({ length: TASKS }, (_, i) => i === TASKS - 1),
       pickup: prev?.pickup,
@@ -755,6 +806,7 @@ export function Designer() {
       shipping: prev?.shipping ?? null,
     };
     saveSetup(next);
+    keepDraft(null);
     if (kept !== draft) setDraft(kept);
     setSaved(JSON.stringify(kept));
     /* Looks of themes he has not bought were left out: say so, so he does not think they were kept */
@@ -779,6 +831,8 @@ export function Designer() {
 
   /* The red frame and the red dot go away as soon as the field they point at is fixed */
   const problemNow = firstProblem(draft);
+  /* leaving with the name or a contact number missing: the work is kept as a draft, and the store does not go live with it */
+  const asDraft = !!problemNow && !mine && !templateMode && !trying && (problemNow.id === "name" || problemNow.id === "whatsapp" || problemNow.id === "phone" || problemNow.id === "contact" || problemNow.id === "email");
   const attnNow = attn && problemNow?.id === attn.id ? attn : null;
   /* The save button turns green and says "Saved" for a moment after a save */
   const justSaved = !dirty && (flash === "saved" || flash === "savedExcept");
@@ -804,6 +858,7 @@ export function Designer() {
       type="button"
       onClick={() => {
         setTab(key);
+        setOptionsAsk(null);
         setPanelOpen(true);
         setEditing(null);
         setSelected(null);
@@ -1163,21 +1218,24 @@ export function Designer() {
               {pic && <ProductPicturePanel lang={lang} name={pic.name} image={pic.image} value={pic.focus} onChange={setPicFocus} onBack={() => setPic(null)} blocked={readOnly} onBlocked={blockedNote} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "pages" && <PagesPanel lang={lang} draft={draft} update={update} editing={editing} setEditing={setEditingView} focus={focus} onSub={onSub} />}
               {!pic && (openedPage === null || !pagePanel) && tab === "texts" && <TextsPanel lang={lang} draft={draft} update={update} />}
-              {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel lang={lang} draft={draft} update={update} attn={attnNow?.id ?? (productView ? "productPage" : undefined)} />}
+              {!pic && (openedPage === null || !pagePanel) && tab === "options" && <OptionsPanel key={optionsAsk?.n ?? 0} lang={lang} draft={draft} update={update} attn={attnNow?.id ?? (productView ? "productPage" : undefined)} ask={optionsAsk?.screen} cart={{ on: cartView, show: (on) => (on ? showCartPage() : setCartView(false)) }} product={(on) => { if (on) { setOpenedPage(null); setCartView(false); } setProductView(on); }} />}
             </div>
             {/* What saving does (the one Save button is in the top bar). On a phone or a tablet the round "Bug or idea?" button sits
                 at the end of this strip, so the words leave it room. */}
             <div className="shrink-0 border-t border-fg/10 p-3 max-lg:pe-14">
-              {(changedIn.en > 0 || changedIn.ar > 0) && (
+              {(changedIn.en > ignored.en || changedIn.ar > ignored.ar) && (
                 /* texts changed in one language only: the other one is still to be written */
                 <div role="status" className="mb-2 space-y-1 rounded-lg bg-amber-500/15 px-2.5 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
                   {changedIn[lang === "ar" ? "en" : "ar"] > 0 && <p>{TRANSLATE_WORDS[lang].there(changedIn[lang === "ar" ? "en" : "ar"])}</p>}
                   {changedIn[lang] > 0 && (
                     <p>
-                      {TRANSLATE_WORDS[lang].here(changedIn[lang])}{" "}
-                      <button type="button" onClick={() => setLang(lang === "ar" ? "en" : "ar")} className="font-bold underline">{TRANSLATE_WORDS[lang].go}</button>
+                      {TRANSLATE_WORDS[lang].here(changedIn[lang])}
                     </p>
                   )}
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {changedIn[lang] > 0 && <button type="button" onClick={() => setLang(lang === "ar" ? "en" : "ar")} className="rounded-md bg-amber-800 px-2.5 py-1 font-bold text-white dark:bg-amber-300 dark:text-amber-950">{TRANSLATE_WORDS[lang].go}</button>}
+                    <button type="button" onClick={() => setIgnored(changedIn)} className="rounded-md px-2.5 py-1 font-bold underline hover:bg-amber-500/15">{TRANSLATE_WORDS[lang].ignore}</button>
+                  </div>
                 </div>
               )}
               <p className="text-xs text-muted">{catalogTheme ? t.catalogNote : templateMode ? t.templateNote : live ? t.note : t.noteMine}</p>
@@ -1236,14 +1294,14 @@ export function Designer() {
               <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
             </span>
             <h2 className="mt-4 text-lg font-bold">{t.modal.title}</h2>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted">{t.modal.body}</p>
-            <button type="button" onClick={() => { if (save()) leave(); else setExiting(false); }} className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-sm font-bold text-onink shadow-sm transition hover:bg-deep">
+            <p className="mt-1.5 text-sm leading-relaxed text-muted">{asDraft ? t.modal.draftBody : t.modal.body}</p>
+            <button type="button" onClick={() => { if (asDraft) { if (keepDraft(draft)) { setSaved(JSON.stringify(draft)); leave(); } else setExiting(false); return; } if (save()) leave(); else setExiting(false); }} className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-sm font-bold text-onink shadow-sm transition hover:bg-deep">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
-              {t.modal.saveExit}
+              {asDraft ? t.modal.draftExit : t.modal.saveExit}
             </button>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button type="button" autoFocus onClick={() => setExiting(false)} className="h-11 whitespace-nowrap rounded-xl border border-fg/15 px-3 text-sm font-semibold transition hover:bg-soft">{t.modal.stay}</button>
-              <button type="button" onClick={() => { setSaved(JSON.stringify(draft)); leave(); }} className="h-11 whitespace-nowrap rounded-xl px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
+              <button type="button" onClick={() => { if (!mine && !templateMode) keepDraft(null); setSaved(JSON.stringify(draft)); leave(); }} className="h-11 whitespace-nowrap rounded-xl px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
             </div>
           </div>
         </div>

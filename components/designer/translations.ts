@@ -111,16 +111,18 @@ const arCount = (n: number) => (n === 1 ? "نصًا واحدًا" : n === 2 ? "�
 export const TRANSLATE_WORDS = {
   en: {
     /* changed here, in the language the designer is in */
-    here: (n: number) => `${n === 1 ? "1 text" : `${n} texts`} changed in English only. Customers who use the store in Arabic still see the old words.`,
+    here: (n: number) => `Your store has two languages. You changed ${n === 1 ? "1 text" : `${n} texts`} in English only, so visitors who read the store in Arabic will still see the old text.`,
     /* changed in the other language: they are written here too */
-    there: (n: number) => `${n === 1 ? "1 text" : `${n} texts`} changed in Arabic only. Write ${n === 1 ? "it" : "them"} here in English too.`,
-    go: "Switch to العربية",
+    there: (n: number) => `Your store has two languages. You changed ${n === 1 ? "1 text" : `${n} texts`} in Arabic only. Write ${n === 1 ? "it" : "them"} here in English too, so English visitors see ${n === 1 ? "it" : "them"}.`,
+    go: "Open the Arabic version",
+    ignore: "Ignore",
     menu: "العربية",
   },
   ar: {
-    here: (n: number) => `غيّرت ${arCount(n)} بالعربية فقط، ومن يتصفح المتجر بالإنجليزية ما زال يرى الكلام القديم.`,
-    there: (n: number) => `غيّرت ${arCount(n)} بالإنجليزية فقط، ف${n === 1 ? "اكتبه" : n === 2 ? "اكتبهما" : "اكتبها"} هنا بالعربية أيضًا.`,
-    go: "انتقل إلى English",
+    here: (n: number) => `متجرك بلغتين. عدّلت ${arCount(n)} بالعربية فقط، فالزوار الذين يتصفحون متجرك بالإنجليزية سيرون النص القديم.`,
+    there: (n: number) => `متجرك بلغتين. عدّلت ${arCount(n)} بالإنجليزية فقط، ف${n === 1 ? "اكتبه" : n === 2 ? "اكتبهما" : "اكتبها"} هنا بالعربية أيضًا ليراه الزوار بالعربية.`,
+    go: "افتح النسخة الإنجليزية",
+    ignore: "تجاهل",
     menu: "English",
   },
 };

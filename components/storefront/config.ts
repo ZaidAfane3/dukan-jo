@@ -224,7 +224,7 @@ export type StorefrontConfig = {
      A link can have a color of its own ("" or none: the header's usual color) */
   /* searchLook (the header with the sidebar button): the search as a full bar, or an icon beside the basket that opens it.
      None chosen: an icon when the store name is in the middle, a bar otherwise. */
-  nav: { style: "button" | "links" | "pill"; links: (Bi & { to?: string; color?: string })[]; activeColor?: string; cartColor?: string; place?: "below" | "start"; cartLook?: "icon" | "text"; searchLook?: "bar" | "icon" };
+  nav: { style: "button" | "links" | "pill"; links: (Bi & { to?: string; color?: string })[]; activeColor?: string; cartColor?: string; place?: "below" | "start"; cartLook?: "icon" | "text"; searchLook?: "bar" | "icon"; /* the full search bar: its width, and whether it sits in the middle of the header or beside the basket */ searchSize?: "small" | "medium" | "large"; searchPlace?: "middle" | "cart"; /* the header with the sidebar button: the basket shows the total beside its icon (default yes) */ cartTotal?: boolean; /* the links header: the saved (favourites) button beside the basket (default yes) */ showSaved?: boolean };
   /* A faint pattern behind the page and a big word behind the picture tiles, both in the accent color */
   texture: { pattern: PatternKey; watermark: Bi; /* where the pattern shows (default: under the cover), how strong it is, and whether it fades toward the bottom (default: yes) */ area?: "all" | "below" | "top"; strength?: "light" | "medium" | "strong"; fade?: boolean };
   /* showLanguage: a button in the header that lets visitors switch the store between Arabic and English. Off by default:

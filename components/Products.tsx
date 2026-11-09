@@ -15,9 +15,93 @@ import { cleanLine, cleanLines } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote } from "./Required";
 import { RudeNote } from "./RudeNote";
 import { StockChoice, stockNeedsAnswer } from "./StockChoice";
+import { Blocked } from "./designer/controls";
+import { CardPeek, type PeekField } from "./CardPeek";
+import { PRODUCT_KINDS, SIZE_MAX, kindHasSizes, kindShips, sizeName, type ProductKind } from "./safeOrder";
+import type { Lang } from "./content";
+
+/* What kind of product it is, and the sizes of clothing and shoes */
+const kindWords: Record<Lang, { kind: string; kindHint: string; names: Record<ProductKind, string>; about: Record<ProductKind, string>; chart: string; optional: string; chartHint: string; chartUpload: string; chartBusy: string; chartChange: string; chartRemove: string; chartBad: string; sizes: string; sizesHint: string; quick: string; addSize: string; sizeName: string; sizeQty: string; removeSize: string; total: string; pieces: string; errSizes: string; sizesOff: (k: string) => string; stockBySize: string; shipOff: (k: string) => string }> = {
+  ar: {
+    kind: "نوع المنتج",
+    kindHint: "يحدد ما يحتاجه المنتج: المقاسات والشحن والكمية.",
+    names: { standard: "منتج عادي", clothing: "ملابس", shoes: "أحذية", digital: "منتج رقمي", service: "خدمة" },
+    about: {
+      standard: "كمية واحدة للمنتج، مثل العطور والإكسسوارات والأجهزة.",
+      clothing: "مقاسات مثل S وM وL، ولكل مقاس كميته.",
+      shoes: "مقاسات بالأرقام مثل 40 و41، ولكل مقاس كميته.",
+      digital: "أكواد وبطاقات هدايا واشتراكات، تصل للعميل بلا شحن.",
+      service: "حجوزات وتصميم وتعليم وغيرها، بلا شحن ولا مقاسات.",
+    },
+    chart: "جدول المقاسات",
+    optional: "(اختياري)",
+    chartHint: "صورة لجدول مقاساتك، يفتحها العميل من صفحة المنتج بجانب المقاسات.",
+    chartUpload: "ارفع صورة الجدول",
+    chartBusy: "جارٍ الرفع…",
+    chartChange: "تغيير",
+    chartRemove: "حذف",
+    chartBad: "هذا الملف ليس صورة أو أكبر من 8 ميجابايت. استخدم PNG أو JPG أو WebP.",
+    sizes: "المقاسات",
+    sizesHint: "أضف المقاسات المتوفرة وكمية كل مقاس. المقاس الذي كميته صفر يظهر للعميل «نفد».",
+    quick: "إضافة سريعة:",
+    addSize: "+ مقاس آخر",
+    sizeName: "المقاس",
+    sizeQty: "الكمية",
+    removeSize: "حذف المقاس",
+    total: "مجموع الكمية",
+    pieces: "قطعة",
+    errSizes: "أضف مقاسًا واحدًا على الأقل واكتب اسمه.",
+    sizesOff: (k) => `غير متاح لأن نوع المنتج «${k}». المقاسات للملابس والأحذية فقط.`,
+    stockBySize: "غير متاح لأن الكمية تُحدَّد لكل مقاس في «المقاسات».",
+    shipOff: (k) => `غير متاح لأن نوع المنتج «${k}» لا يُشحن.`,
+  },
+  en: {
+    kind: "Product type",
+    kindHint: "Decides what the product needs: sizes, shipping and quantity.",
+    names: { standard: "Regular product", clothing: "Clothing", shoes: "Shoes", digital: "Digital product", service: "Service" },
+    about: {
+      standard: "One quantity for the product, like perfumes, accessories and devices.",
+      clothing: "Sizes like S, M and L, each with its own quantity.",
+      shoes: "Number sizes like 40 and 41, each with its own quantity.",
+      digital: "Codes, gift cards and subscriptions, delivered without shipping.",
+      service: "Bookings, design, lessons and more, with no shipping or sizes.",
+    },
+    chart: "Size chart",
+    optional: "(optional)",
+    chartHint: "A picture of your size chart. Customers open it from the product page, beside the sizes.",
+    chartUpload: "Upload the chart picture",
+    chartBusy: "Uploading…",
+    chartChange: "Change",
+    chartRemove: "Remove",
+    chartBad: "This file is not a picture, or it is bigger than 8 MB. Use PNG, JPG or WebP.",
+    sizes: "Sizes",
+    sizesHint: "Add the sizes you have and how many of each. A size with 0 shows to customers as sold out.",
+    quick: "Quick add:",
+    addSize: "+ Another size",
+    sizeName: "Size",
+    sizeQty: "Quantity",
+    removeSize: "Remove size",
+    total: "Total quantity",
+    pieces: "pieces",
+    errSizes: "Add at least one size and write its name.",
+    sizesOff: (k) => `Not available because the product type is “${k}”. Sizes are for clothing and shoes only.`,
+    stockBySize: "Not available because the quantity is set for each size in “Sizes”.",
+    shipOff: (k) => `Not available because a “${k}” is not shipped.`,
+  },
+};
+/* the usual sizes, one press each */
+const sizePresets: Partial<Record<ProductKind, string[]>> = {
+  clothing: ["XS", "S", "M", "L", "XL", "XXL", "3XL"],
+  shoes: ["36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46"],
+};
 
 
 type Draft = {
+  kind: ProductKind;
+  /* clothing and shoes: each size and how many of it (typed, so a string) */
+  sizes: { name: string; quantity: string }[];
+  /* clothing and shoes: a picture of the size chart ("" none) */
+  sizeChart: string;
   name: string;
   price: string;
   sale: string;
@@ -48,6 +132,9 @@ const field =
 const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const blank: Draft = {
+  kind: "standard",
+  sizes: [],
+  sizeChart: "",
   name: "",
   price: "",
   sale: "",
@@ -116,13 +203,100 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
   );
 }
 
-function Label({ id, children, hint, required = false }: { id: string; children: React.ReactNode; hint?: string; required?: boolean }) {
+/** The sizes of a piece of clothing or a pair of shoes: one press adds a usual size, each size has its own quantity */
+function SizesEditor({ lang, kind, sizes, onChange, chart, onChart, error, inputClass }: { lang: Lang; kind: ProductKind; sizes: { name: string; quantity: string }[]; onChange: (v: { name: string; quantity: string }[]) => void; chart: string; onChart: (v: string) => void; error?: string; inputClass: string }) {
+  const w = kindWords[lang];
+  /* the size chart: a picture he uploads (a file that is not a picture says so) */
+  const chartInput = useRef<HTMLInputElement>(null);
+  const [chartBad, setChartBad] = useState(false);
+  const [chartBusy, setChartBusy] = useState(false);
+  const pickChart = async (f?: File) => {
+    if (!f) return;
+    setChartBusy(true);
+    const url = f.size <= 8_000_000 ? await readPhoto(f, 1400) : null;
+    setChartBusy(false);
+    setChartBad(!url);
+    if (url) onChart(url);
+  };
+  const has = (n: string) => sizes.some((z) => z.name.trim().toLowerCase() === n.toLowerCase());
+  const presets = (sizePresets[kind] ?? sizePresets.clothing ?? []).filter((n) => !has(n));
+  const total = sizes.reduce((n, z) => n + Math.max(0, Math.floor(Number(z.quantity) || 0)), 0);
+  const edit = (i: number, patch: Partial<{ name: string; quantity: string }>) => onChange(sizes.map((z, j) => (j === i ? { ...z, ...patch } : z)));
+  return (
+    <div id="p-sizes" tabIndex={-1} className="space-y-3 outline-none">
+      <div>
+        <p className="text-sm font-semibold">{w.sizes}<RequiredMark /></p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted">{w.sizesHint}</p>
+      </div>
+      {presets.length > 0 && sizes.length < SIZE_MAX.count && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-semibold text-muted">{w.quick}</span>
+          {presets.map((n) => (
+            <button key={n} type="button" onClick={() => onChange([...sizes, { name: n, quantity: "0" }])} className="h-8 min-w-[2.5rem] rounded-lg border border-fg/15 px-2.5 text-xs font-bold transition hover:border-primary hover:bg-primary/10" dir="ltr">
+              {n}
+            </button>
+          ))}
+        </div>
+      )}
+      {sizes.length > 0 && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-[1fr_1fr_2.25rem] gap-2 text-xs font-semibold text-muted">
+            <span>{w.sizeName}</span>
+            <span>{w.sizeQty}</span>
+            <span />
+          </div>
+          {sizes.map((z, i) => (
+            <div key={i} className="grid grid-cols-[1fr_1fr_2.25rem] items-center gap-2">
+              <input value={z.name} onChange={(e) => edit(i, { name: e.target.value })} maxLength={SIZE_MAX.name} aria-label={w.sizeName} dir="auto" className={`${inputClass} h-10`} />
+              <input value={z.quantity} onChange={(e) => edit(i, { quantity: latin(e.target.value).replace(/[^0-9]/g, "").slice(0, 6) })} inputMode="numeric" dir="ltr" aria-label={`${w.sizeQty} ${z.name}`} className={`${inputClass} h-10 text-start`} />
+              <button type="button" onClick={() => onChange(sizes.filter((_, j) => j !== i))} aria-label={`${w.removeSize} ${z.name}`} title={w.removeSize} className="grid h-9 w-9 place-items-center rounded-lg text-muted transition hover:bg-rose-500/10 hover:text-rose-600">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {sizes.length < SIZE_MAX.count && (
+        <button type="button" onClick={() => onChange([...sizes, { name: "", quantity: "0" }])} className="text-sm font-semibold text-primary hover:underline">{w.addSize}</button>
+      )}
+      {sizes.length > 0 && <p className="text-xs font-semibold">{w.total}: <span dir="ltr">{total}</span> {w.pieces}</p>}
+      {error && <p role="alert" className="text-xs font-semibold text-rose-600">{error}</p>}
+      {/* the size chart: optional, a picture customers open from the product page beside the sizes */}
+      <div className="rounded-xl bg-soft/70 p-3">
+        <p className="text-sm font-semibold">{w.chart} <span className="text-xs font-normal text-muted">{w.optional}</span></p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted">{w.chartHint}</p>
+        <div className="mt-2.5 flex flex-wrap items-center gap-3">
+          {chart ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={chart} alt={w.chart} className="h-20 w-28 rounded-lg bg-white object-contain ring-1 ring-fg/10" />
+              <button type="button" onClick={() => chartInput.current?.click()} className="text-sm font-semibold text-primary hover:underline">{w.chartChange}</button>
+              <button type="button" onClick={() => onChart("")} className="text-sm font-semibold text-rose-600 hover:underline">{w.chartRemove}</button>
+            </>
+          ) : (
+            <button type="button" onClick={() => chartInput.current?.click()} disabled={chartBusy} className="inline-flex h-10 items-center gap-2 rounded-xl border-2 border-dashed border-fg/20 px-4 text-sm font-semibold text-muted transition hover:border-primary hover:text-primary disabled:opacity-60">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4M12 15V4M8 8l4-4 4 4" /></svg>
+              {chartBusy ? w.chartBusy : w.chartUpload}
+            </button>
+          )}
+        </div>
+        {chartBad && <p role="alert" className="mt-2 text-xs font-semibold text-rose-600">{w.chartBad}</p>}
+        <input ref={chartInput} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" tabIndex={-1} aria-hidden onChange={(e) => { void pickChart(e.target.files?.[0]); e.target.value = ""; }} />
+      </div>
+    </div>
+  );
+}
+
+function Label({ id, children, hint, required = false, peek }: { id: string; children: React.ReactNode; hint?: string; required?: boolean; /* a "!" that shows where it lands on the store's product card */ peek?: React.ReactNode }) {
   return (
     <div className="mb-2">
-      <label htmlFor={id} className="block text-sm font-semibold">
-        {children}
-        {required && <RequiredMark />}
-      </label>
+      <div className="flex items-center">
+        <label htmlFor={id} className="block text-sm font-semibold">
+          {children}
+          {required && <RequiredMark />}
+        </label>
+        {peek}
+      </div>
       {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
     </div>
   );
@@ -215,23 +389,6 @@ function CategoryPicker({ value, onChange, onTyped, products, words }: { value: 
   );
 }
 
-/** How a notification goes out: WhatsApp, email, or both */
-function SendByPick({ label, value, onChange, words }: { label: string; value: SendBy; onChange: (v: SendBy) => void; words: { byWhatsapp: string; byEmail: string; byBoth: string } }) {
-  const opts: { key: SendBy; label: string }[] = [{ key: "whatsapp", label: words.byWhatsapp }, { key: "email", label: words.byEmail }, { key: "both", label: words.byBoth }];
-  return (
-    <div role="radiogroup" aria-label={label} className="mt-3">
-      <p className="mb-1.5 text-xs font-semibold text-muted">{label}</p>
-      <div className="grid grid-cols-3 gap-2">
-        {opts.map((o) => (
-          <button key={o.key} type="button" role="radio" aria-checked={value === o.key} onClick={() => onChange(o.key)} className={`h-10 rounded-xl border text-xs font-semibold transition ${value === o.key ? "border-ink bg-ink text-onink" : "border-fg/15 hover:bg-soft"}`}>
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function Products() {
   const { lang } = usePrefs();
   const p = productsCopy[lang];
@@ -245,7 +402,7 @@ export function Products() {
   const [draft, setDraft] = useState<Draft>(blank);
   /* a big quantity (999 or more) he said is right */
   const [stockOk, setStockOk] = useState("");
-  const [errors, setErrors] = useState<{ name?: string; price?: string; sale?: string; images?: string; quantity?: string }>({});
+  const [errors, setErrors] = useState<{ name?: string; price?: string; sale?: string; images?: string; quantity?: string; sizes?: string }>({});
   const [picked, setPicked] = useState<number[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   /* the "saved" card at the top: the product's name (empty: a product brought back from the bin) */
@@ -331,6 +488,9 @@ export function Products() {
 
   const openEdit = (x: Product) => {
     const d: Draft = {
+      kind: x.kind ?? "standard",
+      sizes: (x.sizes ?? []).map((z) => ({ name: z.name, quantity: String(z.quantity) })),
+      sizeChart: x.sizeChart ?? "",
       name: x.name,
       price: x.price === null ? "" : String(x.price),
       sale: x.sale === null ? "" : String(x.sale),
@@ -410,6 +570,9 @@ export function Products() {
     setPhotos((cur) => [...cur, ...ok].slice(0, 6));
   };
 
+  const kw = kindWords[lang];
+  /* the "!" beside a field that shows on the product card: the card filled with what he typed */
+  const peek = (f: PeekField) => <CardPeek lang={lang} field={f} values={{ name: draft.name, notes: draft.notes, badge: draft.badge, category: draft.categories[0] ?? typedCat.current, price: draft.price, sale: draft.sale, photo: photos[0] }} />;
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
@@ -420,16 +583,19 @@ export function Products() {
     const quantity = draft.quantity.trim() === "" ? null : Number(draft.quantity);
     /* The name, the price, a photo and (unless it is unlimited) the quantity must be filled (the same rules the server
        will use). The category is optional: without one the store shows the product under "Other". */
-    const bad = productProblems({ name: draft.name, price, sale, images: shownPhotos, quantity, unlimited: draft.unlimited });
+    const sized = kindHasSizes(draft.kind);
+    const sizes = draft.sizes.map((z) => ({ name: sizeName(z.name), quantity: Math.max(0, Math.floor(Number(z.quantity) || 0)) })).filter((z) => z.name);
+    const bad = productProblems({ name: draft.name, price, sale, images: shownPhotos, quantity, unlimited: draft.unlimited, kind: draft.kind, sizes });
     if (bad.includes("name")) next.name = p.errName;
     if (bad.includes("images")) next.images = uploading > 0 ? p.imagesUploading : p.errImages;
     if (bad.includes("price")) next.price = p.errPrice;
     if (bad.includes("sale")) next.sale = p.errSale;
+    if (bad.includes("sizes")) next.sizes = kw.errSizes;
     if (bad.includes("quantity")) next.quantity = p.errQuantity;
-    else if (stockNeedsAnswer(draft.unlimited, draft.quantity, stockOk)) next.quantity = p.errStockAsk;
+    else if (!sized && stockNeedsAnswer(draft.unlimited, draft.quantity, stockOk)) next.quantity = p.errStockAsk;
     setErrors(next);
     /* the first field with a mistake comes into view with the cursor in it */
-    const first = (["name", "images", "price", "sale", "quantity"] as const).find((k) => next[k]);
+    const first = (["name", "images", "price", "sale", "sizes", "quantity"] as const).find((k) => next[k]);
     if (first) {
       const el = document.getElementById(first === "quantity" ? "p-qty" : `p-${first}`);
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -438,6 +604,10 @@ export function Products() {
     }
 
     const base = {
+      kind: draft.kind,
+      /* only clothing and shoes keep sizes; their stock is all the sizes together and never "unlimited" */
+      sizes: sized ? sizes : [],
+      sizeChart: sized ? draft.sizeChart : "",
       name: cleanLine(draft.name, PRODUCT_MAX.name),
       price,
       sale,
@@ -452,11 +622,11 @@ export function Products() {
       description: cleanLines(draft.description, PRODUCT_MAX.description),
       notes: cleanLine(draft.notes, PRODUCT_MAX.notes),
       badge: cleanLine(draft.badge, PRODUCT_MAX.badge),
-      quantity: Math.max(0, Math.floor(Number(draft.quantity) || 0)),
-      unlimited: draft.unlimited,
+      quantity: sized ? sizes.reduce((n, z) => n + z.quantity, 0) : Math.max(0, Math.floor(Number(draft.quantity) || 0)),
+      unlimited: sized ? false : draft.unlimited,
       hidden: draft.hidden,
       featured: draft.featured,
-      shipping: draft.shipping,
+      shipping: kindShips(draft.kind) && draft.shipping,
       lowAt: Math.max(0, Math.floor(Number(draft.lowAt) || 0)),
       lowBy: draft.lowBy,
       restockBy: draft.restockBy,
@@ -527,9 +697,10 @@ export function Products() {
           <button type="button" onClick={() => leave() && openNew()} className="h-12 shrink-0 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep"> + {p.newProduct} </button>
         </div>
 
-        <div className="grid items-start gap-5 lg:grid-cols-[16rem_minmax(0,24rem)_minmax(0,1fr)]">
+        {/* filters | list | editor; in Arabic the editor comes first, on the right, and the filters go to the left */}
+        <div className={`grid items-start gap-5 ${lang === "ar" ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)_16rem]" : "lg:grid-cols-[16rem_minmax(0,24rem)_minmax(0,1fr)]"}`}>
           {/* Filters */}
-          <section className={`${card} overflow-hidden`}>
+          <section className={`${card} overflow-hidden ${lang === "ar" ? "lg:order-3" : ""}`}>
             <ul className="max-lg:flex max-lg:overflow-x-auto">
               {FILTER_KEYS.map((k) => (
                 <li key={k} className="max-lg:shrink-0">
@@ -633,7 +804,7 @@ export function Products() {
           </section>
 
           {/* Editor: on a wide screen it stays in view under the top bar and scrolls by itself, not the whole page */}
-          <section ref={editorBox} className={`${card} p-5 sm:p-7 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain`}>
+          <section ref={editorBox} className={`${card} p-5 sm:p-7 ${lang === "ar" ? "lg:order-first" : ""} lg:sticky lg:top-24 lg:max-h-[calc(100vh-7.5rem)] lg:overflow-y-auto lg:overscroll-contain`}>
             {editing === null ? (
               <div className="grid min-h-[16rem] place-items-center text-center">
                 <div>
@@ -653,6 +824,25 @@ export function Products() {
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="font-bold">{p.basic}</h3>
                     <RequiredNote text={p.requiredNote} show={hasErrors(errors)} />
+                  </div>
+                  {/* what kind of product: it decides whether it has sizes and whether it is shipped */}
+                  <div>
+                    <Label id="p-kind" hint={kw.kindHint}>{kw.kind}</Label>
+                    <div role="radiogroup" aria-label={kw.kind} className="grid gap-2 sm:grid-cols-2">
+                      {PRODUCT_KINDS.map((k) => (
+                        <button
+                          key={k}
+                          type="button"
+                          role="radio"
+                          aria-checked={draft.kind === k}
+                          onClick={() => setDraft((d) => ({ ...d, kind: k, shipping: !kindShips(k) ? false : !kindShips(d.kind) ? true : d.shipping, sizes: kindHasSizes(k) && kindHasSizes(d.kind) && k !== d.kind ? [] : d.sizes }))}
+                          className={`rounded-xl border px-3.5 py-2.5 text-start transition ${draft.kind === k ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-fg/15 hover:bg-soft"}`}
+                        >
+                          <span className="block text-sm font-bold">{kw.names[k]}</span>
+                          <span className="mt-0.5 block text-xs leading-relaxed text-muted">{kw.about[k]}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div>
                     <Label id="p-name" required>{p.name}</Label>
@@ -724,46 +914,46 @@ export function Products() {
                     )}
                   </div>
 
-                  <div className="grid gap-5 sm:grid-cols-2 [&>div]:border-b-2 [&>div]:border-fg/20 [&>div]:pb-5">
+                  <div className="grid gap-5 sm:grid-cols-2 [&>div]:border-b-2 [&>div]:border-fg/20 [&>div]:pb-5 [&>div]:flex [&>div]:flex-col">
                     <div>
                       <Label id="p-price" required>{p.price} ({p.currency})</Label>
-                      <input id="p-price" required aria-invalid={!!errors.price} dir="ltr" inputMode="decimal" value={draft.price} onChange={(e) => { set("price", digits(e.target.value)); if (errors.price) setErrors((x) => ({ ...x, price: undefined })); }} placeholder="0.00" maxLength={10} className={`${field} h-12 text-start ${errors.price ? bad : ""}`} />
+                      <input id="p-price" required aria-invalid={!!errors.price} dir="ltr" inputMode="decimal" value={draft.price} onChange={(e) => { set("price", digits(e.target.value)); if (errors.price) setErrors((x) => ({ ...x, price: undefined })); }} placeholder="0.00" maxLength={10} className={`mt-auto ${field} h-12 text-start ${errors.price ? bad : ""}`} />
                       {errors.price && <p className="mt-1.5 text-xs text-rose-600">{errors.price}</p>}
                       {/* Zero is allowed, but may be a slip */}
                       {!errors.price && draft.price !== "" && Number(draft.price) === 0 && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{p.priceZero}</p>}
                     </div>
                     <div>
                       <Label id="p-cost" hint={p.costHint}>{p.cost} ({p.currency})</Label>
-                      <input id="p-cost" dir="ltr" inputMode="decimal" value={draft.cost} onChange={(e) => set("cost", digits(e.target.value))} placeholder="0.00" maxLength={10} className={`${field} h-12 text-start`} />
+                      <input id="p-cost" dir="ltr" inputMode="decimal" value={draft.cost} onChange={(e) => set("cost", digits(e.target.value))} placeholder="0.00" maxLength={10} className={`mt-auto ${field} h-12 text-start`} />
                       {/* a soft warning, it still saves: the cost is more than he sells it for */}
                       {num(draft.cost) !== null && num(draft.price) !== null && (num(draft.cost) as number) > (num(draft.sale) ?? (num(draft.price) as number)) && <p role="status" className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">{p.costAbove}</p>}
                     </div>
                     <div>
-                      <Label id="p-sale" hint={p.saleHint}>{p.sale} ({p.currency})</Label>
-                      <input id="p-sale" aria-invalid={!!errors.sale} dir="ltr" inputMode="decimal" value={draft.sale} onChange={(e) => { set("sale", digits(e.target.value)); if (errors.sale) setErrors((x) => ({ ...x, sale: undefined })); }} placeholder="0.00" maxLength={10} className={`${field} h-12 text-start ${errors.sale ? bad : ""}`} />
+                      <Label id="p-sale" hint={p.saleHint} peek={peek("sale")}>{p.sale} ({p.currency})</Label>
+                      <input id="p-sale" aria-invalid={!!errors.sale} dir="ltr" inputMode="decimal" value={draft.sale} onChange={(e) => { set("sale", digits(e.target.value)); if (errors.sale) setErrors((x) => ({ ...x, sale: undefined })); }} placeholder="0.00" maxLength={10} className={`mt-auto ${field} h-12 text-start ${errors.sale ? bad : ""}`} />
                       {errors.sale && <p className="mt-1.5 text-xs text-rose-600">{errors.sale}</p>}
                     </div>
                     <div className="sm:col-span-2">
-                      <Label id="p-category" hint={p.catHint}>{p.category}</Label>
+                      <Label id="p-category" hint={p.catHint} peek={peek("category")}>{p.category}</Label>
                       <CategoryPicker value={draft.categories} products={items} words={p} onChange={(v) => set("categories", v)} onTyped={(v) => { typedCat.current = v; }} />
                       <RudeNote lang={lang} text={draft.categories.join(" ")} />
                     </div>
                     <div>
                       <Label id="p-brand">{p.brand}</Label>
-                      <input id="p-brand" value={draft.brand} onChange={(e) => set("brand", e.target.value)} placeholder={p.brandPh} maxLength={40} className={`${field} h-12`} />
+                      <input id="p-brand" value={draft.brand} onChange={(e) => set("brand", e.target.value)} placeholder={p.brandPh} maxLength={40} className={`mt-auto ${field} h-12`} />
                       <RudeNote lang={lang} text={draft.brand} />
                     </div>
                   </div>
 
-                  <div className="grid gap-5 sm:grid-cols-2 [&>div]:border-b-2 [&>div]:border-fg/20 [&>div]:pb-5">
+                  <div className="grid gap-5 sm:grid-cols-2 [&>div]:border-b-2 [&>div]:border-fg/20 [&>div]:pb-5 [&>div]:flex [&>div]:flex-col">
                     <div>
-                      <Label id="p-notes" hint={p.notesHint}>{p.notes}</Label>
-                      <input id="p-notes" value={draft.notes} onChange={(e) => set("notes", e.target.value)} placeholder={p.notesPh} maxLength={60} className={`${field} h-12`} />
+                      <Label id="p-notes" hint={p.notesHint} peek={peek("notes")}>{p.notes}</Label>
+                      <input id="p-notes" value={draft.notes} onChange={(e) => set("notes", e.target.value)} placeholder={p.notesPh} maxLength={60} className={`mt-auto ${field} h-12`} />
                       <RudeNote lang={lang} text={draft.notes} />
                     </div>
                     <div>
-                      <Label id="p-badge" hint={p.badgeHint}>{p.badge}</Label>
-                      <input id="p-badge" value={draft.badge} onChange={(e) => set("badge", e.target.value)} placeholder={p.badgePh} maxLength={20} className={`${field} h-12`} />
+                      <Label id="p-badge" hint={p.badgeHint} peek={peek("badge")}>{p.badge}</Label>
+                      <input id="p-badge" value={draft.badge} onChange={(e) => set("badge", e.target.value)} placeholder={p.badgePh} maxLength={20} className={`mt-auto ${field} h-12`} />
                       <RudeNote lang={lang} text={draft.badge} />
                     </div>
                   </div>
@@ -779,12 +969,21 @@ export function Products() {
                   <h3 className="font-bold">{p.visibility}</h3>
                   <Toggle on={draft.hidden} onChange={(v) => set("hidden", v)} label={p.hidden} hint={p.hiddenHint} />
                   <Toggle on={draft.featured} onChange={(v) => set("featured", v)} label={p.featured} hint={p.featuredHint} />
-                  <Toggle on={draft.shipping} onChange={(v) => set("shipping", v)} label={p.shipping} hint={p.shippingHint} />
+                  <Blocked when={!kindShips(draft.kind)} why={kw.shipOff(kw.names[draft.kind])}>
+                    <Toggle on={draft.shipping} onChange={(v) => set("shipping", v)} label={p.shipping} hint={p.shippingHint} />
+                  </Blocked>
                 </div>
 
                 <div className="space-y-5 border-t border-fg/10 pt-6 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
                   <h3 className="font-bold">{p.stock}</h3>
+                  {/* clothing and shoes: each size with its own quantity */}
                   <div>
+                    <Blocked when={!kindHasSizes(draft.kind)} why={kw.sizesOff(kw.names[draft.kind])}>
+                      <SizesEditor lang={lang} kind={draft.kind} sizes={draft.sizes} chart={draft.sizeChart} onChart={(v) => set("sizeChart", v)} error={errors.sizes} inputClass={field} onChange={(sizes) => { set("sizes", sizes); if (errors.sizes) setErrors((x) => ({ ...x, sizes: undefined })); }} />
+                    </Blocked>
+                  </div>
+                  <div>
+                    <Blocked when={kindHasSizes(draft.kind)} why={kw.stockBySize}>
                     <StockChoice
                       lang={lang}
                       unlimited={draft.unlimited}
@@ -798,26 +997,11 @@ export function Products() {
                       error={errors.quantity}
                       required
                     />
+                    </Blocked>
                   </div>
                 </div>
 
-                <div className="space-y-5 border-t border-fg/10 pt-6 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
-                  <h3 className="font-bold">{p.alerts}</h3>
-                  {/* an unlimited product never runs low, so there is nothing to warn about */}
-                  {!draft.unlimited && (
-                    <div>
-                      <Label id="p-low" hint={p.lowAtHint}>{p.lowAt}</Label>
-                      <input id="p-low" dir="ltr" inputMode="numeric" value={draft.lowAt} onChange={(e) => set("lowAt", whole(e.target.value))} maxLength={5} className={`${field} h-12 text-start`} />
-                      <SendByPick label={p.sendBy} value={draft.lowBy} onChange={(v) => set("lowBy", v)} words={p} />
-                    </div>
-                  )}
-                  <div>
-                    <Label id="p-min" hint={p.restockMinHint}>{p.restockMin}</Label>
-                    <input id="p-min" dir="ltr" inputMode="numeric" value={draft.restockMin} onChange={(e) => set("restockMin", whole(e.target.value))} maxLength={5} className={`${field} h-12 text-start`} />
-                    {/* every customer who asked is told when it is back (the share to notify was taken out) */}
-                    <SendByPick label={p.sendByCustomers} value={draft.restockBy} onChange={(v) => set("restockBy", v)} words={p} />
-                  </div>
-                </div>
+                {/* the notifications (low stock, back in stock) were taken out until they work; the saved values keep their defaults */}
 
                 <div className="flex flex-wrap items-center gap-3 border-t border-fg/10 pt-6">
                   <button type="submit" className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition hover:bg-deep">{p.save}</button>

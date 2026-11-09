@@ -330,6 +330,8 @@ export function Orders() {
                             )}
                             <span className="min-w-0">
                               {it.name} <span dir="ltr" className="whitespace-nowrap font-bold text-muted">×{it.qty}</span>
+                              {/* the size the customer chose (clothing and shoes) */}
+                              {it.size && <span className="mt-0.5 block text-xs font-semibold text-muted">{o.size}: <bdi>{it.size}</bdi></span>}
                             </span>
                           </span>
                           <span dir="ltr" className="shrink-0 font-bold">

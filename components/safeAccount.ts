@@ -78,6 +78,8 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
     description: cleanLines(s.description, ACCOUNT_LIMITS.description),
     color: safeColor(s.color, "#004956"),
     phone: savedPhone(s.phone),
+    /* left out until the setup step was answered (then "" means no WhatsApp) */
+    ...(typeof s.whatsapp === "string" ? { whatsapp: savedPhone(s.whatsapp) } : {}),
     slug: isSlug(s.slug) ? s.slug : "",
     done,
     pickup: s.pickup === true,

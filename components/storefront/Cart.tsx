@@ -5,7 +5,7 @@ import type { Lang } from "../content";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
 import { jordanMobile } from "../phone";
-import { CITIES, checkCheckout, isUnlimited, ORDER_LIMITS, priceCart, sellableStock, stock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
+import { CITIES, checkCheckout, isUnlimited, ORDER_LIMITS, priceCart, productSizes, sellableStock, stock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, parseList, type Coupon, type CouponRefusal } from "../records";
 import type { CartStyle } from "./config";
 import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
@@ -154,7 +154,7 @@ export function suggestFor(all: StoreProduct[], base: StoreProduct[], n: number)
   return [...left].sort((a, b) => rank(a) - rank(b)).slice(0, n);
 }
 
-type Line = { p: StoreProduct; qty: number };
+type Line = { p: StoreProduct; qty: number; /* the size chosen (clothing and shoes) */ size?: string };
 type Pay = "cliq" | "cash" | "card";
 
 function readList(key: string): Record<string, unknown>[] {
@@ -172,7 +172,7 @@ function currentCatalog(products: StoreProduct[]): Sellable[] {
   const saved = new Map(readList("seen-products").filter((p) => !p.deletedAt && !p.hidden).map((p) => [Number(p.id), p]));
   return products.map((p) => {
     const s = saved.get(p.id);
-    return s ? { ...p, price: typeof s.price === "number" ? s.price : null, sale: typeof s.sale === "number" ? s.sale : null, quantity: sellableStock(s) } : p;
+    return s ? { ...p, price: typeof s.price === "number" ? s.price : null, sale: typeof s.sale === "number" ? s.sale : null, quantity: sellableStock(s), sizes: productSizes(s) } : p;
   });
 }
 
@@ -194,6 +194,12 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
     /* what was bought leaves the stock (a stock with no limit stays as it is) */
     if (localStorage.getItem("seen-products")) {
       localStorage.setItem("seen-products", JSON.stringify(readList("seen-products").map((p) => {
+        /* clothing and shoes: each size bought leaves its own stock, and the product's stock is all its sizes again */
+        const sizes = productSizes(p);
+        if (sizes.length) {
+          const left = sizes.map((z) => ({ ...z, quantity: Math.max(0, z.quantity - o.items.filter((x) => x.id === Number(p.id) && x.size === z.name).reduce((n, x) => n + x.qty, 0)) }));
+          return o.items.some((x) => x.id === Number(p.id)) ? { ...p, sizes: left, quantity: left.reduce((n, z) => n + z.quantity, 0) } : p;
+        }
         const line = o.items.find((x) => x.id === Number(p.id));
         return line && !isUnlimited(p) ? { ...p, quantity: Math.max(0, stock(p.quantity) - line.qty) } : p;
       })));
@@ -210,7 +216,7 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
 }
 
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, look = "drawer", contained = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean }) {
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, look = "drawer", contained = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean }) {
   const w = words[lang];
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", city: "", address: "", note: "" });
@@ -285,10 +291,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
     }
     if (!checked.ok) return;
     /* The prices, the stock and the total come from the catalog, never from what is on screen */
-    const priced = priceCart(lines.map((l) => ({ id: l.p.id, qty: l.qty })), currentCatalog(products));
+    const priced = priceCart(lines.map((l) => ({ id: l.p.id, qty: l.qty, size: l.size })), currentCatalog(products));
     if (priced.changed || priced.items.length === 0) {
-      const fresh = new Map(priced.items.map((it) => [it.id, it.qty]));
-      lines.forEach((l) => setQty(l.p, fresh.get(l.p.id) ?? 0));
+      const fresh = new Map(priced.items.map((it) => [`${it.id}|${it.size ?? ""}`, it.qty]));
+      lines.forEach((l) => setQty(l.p, fresh.get(`${l.p.id}|${l.size ?? ""}`) ?? 0, l.size));
       setChanged(true);
       setStep("cart");
       return;
@@ -345,33 +351,34 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
     </div>
   );
 
-  const qtyControl = (p: StoreProduct, qty: number) => (
+  const qtyControl = (p: StoreProduct, qty: number, size?: string) => (
     <div dir="ltr" className={s.qty}>
-      <button type="button" onClick={() => setQty(p, qty - 1)} aria-label={w.less} className={s.qtyBtn}>−</button>
+      <button type="button" onClick={() => setQty(p, qty - 1, size)} aria-label={w.less} className={s.qtyBtn}>−</button>
       <span className={s.qtyNum}>{qty}</span>
-      <button type="button" onClick={() => setQty(p, qty + 1)} disabled={qty >= Math.min(p.quantity, ORDER_LIMITS.qty)} aria-label={w.more} className={`${s.qtyBtn} disabled:opacity-30`}>+</button>
+      <button type="button" onClick={() => setQty(p, qty + 1, size)} disabled={qty >= Math.min(size ? p.sizes?.find((z) => z.name === size)?.quantity ?? 0 : p.quantity, ORDER_LIMITS.qty)} aria-label={w.more} className={`${s.qtyBtn} disabled:opacity-30`}>+</button>
     </div>
   );
 
   /* The side panel and the floating card remove with a small icon at the corner, the fashion bag and the page with a word */
   const iconRemove = look === "drawer" || look === "pop";
-  const item = ({ p, qty }: Line) => (
-    <li key={p.id} className={s.item} style={s.itemStyle}>
+  const item = ({ p, qty, size }: Line) => (
+    <li key={`${p.id}|${size ?? ""}`} className={s.item} style={s.itemStyle}>
       <ProductImage p={p} className={`shrink-0 ${s.img}`} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-start justify-between gap-2">
           <p className={s.name} style={luxe ? heading : undefined}><bdi>{p.name}</bdi></p>
           {iconRemove && (
-            <button type="button" onClick={() => setQty(p, 0)} aria-label={`${w.remove}: ${p.name}`} title={w.remove} className={s.remove}>
+            <button type="button" onClick={() => setQty(p, 0, size)} aria-label={`${w.remove}: ${p.name}`} title={w.remove} className={s.remove}>
               {look === "pop" ? cross : trash}
             </button>
           )}
         </div>
+        {size && <p className="text-xs font-semibold opacity-70">{lang === "ar" ? "المقاس" : "Size"}: <bdi>{size}</bdi></p>}
         <p className={s.unit} dir="auto">{amount(priceOf(p))}</p>
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pt-2">
           <div className="flex items-center gap-3">
-            {qtyControl(p, qty)}
-            {!iconRemove && <button type="button" onClick={() => setQty(p, 0)} className={s.remove}>{w.remove}</button>}
+            {qtyControl(p, qty, size)}
+            {!iconRemove && <button type="button" onClick={() => setQty(p, 0, size)} className={s.remove}>{w.remove}</button>}
           </div>
           <p className={s.lineTotal} dir="auto">{amount(qty * priceOf(p))}</p>
         </div>
