@@ -4,7 +4,6 @@ import { BuildTimeLogger } from "@/components/BuildTimeLogger";
 import { DemoBoot, DemoRemount } from "@/components/DemoBoot";
 import { PrefsProvider } from "@/components/Prefs";
 import { SkeletonOverlay } from "@/components/Skeleton";
-import { FoundersGift } from "@/components/ThemePopup";
 import "./globals.css";
 
 /* Readex Pro covers both Arabic and Latin, and is open-licensed (SIL OFL). */
@@ -58,7 +57,6 @@ export default function RootLayout({
           <DemoBoot />
           <SkeletonOverlay />
           <DemoRemount>{children}</DemoRemount>
-          <FoundersGift />
         </PrefsProvider>
         <noscript>
           <style>{`[data-skeleton-overlay]{display:none}`}</style>

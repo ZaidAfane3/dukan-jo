@@ -11,7 +11,7 @@ import { usePrefs } from "./Prefs";
 /* "From Dukkan": the guides, news and rules Dukkan's team publishes for merchants (made in Diwan's marketing pages,
    /diwan/pages), read here in the dashboard. Only for a signed-in account: they come from Dukkan's server. */
 
-const words = {
+export const fromDukkanWords = {
   en: {
     title: "From Dukkan", sub: "Guides, news and rules from the Dukkan team.", empty: "Nothing from Dukkan yet. New guides and news will show here.",
     signedOut: "Sign in to your account to read Dukkan's pages.", pinned: "Pinned", unread: "New", back: "All pages", missing: "This page is not available.", failed: "Could not load. Check your connection and try again.", retry: "Try again",
@@ -48,7 +48,7 @@ function useMerchant<T>(path: string, pick: (d: Record<string, any>) => T, again
 
 function Frame({ children }: { children: React.ReactNode }) {
   const { lang } = usePrefs();
-  const w = words[lang];
+  const w = fromDukkanWords[lang];
   useEffect(() => {
     document.title = `${brandName(lang)} | ${w.title}`;
   }, [lang, w.title]);
@@ -65,7 +65,7 @@ function Note({ text, retry }: { text: string; retry?: () => void }) {
   return (
     <div className="rounded-2xl bg-card p-6 text-center text-sm text-muted shadow-sm ring-1 ring-fg/10">
       <p>{text}</p>
-      {retry && <button type="button" onClick={retry} className="mt-3 rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-onink">{words[lang].retry}</button>}
+      {retry && <button type="button" onClick={retry} className="mt-3 rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-onink">{fromDukkanWords[lang].retry}</button>}
     </div>
   );
 }
@@ -76,13 +76,47 @@ const pick = (p: MerchantPage, lang: "en" | "ar") => ({
   body: lang === "ar" ? p.bodyAr || p.bodyEn || "" : p.bodyEn || p.bodyAr || "",
 });
 
+const dateOf = (v: string | null, lang: "en" | "ar") => (v ? new Date(v).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" }) : "");
+
+/** A page in the list of Dukkan's pages. Also drawn by Diwan's preview (components/diwan/MerchantPreview.tsx), where it
+    links nowhere (href null). */
+export function PageListCard({ page: p, lang, href = `/from-dukkan/${p.slug}` }: { page: MerchantPage; lang: "en" | "ar"; href?: string | null }) {
+  const w = fromDukkanWords[lang];
+  const x = pick(p, lang);
+  const cls = "block rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 transition hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
+  const inner = (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {p.inMenu && <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-primary">{w.pinned}</span>}
+        {!p.seen && <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:text-amber-300">{w.unread}</span>}
+        <span className="text-xs text-muted">{dateOf(p.publishedAt, lang)}</span>
+      </div>
+      <h2 className="mt-2 break-words text-base font-bold">{x.title}</h2>
+      {x.summary && <p className="mt-1 break-words text-sm text-muted">{x.summary}</p>}
+    </>
+  );
+  return href ? <Link href={href} className={cls}>{inner}</Link> : <div className={cls}>{inner}</div>;
+}
+
+/** One of Dukkan's pages, opened. Also drawn by Diwan's preview. */
+export function PageArticle({ page, lang }: { page: MerchantPage; lang: "en" | "ar" }) {
+  const x = pick(page, lang);
+  return (
+    <article className="rounded-2xl bg-card p-6 shadow-sm ring-1 ring-fg/10 md:p-8">
+      <p className="text-xs text-muted">{dateOf(page.publishedAt, lang)}</p>
+      <h1 className="mt-1 break-words text-2xl font-extrabold">{x.title}</h1>
+      {x.summary && <p className="mt-2 break-words text-muted">{x.summary}</p>}
+      <PageBody text={x.body} className="mt-6" />
+    </article>
+  );
+}
+
 /** The list of Dukkan's pages for this shop */
 export function FromDukkanList() {
   const { lang } = usePrefs();
-  const w = words[lang];
+  const w = fromDukkanWords[lang];
   const [again, setAgain] = useState(0);
   const s = useMerchant("/api/dukkan-pages", (d) => (Array.isArray(d.pages) ? (d.pages as MerchantPage[]) : []), again);
-  const date = (v: string | null) => (v ? new Date(v).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" }) : "");
   return (
     <Frame>
       <div>
@@ -99,22 +133,11 @@ export function FromDukkanList() {
         <Note text={w.empty} />
       ) : (
         <ul className="space-y-3">
-          {s.data.map((p) => {
-            const x = pick(p, lang);
-            return (
-              <li key={p.slug}>
-                <Link href={`/from-dukkan/${p.slug}`} className="block rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 transition hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {p.inMenu && <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-primary">{w.pinned}</span>}
-                    {!p.seen && <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:text-amber-300">{w.unread}</span>}
-                    <span className="text-xs text-muted">{date(p.publishedAt)}</span>
-                  </div>
-                  <h2 className="mt-2 text-base font-bold">{x.title}</h2>
-                  {x.summary && <p className="mt-1 text-sm text-muted">{x.summary}</p>}
-                </Link>
-              </li>
-            );
-          })}
+          {s.data.map((p) => (
+            <li key={p.slug}>
+              <PageListCard page={p} lang={lang} />
+            </li>
+          ))}
         </ul>
       )}
     </Frame>
@@ -124,10 +147,9 @@ export function FromDukkanList() {
 /** One of Dukkan's pages */
 export function FromDukkanPage({ slug }: { slug: string }) {
   const { lang } = usePrefs();
-  const w = words[lang];
+  const w = fromDukkanWords[lang];
   const [again, setAgain] = useState(0);
   const s = useMerchant(`/api/dukkan-pages/${encodeURIComponent(slug)}`, (d) => d.page as MerchantPage, again);
-  const date = (v: string | null) => (v ? new Date(v).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" }) : "");
   return (
     <Frame>
       <Link href="/from-dukkan" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-fg">
@@ -143,12 +165,7 @@ export function FromDukkanPage({ slug }: { slug: string }) {
       ) : s.kind === "failed" ? (
         <Note text={w.failed} retry={() => setAgain((n) => n + 1)} />
       ) : (
-        <article className="rounded-2xl bg-card p-6 shadow-sm ring-1 ring-fg/10 md:p-8">
-          <p className="text-xs text-muted">{date(s.data.publishedAt)}</p>
-          <h1 className="mt-1 text-2xl font-extrabold">{pick(s.data, lang).title}</h1>
-          {pick(s.data, lang).summary && <p className="mt-2 text-muted">{pick(s.data, lang).summary}</p>}
-          <PageBody text={pick(s.data, lang).body} className="mt-6" />
-        </article>
+        <PageArticle page={s.data} lang={lang} />
       )}
     </Frame>
   );

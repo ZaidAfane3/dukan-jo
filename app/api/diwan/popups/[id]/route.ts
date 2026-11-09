@@ -32,13 +32,15 @@ export const PATCH = staffRoute("announce", async (req, me, { params }) => {
 
   const p = await cleanPopup(body);
   if ("bad" in p) return answer({ result: "bad", field: p.bad }, 400);
+  const c = p.columns;
   await pool.query(
-    `UPDATE popups SET title_en = $2, title_ar = $3, body_en = $4, body_ar = $5, image = $6, button_en = $7, button_ar = $8, button_link = $9,
-            audience = $10, starts_at = $11, ends_at = $12, priority = $13, updated_by = $14, updated_at = now()
+    `UPDATE popups SET template = $2, slots = $3, placement = $4, title_en = $5, title_ar = $6, body_en = $7, body_ar = $8, image = $9,
+            button_en = $10, button_ar = $11, button_link = $12, audience = $13, starts_at = $14, ends_at = $15, priority = $16,
+            updated_by = $17, updated_at = now()
       WHERE id = $1`,
-    [params.id, p.titleEn, p.titleAr, p.bodyEn, p.bodyAr, p.image, p.buttonEn, p.buttonAr, p.buttonLink, JSON.stringify(p.audience), p.startsAt, p.endsAt, p.priority, me.id],
+    [params.id, p.template, JSON.stringify(p.slots), p.placement, c.titleEn, c.titleAr, c.bodyEn, c.bodyAr, c.image, c.buttonEn, c.buttonAr, c.buttonLink, JSON.stringify(p.audience), p.startsAt, p.endsAt, p.priority, me.id],
   );
-  await audit(req, me.id, "popup.edit", { type: "popup", id: params.id }, null, { title: p.titleEn, audience: p.audience, status: cur.status });
+  await audit(req, me.id, "popup.edit", { type: "popup", id: params.id }, null, { title: c.titleEn, template: p.template, placement: p.placement, audience: p.audience, status: cur.status });
   return answer({ result: "ok" });
 });
 

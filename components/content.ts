@@ -354,7 +354,7 @@ export type Content = {
     tabs: string[];
     empty: string;
     viewAll: string;
-    templates: Record<"welcome" | "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated", string>;
+    templates: Record<"taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated", string>;
     /* what Dukkan's side sends to the bell (server/notify.ts); {name} parts come from the notification, {note} and
        {reason} already start with `sep` when there is one */
     server: {
@@ -922,7 +922,6 @@ export const content: Record<Lang, Content> = {
       empty: "No notifications here",
       viewAll: "View all",
       templates: {
-        welcome: "Welcome to {brand}! Finish setting up your store to start selling.",
         taskDone: "You completed: {task}",
         couponCreated: "Coupon {code} was created",
         orderCreated: "New order #{id} from {name}: {total}",
@@ -1498,7 +1497,6 @@ export const content: Record<Lang, Content> = {
       empty: "لا توجد إشعارات هنا",
       viewAll: "عرض الكل",
       templates: {
-        welcome: "أهلًا بك في {brand}! أكمل إعداد متجرك لتبدأ البيع.",
         taskDone: "أكملت مهمة: {task}",
         couponCreated: "تم إنشاء الكوبون {code}",
         orderCreated: "طلب جديد رقم {id} من {name}: {total}",

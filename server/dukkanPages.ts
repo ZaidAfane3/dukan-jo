@@ -1,6 +1,7 @@
 import { cleanLine, cleanLines } from "@/components/safe";
 import { PAGE_LIMITS, PAGE_SLUG } from "@/components/dukkanPageRules";
-import { cleanAudience, type Audience } from "./announce";
+import type { Audience } from "./announce";
+import { cleanAudience } from "./audience";
 
 /* Dukkan's pages for merchants (table dukkan_pages; the rules are in components/dukkanPages.tsx) */
 

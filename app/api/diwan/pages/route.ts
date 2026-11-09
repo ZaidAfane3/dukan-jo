@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { answer, readJson } from "@/server/auth";
-import { AUDIENCE_HAS } from "@/server/announce";
+import { AUDIENCE_HAS, PAGE_SINCE } from "@/server/announce";
 import { db } from "@/server/db";
 import { cleanPage } from "@/server/dukkanPages";
 import { audit, staffRoute } from "@/server/staff";
@@ -18,7 +18,7 @@ export const GET = staffRoute("announce", async () => {
   const list = await pool.query(
       `SELECT a.*, st.name AS by,
               (SELECT count(*)::int FROM dukkan_page_views v WHERE v.page_id = a.id) AS views,
-              (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id")}) AS reach
+              (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id", PAGE_SINCE)}) AS reach
          FROM dukkan_pages a LEFT JOIN staff st ON st.id = a.updated_by
         ORDER BY CASE a.status WHEN 'live' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, a.sort, a.updated_at DESC
         LIMIT 500`,

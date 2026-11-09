@@ -2,7 +2,7 @@ import { db } from "./db";
 import type { Audience } from "./announce";
 
 /* Who something Dukkan's team sends to merchants is for, and when, as Diwan's forms send it: the same rules as
-   announcements (server/announce.ts cleanAnnouncement), shared by pop-ups. The SQL side (AUDIENCE_HAS) is in announce.ts. */
+   announcements (server/announce.ts cleanAnnouncement), shared by pop-ups and pages. The SQL side (AUDIENCE_HAS) is in announce.ts. */
 
 /** A time from a form: null when empty, undefined when it is not a sensible date */
 export function cleanWhen(v: unknown): Date | null | undefined {
@@ -12,10 +12,13 @@ export function cleanWhen(v: unknown): Date | null | undefined {
   return Number.isNaN(d.getTime()) || d.getFullYear() < 2020 || d.getFullYear() > 2100 ? undefined : d;
 }
 
-/** Every shop, chosen shops (checked to exist) or the shops on chosen plans (checked to exist); null when it is none of these */
+/** Who it is for, as Diwan's pickers send it: every store, the stores that sign up while it is out ("new stores": made at
+    or after its start), chosen stores (checked to exist), or, for an older row kept as it was, the stores on chosen plans
+    (checked to exist). Null when it is none of these. Shared by announcements, pop-ups and pages. */
 export async function cleanAudience(v: unknown): Promise<Audience | null> {
   const aud = v && typeof v === "object" ? (v as Record<string, unknown>) : null;
   if (aud?.all === true) return { all: true };
+  if (aud?.newStores === true) return { newStores: true };
   const pool = await db();
   if (Array.isArray(aud?.accounts)) {
     const ids = Array.from(new Set((aud!.accounts as unknown[]).map((x) => String(x)).filter((x) => /^\d{1,15}$/.test(x)))).slice(0, 2000);

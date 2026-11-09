@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { cleanLine, cleanLines } from "@/components/safe";
+import { cleanAudience } from "./audience";
 
 /* Announcements: who they are for, and how a merchant's bell finds them. Each announcement has one row in notifications
    (account_id NULL, kind 'announcement'), made with it; a merchant who reads or dismisses it gets a notification_reads row
@@ -10,13 +11,19 @@ export const PLAN_OF = (account: string) =>
   `COALESCE((SELECT p.key FROM subscriptions s JOIN plans p ON p.id = s.plan_id
               WHERE s.account_id = ${account} AND s.status IN ('trial', 'active') ORDER BY s.created_at DESC LIMIT 1), 'trial')`;
 
-/** SQL (for the announcement aliased `a`) that is true when it is meant for the account given by the SQL `account`
-    (a column or a parameter, never typed text) */
-export const AUDIENCE_HAS = (account: string) => `(
+/** SQL (for the announcement, pop-up or page aliased `a`) that is true when it is meant for the account given by the SQL
+    `account` (a column or a parameter, never typed text). "New stores" are the stores made at or after `since`: the
+    moment it goes out (an announcement's or pop-up's start; pages pass PAGE_SINCE). */
+export const AUDIENCE_HAS = (account: string, since = "a.starts_at") => `(
     a.audience @> '{"all": true}'::jsonb
     OR (a.audience->'accounts') @> jsonb_build_array((${account})::bigint)
     OR (a.audience->'plans') ? ${PLAN_OF(`(${account})::bigint`)}
+    OR (a.audience @> '{"newStores": true}'::jsonb
+        AND EXISTS (SELECT 1 FROM accounts nw WHERE nw.id = (${account})::bigint AND nw.created_at >= ${since}))
   )`;
+
+/** When a page "goes out", for its new-stores audience: when it was first published (a draft: not yet) */
+export const PAGE_SINCE = "COALESCE(a.published_at, now())";
 
 /** SQL that is true when the announcement `a` is live now and meant for the account in parameter $n */
 export const FOR_ACCOUNT = (n: number) => `(a.starts_at <= now() AND (a.ends_at IS NULL OR a.ends_at > now()) AND ${AUDIENCE_HAS(`$${n}`)})`;
@@ -49,7 +56,8 @@ export async function liveAnnouncements(accountId: string): Promise<LiveAnnounce
 
 /* ---------------- what Diwan sends ---------------- */
 
-export type Audience = { all: true } | { accounts: number[] } | { plans: string[] };
+/* plans: an older choice (plans are gone), kept working for the rows that have it; the pickers no longer offer it */
+export type Audience = { all: true } | { newStores: true } | { accounts: number[] } | { plans: string[] };
 export type AnnouncementInput = {
   titleEn: string; titleAr: string; bodyEn: string; bodyAr: string;
   audience: Audience; banner: boolean; startsAt: Date; endsAt: Date | null;
@@ -82,27 +90,4 @@ export async function cleanAnnouncement(b: Record<string, unknown>): Promise<Ann
   if (!audience) return { bad: "audience" };
 
   return { titleEn, titleAr, bodyEn, bodyAr, audience, banner: b.banner === true, startsAt: start, endsAt };
-}
-
-/** Checks who something from Diwan is for (announcements, pages, pop-ups): everyone, chosen shops or plans. Shops and plans
-    are checked against the database (unknown ones are refused). Null when it is not a valid audience. */
-export async function cleanAudience(raw: unknown): Promise<Audience | null> {
-  const aud = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
-  const pool = await db();
-  if (aud?.all === true) return { all: true };
-  if (Array.isArray(aud?.accounts)) {
-    const ids = Array.from(new Set((aud!.accounts as unknown[]).map((v) => String(v)).filter((v) => /^\d{1,15}$/.test(v)))).slice(0, 2000);
-    if (!ids.length) return null;
-    const { rows } = await pool.query(`SELECT id FROM accounts WHERE id = ANY($1::bigint[])`, [ids]);
-    if (rows.length !== ids.length) return null;
-    return { accounts: ids.map(Number) };
-  }
-  if (Array.isArray(aud?.plans)) {
-    const keys = Array.from(new Set((aud!.plans as unknown[]).filter((v): v is string => typeof v === "string" && v.length <= 60))).slice(0, 50);
-    if (!keys.length) return null;
-    const { rows } = await pool.query(`SELECT key FROM plans WHERE key = ANY($1::text[])`, [keys]);
-    if (rows.length !== keys.length) return null;
-    return { plans: keys };
-  }
-  return null;
 }
