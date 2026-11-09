@@ -4,9 +4,9 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import type { Lang } from "../content";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
-import { payNote, storePayKey, storePays, usePublicSettings } from "../platformPublic";
+import { payNote, shipCityLists, storePayKey, storePays, usePublicSettings } from "../platformPublic";
 import { jordanMobile } from "../phone";
-import { CITIES, checkCheckout, isUnlimited, ORDER_LIMITS, priceCart, productSizes, sellableStock, stock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
+import { checkCheckout, isUnlimited, ORDER_LIMITS, priceCart, productSizes, sellableStock, stock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, parseList, type Coupon, type CouponRefusal } from "../records";
 import type { CartStyle } from "./config";
 import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
@@ -16,7 +16,6 @@ import { categoriesOf, type StoreProduct } from "./useStoreData";
    how to pay) in the same place, and a thank-you. It has four looks a design picks (`look`, see the skins at the end). The order is saved with
    the merchant's orders, so it shows in his dashboard. Prototype: no payment is taken. */
 
-const cities = CITIES;
 
 const words = {
   en: {
@@ -225,6 +224,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
   const platform = usePublicSettings();
   const pays = storePays(platform);
   const DELIVERY_FEE = platform.dukkan_ship.price;
+  /* the cities Dukkan Ship delivers to, as set in Diwan */
+  const cities = shipCityLists(platform);
   const [payPicked, setPay] = useState<Pay>("cliq");
   /* a way to pay switched off in Diwan while the page is open is never kept: the first one still on is chosen */
   const pay: Pay | null = pays.includes(payPicked) ? payPicked : pays[0] ?? null;
@@ -283,7 +284,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
 
   const place = () => {
     if (placing.current) return;
-    const checked = checkCheckout({ ...form, pay, fulfil }, { pickup, pays });
+    const checked = checkCheckout({ ...form, pay, fulfil }, { pickup, pays, cities });
     const bad = new Set<CheckoutField>(checked.ok ? [] : checked.errors);
     const next: typeof errors = {};
     if (bad.has("name")) next.name = w.errName;
