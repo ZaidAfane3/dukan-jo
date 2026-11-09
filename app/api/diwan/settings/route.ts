@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 import { cleanSetting, SETTING_DEFAULTS, SETTING_KEYS, type SettingKey } from "@/components/diwan/platformSettings";
-import { endingOk } from "@/components/domainShop";
 import { cleanLine } from "@/components/safe";
 import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
@@ -33,9 +32,6 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
   const body = await readJson(req, 50_000);
   const key = body?.key as SettingKey;
   if (!SETTING_KEYS.includes(key)) return answer({ result: "invalid" }, 400);
-  /* reading leaves out a domain ending no real name can have; saving one is refused, so staff see it */
-  if (key === "domain_prices" && body?.value && typeof body.value === "object" && Object.keys(body.value).some((e) => !endingOk(e)))
-    return answer({ result: "invalid" }, 400);
   const value = cleanSetting(key, body?.value);
   if (value === null) return answer({ result: "invalid" }, 400);
   const pool = await db();

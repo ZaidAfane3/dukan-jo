@@ -9,7 +9,7 @@ These files are plain TypeScript with no React or browser code. The backend shou
 | File | What it holds |
 |---|---|
 | `components/safe.ts` | Text, URL, color, email and money cleaning. `isBlank`/`visibleLength` treat spaces, zero-width and direction marks as empty. `hasStoreContact`, `isPickupAddress`. Upload checks: the real type read from the file's bytes, size from the header (max 10,000 px a side, 40 MP), damaged or cut-off files, `safeStoredImage`. |
-| `components/safeAccount.ts` | Cleaners for accounts, the profile, setup, domains and support tickets. The reserved store addresses and blocked platform domains are here too. |
+| `components/safeAccount.ts` | Cleaners for accounts, the profile, setup and support tickets. The reserved store addresses are here too. |
 | `components/records.ts` | Product, Order, Coupon, Reminder and Invoice types, with checks (`productProblems`, `couponProblems`) and cleaners. Money is capped at 1,000,000. `storeToday` uses Asia/Amman time. |
 | `components/safeOrder.ts` | `priceCart` rebuilds the cart from the catalog. `checkCheckout` checks the checkout form against the allowed cities and payment types. `ORDER_LIMITS`, `CITIES`. |
 | `components/safeDesign.ts` | `sanitizeDesign`, `sanitizeSections`, `sanitizePages`, plus checks for design links, pictures and colors. It's tied to the design types, so a new design field won't typecheck until it has a rule. |
@@ -48,7 +48,7 @@ These files are plain TypeScript with no React or browser code. The backend shou
 ## Owner decisions (settled 2026-10-28)
 
 - Signup email stays required. The onboarding weight question was removed on purpose.
-- Reserved store addresses and blocked domains: leave them as they are in `safeAccount.ts` (the owner said to ignore this).
+- Reserved store addresses: leave them as they are in `safeAccount.ts` (the owner said to ignore this).
 
 Details are in `Downloads\mandatory-fields-audit.pdf` and `.md`.
 

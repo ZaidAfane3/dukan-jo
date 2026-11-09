@@ -100,7 +100,7 @@ export function Delivery() {
 
   return (
     <div className="dash min-h-screen bg-page">
-      <DashboardBar active="domain" subtabs={[w.title]} activeSub={0} />
+      <DashboardBar active="store" subtabs={[w.title]} activeSub={0} />
       <main data-lang-fade className="mx-auto max-w-[1720px] space-y-5 px-5 py-8 md:px-10">
         <form onSubmit={save} noValidate className={`${card} max-w-2xl space-y-6 p-5 sm:p-7`}>
           <div>

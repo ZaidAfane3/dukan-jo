@@ -10,7 +10,7 @@ const P = {
   funnel: "M4 5h16l-6 7.5V19l-4 1.5v-8z",
   tickets: "M4 8a2 2 0 0 0 0 4v0a2 2 0 0 1 0 4v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1a2 2 0 0 1 0-4 2 2 0 0 1 0-4V7a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1zM14 6v12",
   feedback: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1v.5h6V15c0-.4.2-.8.5-1.1A6 6 0 0 0 12 3z",
-  domains: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z",
+  globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z",
   documents: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4",
   complaints: "M5 21V4M5 4h11l-2 4 2 4H5",
   themes: "M12 3a9 9 0 0 0 0 18c1 0 1.6-.8 1.6-1.7 0-.5-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1.1 0-.9.8-1.6 1.7-1.6H16a5 5 0 0 0 5-5c0-4.1-4-7.5-9-7.5zM7.5 11.5h.01M10 7.5h.01M14.5 7.5h.01M17 11h.01",
@@ -46,8 +46,8 @@ export function Icon({ name, className = "h-5 w-5", strokeWidth = 1.8 }: { name:
 /* Each Diwan page's picture, by its address (the sidebar and the page title use the same one) */
 const BY_PATH: [string, IconName][] = [
   ["/diwan/shops", "shops"], ["/diwan/payments", "payments"], ["/diwan/funnel", "funnel"], ["/diwan/tickets", "tickets"],
-  ["/diwan/feedback", "feedback"], ["/diwan/domains", "domains"], ["/diwan/documents", "documents"], ["/diwan/complaints", "complaints"],
-  ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/website", "domains"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
+  ["/diwan/feedback", "feedback"], ["/diwan/documents", "documents"], ["/diwan/complaints", "complaints"],
+  ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/website", "globe"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
   ["/diwan/marketplace", "developers"], ["/diwan/flags", "flags"], ["/diwan/settings", "settings"], ["/diwan/staff", "staff"],
   ["/diwan/activity", "activity"],
 ];

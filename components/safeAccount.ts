@@ -1,5 +1,5 @@
 /* The rules for what a merchant saves about himself and his store: his account, his profile, the first-time setup,
-   his custom domains and his support tickets.
+   and his support tickets.
 
    Today these records live in his browser, where anyone can change them, so every page reads them back through
    these functions: a missing or wrong field becomes a safe empty value instead of breaking the page. Once Dukkan has
@@ -7,7 +7,7 @@
    browser APIs in this file, so the server can import it as it is. */
 
 import { jordanMobile, savedMobile, typedPhone } from "./phone";
-import { cleanDate, cleanDomain, cleanLine, cleanLines, cleanMoney, emailOf, isSlug, safeColor, safeImage, safeStoredImage } from "./safe";
+import { cleanDate, cleanLine, cleanLines, cleanMoney, emailOf, isSlug, safeColor, safeImage, safeStoredImage } from "./safe";
 import type { SavedSetup } from "./setup";
 
 /** The longest each field may be. The form fields use the same numbers. */
@@ -22,7 +22,6 @@ export const ACCOUNT_LIMITS = {
   subject: 80,
   message: 1000,
   tickets: 200,
-  domains: 50,
 };
 
 type Obj = Record<string, unknown>;
@@ -112,26 +111,6 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
 
 /** What to say when the store address is well formed but belongs to the platform (RESERVED_SLUGS in safe.ts). */
 export const reservedSlugError = { en: "This name is reserved. Choose another one.", ar: "هذا الاسم محجوز، اختر اسمًا آخر." };
-
-/* ---------------- custom domains ---------------- */
-
-/* bought: a domain he bought through Dukkan (for how many years, when it renews, whether it renews by itself, what he paid) */
-export type CustomDomain = { id: number; name: string; added: number; bought?: { years: number; renews: number; autoRenew: boolean; paid: number } };
-
-export function cleanDomains(v: unknown): CustomDomain[] {
-  if (!Array.isArray(v)) return [];
-  const out: CustomDomain[] = [];
-  for (const item of v.slice(0, ACCOUNT_LIMITS.domains)) {
-    const d = obj(item);
-    const name = cleanDomain(d?.name);
-    if (!d || !name || out.some((x) => x.name === name)) continue;
-    const id = whole(d.id, 1, 1e9, 0);
-    const b = obj(d.bought);
-    const bought = b ? { years: whole(b.years, 1, 5, 1), renews: time(b.renews), autoRenew: b.autoRenew !== false, paid: whole(b.paid, 0, 100000, 0) } : undefined;
-    out.push({ id: id && !out.some((x) => x.id === id) ? id : out.reduce((m, x) => Math.max(m, x.id), 0) + 1, name, added: time(d.added), ...(bought ? { bought } : {}) });
-  }
-  return out;
-}
 
 /* ---------------- support tickets ---------------- */
 

@@ -180,7 +180,7 @@ export type Content = {
       errAddress: string;
     };
     service: { label: string; hint: string; phoneLabel: string; phonePh: string; invalid: string; previewHint: string; contact: string; useSame: string; registered: string; otherLabel: string; oneNeeded: string; waLabel: string; waHint: string; waOther: string; waEmpty: string; waInvalid: string; callLabel: string; callHint: string; callSame: string; callOther: string; callEmpty: string };
-    domain: {
+    link: {
       label: string;
       hint: string;
       prefix: string;
@@ -359,7 +359,6 @@ export type Content = {
        {reason} already start with `sep` when there is one */
     server: {
       ticketReplied: string; ticketSolved: string; ticketClosed: string;
-      domainActive: string; domainFailed: string; domainOther: string;
       documentApproved: string; documentRejected: string; documentOther: string;
       shopSuspended: string; shopReactivated: string;
       planChanged: string; until: string;
@@ -537,7 +536,7 @@ export const content: Record<Lang, Content> = {
       tasks: [
         { title: "Store identity", action: "Add" },
         { title: "Customer service number", action: "Add" },
-        { title: "Store domain", action: "Customize" },
+        { title: "Store link", action: "Customize" },
         { title: "Add your first product", action: "Add" },
         { title: "Shipping method", action: "Set" },
         { title: "Store design", action: "Design" },
@@ -678,15 +677,15 @@ export const content: Record<Lang, Content> = {
         callOther: "Phone number for calls",
         callEmpty: "Leave it empty if you don't take calls.",
       },
-      domain: {
-        label: "Store domain",
+      link: {
+        label: "Store link",
         hint: "This is the link your customers use to visit your store.",
         prefix: "dukkan.store/",
-        ph: "domain",
+        ph: "your-store",
         examples: "Examples: dukkan.store/brandname or dukkan.store/brand-name",
         invalid: "Use 3 to 30 letters (a to z), numbers or hyphens. It can't start or end with a hyphen.",
-        errEmpty: "Choose your store domain.",
-        previewHint: "Your domain appears in the browser tab and when your store is shared",
+        errEmpty: "Choose your store link.",
+        previewHint: "Your store link appears in the browser tab and when your store is shared",
         suggest: "Use",
         fallback: "your-store",
       },
@@ -933,9 +932,6 @@ export const content: Record<Lang, Content> = {
         ticketReplied: "Dukkan replied to your ticket #{number}: {subject}",
         ticketSolved: "Your ticket #{number} was marked as solved: {subject}",
         ticketClosed: "Your ticket #{number} was closed: {subject}",
-        domainActive: "Your domain {domain} is connected and working",
-        domainFailed: "Your domain {domain} could not be connected{note}",
-        domainOther: "Your domain {domain}: {status}{note}",
         documentApproved: "Your document “{name}” was approved",
         documentRejected: "Your document “{name}” was not accepted{note}",
         documentOther: "Your document “{name}”: {status}{note}",
@@ -946,7 +942,7 @@ export const content: Record<Lang, Content> = {
         paymentReceived: "Dukkan received your payment of {amount} JOD by {method}",
         methods: { bank: "bank transfer", cliq: "CliQ", cash: "cash", card: "card" },
         supportViewed: "Dukkan support opened your store to help you",
-        statusWords: { active: "connected", failed: "failed", awaiting: "waiting", checking: "being checked", removed: "removed", approved: "approved", rejected: "not accepted", waiting: "waiting" },
+        statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
         dismiss: "Dismiss",
@@ -1115,7 +1111,7 @@ export const content: Record<Lang, Content> = {
       tasks: [
         { title: "هوية المتجر", action: "إضافة" },
         { title: "رقم خدمة العملاء", action: "إضافة" },
-        { title: "دومين المتجر", action: "تخصيص" },
+        { title: "رابط المتجر", action: "تخصيص" },
         { title: "إضافة أول منتج", action: "إضافة" },
         { title: "طريقة الشحن", action: "تحديد" },
         { title: "تصميم المتجر", action: "تصميم" },
@@ -1254,15 +1250,15 @@ export const content: Record<Lang, Content> = {
         callOther: "رقم للاتصال",
         callEmpty: "اتركه فارغًا إن كنت لا تستقبل اتصالات.",
       },
-      domain: {
-        label: "دومين المتجر",
+      link: {
+        label: "رابط المتجر",
         hint: "هذا هو الرابط الذي يستخدمه العملاء لزيارة متجرك.",
         prefix: "dukkan.store/",
-        ph: "domain",
+        ph: "your-store",
         examples: "أمثلة: dukkan.store/brandname أو dukkan.store/brand-name",
         invalid: "استخدم من 3 إلى 30 حرفًا لاتينيًا (a-z) أو أرقامًا أو شرطات، ولا يبدأ أو ينتهي بشرطة.",
-        errEmpty: "اختر دومين متجرك.",
-        previewHint: "يظهر دومين متجرك في تبويب المتصفح وعند مشاركة المتجر",
+        errEmpty: "اختر رابط متجرك.",
+        previewHint: "يظهر رابط متجرك في تبويب المتصفح وعند مشاركة المتجر",
         suggest: "استخدم",
         fallback: "your-store",
       },
@@ -1509,9 +1505,6 @@ export const content: Record<Lang, Content> = {
         ticketReplied: "ردّ دكّان على تذكرتك رقم {number}: {subject}",
         ticketSolved: "تم حل تذكرتك رقم {number}: {subject}",
         ticketClosed: "أُغلقت تذكرتك رقم {number}: {subject}",
-        domainActive: "نطاقك {domain} متصل ويعمل",
-        domainFailed: "تعذّر ربط نطاقك {domain}{note}",
-        domainOther: "نطاقك {domain}: {status}{note}",
         documentApproved: "تمت الموافقة على مستندك «{name}»",
         documentRejected: "لم يُقبل مستندك «{name}»{note}",
         documentOther: "مستندك «{name}»: {status}{note}",
@@ -1522,7 +1515,7 @@ export const content: Record<Lang, Content> = {
         paymentReceived: "استلم دكّان دفعتك بقيمة {amount} د.أ عبر {method}",
         methods: { bank: "تحويل بنكي", cliq: "كليك", cash: "نقدًا", card: "بطاقة" },
         supportViewed: "فتح فريق دعم دكّان متجرك لمساعدتك",
-        statusWords: { active: "متصل", failed: "تعذّر", awaiting: "بالانتظار", checking: "قيد التحقق", removed: "محذوف", approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
+        statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
         announcement: "من دكّان",
         dismiss: "إخفاء",

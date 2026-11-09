@@ -94,7 +94,7 @@ export const DIWAN_SCHEMA = `
     price_month   NUMERIC(10, 3) NOT NULL DEFAULT 0,
     price_year    NUMERIC(10, 3) NOT NULL DEFAULT 0,
     max_products  INTEGER,            -- NULL: no limit
-    custom_domain BOOLEAN NOT NULL DEFAULT true,
+    custom_domain BOOLEAN NOT NULL DEFAULT true, -- no longer used: no store can use its own domain
     max_staff     INTEGER,            -- NULL: no limit
     active        BOOLEAN NOT NULL DEFAULT true,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -194,11 +194,13 @@ export const DIWAN_SCHEMA = `
     UNIQUE (account_id, order_id)
   );
 
-  /* ---------- domains ---------- */
+  /* ---------- domains ----------
+     Kept only for the rows already saved: Dukkan no longer sells domains or connects a store's own domain (every store
+     lives at dukkan.store/<its link>), so nothing adds to this table or shows it any more. */
   CREATE TABLE IF NOT EXISTS domains (
     id            BIGSERIAL PRIMARY KEY,
     account_id    BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    client_id     BIGINT,             -- the id the merchant's page gave it (CustomDomain.id)
+    client_id     BIGINT,             -- the id the merchant's page gave it
     name          TEXT NOT NULL,
     kind          TEXT NOT NULL CHECK (kind IN ('connect', 'bought')),
     status        TEXT NOT NULL DEFAULT 'awaiting' CHECK (status IN ('awaiting', 'checking', 'active', 'failed', 'removed')),

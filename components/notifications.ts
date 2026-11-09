@@ -6,13 +6,13 @@ import { bounceIfSuspended } from "./suspended";
    - this browser session: pages add to it when something happens here (a task is finished, a coupon is created, ...).
      Kept in sessionStorage; nothing leaves the browser.
    - the server, when a merchant is signed in (never in the tour): what Dukkan sent this shop (a ticket answered, a
-     domain connected, a payment received, ... see server/notify.ts) and Dukkan's announcements meant for it. Fetched
+     paper checked, a payment received, ... see server/notify.ts) and Dukkan's announcements meant for it. Fetched
      from /api/notifications when the bell opens and every minute while the page is in view; read marks go back to the
      server. Their ids start with "s:". */
 
 export type LocalKind = "welcome" | "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated";
 export type ServerKind =
-  | "ticketReplied" | "ticketStatus" | "domainStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
+  | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
   | "planChanged" | "paymentReceived" | "supportViewed" | "announcement";
 export type NotificationKind = LocalKind | ServerKind;
 
@@ -26,7 +26,6 @@ export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
   orderCreated: 1, /* Important */
   ticketReplied: 1,
   ticketStatus: 5,
-  domainStatus: 1,
   documentStatus: 1,
   shopSuspended: 1,
   shopReactivated: 1,
@@ -58,7 +57,7 @@ function localList(): AppNotification[] {
 
 /* ---------------- from the server ---------------- */
 
-const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "domainStatus", "documentStatus", "shopSuspended", "shopReactivated", "planChanged", "paymentReceived", "supportViewed", "announcement"]);
+const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "planChanged", "paymentReceived", "supportViewed", "announcement"]);
 let serverList: AppNotification[] = [];
 let loading: Promise<void> | null = null;
 
@@ -169,7 +168,6 @@ export function onNotificationsChange(callback: () => void): () => void {
 /** Where clicking a notification takes the merchant, if anywhere */
 export function notificationLink(item: AppNotification): string | null {
   if ((item.kind === "ticketReplied" || item.kind === "ticketStatus") && /^\d+$/.test(item.params.number ?? "")) return `/support?ticket=${item.params.number}`;
-  if (item.kind === "domainStatus") return "/domain";
   return null;
 }
 
@@ -187,8 +185,6 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
       return fill(w.ticketReplied);
     case "ticketStatus":
       return fill(p.status === "closed" ? w.ticketClosed : w.ticketSolved);
-    case "domainStatus":
-      return fill(p.status === "active" ? w.domainActive : p.status === "failed" ? w.domainFailed : w.domainOther, { note, status: w.statusWords[p.status] ?? p.status ?? "" });
     case "documentStatus":
       return fill(p.status === "approved" ? w.documentApproved : p.status === "rejected" ? w.documentRejected : w.documentOther, { note, status: w.statusWords[p.status] ?? p.status ?? "" });
     case "shopSuspended":

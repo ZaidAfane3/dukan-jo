@@ -54,7 +54,7 @@ export function ThemeStore() {
 
   return (
     <div className="dash min-h-screen bg-page">
-      <DashboardBar active="domain" subtabs={[w.store.title]} activeSub={0} />
+      <DashboardBar active="store" subtabs={[w.store.title]} activeSub={0} />
 
       <main data-lang-fade className="mx-auto max-w-[1100px] space-y-6 px-5 py-8 md:px-10">
         <div>

@@ -15,7 +15,7 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
   await audit(req, staff.id, "shop.view", { type: "shop", id });
   const pool = await db();
   const q = (sql: string) => pool.query(sql, [id]).then((r) => r.rows);
-  const [shop, payments, domains, themes, tickets, deletions, reports, documents, visits, activity] = await Promise.all([
+  const [shop, payments, themes, tickets, deletions, reports, documents, visits, activity] = await Promise.all([
     q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode,
               s.pickup_city, s.pickup_address, s.status AS shop_status, s.suspend_reason, s.suspended_at, s.product_count, s.order_count,
               s.total_sales, s.first_product_at, s.published_at, s.first_order_at, s.last_seen_at, s.created_at,
@@ -24,7 +24,6 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
          FROM shops s JOIN accounts a ON a.id = s.account_id ${CURRENT_SUB_SQL} WHERE s.account_id = $1`),
     q(`SELECT pay.id, pay.amount, pay.method, pay.reference, pay.paid_on::text AS paid_on, pay.note, st.name AS marked_by, pay.created_at
          FROM payments pay LEFT JOIN staff st ON st.id = pay.marked_by WHERE pay.account_id = $1 ORDER BY pay.paid_on DESC, pay.id DESC LIMIT 100`),
-    q(`SELECT id, name, kind, status, renews_at, created_at FROM domains WHERE account_id = $1 ORDER BY created_at DESC LIMIT 100`),
     q(`SELECT id, theme_id, price, paid_at FROM theme_purchases WHERE account_id = $1 ORDER BY paid_at DESC LIMIT 100`),
     q(`SELECT number, subject, kind, status, created_at FROM tickets WHERE account_id = $1 ORDER BY created_at DESC LIMIT 100`),
     q(`SELECT order_no, reason, deleted_by, deleted_at FROM order_deletions WHERE account_id = $1 ORDER BY deleted_at DESC LIMIT 100`),
@@ -40,7 +39,6 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     result: "ok",
     shop: shop[0],
     payments,
-    domains,
     themes,
     tickets,
     deletions,

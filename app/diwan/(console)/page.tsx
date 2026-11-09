@@ -18,7 +18,7 @@ type Overview = {
   suspended: number;
   published: number;
   onTrial: number;
-  waiting: { tickets: number; domains: number; reports: number; documents: number };
+  waiting: { tickets: number; reports: number; documents: number };
   newest: { id: string; name: string; slug: string | null; owner: string; created_at: string; setup_done: number; status: string }[];
 };
 
@@ -46,7 +46,6 @@ function ShopsOverview() {
           const waiting = [
             { href: "/diwan/tickets", n: d.waiting.tickets, one: t("open ticket", "تذكرة مفتوحة"), many: t("open tickets", "تذاكر مفتوحة") },
             { href: "/diwan/complaints", n: d.waiting.reports, one: t("new store report", "بلاغ متجر جديد"), many: t("new store reports", "بلاغات متاجر جديدة") },
-            { href: "/diwan/domains", n: d.waiting.domains, one: t("domain to set up", "نطاق بانتظار الإعداد"), many: t("domains to set up", "نطاقات بانتظار الإعداد") },
             { href: "/diwan/documents", n: d.waiting.documents, one: t("document to check", "مستند بانتظار المراجعة"), many: t("documents to check", "مستندات بانتظار المراجعة") },
           ].filter((w) => w.n > 0);
           return (

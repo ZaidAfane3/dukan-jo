@@ -734,16 +734,16 @@ function ServiceStep({ store, onSave }: StepProps) {
 }
 
 /* ====================================================================
-   Step 3: Store domain
+   Step 3: Store link
    ==================================================================== */
 
-function DomainStep({ store, onSave }: StepProps) {
+function LinkStep({ store, onSave }: StepProps) {
   const { lang } = usePrefs();
   const c = content[lang].onboarding;
   const [slug, setSlug] = useState(store.slug);
   const [touched, setTouched] = useState(false);
   const [tried, setTried] = useState(false);
-  /* the link Dukkan said belongs to another store (asked on Save, like the Domain page) */
+  /* the link Dukkan said belongs to another store (asked on Save, like the Store link page) */
   const [taken, setTaken] = useState("");
   const valid = isSlug(slug);
   /* Wrong after he leaves the field, or still empty after he pressed Save */
@@ -758,41 +758,41 @@ function DomainStep({ store, onSave }: StepProps) {
       <div className="space-y-6 lg:order-2">
         <RequiredNote text={c.requiredNote} show={tried && showError} />
         <div className="!mt-4">
-          <Label title={c.domain.label} hint={c.domain.hint} required htmlFor="ob-domain" />
+          <Label title={c.link.label} hint={c.link.hint} required htmlFor="ob-link" />
           <div dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border bg-card text-sm transition focus-within:ring-2 ${showError ? "border-rose-500 focus-within:ring-rose-500/25" : "border-fg/15 focus-within:border-primary focus-within:ring-primary/25"}`}>
-            <span className="flex h-full items-center border-e border-fg/15 bg-soft/60 px-3 font-semibold">{c.domain.prefix}</span>
+            <span className="flex h-full items-center border-e border-fg/15 bg-soft/60 px-3 font-semibold">{c.link.prefix}</span>
             <input
-              id="ob-domain"
+              id="ob-link"
               required
               value={slug}
               onChange={(e) => { setSlug(clean(e.target.value)); setTried(false); }}
               onBlur={() => setTouched(true)}
-              placeholder={c.domain.ph}
+              placeholder={c.link.ph}
               spellCheck={false}
               autoCapitalize="none"
-              aria-label={c.domain.label}
+              aria-label={c.link.label}
               aria-invalid={showError}
               className="h-full flex-1 bg-transparent px-3 outline-none placeholder:text-muted/70"
             />
           </div>
           {showError ? (
-            <FieldError id="ob-domain-err">
+            <FieldError id="ob-link-err">
               {taken !== "" && taken === slug
                 ? lang === "ar"
                   ? "هذا الرابط مستخدم لمتجر آخر. اختر رابطًا غيره."
                   : "This link is taken by another store. Choose another one."
                 : !slug
-                  ? c.domain.errEmpty
+                  ? c.link.errEmpty
                   : SLUG_RULE.test(slug)
                     ? reservedSlugError[lang]
-                    : c.domain.invalid}
+                    : c.link.invalid}
             </FieldError>
           ) : (
-            <p dir="ltr" className="mt-2 text-xs text-muted">{c.domain.examples}</p>
+            <p dir="ltr" className="mt-2 text-xs text-muted">{c.link.examples}</p>
           )}
           {canSuggest && (
             <button type="button" onClick={() => setSlug(suggestion)} className="mt-3 rounded-full border border-primary/40 px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white">
-              {c.domain.suggest} <span dir="ltr">{c.domain.prefix}{suggestion}</span>
+              {c.link.suggest} <span dir="ltr">{c.link.prefix}{suggestion}</span>
             </button>
           )}
         </div>
@@ -800,7 +800,7 @@ function DomainStep({ store, onSave }: StepProps) {
           onClick={async () => {
             if (!valid) {
               setTried(true);
-              focusFirst(["ob-domain"]);
+              focusFirst(["ob-link"]);
               return;
             }
             /* a store link belongs to one store: a signed-in account asks Dukkan first (the save is refused anyway if taken) */
@@ -808,7 +808,7 @@ function DomainStep({ store, onSave }: StepProps) {
               const r = await merchantCall(`/api/shop/slug?slug=${encodeURIComponent(slug)}`, "GET");
               if (r?.data.result === "taken") {
                 setTaken(slug);
-                focusFirst(["ob-domain"]);
+                focusFirst(["ob-link"]);
                 return;
               }
             }
@@ -820,7 +820,7 @@ function DomainStep({ store, onSave }: StepProps) {
       </div>
 
       <div className="lg:order-1">
-        <PreviewPanel hint={c.domain.previewHint}>
+        <PreviewPanel hint={c.link.previewHint}>
           <div style={{ transformStyle: "preserve-3d" }}>
             <div className={card3d} style={{ transform: "translateZ(10px)", transformStyle: "preserve-3d" }}>
               <div className="px-4 pt-4" style={{ transform: "translateZ(30px)" }}>
@@ -829,7 +829,7 @@ function DomainStep({ store, onSave }: StepProps) {
                     <circle cx="12" cy="12" r="9" />
                     <path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18" />
                   </svg>
-                  <span className="truncate">https://{c.domain.prefix}{slug || c.domain.fallback}</span>
+                  <span className="truncate">https://{c.link.prefix}{slug || c.link.fallback}</span>
                 </div>
               </div>
               <div className="mt-4 rounded-b-2xl bg-white/60 p-4 dark:bg-white/5">
@@ -1570,7 +1570,7 @@ export function Onboarding() {
   const stepBody =
     view === 0 ? <IdentityStep store={store} onSave={(p) => finish(0, p)} />
     : view === 1 ? <ServiceStep store={store} onSave={(p) => finish(1, p)} />
-    : view === 2 ? <DomainStep store={store} onSave={(p) => finish(2, p)} />
+    : view === 2 ? <LinkStep store={store} onSave={(p) => finish(2, p)} />
     : view === 3 ? <ProductStep store={store} onSave={(p) => finish(3, p)} />
     : view === 4 ? <ShippingStep store={store} onSave={(p) => finish(4, p)} />
     : (

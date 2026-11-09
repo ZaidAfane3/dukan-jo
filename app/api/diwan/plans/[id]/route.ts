@@ -20,8 +20,8 @@ export const PATCH = staffRoute("billing", async (req, staff, ctx) => {
   if (!p) return answer({ result: "invalid" }, 400);
   if (plan.key === "trial" && !p.active) return answer({ result: "trial-stays" }, 400);
   await (await db()).query(
-    `UPDATE plans SET name_en = $2, name_ar = $3, price_month = $4, price_year = $5, max_products = $6, custom_domain = $7, max_staff = $8, active = $9 WHERE id = $1`,
-    [plan.id, p.nameEn, p.nameAr, p.priceMonth, p.priceYear, p.maxProducts, p.customDomain, p.maxStaff, p.active],
+    `UPDATE plans SET name_en = $2, name_ar = $3, price_month = $4, price_year = $5, max_products = $6, max_staff = $7, active = $8 WHERE id = $1`,
+    [plan.id, p.nameEn, p.nameAr, p.priceMonth, p.priceYear, p.maxProducts, p.maxStaff, p.active],
   );
   await audit(req, staff.id, "plan.update", { type: "plan", id: plan.id }, null, { ...p });
   return answer({ result: "ok" });
