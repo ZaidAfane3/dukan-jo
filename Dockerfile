@@ -2,14 +2,16 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# npm's download cache stays between builds (on the server), so new packages are the only ones fetched
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > BUILD_TIME
-RUN NEXT_PUBLIC_BUILD_TIME="$(cat BUILD_TIME)" npm run build
+# Next.js's build cache stays between builds, so a deploy only rebuilds what changed instead of the whole app
+RUN --mount=type=cache,target=/app/.next/cache NEXT_PUBLIC_BUILD_TIME="$(cat BUILD_TIME)" npm run build
 
 FROM node:20-alpine AS run
 WORKDIR /app
