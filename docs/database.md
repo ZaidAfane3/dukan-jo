@@ -13,7 +13,7 @@ close the site, and come back days later (in the same browser or on another devi
 | `dukkan-db` | PostgreSQL 16. No port is opened to the outside, so only the app can reach it. |
 
 The data lives in the Docker volume `dukkan-db`. Rebuilds, `docker compose up -d`, restarts and the auto-deploy
-(`deploy/auto-deploy.sh`) all keep it. **`docker compose down -v` or `docker volume rm` deletes every account, so don't use them.**
+(`deploy/deploy.sh`) all keep it. **`docker compose down -v` or `docker volume rm` deletes every account, so don't use them.**
 
 The tables are created by the app on its first request (`server/db.ts`), so there is no migration step.
 

@@ -38,7 +38,6 @@ prototype/build/src/fonts.css
 
 /.next-*/
 
-# Auto-deploy cron runtime files
-deploy/auto-deploy.log
-deploy/auto-deploy.lock
-deploy/deployed-commit
+# Deploy runtime files
+deploy/deploy.log
+deploy/deploy.lock

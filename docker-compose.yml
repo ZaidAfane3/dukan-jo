@@ -1,7 +1,9 @@
 services:
   app:
-    build: .
-    image: dukkan-jo
+    # Built and pushed by .github/workflows/docker-publish.yml; deploy/deploy.sh sets IMAGE_TAG to the commit's
+    # image (sha-xxxxxxx). Without it (a manual `docker compose up`) the latest main image is used.
+    image: ghcr.io/zaidafane3/dukan-jo:${IMAGE_TAG:-latest}
+    build: .   # only for building locally: `docker compose build`
     container_name: dukkan-jo
     # Localhost only: visitors arrive through the Cloudflare tunnel, which reaches the app over the
     # cloudflared_default network, so the port never needs to be open to the internet.
