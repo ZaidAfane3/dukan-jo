@@ -38,6 +38,9 @@ prototype/build/src/fonts.css
 
 /.next-*/
 
-# Deploy runtime files
+# Deploy runtime files (the first three are left over from the old cron script)
+deploy/auto-deploy.log
+deploy/auto-deploy.lock
+deploy/deployed-commit
 deploy/deploy.log
 deploy/deploy.lock
