@@ -1,0 +1,6 @@
+# Only the owner may change how the app is built and deployed.
+# Enforced when branch protection on `main` has "Require review from Code Owners" turned on.
+/.github/           @ZaidAfane3
+/deploy/            @ZaidAfane3
+/docker-compose.yml @ZaidAfane3
+/Dockerfile         @ZaidAfane3
