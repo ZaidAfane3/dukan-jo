@@ -21,7 +21,7 @@ IMAGE="ghcr.io/zaidafane3/dukan-jo"   # must match `image:` in docker-compose.ym
 TAG="sha-${SHA:0:7}"                  # the tag docker/metadata-action (type=sha) gives the image of this commit
 ROLLBACK_TAG="rollback"               # copy of the image that was running before this deploy
 CONTAINER="dukkan-jo"
-HEALTH_URL="${HEALTH_URL:-http://localhost:3000}"
+HEALTH_URL="${HEALTH_URL:-http://localhost:3000/api/health}"   # answers 200 only when the database works
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-90}"   # seconds to wait for the app to answer
 PULL_ATTEMPTS="${PULL_ATTEMPTS:-10}"     # the image may still be being pushed when the pipeline reaches us
 
@@ -29,12 +29,12 @@ PULL_ATTEMPTS="${PULL_ATTEMPTS:-10}"     # the image may still be being pushed w
 log() { echo "[$(date -Is)] $*" | tee -a "$LOG_FILE"; }
 run() { "$@" 2>&1 | tee -a "$LOG_FILE"; return "${PIPESTATUS[0]}"; }
 
-# Polls the app until it answers with a non-error HTTP status (anything below 500) or the timeout passes.
+# Polls the app until it answers HTTP 2xx or the timeout passes.
 healthy() {
   local deadline=$((SECONDS + HEALTH_TIMEOUT)) code=""
   while [ "$SECONDS" -lt "$deadline" ]; do
     code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$HEALTH_URL" 2>/dev/null || true)"
-    if [ -n "$code" ] && [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
+    if [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
       log "health check passed ($HEALTH_URL answered HTTP $code)"
       return 0
     fi
@@ -49,6 +49,8 @@ start() { IMAGE_TAG="$1" run docker compose up -d --no-build; }
 
 rollback() {
   log "ROLLBACK: $1"
+  # Put back the checkout the old image came with too, so its docker-compose.yml settings apply to it.
+  if [ -n "$PREV_REF" ]; then run git checkout --detach "$PREV_REF" || log "warning: could not restore the previous checkout ($PREV_REF)"; fi
   if ! docker image inspect "$IMAGE:$ROLLBACK_TAG" >/dev/null 2>&1; then
     log "ROLLBACK impossible: no previous image saved (first deploy?). Leaving whatever is running as it is."
     return 1
@@ -69,6 +71,16 @@ flock -w 600 9 || { log "could not get the deploy lock within 10 minutes"; exit 
 
 log "DEPLOY START: $SHA ($IMAGE:$TAG)"
 
+PREV_REF="$(git rev-parse HEAD 2>/dev/null || true)"   # what is checked out (and running) now, for rollback
+
+# A build that finished late must not move production backward: skip when what is live is already newer than $SHA.
+if git cat-file -e "$SHA^{commit}" 2>/dev/null || run git fetch origin main; then
+  if [ -n "$PREV_REF" ] && [ "$PREV_REF" != "$SHA" ] && git merge-base --is-ancestor "$SHA" "$PREV_REF" 2>/dev/null; then
+    log "SKIPPED: $SHA is older than what is already deployed ($PREV_REF), not moving production backward"
+    exit 0
+  fi
+fi
+
 # Check out the commit so docker-compose.yml matches the image being deployed. Detached on purpose.
 if ! run git fetch origin main || ! run git checkout --detach "$SHA"; then
   log "DEPLOY FAILED: could not check out $SHA (nothing changed)"
@@ -87,10 +99,16 @@ if [ -z "$pulled" ]; then
   exit 1
 fi
 
-# Keep the image that is running now so it can be restored.
+# Keep the image that is running now so it can be restored. Drop any older rollback copy first, so a stale one is
+# never mistaken for "the previous version"; if the current image cannot be saved, stop before replacing it.
+docker rmi "$IMAGE:$ROLLBACK_TAG" >/dev/null 2>&1 || true
 running_image="$(docker inspect -f '{{.Image}}' "$CONTAINER" 2>/dev/null || true)"
 if [ -n "$running_image" ]; then
-  run docker tag "$running_image" "$IMAGE:$ROLLBACK_TAG" || log "warning: could not save the current image for rollback"
+  if ! run docker tag "$running_image" "$IMAGE:$ROLLBACK_TAG"; then
+    log "DEPLOY FAILED: could not save the running image for rollback (nothing changed, the old version is still running)"
+    [ -n "$PREV_REF" ] && run git checkout --detach "$PREV_REF"
+    exit 1
+  fi
 else
   log "no running $CONTAINER container, so there is nothing to roll back to"
 fi

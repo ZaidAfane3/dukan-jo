@@ -65,7 +65,9 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
+      # Only when the server's checkout has no deploy/deploy.sh yet (the very first run) is it updated here; normally the
+      # script does the checkout itself, so it can tell what was live before and roll back to it.
       - name: Deploy over Tailscale SSH
         run: |
           ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-            "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_DIR' && ./deploy/deploy.sh '${{ github.sha }}'"
+            "$DEPLOY_USER@$DEPLOY_HOST" "cd '$DEPLOY_DIR' && git fetch origin main && { [ -x deploy/deploy.sh ] || git checkout --detach '${{ github.sha }}'; } && ./deploy/deploy.sh '${{ github.sha }}'"
