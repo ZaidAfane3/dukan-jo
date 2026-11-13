@@ -10,8 +10,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > BUILD_TIME
+# The type check is not repeated here: the pipeline runs it as its own job, in parallel (see next.config.mjs)
+ENV SKIP_CHECKS=1
 # Next.js's build cache stays between builds, so a deploy only rebuilds what changed instead of the whole app
-RUN --mount=type=cache,target=/app/.next/cache NEXT_PUBLIC_BUILD_TIME="$(cat BUILD_TIME)" npm run build
+# (id: the pipeline fills this same cache from GitHub's cache, see .github/workflows/docker-publish.yml)
+RUN --mount=type=cache,id=next-cache,target=/app/.next/cache NEXT_PUBLIC_BUILD_TIME="$(cat BUILD_TIME)" npm run build
 
 FROM node:20-alpine AS run
 WORKDIR /app

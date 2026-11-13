@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    # Nothing in these goes into the image, so changing only them neither builds nor deploys.
+    paths-ignore: ["docs/**", "prototype/**", "demo logo/**", "**/*.md"]
+  # Pull requests only run the type check (the `check` job), so mistakes show before merging.
+  pull_request:
+    branches: [main]
+    paths-ignore: ["docs/**", "prototype/**", "demo logo/**", "**/*.md"]
   workflow_dispatch:
 
 env:
@@ -11,7 +17,21 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # The type check runs here, next to the image build, instead of inside it (the Dockerfile sets SKIP_CHECKS=1), so
+  # the two overlap. Deploy waits for both.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+
   build-and-push:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,6 +56,21 @@ jobs:
             type=sha
             type=semver,pattern={{version}}
 
+      # Next.js's build cache (.next/cache) normally lives in a BuildKit cache mount, which a fresh CI runner never has.
+      # These two steps keep it in GitHub's cache and put it back into the mount, so a build only recompiles what changed.
+      - id: next-cache
+        uses: actions/cache@v4
+        with:
+          path: next-cache
+          key: next-cache-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: next-cache-${{ hashFiles('package-lock.json') }}-
+
+      - uses: reproducible-containers/buildkit-cache-dance@v3.1.2
+        with:
+          cache-map: |
+            {"next-cache": {"target": "/app/.next/cache", "id": "next-cache"}}
+          skip-extraction: ${{ steps.next-cache.outputs.cache-hit }}
+
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -47,7 +82,7 @@ jobs:
 
   # After the image is pushed, reach the server over Tailscale SSH and switch the app to it.
   deploy:
-    needs: build-and-push
+    needs: [check, build-and-push]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     concurrency:
