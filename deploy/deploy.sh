@@ -96,6 +96,9 @@ for ((i = 1; i <= PULL_ATTEMPTS; i++)); do
 done
 if [ -z "$pulled" ]; then
   log "DEPLOY FAILED: could not pull $IMAGE:$TAG (nothing changed, the old version is still running)"
+  # Put the checkout back too: it must keep matching what is running, or the freshness check above would take the
+  # failed commit for the live one and skip a newer deploy that is still to come.
+  [ -n "$PREV_REF" ] && run git checkout --detach "$PREV_REF"
   exit 1
 fi
 
