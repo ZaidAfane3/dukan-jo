@@ -38,16 +38,21 @@ export const POST = guarded(async (req: NextRequest) => {
   }
 
   const id = String(s.id);
+  /* the password was replaced or the account turned off while it was being checked: as a wrong password */
+  const replaced = async () => {
+    await audit(req, id, "staff.login_failed", { type: "staff", id }, null, { changedDuringCheck: true });
+    return answer({ result: "wrong" }, 401);
+  };
   /* TODO(2FA): this whole branch goes once STAFF_2FA_REQUIRED is on */
   if (!STAFF_2FA_REQUIRED && !s.totp_on) {
     if (s.must_change_password) {
       const res = answer({ result: "ok", step: "new-password", mustChange: true });
-      await startStaffSession(res, req, id);
+      if (!(await startStaffSession(res, req, id, s.password_hash))) return replaced();
       await audit(req, id, "staff.password_ok", { type: "staff", id });
       return res;
     }
     const res = answer({ result: "ok", step: "done", mustChange: false });
-    await startStaffSession(res, req, id, true);
+    if (!(await startStaffSession(res, req, id, s.password_hash, true))) return replaced();
     await pool.query(`UPDATE staff SET last_login_at = now() WHERE id = $1`, [id]);
     await audit(req, id, "staff.login", { type: "staff", id }, null, { without2step: true });
     return res;
@@ -65,7 +70,7 @@ export const POST = guarded(async (req: NextRequest) => {
     mustChange: !!s.must_change_password,
     ...(s.totp_on ? {} : { secret, link: totpLink(secret!, email) }),
   });
-  await startStaffSession(res, req, id);
+  if (!(await startStaffSession(res, req, id, s.password_hash))) return replaced();
   await audit(req, id, "staff.password_ok", { type: "staff", id });
   return res;
 });
