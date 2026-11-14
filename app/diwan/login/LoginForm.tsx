@@ -9,7 +9,8 @@ import { Btn, field, useT } from "@/components/diwan/ui";
 
 /* The staff sign-in: email and password, then the 6-digit code of an authenticator app. On the first sign-in the app is
    set up here (the secret to type in, or the otpauth link), and a temporary password given by an owner is replaced.
-   While Diwan has no staff at all, the first owner can be made here with the server's setup key.
+   With the server's setup key, the first owner is made here while Diwan has no staff; after that the same key is the
+   way back in (a new password for a staff email, or a new owner).
    TODO(2FA): while STAFF_2FA_REQUIRED is off, the password is enough ("done"), or a temporary one is replaced first
    ("new-password"); the "new-password" step goes once it is on.
    The look is kept quiet on purpose: Diwan's mark and name, one card with a title and a line under it, plain labels
@@ -38,6 +39,8 @@ export function LoginForm() {
   const t = useT();
   const [step, setStep] = useState<Step>("password");
   const [setupOpen, setSetupOpen] = useState(false);
+  /* true: no staff yet, the key makes the first owner; false: the key recovers access */
+  const [first, setFirst] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -55,7 +58,10 @@ export function LoginForm() {
   useEffect(() => {
     fetch("/api/diwan/setup", { cache: "no-store" })
       .then((r) => r.json())
-      .then((j) => setSetupOpen(!!j?.open))
+      .then((j) => {
+        setSetupOpen(!!j?.open);
+        setFirst(j?.first !== false);
+      })
       .catch(() => {});
   }, []);
 
@@ -127,20 +133,24 @@ export function LoginForm() {
     setBusy(false);
     const why = r.data?.result;
     if (why === "ok") {
-      setSetupOpen(false);
+      setFirst(false);
       setEmail(setup.email.trim().toLowerCase());
       setPassword("");
+      setSetup({ key: "", name: "", email: "", password: "" });
       setStep("password");
-      setNote(STAFF_2FA_REQUIRED
-        ? t("The first owner is ready. Sign in now to set up your 2-step code.", "المالك الأول جاهز. سجّل الدخول الآن لإعداد رمز التحقق بخطوتين.")
-        : t("The first owner is ready. Sign in now.", "المالك الأول جاهز. سجّل الدخول الآن."));
+      const ready =
+        r.data?.how === "reset" ? t("Your account has a new password and is an owner again.", "لحسابك كلمة مرور جديدة وأصبح مالكًا من جديد.")
+          : r.data?.how === "new" ? t("The new owner is ready.", "المالك الجديد جاهز.")
+            : t("The first owner is ready.", "المالك الأول جاهز.");
+      setNote(`${ready} ${STAFF_2FA_REQUIRED ? t("Sign in now to set up your 2-step code.", "سجّل الدخول الآن لإعداد رمز التحقق بخطوتين.") : t("Sign in now.", "سجّل الدخول الآن.")}`);
       return;
     }
     const w = passwordWords[r.data?.problem as keyof typeof passwordWords];
     setError(
       (why === "forbidden" ? common(r) : "") ||
         (why === "wrong-key" ? t("The setup key is not right.", "مفتاح الإعداد غير صحيح.")
-          : why === "closed" ? t("Diwan already has staff, or the server has no setup key. Ask an owner to add you.", "للديوان فريق بالفعل، أو لا يوجد مفتاح إعداد في الخادم. اطلب من المالك إضافتك.")
+          : why === "closed" ? t("The server has no setup key (DIWAN_SETUP_KEY). Ask an owner to add you.", "لا يوجد مفتاح إعداد في الخادم (DIWAN_SETUP_KEY). اطلب من المالك إضافتك.")
+            : why === "short-key" ? t(`The key is right, but it is too short to be used once Diwan has staff. Put a key of ${r.data?.min ?? 16} characters or more in the server's .env and try again.`, `المفتاح صحيح لكنه أقصر من أن يُستخدم بعد وجود فريق في الديوان. ضع مفتاحًا من ${r.data?.min ?? 16} حرفًا أو أكثر في ملف ‎.env في الخادم ثم حاول مجددًا.`)
             : why === "weak" && w ? t(w.en, w.ar)
               : why === "invalid" ? t("Enter a name (2 letters or more) and a real email.", "أدخل اسمًا (حرفان أو أكثر) وبريدًا صحيحًا.")
                 : common(r)),
@@ -198,13 +208,15 @@ export function LoginForm() {
   );
 
   const title =
-    step === "setup" ? t("Create the first owner", "إنشاء المالك الأول")
+    step === "setup" ? (first ? t("Create the first owner", "إنشاء المالك الأول") : t("Get back in with the setup key", "الدخول بمفتاح الإعداد"))
       : step === "enroll" ? t("Set up your 2-step code", "إعداد رمز التحقق بخطوتين")
         : step === "code" ? t("Enter your 2-step code", "أدخل رمز التحقق")
           : step === "new-password" ? t("Choose your password", "اختر كلمة مرورك")
             : t("Sign in to Diwan", "تسجيل الدخول إلى الديوان");
   const sub =
-    step === "setup" ? t("Diwan has no staff yet. The setup key is on the server (DIWAN_SETUP_KEY).", "لا يوجد فريق في الديوان بعد. مفتاح الإعداد موجود في الخادم (DIWAN_SETUP_KEY).")
+    step === "setup" ? (first
+      ? t("Diwan has no staff yet. The setup key is on the server (DIWAN_SETUP_KEY).", "لا يوجد فريق في الديوان بعد. مفتاح الإعداد موجود في الخادم (DIWAN_SETUP_KEY).")
+      : t("The setup key is on the server (DIWAN_SETUP_KEY). Your Diwan email gets this new password and becomes an owner again; a new email becomes a new owner.", "مفتاح الإعداد موجود في الخادم (DIWAN_SETUP_KEY). بريدك في الديوان يأخذ كلمة المرور الجديدة ويعود مالكًا؛ والبريد الجديد يصبح مالكًا جديدًا."))
       : step === "enroll" ? t("Diwan asks for a code from an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password…) every time you sign in.", "يطلب الديوان رمزًا من تطبيق المصادقة (Google Authenticator أو Microsoft Authenticator أو 1Password…) في كل مرة تدخل فيها.")
         : step === "code" ? t("Open your authenticator app and type the code shown for Diwan.", "افتح تطبيق المصادقة واكتب الرمز الظاهر للديوان.")
           : step === "new-password" ? t("You signed in with a temporary password. Choose your own now.", "دخلت بكلمة مرور مؤقتة. اختر كلمة مرورك الآن.")
@@ -245,8 +257,8 @@ export function LoginForm() {
               {problem}
               <Submit busy={busy} busyText={t("Signing in…", "جارٍ الدخول…")}>{t("Continue", "متابعة")}</Submit>
               {setupOpen && (
-                <QuietLink primary onClick={() => { setStep("setup"); setError(""); setNote(""); }}>
-                  {t("Create the first owner", "إنشاء المالك الأول")}
+                <QuietLink primary={first} onClick={() => { setStep("setup"); setError(""); setNote(""); }}>
+                  {first ? t("Create the first owner", "إنشاء المالك الأول") : t("Lost access? Use the setup key", "فقدت الوصول؟ استخدم مفتاح الإعداد")}
                 </QuietLink>
               )}
             </form>
@@ -318,12 +330,12 @@ export function LoginForm() {
                 <input id="dw-semail" type="email" dir="ltr" autoComplete="username" className={input} required maxLength={254} value={setup.email} onChange={(e) => setSetup({ ...setup, email: e.target.value })} />
               </div>
               <div>
-                <label htmlFor="dw-spass" className={label}>{t("Password", "كلمة المرور")}</label>
+                <label htmlFor="dw-spass" className={label}>{first ? t("Password", "كلمة المرور") : t("New password", "كلمة المرور الجديدة")}</label>
                 <PasswordInput id="dw-spass" autoComplete="new-password" minLength={STAFF_PASSWORD_MIN} value={setup.password} onChange={(v) => setSetup({ ...setup, password: v })} describedBy="dw-spass-hint" />
                 <p id="dw-spass-hint" className={hint}>{t(passwordWords.short.en, passwordWords.short.ar)}</p>
               </div>
               {problem}
-              <Submit busy={busy} busyText={t("Creating…", "جارٍ الإنشاء…")}>{t("Create the owner", "إنشاء المالك")}</Submit>
+              <Submit busy={busy} busyText={t("Saving…", "جارٍ الحفظ…")}>{first ? t("Create the owner", "إنشاء المالك") : t("Save and continue", "حفظ ومتابعة")}</Submit>
               <QuietLink onClick={back}>{t("Back", "رجوع")}</QuietLink>
             </form>
           )}
@@ -386,7 +398,7 @@ function Submit({ busy, busyText, children }: { busy: boolean; busyText: string;
   );
 }
 
-/** A quiet text button under the main one: Back, or making the first owner */
+/** A quiet text button under the main one: Back, or using the setup key */
 function QuietLink({ onClick, primary = false, children }: { onClick: () => void; primary?: boolean; children: React.ReactNode }) {
   return (
     <button
