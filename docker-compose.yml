@@ -11,9 +11,8 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgres://dukkan:${POSTGRES_PASSWORD:-dukkan-local-only}@db:5432/dukkan
-      # Diwan (staff console): the key that lets /diwan/login create the first owner while there is no staff yet, and
-      # later lets you back in if no owner can sign in ("Lost access? Use the setup key"; at least 16 characters then).
-      # Put DIWAN_SETUP_KEY=a-long-random-key in .env and keep it secret; remove it to turn recovery off.
+      # Diwan (staff console): the key that lets /diwan/login create the first owner while there is no staff yet.
+      # Put DIWAN_SETUP_KEY=a-long-random-key in .env; once the owner exists it does nothing (and can be removed).
       DIWAN_SETUP_KEY: ${DIWAN_SETUP_KEY:-}
       # The key for encrypting stored data. Run openssl rand -base64 32 in your shell, then put its output in .env as
       # DUKKAN_DATA_KEY=<generated value>. Keep it safe and never change it once data has been saved with it.
