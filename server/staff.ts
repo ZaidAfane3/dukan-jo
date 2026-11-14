@@ -20,17 +20,25 @@ const isHttps = (req: NextRequest) => (req.headers.get("x-forwarded-proto") ?? r
 
 /* ---------------- sessions ---------------- */
 
-/** Starts a staff session (not verified until the 2-step code is given) and sets the cookie */
-export async function startStaffSession(res: NextResponse, req: NextRequest, staffId: string, verified = false): Promise<void> {
+/** Starts a staff session (not verified until the 2-step code is given) and sets the cookie. passwordHash is the hash the
+    password was checked against: the session is made only while the account still has it and is active, so a password
+    replaced (an owner's reset, the setup key) or an account turned off during the check can't leave a session behind.
+    False when it wasn't made. */
+export async function startStaffSession(res: NextResponse, req: NextRequest, staffId: string, passwordHash: string, verified = false): Promise<boolean> {
   const token = randomBytes(32).toString("base64url");
   const pool = await db();
-  /* verified from the start only while 2-step codes are not required (STAFF_2FA_REQUIRED) and none is set up */
-  await pool.query(
-    `INSERT INTO staff_sessions (token_hash, staff_id, ip, verified, expires_at) VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5))`,
-    [tokenHash(token), staffId, ipOf(req), verified, HOURS],
+  /* FOR SHARE waits for a change to this account in progress (it locks the row, and then deletes its sessions), and then
+     sees the new password; a change that starts after waits for this session, and so deletes it.
+     Verified from the start only while 2-step codes are not required (STAFF_2FA_REQUIRED) and none is set up. */
+  const r = await pool.query(
+    `INSERT INTO staff_sessions (token_hash, staff_id, ip, verified, expires_at)
+     SELECT $1, id, $3, $4, now() + make_interval(hours => $5) FROM staff WHERE id = $2 AND password_hash = $6 AND active FOR SHARE`,
+    [tokenHash(token), staffId, ipOf(req), verified, HOURS, passwordHash],
   );
+  if (!r.rowCount) return false;
   if (Math.random() < 0.1) pool.query(`DELETE FROM staff_sessions WHERE expires_at < now()`).catch(() => {});
   res.cookies.set(STAFF_COOKIE, token, { httpOnly: true, sameSite: "strict", secure: isHttps(req), path: "/", maxAge: HOURS * 3600 });
+  return true;
 }
 
 export async function endStaffSession(res: NextResponse, req: NextRequest): Promise<void> {
