@@ -26,7 +26,7 @@ import { usePrefs } from "./Prefs";
 import { ordersCopy } from "./ordersContent";
 import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
-import { TwoStepPrompt } from "./TwoStepSettings";
+import { TwoStepPrompt } from "./TwoStepPrompt";
 
 export type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
@@ -556,7 +556,6 @@ export function DashboardBar({
 
       {/* Header strip: tabs on one side, tools on the other */}
       <header className="sticky top-0 z-30 border-b border-fg/10 bg-page/90 backdrop-blur">
-        <TwoStepPrompt />
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 md:flex-nowrap md:gap-4 md:px-10">
           <div className="flex min-w-0 items-center gap-3">
             <button type="button" onClick={() => setMobileOpen(true)} aria-label={sb.open} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-fg/15 lg:hidden">
@@ -596,6 +595,9 @@ export function DashboardBar({
       </header>
       {/* Outside the sticky header, so it scrolls away with the page and is there again at the top */}
       <DemoStrip />
+      {/* right after signing in or up without a 2-step code: a pop-up over the whole page asking to turn it on. It takes
+          the tab's pop-up place first, before the two below (TwoStepPrompt.tsx) */}
+      <TwoStepPrompt />
       {/* Dukkan's pop-ups (Diwan: /diwan/popups): every merchant page draws this bar, so a pop-up for "any page" can show on
           any of them, and one for the home page on /dashboard */}
       <MerchantPopup />

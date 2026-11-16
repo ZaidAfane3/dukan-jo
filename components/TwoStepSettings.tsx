@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { logInCode, TWO_STEP_ASK } from "./accounts";
+import { logInCode } from "./accounts";
 import { merchantCall, onServer } from "./merchantApi";
 import { usePrefs } from "./Prefs";
 
@@ -10,10 +10,10 @@ import { usePrefs } from "./Prefs";
    - TwoStepSettings: on the settings page, turning it on (scan or type the secret, then confirm with a code) and off
      (password and a code);
    - TwoStepCodeStep: the code step of the sign-in form;
-   - TwoStepPrompt: right after signing up or in without it, a gentle offer that can be skipped (remembered per account).
+   - the pop-up asking to turn it on right after signing up or in without it is its own piece (TwoStepPrompt.tsx), which
+     leads here (/settings#two-step).
    None of this runs in the platform tour or signed out: the server holds everything (app/api/auth/totp). */
 
-const SKIPPED = "seen-2fa-skipped";
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 const field =
   "h-12 w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
@@ -51,10 +51,6 @@ const words = {
     signInHint: "Open your authenticator app and type the 6-digit code for Dukkan.",
     verify: "Continue",
     expired: "This took too long. Sign in again.",
-    promptTitle: "Protect your account with a 2-step code",
-    promptHint: "Add a code from your phone to your sign-in. It takes a minute.",
-    promptYes: "Set up now",
-    promptSkip: "Skip for now",
   },
   ar: {
     title: "رمز التحقق بخطوتين",
@@ -86,10 +82,6 @@ const words = {
     signInHint: "افتح تطبيق المصادقة واكتب الرمز المكوّن من 6 أرقام الخاص بدكّان.",
     verify: "متابعة",
     expired: "استغرق الأمر وقتًا طويلًا. سجّل الدخول من جديد.",
-    promptTitle: "احمِ حسابك برمز التحقق بخطوتين",
-    promptHint: "أضف رمزًا من هاتفك إلى تسجيل الدخول. يستغرق الأمر دقيقة.",
-    promptYes: "الإعداد الآن",
-    promptSkip: "تخطَّ الآن",
   },
 };
 
@@ -134,6 +126,16 @@ export function TwoStepSettings() {
     if (!onServer()) return setState("hidden");
     void merchantCall("/api/auth/totp/setup", "GET").then((r) => setState(r?.status === 200 ? (r.data.on ? "on" : "off") : "hidden"));
   }, []);
+
+  /* opened from the pop-up after signing in (/settings#two-step): the section is drawn only once the server answered,
+     so the browser could not scroll to it by itself */
+  const ready = state === "on" || state === "off";
+  useEffect(() => {
+    if (!ready || window.location.hash !== "#two-step") return;
+    const el = document.getElementById("two-step");
+    el?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    el?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+  }, [ready]);
 
   if (state === "hidden" || state === "loading") return null;
 
@@ -320,49 +322,3 @@ export function TwoStepCodeStep({ onDone }: { onDone: (r: "ok" | "cancel") => vo
   );
 }
 
-/** Right after signing up or in without a 2-step code: an offer to set one up, until he sets it up or skips it */
-export function TwoStepPrompt() {
-  const { lang } = usePrefs();
-  const w = words[lang];
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    if (!onServer()) return;
-    try {
-      if (sessionStorage.getItem(TWO_STEP_ASK) !== "1") return;
-      /* kept with the account's store, so skipping is remembered on every device */
-      if (localStorage.getItem(SKIPPED)) return;
-    } catch {
-      return;
-    }
-    if (window.location.pathname.startsWith("/settings")) return;
-    setShow(true);
-  }, []);
-  if (!show) return null;
-
-  const close = (skip: boolean) => {
-    try {
-      sessionStorage.removeItem(TWO_STEP_ASK);
-      if (skip) localStorage.setItem(SKIPPED, String(Date.now()));
-    } catch {
-      /* storage blocked */
-    }
-    setShow(false);
-  };
-
-  return (
-    <div role="status" className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 bg-primary/10 px-5 py-3 md:px-10">
-      <div className="min-w-0">
-        <p className="text-sm font-bold">{w.promptTitle}</p>
-        <p className="text-xs text-muted">{w.promptHint}</p>
-      </div>
-      <div className="flex shrink-0 gap-2">
-        <a href="/settings#two-step" onClick={() => close(false)} className="grid h-9 place-items-center rounded-lg bg-ink px-4 text-xs font-semibold text-onink hover:bg-deep">
-          {w.promptYes}
-        </a>
-        <button type="button" onClick={() => close(true)} className="h-9 rounded-lg border border-fg/20 px-4 text-xs font-semibold hover:bg-soft">
-          {w.promptSkip}
-        </button>
-      </div>
-    </div>
-  );
-}

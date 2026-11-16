@@ -112,7 +112,8 @@ async function signedIn(a: PublicAccount) {
   await loadStore();
 }
 
-/* Just signed in or up without 2-step codes: the dashboard offers them once (TwoStepPrompt in TwoStepSettings.tsx) */
+/* Just signed in or up without 2-step codes: the first dashboard page asks to turn them on, once per sign-in
+   (TwoStepPrompt.tsx) */
 export const TWO_STEP_ASK = "dukkan-2fa-ask";
 function askTwoStep() {
   try {

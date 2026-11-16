@@ -21,8 +21,9 @@ import { applyTheme, findTheme, ownsLook, type ThemeInfo } from "./themes";
 const tell = (id: string, action: "seen" | "clicked") =>
   fetch(`/api/popups/${id}`, { method: "POST", credentials: "same-origin", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }).catch(() => null);
 
-/** One pop-up open in the whole tab, whatever page draws the bar: Dukkan's pop-ups here and the rejected-document one
-    (DocumentRejected.tsx) take turns through it */
+/** One pop-up open in the whole tab, whatever page draws the bar: Dukkan's pop-ups here, the rejected-document one
+    (DocumentRejected.tsx) and the 2-step sign-in one after signing in (TwoStepPrompt.tsx, which takes it first) take
+    turns through it */
 export const popupSlot = { open: false };
 
 /** The theme a theme gift gives (a theme made in Diwan needs the theme store's list first) */
