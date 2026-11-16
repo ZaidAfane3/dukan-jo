@@ -196,7 +196,12 @@ export function StoreLink() {
             </div>
           ) : (
             <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-soft px-5 py-5">
-              <p dir="ltr" className="break-all text-lg font-bold">{url}</p>
+              {/* the address written out; once the store is on Dukkan's server, pressing it opens the store */}
+              {live ? (
+                <a href={storeUrl(slug)} target="_blank" rel="noopener noreferrer" dir="ltr" className="break-all text-lg font-bold hover:text-primary hover:underline">{url}</a>
+              ) : (
+                <p dir="ltr" className="break-all text-lg font-bold">{url}</p>
+              )}
               <div className="flex items-center gap-4 text-sm font-semibold text-primary">
                 <button type="button" onClick={copyUrl} className="hover:underline">{flash === c.copied ? c.copied : c.copy}</button>
                 <button type="button" onClick={share} className="hover:underline">{c.share}</button>
