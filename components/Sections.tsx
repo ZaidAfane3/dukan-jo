@@ -61,7 +61,7 @@ function StoreTurns({ stores }: { stores: { src: string; address: string; view: 
   const st = stores[i];
   const after = stores[(i + 1) % stores.length];
   return (
-    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(51,33,20,0.55)] ring-1 ring-black/10">
+    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(20,20,20,0.55)] ring-1 ring-black/10">
       <div dir="ltr" className="relative flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
         <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
@@ -123,7 +123,7 @@ function IndustryCard({ d }: { d: Detail }) {
             <StoreTurns stores={d.stores} />
           ) : shot && (
             <div className="relative pb-8 sm:pb-10">
-            <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(51,33,20,0.55)] ring-1 ring-black/10">
+            <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(20,20,20,0.55)] ring-1 ring-black/10">
               <div dir="ltr" className="flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
                 <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
@@ -137,7 +137,7 @@ function IndustryCard({ d }: { d: Detail }) {
             </div>
             {/* A second page of the same store, in a smaller window that overlaps the first, scrolling on its own */}
             {d.shots[1] && (
-              <div className="absolute bottom-0 end-3 w-[44%] overflow-hidden rounded-xl bg-white shadow-[0_30px_60px_-20px_rgba(51,33,20,0.65)] ring-1 ring-black/10 sm:end-6">
+              <div className="absolute bottom-0 end-3 w-[44%] overflow-hidden rounded-xl bg-white shadow-[0_30px_60px_-20px_rgba(20,20,20,0.65)] ring-1 ring-black/10 sm:end-6">
                 <div dir="ltr" className="flex items-center gap-1 border-b border-black/10 bg-[#f4f1ea] px-2.5 py-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#ff5f57]" /><span className="h-1.5 w-1.5 rounded-full bg-[#febc2e]" /><span className="h-1.5 w-1.5 rounded-full bg-[#28c840]" />
                 </div>
@@ -295,7 +295,7 @@ function Tile({ children }: { children: React.ReactNode }) {
         {/* Soft shadow on the "floor" under the raised card */}
         <div className="absolute bottom-6 h-6 w-44 rounded-full bg-ink/20 blur-xl" style={{ transform: "translateZ(5px)" }} />
         <div
-          className="w-full max-w-[19rem] rounded-2xl bg-card p-5 shadow-[0_30px_60px_-20px_rgba(51,33,20,0.45)]"
+          className="w-full max-w-[19rem] rounded-2xl bg-card p-5 shadow-[0_30px_60px_-20px_rgba(20,20,20,0.45)]"
           style={{ transform: "translateZ(55px)" }}
         >
           {children}
@@ -471,7 +471,7 @@ function MockCard({ index }: { index: number }) {
         <div className={`absolute inset-0 rounded-3xl bg-gradient-to-br ${hue} opacity-30`} style={{ transform: "translateZ(-40px) translate(18px, 18px)" }} />
         {/* Main card */}
         <div
-          className="absolute inset-0 rounded-3xl bg-card p-5 shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]"
+          className="absolute inset-0 rounded-3xl bg-card p-5 shadow-[0_35px_70px_-25px_rgba(20,20,20,0.45)]"
           style={{ transform: "translateZ(10px)", transformStyle: "preserve-3d" }}
         >
           <div className="mb-4 flex gap-1.5">
@@ -545,7 +545,7 @@ function PaymentsMock() {
         </div>
 
         {/* Payments list */}
-        <div className="absolute inset-x-0 bottom-[6%] top-[25%] rounded-3xl bg-card p-4 pt-[14%] shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
+        <div className="absolute inset-x-0 bottom-[6%] top-[25%] rounded-3xl bg-card p-4 pt-[14%] shadow-[0_35px_70px_-25px_rgba(20,20,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
           <div className="mb-2 space-y-1.5">
             <div className="h-2 w-16 rounded-full bg-primary/50" />
             <div className="h-2 w-10 rounded-full bg-soft" />
@@ -673,7 +673,7 @@ function FleetMap() {
       {/* dir="ltr" keeps the geometry of the picture the same in both languages */}
       <div dir="ltr" className="relative aspect-[4/4.3] w-full" style={{ transformStyle: "preserve-3d" }}>
         <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-brand-light to-brand opacity-30" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }} />
-        <div className="absolute inset-0 rounded-3xl bg-card shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
+        <div className="absolute inset-0 rounded-3xl bg-card shadow-[0_35px_70px_-25px_rgba(20,20,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
           {/* The whole of Jordan, small, with a ring on the part the magnifier shows */}
           <div className="absolute bottom-[5%] left-[5%] aspect-[374/422] w-[56%]">
             <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, WebkitMaskSize: "contain", maskSize: "contain", WebkitMaskPosition: "center", maskPosition: "center" }} />
@@ -690,7 +690,7 @@ function FleetMap() {
           </svg>
 
           {/* The magnifier: the north of Jordan, large, with Dukkan Ship in its cities */}
-          <div className="absolute right-[3%] top-[3%] aspect-square w-[64%] overflow-hidden rounded-full bg-card shadow-[0_25px_50px_-15px_rgba(51,33,20,0.55)] ring-[5px] ring-white" style={{ transform: "translateZ(30px)" }}>
+          <div className="absolute right-[3%] top-[3%] aspect-square w-[64%] overflow-hidden rounded-full bg-card shadow-[0_25px_50px_-15px_rgba(20,20,20,0.55)] ring-[5px] ring-white" style={{ transform: "translateZ(30px)" }}>
             <div className="absolute inset-0 bg-gradient-to-br from-brand-mist to-brand-pale" />
             <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, ...lensMask }} />
             <svg aria-hidden viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">

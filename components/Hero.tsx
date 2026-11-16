@@ -207,7 +207,7 @@ export function Hero() {
         >
           <Tilt max={20}>
           {/* Dashboard picture: top bar, sales summary with chart, latest orders */}
-          <div className="overflow-hidden rounded-3xl bg-card shadow-[0_30px_80px_-20px_rgba(51,33,20,0.30)] ring-1 ring-fg/10">
+          <div className="overflow-hidden rounded-3xl bg-card shadow-[0_30px_80px_-20px_rgba(20,20,20,0.30)] ring-1 ring-fg/10">
             <div className="flex items-center gap-1 bg-brand-dark px-4 py-2.5 text-[11px] font-medium text-white/80">
               <span className="me-2 inline-flex items-center gap-1.5 font-extrabold text-white">
                 <span className="grid h-5 w-5 place-items-center rounded-md bg-brand-light text-brand-dark">

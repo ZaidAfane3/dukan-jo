@@ -114,7 +114,8 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
 }
 
 /** What to say when the store address is well formed but belongs to the platform (RESERVED_SLUGS in safe.ts). */
-export const reservedSlugError = { en: "This name is reserved. Choose another one.", ar: "هذا الاسم محجوز، اختر اسمًا آخر." };
+/* also for a link with a rude word in it: the same words, without saying which word */
+export const reservedSlugError = { en: "This name can't be used. Choose another one.", ar: "لا يمكن استخدام هذا الاسم، اختر اسمًا آخر." };
 
 /* ---------------- support tickets ---------------- */
 

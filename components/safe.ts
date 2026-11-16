@@ -444,12 +444,16 @@ export function cleanDate(s: unknown, min = "1900-01-01", max = "9999-12-31"): s
 /** A store's own name in the platform address: 3 to 30 lower-case letters, digits and dashes, not starting or ending with a dash. */
 export const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
 
-/* Names a store may not take: they belong to the platform, or could be mistaken for it. */
+/* Names a store may not take: they belong to the platform, or could be mistaken for it. Every store lives at Dukkan's
+   address followed by its name (app/[slug]), so each page of the platform at the top of the site (each folder in app/)
+   must be listed here: that page always wins, so a store with its name could never be reached. A page added later goes
+   here too ("store-link" came after stores could already choose it, so it is kept in RESERVED_FOR_NEW below). */
 export const RESERVED_SLUGS = new Set([
-  "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "cdn", "checkout", "dashboard", "demo", "design",
-  "dev", "docs", "domain", "dukkan", "help", "home", "login", "logout", "mail", "marketing", "new", "null", "onboarding", "orders",
-  "pages", "preview", "products", "register", "reports", "root", "seen", "settings", "shop", "signin", "signup", "staff",
-  "static", "status", "store", "support", "system", "test", "themes", "undefined", "www",
+  "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "cdn", "checkout", "dashboard", "delivery", "demo",
+  "design", "dev", "diwan", "docs", "domain", "dukkan", "from-dukkan", "help", "home", "login", "logout", "mail", "marketing",
+  "media", "new", "null", "onboarding", "orders", "pages", "preview", "products", "register", "reports", "root", "seen",
+  "settings", "shop", "signin", "signup", "staff", "static", "status", "store", "support", "suspended", "system", "test",
+  "themes", "undefined", "www",
 ]);
 
 /** Turns what was typed into a store address: lower case, spaces become dashes, other characters go. */
@@ -463,7 +467,25 @@ export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG
    so its link never disappears), but nobody can choose it from now on. "store-link" became a merchant page; "your-store"
    is the example address the site shows everywhere (and the tour's sample store), so no real store may own it. */
 const RESERVED_FOR_NEW = new Set(["store-link", "your-store", "yourstore"]);
-/** A name the platform keeps, when a store chooses or changes its link */
-export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s);
+/* Rude words a store link may not hold, in English and in Arabic written in Latin letters (Arabic letters can't be typed
+   at all: a link is English letters, digits and dashes). Long words are found anywhere in the link, dashes ignored
+   ("my-fuck-shop", "sharmoota"); short ones only as a whole part between dashes, so "glass" or "sussex" stay allowed. */
+const BAD_ANYWHERE = [
+  "fuck", "shit", "bitch", "bastard", "cunt", "pussy", "porn", "slut", "whore", "nigger", "nigga", "faggot", "asshole",
+  "hentai", "dildo", "blowjob", "boobs", "horny", "nudes",
+  "sharmoot", "sharmout", "sharmot", "sharmo6", "manyak", "manyok", "metnak", "mitnak", "qahba", "kahba", "9a7ba", "2a7ba",
+  "ahbal", "kosomak", "kosomk", "kusumak", "kosokht", "ibnelkalb", "ibnkalb",
+];
+const BAD_PART = new Set([
+  "sex", "xxx", "tits", "fag", "dick", "cock", "anal", "milf", "rape", "nazi", "isis", "nude",
+  "kos", "kus", "kuss", "koss", "zeb", "zib", "zebi", "nik", "neek", "nayek", "tiz", "teez", "ayre", "ayri", "khara", "khra", "kalb",
+]);
+/** Whether a link holds a rude word */
+export const isRudeSlug = (s: string): boolean => {
+  const flat = s.replace(/-/g, "");
+  return BAD_ANYWHERE.some((w) => flat.includes(w)) || s.split("-").some((part) => BAD_PART.has(part));
+};
+/** A name the platform keeps, or a rude one, when a store chooses or changes its link */
+export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s) || isRudeSlug(s);
 /** A link a store may choose now */
-export const isNewSlug = (s: unknown): s is string => isSlug(s) && !RESERVED_FOR_NEW.has(s);
+export const isNewSlug = (s: unknown): s is string => isSlug(s) && !RESERVED_FOR_NEW.has(s) && !isRudeSlug(s);
