@@ -16,7 +16,7 @@ const KINDS = ["payment", "theme"];
    themes merchants bought in the theme store, which are the only thing they pay Dukkan for by themselves today. A free
    theme is no payment, so only purchases with a price count. A purchase's day is its day in Jordan, so it sorts and
    filters with the marked payments' paid-on days. Newest first.
-   Filters: kind (payment or theme), method, from/to (paid on, yyyy-mm-dd), q (store name, owner email or mobile, the
+   Filters: kind (payment or theme), shop (one store's account id), method, from/to (paid on, yyyy-mm-dd), q (store name, owner email or mobile, the
    payment's reference, or the theme). Gives the total of what matches, and how each method was used (payments, JOD and
    stores) over the same kind, dates and search but every method, so the summary shows the whole picture while the list
    is narrowed. export=1 gives up to 20,000 rows for a CSV file and is logged. */
@@ -25,8 +25,9 @@ export const GET = staffRoute("billing", async (req, staff) => {
   const where: string[] = [];
   const params: unknown[] = [];
   const add = (v: unknown) => `$${params.push(v)}`;
-  const kind = p.get("kind");
-  if (kind && KINDS.includes(kind)) where.push(`x.kind = ${add(kind)}`);
+  /* one store only (its page's "See all") */
+  const shop = p.get("shop") ?? "";
+  if (/^\d{1,18}$/.test(shop)) where.push(`x.account_id = ${add(shop)}`);
   const from = dayOf(p.get("from"));
   if (from) where.push(`x.paid_on >= ${add(from)}::date`);
   const to = dayOf(p.get("to"));
@@ -51,6 +52,11 @@ export const GET = staffRoute("billing", async (req, staff) => {
           FROM theme_purchases tp LEFT JOIN catalog_themes ct ON ct.id = tp.theme_id
          WHERE tp.price > 0
       ) x JOIN accounts a ON a.id = x.account_id LEFT JOIN shops s ON s.account_id = x.account_id`;
+  /* how many of each kind match the rest of the filters, for the page's tabs (before the kind is chosen) */
+  const kindSql = `SELECT x.kind, count(*)::int AS n ${joins} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY x.kind`;
+  const kindParams = [...params];
+  const kind = p.get("kind");
+  if (kind && KINDS.includes(kind)) where.push(`x.kind = ${add(kind)}`);
   /* the summary by method (and, as the ROLLUP row, every method together: GROUPING tells it apart from purchases made
      before the way to pay was recorded, whose method is empty too): before the method filter is added, with the
      parameters as they are now */
@@ -64,7 +70,7 @@ export const GET = staffRoute("billing", async (req, staff) => {
   const exporting = p.get("export") === "1";
   const page = Math.max(1, Math.min(10_000, Number.parseInt(p.get("page") ?? "1", 10) || 1));
   const pool = await db();
-  const [rows, sum, byMethod] = await Promise.all([
+  const [rows, sum, byMethod, byKind, shopRow] = await Promise.all([
     pool.query(
       `SELECT x.kind, x.id, x.account_id AS shop_id, s.name AS shop, a.name AS owner, a.email, x.amount, x.method, x.reference,
               x.paid_on::text AS paid_on, x.note, x.marked_by, x.theme_id, x.theme_name, x.created_at
@@ -74,6 +80,11 @@ export const GET = staffRoute("billing", async (req, staff) => {
     ),
     pool.query(`SELECT count(*)::int AS n, COALESCE(sum(x.amount), 0)::numeric(14, 3) AS total ${fromSql}`, params),
     exporting ? null : pool.query(methodSql, methodParams),
+    exporting ? null : pool.query(kindSql, kindParams),
+    /* the store's name, for the note above a list narrowed to it */
+    /^\d{1,18}$/.test(shop) && !exporting
+      ? pool.query(`SELECT COALESCE(NULLIF(s.name, ''), a.name) AS name FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = $1`, [shop])
+      : null,
   ]);
   if (exporting) await audit(req, staff.id, "payments.export", undefined, null, { rows: rows.rows.length, filters: Object.fromEntries(p) });
   const n = sum.rows[0].n;
@@ -92,5 +103,7 @@ export const GET = staffRoute("billing", async (req, staff) => {
     pages: Math.max(1, Math.ceil(n / PAGE)),
     methods,
     all: { count: all?.n ?? 0, total: all?.total ?? "0.000", stores: all?.stores ?? 0 },
+    kinds: Object.fromEntries(KINDS.map((k) => [k, byKind?.rows.find((r) => r.kind === k)?.n ?? 0])),
+    shopName: shopRow?.rows[0]?.name ?? null,
   });
 });

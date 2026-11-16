@@ -6,7 +6,9 @@ import type { TKind, TPriority, TStatus } from "./ticketWords";
 
 export type TicketRow = {
   number: number; kind: TKind; category: number; subject: string; status: TStatus; priority: TPriority;
-  assignee: { id: string; name: string } | null; where: string; accountId: string; shop: string; email: string;
+  assignee: { id: string; name: string } | null; where: string; accountId: string;
+  /* the store's own name ("" while it has none) and its owner's name */
+  shop: string; owner: string; email: string;
   created: string; updated: string; lastAuthor: "merchant" | "staff" | null; preview: string; messages: number; pictures: string[];
 };
 

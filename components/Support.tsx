@@ -518,8 +518,13 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
             }
             const mine = m.from === "me";
             return (
-              <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${mine ? "rounded-ee-md bg-primary/10" : "rounded-es-md bg-card ring-1 ring-fg/10"}`}>
+              /* the same chat look as Diwan's side: the merchant's own messages on his side, Dukkan's replies on the other,
+                 each with a small round mark of who wrote it */
+              <div key={m.id} className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : ""}`}>
+                <span aria-hidden className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-[11px] font-bold ${mine ? "bg-fg/10 text-fg" : "bg-primary text-white dark:text-page"}`}>
+                  {(mine ? sv.you : sv.dukkan).trim().charAt(0).toUpperCase()}
+                </span>
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${mine ? "rounded-ee-md bg-primary/10" : "rounded-es-md bg-card ring-1 ring-fg/10"}`}>
                   <p className={`text-xs font-bold ${mine ? "text-deep dark:text-primary" : "text-fg"}`}>{mine ? sv.you : sv.dukkan}</p>
                   {m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm">{m.body}</p>}
                   {!!m.pictures.length && (

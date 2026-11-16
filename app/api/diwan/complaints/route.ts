@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 /* Diwan's store reports: what customers sent with "Report this store" and what staff found themselves.
    GET filters from fixed lists: status (open = new or checking, the default; one status; all), reason, from
-   (customer / staff). At most 200 rows, newest first; the counts per status are for the tabs.
+   (customer / staff), and shop (one store's account id). At most 200 rows, newest first; the counts per status are for the tabs.
    POST adds a report found by staff: { shop (the shop's number, its owner's email or its store link), reason, body }. */
 
 const STATUSES = ["new", "checking", "closed"];
@@ -27,11 +27,14 @@ export const GET = staffRoute("complaints", async (req: NextRequest, me) => {
   else if (STATUSES.includes(status)) where.push(`r.status = $${args.push(status)}`);
   if (REPORT_REASONS.includes(reason as ReportReason)) where.push(`r.reason = $${args.push(reason)}`);
   if (from === "customer" || from === "staff") where.push(`r.reporter_kind = $${args.push(from)}`);
+  /* one store's reports only (?shop=, from its page's "See all") */
+  const shop = sp.get("shop") ?? "";
+  if (/^\d{1,18}$/.test(shop)) where.push(`r.account_id = $${args.push(shop)}`);
 
   const pool = await db();
   const { rows } = await pool.query(
     `SELECT r.id, r.account_id, r.reporter_kind, r.reporter_contact, r.reason, r.body, r.status, r.notes, r.created_at, r.updated_at,
-            st.name AS handler, COALESCE(NULLIF(s.name, ''), a.name) AS shop_name, s.slug AS shop_slug, s.status AS shop_status,
+            st.name AS handler, COALESCE(s.name, '') AS shop_name, a.name AS owner_name, s.slug AS shop_slug, s.status AS shop_status,
             (SELECT count(*)::int FROM store_reports o WHERE o.account_id = r.account_id) AS shop_reports
        FROM store_reports r JOIN accounts a ON a.id = r.account_id LEFT JOIN shops s ON s.account_id = r.account_id
        LEFT JOIN staff st ON st.id = r.handled_by
@@ -39,14 +42,18 @@ export const GET = staffRoute("complaints", async (req: NextRequest, me) => {
       ORDER BY r.created_at DESC, r.id DESC LIMIT 200`,
     args,
   );
-  const counts = await pool.query(`SELECT status, count(*)::int AS n FROM store_reports GROUP BY status`);
+  /* the counts for the tabs, of this store only when the list is narrowed to it */
+  const one = /^\d{1,18}$/.test(shop);
+  const counts = await pool.query(`SELECT status, count(*)::int AS n FROM store_reports ${one ? "WHERE account_id = $1" : ""} GROUP BY status`, one ? [shop] : []);
   return answer({
     result: "ok",
     counts: Object.fromEntries(counts.rows.map((r) => [r.status, r.n])),
     reports: rows.map((r) => ({
       id: String(r.id),
       shopId: String(r.account_id),
+      /* the store's own name ("" while it has none) and its owner's, shown together (ShopAndOwner) */
       shopName: r.shop_name,
+      ownerName: r.owner_name,
       shopSlug: r.shop_slug,
       shopStatus: r.shop_status,
       shopReports: r.shop_reports,
