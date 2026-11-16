@@ -21,8 +21,9 @@ import { applyTheme, findTheme, ownsLook, type ThemeInfo } from "./themes";
 const tell = (id: string, action: "seen" | "clicked") =>
   fetch(`/api/popups/${id}`, { method: "POST", credentials: "same-origin", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }).catch(() => null);
 
-/* one pop-up open in the whole tab, whatever page draws the bar */
-let openNow = false;
+/** One pop-up open in the whole tab, whatever page draws the bar: Dukkan's pop-ups here and the rejected-document one
+    (DocumentRejected.tsx) take turns through it */
+export const popupSlot = { open: false };
 
 /** The theme a theme gift gives (a theme made in Diwan needs the theme store's list first) */
 async function giftTheme(id: string): Promise<ThemeInfo | null> {
@@ -44,12 +45,12 @@ export function MerchantPopup() {
     let gone = false;
     const at = window.location.pathname === "/dashboard" ? "home" : "any";
     const timer = window.setTimeout(async () => {
-      if (openNow) return;
+      if (popupSlot.open) return;
       const j = await fetch(`/api/popups?at=${at}`, { cache: "no-store", credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
       const p = j?.popup as PopupView | null | undefined;
       /* a template this version of the page does not know yet is left for later (not marked seen) */
-      if (gone || !p || openNow || !isTemplateId(p.template)) return;
-      openNow = true;
+      if (gone || !p || popupSlot.open || !isTemplateId(p.template)) return;
+      popupSlot.open = true;
       setPopup(p);
       void tell(p.id, "seen");
     }, 1200);
@@ -60,12 +61,12 @@ export function MerchantPopup() {
   }, []);
 
   const close = () => {
-    openNow = false;
+    popupSlot.open = false;
     setPopup(null);
   };
   /* leaving the page while it is open (the browser's back) frees the tab for the next one */
   useEffect(() => () => {
-    if (popup) openNow = false;
+    if (popup) popupSlot.open = false;
   }, [popup]);
 
   const act = async (a: PopupAction) => {

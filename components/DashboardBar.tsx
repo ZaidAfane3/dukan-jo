@@ -6,6 +6,7 @@ import { demoActive } from "./demoSandbox";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content, dateLocale } from "./content";
+import { DocumentRejected } from "./DocumentRejected";
 import { MerchantPopup } from "./MerchantPopup";
 import { Logo } from "./Nav";
 import {
@@ -590,6 +591,8 @@ export function DashboardBar({
       {/* Dukkan's pop-ups (Diwan: /diwan/popups): every merchant page draws this bar, so a pop-up for "any page" can show on
           any of them, and one for the home page on /dashboard */}
       <MerchantPopup />
+      {/* a document Dukkan's team rejected: told once, with the reason (DocumentRejected.tsx) */}
+      <DocumentRejected />
     </>
   );
 }

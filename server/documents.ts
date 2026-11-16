@@ -72,6 +72,9 @@ export function merchantDocument(r: Record<string, any>) {
     bytes: (r.bytes ?? 0) as number,
     hasFile: !!r.has_file,
     createdAt: new Date(r.created_at).toISOString(),
+    seq: Number(r.seq) || 0,
+    /* a rejection the merchant has already read in its pop-up */
+    rejectionSeen: !!r.rejection_seen,
   };
 }
 

@@ -316,6 +316,9 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE documents ALTER COLUMN public_id SET DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
   UPDATE documents SET public_id = replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') WHERE public_id IS NULL;
   CREATE UNIQUE INDEX IF NOT EXISTS documents_public_id ON documents (public_id);
+  /* A rejected document is shown to its merchant once in a pop-up with the reason (components/DocumentRejected.tsx):
+     this is set when they close it, and cleared each time Diwan rejects it again. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS rejection_seen BOOLEAN NOT NULL DEFAULT false;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS mime TEXT;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS bytes INTEGER;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner TEXT NOT NULL DEFAULT '';

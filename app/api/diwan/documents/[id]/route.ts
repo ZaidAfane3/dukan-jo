@@ -24,7 +24,8 @@ export const POST = staffRoute("documents", async (req: NextRequest, me, { param
   const b = before.rows[0];
   if (!b) return answer({ result: "missing" }, 404);
   const id = String(b.id);
-  await pool.query(`UPDATE documents SET status = $2, note = $3, reviewed_by = $4 WHERE id = $1`, [id, status, seal(note), me.id]);
+  /* a rejection is shown to the merchant in a pop-up, again even if an earlier one was already seen */
+  await pool.query(`UPDATE documents SET status = $2, note = $3, reviewed_by = $4, rejection_seen = false WHERE id = $1`, [id, status, seal(note), me.id]);
   await notify(b.account_id, "documentStatus", { name: b.name, status, note });
   await audit(req, me.id, "document.review", { type: "document", id }, note || null, {
     shop: String(b.account_id),
