@@ -190,7 +190,7 @@ export function picStyle(p?: { x: number; y: number; zoom: number }): React.CSSP
 }
 
 /** Readable text color on top of the brand color. */
-/* A background the merchant chose: one color ("#004956"), or a gradient from one color to another ("linear-gradient(135deg, #a, #b)") */
+/* A background the merchant chose: one color ("#e67726"), or a gradient from one color to another ("linear-gradient(135deg, #a, #b)") */
 export const isGradient = (v?: string) => !!v && v.trim().startsWith("linear-gradient");
 /** The colors of a gradient (or the one color), so text on it can be made readable */
 export const fillColors = (v: string): string[] => (isGradient(v) ? v.match(/#[0-9a-f]{6}/gi) ?? [] : [v]);

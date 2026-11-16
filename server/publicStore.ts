@@ -77,7 +77,7 @@ export async function shapePublicStore(shop: ShopRow, data: Map<string, string>,
   if (shop.status === "suspended") return { status: "unavailable" };
   const setup = cleanSetup(parse(data.get("seen-setup")));
   const storeName = setup?.name || shop.name || "";
-  const color = setup?.color || (/^#[0-9a-f]{6}$/i.test(shop.color) ? shop.color : "#004956");
+  const color = setup?.color || (/^#[0-9a-f]{6}$/i.test(shop.color) ? shop.color : "#e67726");
   const logo = setup?.logo ?? "";
 
   if (!shop.published) return { status: "soon", name: storeName };

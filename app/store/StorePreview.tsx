@@ -110,7 +110,7 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
     const lg = config.identity.logo;
     /* his own logo picture, or the one from setup; otherwise the first letter on the store color */
     const logo = safeStoredImage(lg.kind === "image" ? lg.image : lg.kind === "auto" ? setup?.logo : "");
-    return <MaintenancePage lang={lang} name={setup?.name || accountName()} logo={logo} color={setup?.color || "#004956"} message={paused} owner />;
+    return <MaintenancePage lang={lang} name={setup?.name || accountName()} logo={logo} color={setup?.color || "#e67726"} message={paused} owner />;
   }
 
   return (

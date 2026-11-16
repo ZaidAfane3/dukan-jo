@@ -97,7 +97,7 @@ export function ProfileMenu() {
   const { lang, setLang, theme, toggleTheme } = usePrefs();
   const t = text[lang];
   const [open, setOpen] = useState(false);
-  const [store, setStore] = useState<{ name: string; slug: string; color: string }>({ name: "", slug: "", color: "#004956" });
+  const [store, setStore] = useState<{ name: string; slug: string; color: string }>({ name: "", slug: "", color: "#e67726" });
   const [logo, setLogo] = useState<LogoConfig>({ kind: "letter", sample: "shop", image: "" });
   const [copied, setCopied] = useState(false);
   /* the same answer as the designer's badge: the store opens to customers with its first save */
@@ -110,7 +110,7 @@ export function ProfileMenu() {
       setLive(storeIsLive());
       setSignedIn(onServer());
       const s = loadSetup();
-      setStore({ name: s?.name || accountName(), slug: s?.slug ?? "", color: s && /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : "#004956" });
+      setStore({ name: s?.name || accountName(), slug: s?.slug ?? "", color: s && /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : "#e67726" });
       setLogo(resolveLogo(loadConfig().identity.logo, s?.logo ?? ""));
     };
     read();

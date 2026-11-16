@@ -352,7 +352,7 @@ export const defaultConfig: StorefrontConfig = {
   pageBackground: { kind: "none", media: "", name: "", size: 0, veil: 60 },
   announcement: {
     show: false,
-    messages: [{ text: { en: "", ar: "" }, link: "", color: "#004956", textColor: "" }],
+    messages: [{ text: { en: "", ar: "" }, link: "", color: "#e67726", textColor: "" }],
     motion: "fade",
     seconds: 4,
   },

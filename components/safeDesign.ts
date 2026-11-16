@@ -330,7 +330,7 @@ const top: Top = {
   pageBackground: obj({ kind: oneOf("none", "image", "video"), media: (v) => (typeof v === "string" && (/^[\w:.-]{0,120}$/.test(v) || isMediaUrl(v)) ? v : undefined), name: text(160), size: num(0, 1e10, true), veil: num(0, 90), pos }),
   announcement: obj({
     show: bool, motion: oneOf("fade", "ticker"), seconds, speed: oneOf("slow", "normal", "fast"),
-    messages: list(obj({ text: messageText, link, color, textColor: color }, () => ({ text: E(), link: "", color: "#004956", textColor: "" })), ANNOUNCE_MESSAGES_MAX),
+    messages: list(obj({ text: messageText, link, color, textColor: color }, () => ({ text: E(), link: "", color: "#e67726", textColor: "" })), ANNOUNCE_MESSAGES_MAX),
     /* a bar saved by an older version had one message with its own link and color (see mergeAnnouncement) */
     text: messageText, link, color,
   }),

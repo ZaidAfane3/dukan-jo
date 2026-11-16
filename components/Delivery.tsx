@@ -103,7 +103,7 @@ export function Delivery() {
       document.getElementById(`d-${first}`)?.focus();
       return;
     }
-    const base: SavedSetup = setup ?? { name: "", description: "", color: "#004956", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
+    const base: SavedSetup = setup ?? { name: "", description: "", color: "#e67726", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
     saveSetup({ ...base, pickup, shipping });
     /* the proofs still waiting for a check follow the partner's new name */
     if (shipping?.mode === "own") syncProofPartner(shipping.name, shipping.kind);

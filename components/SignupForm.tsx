@@ -211,7 +211,7 @@ export function SignupForm() {
             saveSetup({
               name: prev?.name || name,
               description: prev?.description ?? "",
-              color: prev?.color ?? "#004956",
+              color: prev?.color ?? "#e67726",
               phone: prev?.phone || phone,
               slug: prev?.slug ?? "",
               done: prev?.done ?? Array.from({ length: 6 }, () => false),

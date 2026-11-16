@@ -95,7 +95,7 @@ export function afterPress(fn: () => void) {
   if (!down) id = window.setTimeout(done, WAIT);
 }
 
-const swatches = ["#004956", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#e08a1e", "#7a3ea1", "#161616"];
+const swatches = ["#e67726", "#004956", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#7a3ea1", "#161616"];
 export const HEX = /^#[0-9a-f]{6}$/i;
 
 /** A row of color circles plus a hex field. `onChange` only gets valid colors. */

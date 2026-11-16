@@ -3,7 +3,7 @@ import { fillColors, isGradient } from "./parts";
 
 /* The colors the footer really paints, worked out once so the store and the designer's color pickers agree */
 
-const DEFAULT_PRIMARY = "#004956";
+const DEFAULT_PRIMARY = "#e67726";
 const SOFT_LIGHT = "#f4efe6";
 const SOFT_DARK = "#10242a";
 

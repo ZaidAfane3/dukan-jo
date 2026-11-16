@@ -146,7 +146,7 @@ function initial(): Draft {
   const wa = s?.whatsapp ? `+962 ${shownMobile(s.whatsapp)}` : "";
   return {
     config: wa && !config.footer.whatsapp?.trim() ? { ...config, footer: { ...config.footer, whatsapp: wa } } : config,
-    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#004956", phone: shownMobile(s?.phone || (s?.whatsapp === undefined ? accountPhone() : "")) },
+    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#e67726", phone: shownMobile(s?.phone || (s?.whatsapp === undefined ? accountPhone() : "")) },
   };
 }
 
@@ -630,7 +630,7 @@ export function Designer() {
   const emptyOk = useRef(false);
   /* the page's background and the store color, for the color boxes that warn when a text color vanishes on them */
   const pageBgNow = draft?.config.theme.background ?? "#ffffff";
-  const primaryNow = draft ? draft.config.theme.primary || (/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#004956") : "#004956";
+  const primaryNow = draft ? draft.config.theme.primary || (/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#e67726") : "#e67726";
   const pageLook = useMemo(() => ({ bg: pageBgNow, primary: primaryNow }), [pageBgNow, primaryNow]);
 
   if (!draft) return <DesignerSkeleton />;
@@ -1231,7 +1231,7 @@ export function Designer() {
           <TextColorNow.Provider value={legibleOn(draft.config.theme.text, draft.config.theme.background)}>
           <PageLookNow.Provider value={pageLook}>
           <UsingTheme.Provider value={trying?.id ?? usingTheme}>
-          <StoreColorNow.Provider value={/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#004956"}>
+          <StoreColorNow.Provider value={/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#e67726"}>
           <SampleProducts.Provider value={sampleChoice}>
           <OpenPage.Provider value={(id) => { setOpenedPage(id); setProductView(false); setCartView(false); setPanelOpen(true); }}>
           {/* --sf-heading: the store's titles font, so the font pickers' "like the titles" choice writes in it */}
