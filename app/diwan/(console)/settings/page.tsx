@@ -2,18 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { LEGAL_PAGES, LIMITS, PAY_METHODS, type Bi, type PayMethod, type PlatformSettings, type SettingKey } from "@/components/diwan/platformSettings";
-import { THEME_CATALOG } from "@/components/diwan/themeCatalog";
-import { askConfirm } from "@/components/diwan/dialogs";
+import { askConfirm, Dialog } from "@/components/diwan/dialogs";
 import { PayLogo } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 
-/* Platform settings (owners): each setting has its own form and its own Save, checked again by the server, and every save
-   is written to the activity log with what it was before. The starter template is edited in the store designer.
+/* Platform settings (owners): the ways to pay, the legal pages new stores start with (locked: see LegalTemplates) and the
+   starter template (edited in the store designer). Each setting has its own form and its own Save, checked again by the
+   server, and every save is written to the activity log with what it was before. Dukkan Ship has its own page
+   (/diwan/ship); the free themes and the search engine defaults are set in the code (components/platformDefaults.ts).
    The merchant pages and the stores read them (components/platformPublic.ts; the server re-checks prices and ways to pay),
    so a save here reaches them: open pages pick it up within a minute or when their tab comes back into view. */
 
 type Entry<K extends SettingKey> = { value: PlatformSettings[K]; saved: boolean; updatedAt: string | null; by: string | null };
-type Data = { settings: { [K in SettingKey]: Entry<K> }; template: { updatedAt: string; by: string | null } | null };
+type Data = {
+  settings: { [K in SettingKey]: Entry<K> };
+  template: { updatedAt: string; by: string | null } | null;
+  /* whether the signed-in staff member could unlock the legal pages: an owner, with a password of his own */
+  legal: { owner: boolean; hasPassword: boolean };
+};
 
 export default function SettingsPage() {
   const t = useT();
@@ -23,17 +29,11 @@ export default function SettingsPage() {
       <PageHead title={t("Platform settings", "إعدادات المنصة")} sub={t("What every store on Dukkan starts with and can choose from.", "ما تبدأ به كل المتاجر في دكّان وما تستطيع الاختيار منه.")} />
       <Loaded s={s}>
         {(d) => (
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid items-start gap-6 xl:grid-cols-2">
             <TemplateCard info={d.template} onChange={s.reload} />
             <Payments e={d.settings.payment_methods} />
-            <DefaultThemes e={d.settings.default_themes} />
-            <Seo e={d.settings.seo_defaults} />
-            <DukkanShip e={d.settings.dukkan_ship} />
             <div className="xl:col-span-2">
-              <Shipping e={d.settings.shipping_companies} />
-            </div>
-            <div className="xl:col-span-2">
-              <LegalTemplates e={d.settings.store_legal_templates} />
+              <LegalTemplates e={d.settings.store_legal_templates} legal={d.legal} />
             </div>
           </div>
         )}
@@ -84,7 +84,6 @@ function Section({ title, sub, info, state, onSave, children }: {
   );
 }
 
-const label = "mb-1 block text-sm font-medium";
 
 /* ---------------- the settings ---------------- */
 
@@ -206,88 +205,6 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
   );
 }
 
-function DefaultThemes({ e }: { e: Entry<"default_themes"> }) {
-  const t = useT();
-  const s = useSaver("default_themes", e);
-  const toggle = (id: string, on: boolean) => s.setValue(on ? [...s.value, id] : s.value.filter((x) => x !== id));
-  return (
-    <Section title={t("Default themes", "الثيمات الأساسية")} sub={t("The free themes every store has in My themes. None picked: Dukkan and Mada.", "الثيمات المجانية الموجودة لدى كل متجر في ثيماتي. إن لم تختر شيئًا: دكّان ومدى.")} info={s.info} state={s.state} onSave={() => s.save()}>
-      {THEME_CATALOG.map((th) => (
-        <label key={th.id} className="flex items-center gap-2 text-sm">
-          <input type="checkbox" className="h-4 w-4" checked={s.value.includes(th.id)} onChange={(x) => toggle(th.id, x.target.checked)} />
-          <span className="font-medium">{t(th.name.en, th.name.ar)}</span>
-          <code dir="ltr" className="text-xs text-muted">{th.id}</code>
-          {th.price > 0 && <Badge>{th.price} JOD</Badge>}
-        </label>
-      ))}
-    </Section>
-  );
-}
-
-function Seo({ e }: { e: Entry<"seo_defaults"> }) {
-  const t = useT();
-  const s = useSaver("seo_defaults", e);
-  const set = (k: keyof PlatformSettings["seo_defaults"], v: string) => s.setValue({ ...s.value, [k]: v });
-  return (
-    <Section title={t("Search engine defaults", "إعدادات محركات البحث")} sub={t("Used on a store's pages until the merchant writes his own.", "تُستخدم في صفحات المتجر حتى يكتب التاجر ما يخصه.")} info={s.info} state={s.state} onSave={() => s.save()}>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label htmlFor="seo-te" className={label}>{t("Title ending (English)", "نهاية العنوان (إنجليزي)")}</label>
-          <input id="seo-te" dir="ltr" className={field} maxLength={LIMITS.suffix} placeholder="| Dukkan" value={s.value.titleSuffix_en} onChange={(x) => set("titleSuffix_en", x.target.value)} />
-        </div>
-        <div>
-          <label htmlFor="seo-ta" className={label}>{t("Title ending (Arabic)", "نهاية العنوان (عربي)")}</label>
-          <input id="seo-ta" dir="rtl" className={field} maxLength={LIMITS.suffix} value={s.value.titleSuffix_ar} onChange={(x) => set("titleSuffix_ar", x.target.value)} />
-        </div>
-        <div>
-          <label htmlFor="seo-de" className={label}>{t("Description (English)", "الوصف (إنجليزي)")}</label>
-          <textarea id="seo-de" dir="ltr" rows={3} className={`${field} h-auto py-2`} maxLength={LIMITS.description} value={s.value.description_en} onChange={(x) => set("description_en", x.target.value)} />
-        </div>
-        <div>
-          <label htmlFor="seo-da" className={label}>{t("Description (Arabic)", "الوصف (عربي)")}</label>
-          <textarea id="seo-da" dir="rtl" rows={3} className={`${field} h-auto py-2`} maxLength={LIMITS.description} value={s.value.description_ar} onChange={(x) => set("description_ar", x.target.value)} />
-        </div>
-      </div>
-    </Section>
-  );
-}
-
-function Shipping({ e }: { e: Entry<"shipping_companies"> }) {
-  const t = useT();
-  const s = useSaver("shipping_companies", e);
-  const toRows = (v: PlatformSettings["shipping_companies"]) => v.map((c) => ({ name: c.name, phone: c.phone, cities: c.cities.join("، ") }));
-  const [rows, setRows] = useState(() => toRows(e.value));
-  useEffect(() => setRows(toRows(s.value)), [s.value]);
-  const set = (i: number, k: "name" | "phone" | "cities", v: string) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
-  const save = () =>
-    s.save(rows.filter((r) => r.name.trim()).map((r) => ({ name: r.name, phone: r.phone, cities: r.cities.split(/[,،\n]/).map((c) => c.trim()).filter(Boolean) })));
-  return (
-    <Section title={t("Shipping companies", "شركات الشحن")} sub={t("Couriers stores can pick, and the cities each one reaches.", "شركات التوصيل التي تختار منها المتاجر، والمدن التي تصلها كل شركة.")} info={s.info} state={s.state} onSave={save}>
-      {!rows.length && <p className="text-sm text-muted">{t("No shipping companies yet.", "لا توجد شركات شحن بعد.")}</p>}
-      {rows.map((r, i) => (
-        <div key={i} className="grid gap-2 rounded-xl border border-fg/10 p-3 md:grid-cols-[1fr_12rem_2fr_auto] md:items-end">
-          <div>
-            <label className="mb-1 block text-xs text-muted" htmlFor={`sh-n${i}`}>{t("Name", "الاسم")}</label>
-            <input id={`sh-n${i}`} className={field} maxLength={LIMITS.companyName} value={r.name} onChange={(x) => set(i, "name", x.target.value)} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-muted" htmlFor={`sh-p${i}`}>{t("Phone (optional)", "الهاتف (اختياري)")}</label>
-            <input id={`sh-p${i}`} dir="ltr" inputMode="tel" className={field} maxLength={LIMITS.phone} value={r.phone} onChange={(x) => set(i, "phone", x.target.value)} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-muted" htmlFor={`sh-c${i}`}>{t("Cities, separated by commas", "المدن، تفصل بينها فواصل")}</label>
-            <input id={`sh-c${i}`} className={field} value={r.cities} onChange={(x) => set(i, "cities", x.target.value)} />
-          </div>
-          <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))} className="h-10 text-sm text-red-600 hover:underline">{t("Remove", "حذف")}</button>
-        </div>
-      ))}
-      {rows.length < LIMITS.companies && (
-        <button type="button" onClick={() => setRows([...rows, { name: "", phone: "", cities: "" }])} className="text-sm font-semibold text-primary hover:underline">{t("+ Add a company", "+ إضافة شركة")}</button>
-      )}
-    </Section>
-  );
-}
-
 /* English and Arabic of one line, side by side */
 function BiInputs({ id, value, onChange, max, labels }: { id: string; value: Bi; onChange: (v: Bi) => void; max: number; labels: [string, string] }) {
   return (
@@ -304,85 +221,262 @@ function BiInputs({ id, value, onChange, max, labels }: { id: string; value: Bi;
   );
 }
 
-/* A list of English and Arabic lines (cities, points) edited as rows */
-function BiRows({ name, rows, setRows, max, maxRows, add }: { name: string; rows: Bi[]; setRows: (v: Bi[]) => void; max: number; maxRows: number; add: string }) {
-  const t = useT();
-  return (
-    <div className="space-y-2">
-      {rows.map((r, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <input aria-label={`${name} ${i + 1} (${t("English", "إنجليزي")})`} dir="ltr" className={field} maxLength={max} value={r.en} onChange={(x) => setRows(rows.map((y, j) => (j === i ? { ...y, en: x.target.value } : y)))} />
-          <input aria-label={`${name} ${i + 1} (${t("Arabic", "عربي")})`} dir="rtl" className={field} maxLength={max} value={r.ar} onChange={(x) => setRows(rows.map((y, j) => (j === i ? { ...y, ar: x.target.value } : y)))} />
-          <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))} className="shrink-0 text-sm text-red-600 hover:underline dark:text-red-400">{t("Remove", "حذف")}</button>
-        </div>
-      ))}
-      {rows.length < maxRows && (
-        <button type="button" onClick={() => setRows([...rows, { en: "", ar: "" }])} className="text-sm font-semibold text-primary hover:underline">{add}</button>
-      )}
-    </div>
-  );
-}
-
-function DukkanShip({ e }: { e: Entry<"dukkan_ship"> }) {
-  const t = useT();
-  const s = useSaver("dukkan_ship", e);
-  /* the price is typed as text, so a half-typed amount ("2.") is not turned into a number while it is typed */
-  const [price, setPrice] = useState(String(e.value.price));
-  useEffect(() => setPrice(String(s.value.price)), [s.value.price]);
-  const set = (v: Partial<PlatformSettings["dukkan_ship"]>) => s.setValue({ ...s.value, ...v });
-  /* empty rows are left out; a row with only one language is sent as it is, so the server refuses it and nothing half written is saved */
-  const filled = (l: Bi[]) => l.filter((x) => x.en.trim() || x.ar.trim());
-  const save = () => s.save({ ...s.value, price: Number(price), cities: filled(s.value.cities), features: filled(s.value.features) });
-  return (
-    <Section title={t("Dukkan Ship", "دكّان شب")} sub={t("Dukkan's own delivery: the flat price of each order (what a store's customer pays for delivery), the cities it picks up from and what merchants read about it.", "خدمة التوصيل الخاصة بدكّان: السعر الثابت لكل طلب (ما يدفعه عميل المتجر للتوصيل)، والمدن التي تستلم منها، وما يقرؤه التجار عنها.")} info={s.info} state={s.state} onSave={save}>
-      <div>
-        <label htmlFor="ship-price" className={label}>{t("Price per order (JOD)", "السعر لكل طلب (د.أ)")}</label>
-        <input id="ship-price" type="number" min={0} max={LIMITS.shipPrice} step="0.001" dir="ltr" className={`${field} max-w-[10rem]`} value={price} onChange={(x) => setPrice(x.target.value)} />
-      </div>
-      <div>
-        <p className={label}>{t("Pickup cities (English, Arabic)", "مدن الاستلام (إنجليزي، عربي)")}</p>
-        <BiRows name={t("City", "مدينة")} rows={s.value.cities} setRows={(cities) => set({ cities })} max={LIMITS.city} maxRows={LIMITS.shipCities} add={t("+ Add a city", "+ إضافة مدينة")} />
-      </div>
-      <div>
-        <p className={label}>{t("Short policy under the price", "سياسة قصيرة تحت السعر")}</p>
-        <BiInputs id="ship-policy" value={s.value.policy} onChange={(policy) => set({ policy })} max={LIMITS.shipPolicy} labels={[t("English", "إنجليزي"), t("Arabic", "عربي")]} />
-      </div>
-      <div>
-        <p className={label}>{t("What it includes (English, Arabic)", "ما تشمله (إنجليزي، عربي)")}</p>
-        <BiRows name={t("Point", "ميزة")} rows={s.value.features} setRows={(features) => set({ features })} max={LIMITS.shipFeature} maxRows={LIMITS.shipFeatures} add={t("+ Add a point", "+ إضافة ميزة")} />
-      </div>
-    </Section>
-  );
-}
-
 const LEGAL_NAMES = { returns: ["Return policy", "سياسة الاسترجاع"], terms: ["Terms and conditions", "الأحكام والشروط"], privacy: ["Privacy policy", "سياسة الخصوصية"] } as const;
 
-function LegalTemplates({ e }: { e: Entry<"store_legal_templates"> }) {
+const LockIcon = ({ open = false }: { open?: boolean }) => (
+  <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+    <path d={open ? "M8 10.5V7a4 4 0 0 1 7.6-1.7" : "M8 10.5V7a4 4 0 0 1 8 0v3.5"} />
+  </svg>
+);
+
+/* What the server answered when unlocking or saving, in words */
+type LockProblem = "wrong" | "no-password" | "slow-down" | "owner-only" | "no-session" | "locked" | "failed";
+const SERVER_PROBLEMS = ["wrong", "no-password", "slow-down", "owner-only", "no-session"] as const;
+
+/* The legal pages every new store starts with. Locked by default: changing them changes what every new store's pages
+   say, so only an owner can unlock them, by typing his own password again (checked by the server, which remembers it
+   on this sign-in for 10 minutes and refuses to save without it). Saving locks them again, and so does leaving the page. */
+function LegalTemplates({ e, legal }: { e: Entry<"store_legal_templates">; legal: Data["legal"] }) {
   const t = useT();
+  const f = useFmt();
   const s = useSaver("store_legal_templates", e);
+  const [unlocked, setUnlocked] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [problem, setProblem] = useState<LockProblem | null>(null);
+  const [state, setState] = useState<"idle" | "busy" | "saved" | "bad">("idle");
+  const [info, setInfo] = useState({ updatedAt: e.updatedAt, by: e.by });
+  /* the saved pages, to go back to when locking without saving */
+  const [kept, setKept] = useState(e.value);
+  useEffect(() => setKept(e.value), [e.value]);
+
+  /* leaving the page (or locking) forgets the unlock on the server too */
+  useEffect(() => {
+    if (!unlocked) return;
+    const lock = () => void fetch("/api/diwan/settings/unlock", { method: "DELETE", credentials: "same-origin", keepalive: true }).catch(() => {});
+    window.addEventListener("pagehide", lock);
+    /* the server's unlock lasts 10 minutes: the page locks itself at the same time */
+    const timer = setTimeout(() => {
+      setUnlocked(false);
+      setProblem("locked");
+    }, 10 * 60_000);
+    return () => {
+      window.removeEventListener("pagehide", lock);
+      clearTimeout(timer);
+      lock();
+    };
+  }, [unlocked]);
+  /* locked again without a save: the unsaved changes go */
+  useEffect(() => {
+    if (!unlocked) s.setValue(kept);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unlocked]);
+
+  const save = async () => {
+    setState("busy");
+    setProblem(null);
+    const r = await send("/api/diwan/settings", "PUT", { key: "store_legal_templates", value: s.value });
+    if (r.ok) {
+      setKept(r.data.value);
+      s.setValue(r.data.value);
+      setInfo({ updatedAt: new Date().toISOString(), by: null });
+      setUnlocked(false);
+      setState("saved");
+      setTimeout(() => setState((x) => (x === "saved" ? "idle" : x)), 3000);
+      return;
+    }
+    setState(r.status === 403 ? "idle" : "bad");
+    if (r.status === 403) {
+      /* the unlock ran out, or this staff member may not change them: locked again, the changes are not kept */
+      setUnlocked(false);
+      setProblem(r.data?.result === "owner-only" ? "owner-only" : "locked");
+    }
+  };
+
+  const problemText = (p: LockProblem) =>
+    ({
+      wrong: t("That password is not right.", "كلمة المرور غير صحيحة."),
+      "no-password": t("This account has no password, so it can't unlock these pages. Sign in with an owner account that has a password.", "هذا الحساب بلا كلمة مرور، لذلك لا يستطيع فتح قفل هذه الصفحات. سجّل الدخول بحساب مالك له كلمة مرور."),
+      "slow-down": t("Too many tries. Wait 15 minutes, then try again.", "محاولات كثيرة. انتظر 15 دقيقة ثم حاول مجددًا."),
+      "owner-only": t("Only an owner can change these.", "يستطيع المالك فقط تغيير هذه الصفحات."),
+      "no-session": t("Your sign-in can't hold the unlock. Sign out, sign in again and try once more.", "جلستك لا تحتفظ بفتح القفل. سجّل الخروج ثم الدخول وحاول مرة أخرى."),
+      locked: t("Locked again: an unlock lasts 10 minutes. Your changes were not saved; unlock to change them again.", "أُعيد القفل: فتح القفل يدوم 10 دقائق. لم تُحفظ تغييراتك؛ افتح القفل لتغييرها مجددًا."),
+      failed: t("Couldn't unlock. Try again.", "تعذّر فتح القفل. حاول مجددًا."),
+    })[p];
+
   return (
-    <Section title={t("Store legal pages", "الصفحات القانونية للمتاجر")} sub={t("The return, terms and privacy pages a new store starts with. Each store edits its own copy; stores that already have their pages keep them.", "صفحات الاسترجاع والأحكام والخصوصية التي يبدأ بها كل متجر جديد. يعدّل كل متجر نسخته؛ والمتاجر التي لديها صفحاتها تحتفظ بها.")} info={s.info} state={s.state} onSave={() => s.save()}>
-      {LEGAL_PAGES.map((k) => {
-        const page = s.value[k];
-        const set = (v: Partial<typeof page>) => s.setValue({ ...s.value, [k]: { ...page, ...v } });
-        return (
-          <fieldset key={k} className="space-y-3 rounded-xl border border-fg/10 p-3">
-            <legend className="px-1 text-sm font-semibold">{t(LEGAL_NAMES[k][0], LEGAL_NAMES[k][1])}</legend>
-            <BiInputs id={`legal-${k}`} value={page.title} onChange={(title) => set({ title })} max={LIMITS.legalTitle} labels={[t("Title (English)", "العنوان (إنجليزي)"), t("Title (Arabic)", "العنوان (عربي)")]} />
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div>
-                <label htmlFor={`legal-${k}-ben`} className="mb-1 block text-xs text-muted">{t("Text (English)", "النص (إنجليزي)")}</label>
-                <textarea id={`legal-${k}-ben`} dir="ltr" rows={8} className={`${field} h-auto py-2`} maxLength={LIMITS.legalBody} value={page.body.en} onChange={(x) => set({ body: { ...page.body, en: x.target.value } })} />
+    <section className={card}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-base font-bold">
+            <span className={unlocked ? "text-amber-700 dark:text-amber-300" : "text-muted"}><LockIcon open={unlocked} /></span>
+            {t("Store legal pages", "الصفحات القانونية للمتاجر")}
+          </h2>
+          <p className="mt-0.5 text-sm text-muted">{t("The return, terms and privacy pages a new store starts with. Each store edits its own copy; stores that already have their pages keep them.", "صفحات الاسترجاع والأحكام والخصوصية التي يبدأ بها كل متجر جديد. يعدّل كل متجر نسخته؛ والمتاجر التي لديها صفحاتها تحتفظ بها.")}</p>
+        </div>
+        {!unlocked && legal.owner && (
+          <Btn kind="ghost" onClick={() => { setProblem(null); setAsking(true); }}>
+            <LockIcon open />
+            {t("Unlock to edit", "فتح القفل للتعديل")}
+          </Btn>
+        )}
+      </div>
+
+      {unlocked ? (
+        <p role="status" className="mt-4 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-500/30 dark:text-amber-200">
+          {t("Unlocked for 10 minutes. Saving changes what every new store's legal pages say, and locks them again.", "مفتوحة لمدة 10 دقائق. الحفظ يغيّر ما تقوله الصفحات القانونية لكل متجر جديد، ويعيد قفلها.")}
+        </p>
+      ) : (
+        <p className="mt-4 flex items-start gap-2 rounded-xl bg-soft px-3 py-2 text-sm ring-1 ring-fg/10">
+          <span className="mt-0.5 shrink-0 text-muted"><LockIcon /></span>
+          <span>
+            {t("Locked: changing these changes what every new store's legal pages say.", "مقفلة: تغييرها يغيّر ما تقوله الصفحات القانونية لكل متجر جديد.")}
+            {!legal.owner && <strong className="ms-1 font-semibold">{t("Only an owner can change these.", "يستطيع المالك فقط تغيير هذه الصفحات.")}</strong>}
+          </span>
+        </p>
+      )}
+      {problem && !asking && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{problemText(problem)}</p>}
+
+      <div className="mt-4 space-y-3">
+        {LEGAL_PAGES.map((k) => {
+          const page = s.value[k];
+          const name = t(LEGAL_NAMES[k][0], LEGAL_NAMES[k][1]);
+          const set = (v: Partial<typeof page>) => s.setValue({ ...s.value, [k]: { ...page, ...v } });
+          if (!unlocked)
+            return (
+              <div key={k} className="rounded-xl border border-fg/10 p-3">
+                <p className="text-xs font-medium text-muted">{name}</p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  {(["en", "ar"] as const).map((l) => (
+                    <div key={l} dir={l === "ar" ? "rtl" : "ltr"} lang={l} className="min-w-0">
+                      <p className="text-sm font-semibold">{page.title[l]}</p>
+                      <p
+                        tabIndex={0}
+                        aria-label={`${name} (${l === "ar" ? t("Arabic", "عربي") : t("English", "إنجليزي")})`}
+                        className="mt-1 max-h-40 overflow-y-auto whitespace-pre-line rounded-lg bg-soft/60 p-2.5 text-[13px] leading-relaxed text-fg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        {page.body[l]}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div>
-                <label htmlFor={`legal-${k}-bar`} className="mb-1 block text-xs text-muted">{t("Text (Arabic)", "النص (عربي)")}</label>
-                <textarea id={`legal-${k}-bar`} dir="rtl" rows={8} className={`${field} h-auto py-2`} maxLength={LIMITS.legalBody} value={page.body.ar} onChange={(x) => set({ body: { ...page.body, ar: x.target.value } })} />
+            );
+          return (
+            <fieldset key={k} className="space-y-3 rounded-xl border border-fg/10 p-3">
+              <legend className="px-1 text-sm font-semibold">{name}</legend>
+              <BiInputs id={`legal-${k}`} value={page.title} onChange={(title) => set({ title })} max={LIMITS.legalTitle} labels={[t("Title (English)", "العنوان (إنجليزي)"), t("Title (Arabic)", "العنوان (عربي)")]} />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label htmlFor={`legal-${k}-ben`} className="mb-1 block text-xs text-muted">{t("Text (English)", "النص (إنجليزي)")}</label>
+                  <textarea id={`legal-${k}-ben`} dir="ltr" rows={8} className={`${field} h-auto py-2`} maxLength={LIMITS.legalBody} value={page.body.en} onChange={(x) => set({ body: { ...page.body, en: x.target.value } })} />
+                </div>
+                <div>
+                  <label htmlFor={`legal-${k}-bar`} className="mb-1 block text-xs text-muted">{t("Text (Arabic)", "النص (عربي)")}</label>
+                  <textarea id={`legal-${k}-bar`} dir="rtl" rows={8} className={`${field} h-auto py-2`} maxLength={LIMITS.legalBody} value={page.body.ar} onChange={(x) => set({ body: { ...page.body, ar: x.target.value } })} />
+                </div>
               </div>
-            </div>
-          </fieldset>
-        );
-      })}
-    </Section>
+            </fieldset>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        {unlocked && (
+          <>
+            <Btn onClick={save} disabled={state === "busy"}>{state === "busy" ? t("Saving…", "جارٍ الحفظ…") : t("Save and lock", "حفظ وقفل")}</Btn>
+            <Btn kind="ghost" onClick={() => setUnlocked(false)} disabled={state === "busy"}>{t("Lock without saving", "قفل دون حفظ")}</Btn>
+          </>
+        )}
+        {state === "saved" && <span role="status" className="text-sm text-emerald-700 dark:text-emerald-300">{t("Saved and locked", "حُفظت وقُفلت")}</span>}
+        {state === "bad" && <span role="alert" className="text-sm text-red-600 dark:text-red-400">{t("Not saved: check the values.", "لم يُحفظ: تحقق من القيم.")}</span>}
+        <span className="ms-auto text-xs text-muted">
+          {info.updatedAt ? t(`Changed ${f.dateTime(info.updatedAt)}${info.by ? ` by ${info.by}` : ""}`, `عُدّل ${f.dateTime(info.updatedAt)}${info.by ? ` بواسطة ${info.by}` : ""}`) : t("Never changed: the starting value", "لم يُعدّل: القيمة الأولى")}
+        </span>
+      </div>
+
+      {asking && (
+        <UnlockDialog
+          hasPassword={legal.hasPassword}
+          problemText={problemText}
+          onClose={() => setAsking(false)}
+          onUnlocked={() => {
+            setAsking(false);
+            setProblem(null);
+            setState("idle");
+            setUnlocked(true);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+/* Asks the signed-in owner for his own password; the server checks it (POST /api/diwan/settings/unlock) */
+function UnlockDialog({ hasPassword, problemText, onClose, onUnlocked }: {
+  hasPassword: boolean; problemText: (p: LockProblem) => string; onClose: () => void; onUnlocked: () => void;
+}) {
+  const t = useT();
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<LockProblem | null>(null);
+  const submit = async () => {
+    if (!hasPassword || !password || busy) return;
+    setBusy(true);
+    setProblem(null);
+    const r = await send("/api/diwan/settings/unlock", "POST", { password }).catch(() => null);
+    setBusy(false);
+    setPassword("");
+    if (r?.ok) return onUnlocked();
+    const why = r?.data?.result;
+    setProblem((SERVER_PROBLEMS as readonly string[]).includes(why) ? (why as LockProblem) : "failed");
+  };
+  return (
+    <Dialog
+      title={t("Unlock the store legal pages", "فتح قفل الصفحات القانونية للمتاجر")}
+      body={
+        hasPassword
+          ? t("Type your own Diwan password. The pages stay unlocked for 10 minutes or until you save.", "اكتب كلمة مرورك في الديوان. تبقى الصفحات مفتوحة 10 دقائق أو حتى تحفظ.")
+          : t("Unlocking needs your own Diwan password.", "فتح القفل يحتاج إلى كلمة مرورك في الديوان.")
+      }
+      onClose={onClose}
+      onSubmit={submit}
+      busy={busy}
+      footer={
+        hasPassword ? (
+          <>
+            <Btn type="button" kind="ghost" onClick={onClose} disabled={busy}>{t("Cancel", "إلغاء")}</Btn>
+            <Btn type="submit" disabled={!password || busy}>{busy ? t("Checking…", "جارٍ التحقق…") : t("Unlock", "فتح القفل")}</Btn>
+          </>
+        ) : (
+          <Btn type="button" onClick={onClose}>{t("Close", "إغلاق")}</Btn>
+        )
+      }
+    >
+      {hasPassword ? (
+        <>
+          <label htmlFor="legal-unlock-pw" className="mb-1 block text-sm font-medium">{t("Your password", "كلمة مرورك")}</label>
+          <input
+            id="legal-unlock-pw"
+            data-autofocus
+            type="password"
+            autoComplete="current-password"
+            maxLength={128}
+            dir="ltr"
+            className={field}
+            value={password}
+            onChange={(x) => setPassword(x.target.value)}
+            aria-invalid={problem === "wrong"}
+            aria-describedby={problem ? "legal-unlock-problem" : undefined}
+          />
+          {problem && <p id="legal-unlock-problem" role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{problemText(problem)}</p>}
+        </>
+      ) : (
+        <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-700 ring-1 ring-red-500/25 dark:text-red-300">
+          {problemText("no-password")}
+        </p>
+      )}
+    </Dialog>
   );
 }
 

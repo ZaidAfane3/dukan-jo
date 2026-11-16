@@ -6,7 +6,7 @@ import { usePrefs } from "@/components/Prefs";
 import { StorefrontTheme } from "@/components/storefront/StorefrontTheme";
 import { defaultConfig, type StorefrontConfig } from "@/components/storefront/config";
 import { StoreSkeleton } from "@/components/StoreSkeletons";
-import { loadConfig, loadTemplate } from "@/components/storefront/storage";
+import { loadConfig, loadTemplate, refreshTemplate, TEMPLATE_EVENT } from "@/components/storefront/storage";
 import { accountName, loadSetup } from "@/components/setup";
 import { useCatalog } from "@/components/catalog";
 import { composeDesign, findTheme, loadThemeState, previewProducts } from "@/components/themes";
@@ -40,6 +40,15 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   const [ready, setReady] = useState(false);
   /* the store paused for maintenance (dashboard): visitors get the "back soon" page, with his message */
   const [paused, setPaused] = useState<string | null>(null);
+  /* the starter template came from the server and differs from this browser's copy: a store without a design of its
+     own (and the template preview) is drawn again with it (storage.ts TEMPLATE_EVENT) */
+  const [templateRev, setTemplateRev] = useState(0);
+  useEffect(() => {
+    const again = () => setTemplateRev((n) => n + 1);
+    window.addEventListener(TEMPLATE_EVENT, again);
+    void refreshTemplate();
+    return () => window.removeEventListener(TEMPLATE_EVENT, again);
+  }, []);
 
   /* &look=1 (the preview window of the themes pages): the store can only be scrolled, every click and form is stopped */
   useEffect(() => {
@@ -82,7 +91,7 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
     const m = loadMaintenance();
     setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && m.on ? "" : null);
     setReady(true);
-  }, [lang, preview, catalog]);
+  }, [lang, preview, catalog, templateRev]);
 
   useEffect(() => {
     const name = loadSetup()?.name || accountName();

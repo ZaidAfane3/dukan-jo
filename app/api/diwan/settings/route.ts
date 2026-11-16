@@ -4,11 +4,13 @@ import { cleanLine } from "@/components/safe";
 import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { forgetConfirmation, hasRealPassword, staffConfirmed } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
-/** Every platform setting Diwan edits: its saved value (or the starting one), when and by whom it was last changed */
-export const GET = staffRoute("settings", async () => {
+/** Every platform setting Diwan edits: its saved value (or the starting one), when and by whom it was last changed. "legal":
+    whether the signed-in staff member could unlock the legal pages (an owner with a password; see ./unlock). */
+export const GET = staffRoute("settings", async (_req, me) => {
   const { rows } = await (await db()).query(
     `SELECT p.key, p.value, p.updated_at, s.name AS by FROM platform_settings p LEFT JOIN staff s ON s.id = p.updated_by WHERE p.key = ANY($1)`,
     [SETTING_KEYS],
@@ -24,14 +26,21 @@ export const GET = staffRoute("settings", async () => {
       return [k, { value: v ?? SETTING_DEFAULTS[k], saved: !!r, updatedAt: r?.updated_at ?? null, by: r?.by ?? null }];
     }),
   );
-  return answer({ settings, template: tpl.rows[0] ? { updatedAt: tpl.rows[0].updated_at, by: tpl.rows[0].by } : null });
+  const legal = { owner: me.role === "owner", hasPassword: await hasRealPassword(me.id) };
+  return answer({ settings, template: tpl.rows[0] ? { updatedAt: tpl.rows[0].updated_at, by: tpl.rows[0].by } : null, legal });
 });
 
-/** Saves one setting: { key, value, reason? }. Checked against its rules; the log keeps what it was and what it became. */
+/** Saves one setting: { key, value, reason? }. Checked against its rules; the log keeps what it was and what it became.
+    The legal pages new stores start with are locked: only an owner who typed his password again in the last 10 minutes
+    (POST ./unlock) can save them (403 "owner-only" / "locked"), and the save locks them again. */
 export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
   const body = await readJson(req, 50_000);
   const key = body?.key as SettingKey;
   if (!SETTING_KEYS.includes(key)) return answer({ result: "invalid" }, 400);
+  if (key === "store_legal_templates") {
+    if (me.role !== "owner") return answer({ result: "owner-only" }, 403);
+    if (!(await staffConfirmed(req, me))) return answer({ result: "locked" }, 403);
+  }
   const value = cleanSetting(key, body?.value);
   if (value === null) return answer({ result: "invalid" }, 400);
   const pool = await db();
@@ -45,5 +54,6 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
     before: before.rows[0]?.value ?? null,
     after: value,
   });
+  if (key === "store_legal_templates") await forgetConfirmation(req);
   return answer({ result: "ok", value });
 });

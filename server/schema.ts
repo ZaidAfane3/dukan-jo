@@ -36,6 +36,8 @@ export const DIWAN_SCHEMA = `
     expires_at   TIMESTAMPTZ NOT NULL
   );
   CREATE INDEX IF NOT EXISTS staff_sessions_staff ON staff_sessions (staff_id);
+  /* when this sign-in last typed its password again for a change every new store gets (server/staffConfirm.ts) */
+  ALTER TABLE staff_sessions ADD COLUMN IF NOT EXISTS password_confirmed_at TIMESTAMPTZ;
 
   /* everything staff open or change. Only ever added to: a trigger refuses UPDATE and DELETE. */
   CREATE TABLE IF NOT EXISTS audit_log (
