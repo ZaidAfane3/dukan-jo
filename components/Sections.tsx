@@ -61,7 +61,7 @@ function StoreTurns({ stores }: { stores: { src: string; address: string; view: 
   const st = stores[i];
   const after = stores[(i + 1) % stores.length];
   return (
-    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(51,33,20,0.55)] ring-1 ring-black/10">
+    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(0,73,86,0.55)] ring-1 ring-black/10">
       <div dir="ltr" className="relative flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
         <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
@@ -123,7 +123,7 @@ function IndustryCard({ d }: { d: Detail }) {
             <StoreTurns stores={d.stores} />
           ) : shot && (
             <div className="relative pb-8 sm:pb-10">
-            <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(51,33,20,0.55)] ring-1 ring-black/10">
+            <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(0,73,86,0.55)] ring-1 ring-black/10">
               <div dir="ltr" className="flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
                 <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
@@ -137,7 +137,7 @@ function IndustryCard({ d }: { d: Detail }) {
             </div>
             {/* A second page of the same store, in a smaller window that overlaps the first, scrolling on its own */}
             {d.shots[1] && (
-              <div className="absolute bottom-0 end-3 w-[44%] overflow-hidden rounded-xl bg-white shadow-[0_30px_60px_-20px_rgba(51,33,20,0.65)] ring-1 ring-black/10 sm:end-6">
+              <div className="absolute bottom-0 end-3 w-[44%] overflow-hidden rounded-xl bg-white shadow-[0_30px_60px_-20px_rgba(0,73,86,0.65)] ring-1 ring-black/10 sm:end-6">
                 <div dir="ltr" className="flex items-center gap-1 border-b border-black/10 bg-[#f4f1ea] px-2.5 py-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#ff5f57]" /><span className="h-1.5 w-1.5 rounded-full bg-[#febc2e]" /><span className="h-1.5 w-1.5 rounded-full bg-[#28c840]" />
                 </div>
@@ -295,7 +295,7 @@ function Tile({ children }: { children: React.ReactNode }) {
         {/* Soft shadow on the "floor" under the raised card */}
         <div className="absolute bottom-6 h-6 w-44 rounded-full bg-ink/20 blur-xl" style={{ transform: "translateZ(5px)" }} />
         <div
-          className="w-full max-w-[19rem] rounded-2xl bg-card p-5 shadow-[0_30px_60px_-20px_rgba(51,33,20,0.45)]"
+          className="w-full max-w-[19rem] rounded-2xl bg-card p-5 shadow-[0_30px_60px_-20px_rgba(0,73,86,0.45)]"
           style={{ transform: "translateZ(55px)" }}
         >
           {children}
@@ -462,7 +462,7 @@ export function Experience() {
 
 /* ---------- Feature rows ---------- */
 function MockCard({ index }: { index: number }) {
-  const hues = ["from-brand-light to-brand", "from-brand-light to-brand-deep", "from-brand to-brand-ink", "from-[#f7f1ea] to-[#d9c9b5]", "from-brand-pale to-brand-light", "from-brand-deep to-brand-ink"];
+  const hues = ["from-[#73e7cb] to-[#348d9c]", "from-[#96edd9] to-[#4a9e8a]", "from-[#348d9c] to-[#004956]", "from-[#f7f1ea] to-[#d9c9b5]", "from-[#c1fdf6] to-[#73e7cb]", "from-[#4a9e8a] to-[#004956]"];
   const hue = hues[index % hues.length];
   return (
     <Tilt max={20} className="mx-auto w-full max-w-md">
@@ -471,7 +471,7 @@ function MockCard({ index }: { index: number }) {
         <div className={`absolute inset-0 rounded-3xl bg-gradient-to-br ${hue} opacity-30`} style={{ transform: "translateZ(-40px) translate(18px, 18px)" }} />
         {/* Main card */}
         <div
-          className="absolute inset-0 rounded-3xl bg-card p-5 shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]"
+          className="absolute inset-0 rounded-3xl bg-card p-5 shadow-[0_35px_70px_-25px_rgba(0,73,86,0.45)]"
           style={{ transform: "translateZ(10px)", transformStyle: "preserve-3d" }}
         >
           <div className="mb-4 flex gap-1.5">
@@ -538,14 +538,14 @@ function PaymentsMock() {
     <Tilt max={20} className="mx-auto w-full max-w-lg">
       <div className="relative aspect-[5/3.8] w-full" style={{ transformStyle: "preserve-3d" }}>
         {/* Soft blue and mint glows that wander behind the card */}
-        <span aria-hidden className={`absolute -start-6 bottom-[14%] h-44 w-44 rounded-full bg-brand-2/35 blur-2xl ${drift[0] ? "dk-plate" : ""}`} style={{ ...move(0), transform: "translateZ(-70px)" }} />
-        <span aria-hidden className={`absolute -end-4 top-[22%] h-40 w-40 rounded-full bg-brand-light/40 blur-2xl ${drift[1] ? "dk-plate" : ""}`} style={{ ...move(1), transform: "translateZ(-70px)" }} />
+        <span aria-hidden className={`absolute -start-6 bottom-[14%] h-44 w-44 rounded-full bg-[#4aa3c7]/35 blur-2xl ${drift[0] ? "dk-plate" : ""}`} style={{ ...move(0), transform: "translateZ(-70px)" }} />
+        <span aria-hidden className={`absolute -end-4 top-[22%] h-40 w-40 rounded-full bg-[#73e7cb]/40 blur-2xl ${drift[1] ? "dk-plate" : ""}`} style={{ ...move(1), transform: "translateZ(-70px)" }} />
         <div className="absolute inset-x-0 bottom-0 top-[25%]" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }}>
-          <div className={`h-full w-full rounded-3xl bg-gradient-to-br from-brand-light to-brand opacity-30 ${drift[2] ? "dk-plate" : ""}`} style={move(2)} />
+          <div className={`h-full w-full rounded-3xl bg-gradient-to-br from-[#73e7cb] to-[#348d9c] opacity-30 ${drift[2] ? "dk-plate" : ""}`} style={move(2)} />
         </div>
 
         {/* Payments list */}
-        <div className="absolute inset-x-0 bottom-[6%] top-[25%] rounded-3xl bg-card p-4 pt-[14%] shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
+        <div className="absolute inset-x-0 bottom-[6%] top-[25%] rounded-3xl bg-card p-4 pt-[14%] shadow-[0_35px_70px_-25px_rgba(0,73,86,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
           <div className="mb-2 space-y-1.5">
             <div className="h-2 w-16 rounded-full bg-primary/50" />
             <div className="h-2 w-10 rounded-full bg-soft" />
@@ -672,8 +672,8 @@ function FleetMap() {
     <Tilt max={20} className="mx-auto w-full max-w-md">
       {/* dir="ltr" keeps the geometry of the picture the same in both languages */}
       <div dir="ltr" className="relative aspect-[4/4.3] w-full" style={{ transformStyle: "preserve-3d" }}>
-        <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-brand-light to-brand opacity-30" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }} />
-        <div className="absolute inset-0 rounded-3xl bg-card shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
+        <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-[#73e7cb] to-[#348d9c] opacity-30" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }} />
+        <div className="absolute inset-0 rounded-3xl bg-card shadow-[0_35px_70px_-25px_rgba(0,73,86,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
           {/* The whole of Jordan, small, with a ring on the part the magnifier shows */}
           <div className="absolute bottom-[5%] left-[5%] aspect-[374/422] w-[56%]">
             <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, WebkitMaskSize: "contain", maskSize: "contain", WebkitMaskPosition: "center", maskPosition: "center" }} />
@@ -690,8 +690,8 @@ function FleetMap() {
           </svg>
 
           {/* The magnifier: the north of Jordan, large, with Dukkan Ship in its cities */}
-          <div className="absolute right-[3%] top-[3%] aspect-square w-[64%] overflow-hidden rounded-full bg-card shadow-[0_25px_50px_-15px_rgba(51,33,20,0.55)] ring-[5px] ring-white" style={{ transform: "translateZ(30px)" }}>
-            <div className="absolute inset-0 bg-gradient-to-br from-brand-mist to-brand-pale" />
+          <div className="absolute right-[3%] top-[3%] aspect-square w-[64%] overflow-hidden rounded-full bg-card shadow-[0_25px_50px_-15px_rgba(0,73,86,0.55)] ring-[5px] ring-white" style={{ transform: "translateZ(30px)" }}>
+            <div className="absolute inset-0 bg-gradient-to-br from-[#e8f7f3] to-[#cfeae3]" />
             <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, ...lensMask }} />
             <svg aria-hidden viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">
               {roads.map((d, i) => (
@@ -1066,8 +1066,8 @@ export function FinalCta() {
       <Reveal>
         <div className="relative isolate mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-ink px-6 py-24 text-center text-white">
           {/* A slow glow that drifts across the banner in two directions */}
-          <span aria-hidden className="dk-drift-a absolute -start-24 -top-32 -z-10 h-80 w-80 rounded-full bg-brand/30 blur-3xl" style={motion[6] ? { animationDuration: `${motion[6].dur + 4}s`, animationDelay: `${motion[6].delay}s` } : undefined} />
-          <span aria-hidden className="dk-drift-b absolute -bottom-36 -end-20 -z-10 h-96 w-96 rounded-full bg-brand-2/25 blur-3xl" style={motion[7] ? { animationDuration: `${motion[7].dur + 5}s`, animationDelay: `${motion[7].delay}s` } : undefined} />
+          <span aria-hidden className="dk-drift-a absolute -start-24 -top-32 -z-10 h-80 w-80 rounded-full bg-[#2fb7a0]/30 blur-3xl" style={motion[6] ? { animationDuration: `${motion[6].dur + 4}s`, animationDelay: `${motion[6].delay}s` } : undefined} />
+          <span aria-hidden className="dk-drift-b absolute -bottom-36 -end-20 -z-10 h-96 w-96 rounded-full bg-[#4aa3c7]/25 blur-3xl" style={motion[7] ? { animationDuration: `${motion[7].dur + 5}s`, animationDelay: `${motion[7].delay}s` } : undefined} />
           {/* Fine dots, fading toward the edges */}
           <span aria-hidden className="absolute inset-0 -z-10 opacity-30 [background-image:radial-gradient(rgb(255_255_255/0.5)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]" />
 
@@ -1087,7 +1087,7 @@ export function FinalCta() {
           {c.button.href && <div className="relative mt-9 inline-block">
             {/* A ring that keeps growing and fading around the button */}
             <span aria-hidden className="dk-ring absolute inset-0 rounded-xl ring-2 ring-white/50" style={{ animationDuration: "5s" }} />
-            <a {...linkAttrs(c.button.href)} style={{ animationDuration: "15s" }} className="dk-shimmer group relative inline-flex items-center gap-2 rounded-xl bg-white px-7 py-4 font-semibold text-brand-dark transition hover:-translate-y-0.5 hover:bg-brand-mist">
+            <a {...linkAttrs(c.button.href)} style={{ animationDuration: "15s" }} className="dk-shimmer group relative inline-flex items-center gap-2 rounded-xl bg-white px-7 py-4 font-semibold text-[#00323b] transition hover:-translate-y-0.5 hover:bg-[#e8faf5]">
               {c.button.label}
               <svg viewBox="0 0 24 24" className="h-4 w-4 transition-transform group-hover:-translate-x-1 ltr:rotate-180 ltr:group-hover:translate-x-1" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 6-6 6 6 6" /></svg>
             </a>

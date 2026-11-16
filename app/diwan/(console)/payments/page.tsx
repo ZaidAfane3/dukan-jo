@@ -29,7 +29,7 @@ type Pay = {
 };
 /* a card with a little less room inside (a second padding class would lose to the card's own p-5) */
 const tile = card.replace("p-5", "p-4");
-/* the method the list is narrowed to: its card outlined in orange */
+/* the method the list is narrowed to: its card outlined in the brand colour */
 const tileOn = tile.replace("ring-1 ring-fg/[0.08]", "ring-2 ring-primary");
 
 type Use = { count: number; total: string; stores: number };
