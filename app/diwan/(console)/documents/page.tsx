@@ -13,7 +13,7 @@ import { FilterBar } from "@/components/diwan/Filters";
 type Status = "waiting" | "approved" | "rejected";
 type Kind = "courier_proof" | "commercial_registration" | "other";
 type Row = {
-  id: string; shopId: string; shopName: string; shopSlug: string | null; shopEmail: string; kind: Kind; name: string;
+  id: string; shopId: string; shopName: string; shopSlug: string | null; shopEmail: string; kind: Kind; seq: number; name: string;
   partner: string; partnerKind: 0 | 1 | null; hasFile: boolean; mime: string | null; bytes: number | null;
   status: Status; note: string; reviewer: string | null; createdAt: string;
 };
@@ -36,7 +36,7 @@ export default function DocumentsPage() {
   const statusName = (x: (typeof FILTERS)[number]) =>
     ({ waiting: t("Waiting", "بانتظار المراجعة"), approved: t("Approved", "مقبول"), rejected: t("Rejected", "مرفوض"), all: t("All", "الكل") })[x];
   const kindName = (k: Kind) =>
-    ({ courier_proof: t("Courier proof", "إثبات شركة التوصيل"), commercial_registration: t("Commercial registration", "السجل التجاري"), other: t("Other", "أخرى") })[k];
+    ({ courier_proof: t("Proof of delivery", "إثبات التوصيل"), commercial_registration: t("Commercial registration", "السجل التجاري"), other: t("Other document", "مستند آخر") })[k];
   const count = (x: (typeof FILTERS)[number], c: Data["counts"] | undefined) =>
     !c ? null : x === "all" ? Object.values(c).reduce((a, b) => a + (b ?? 0), 0) : c[x] ?? 0;
 
@@ -115,7 +115,11 @@ function DocCard({ row, statusName, kindName, onDone }: { row: Row; statusName: 
     <div className={card}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="break-words font-bold">{row.name}</p>
+          {/* what the document is for and its number among this store's documents of that kind, then the file's name */}
+          <p className="font-bold">
+            {kindName(row.kind)} <span dir="ltr" className="text-muted">#{String(row.seq).padStart(3, "0")}</span>
+          </p>
+          <p className="mt-0.5 break-words text-xs text-muted"><bdi>{row.name}</bdi></p>
           <p className="mt-1 text-sm">
             <span className="text-muted">{t("Store:", "المتجر:")} </span>
             <Link href={`/diwan/shops/${row.shopId}`} className="font-semibold text-primary hover:underline">{row.shopName}</Link>
@@ -154,7 +158,6 @@ function DocCard({ row, statusName, kindName, onDone }: { row: Row; statusName: 
         </div>
         <div className="flex flex-wrap gap-1.5">
           <Badge tone={tone[row.status]}>{statusName(row.status)}</Badge>
-          <Badge>{kindName(row.kind)}</Badge>
         </div>
       </div>
       {row.note && <p className="mt-3 whitespace-pre-line rounded-xl bg-soft px-3 py-2 text-sm">{row.note}</p>}

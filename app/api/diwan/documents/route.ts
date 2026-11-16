@@ -25,10 +25,11 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
 
   const pool = await db();
   const { rows } = await pool.query(
-    `SELECT d.id, d.public_id, d.account_id, d.kind, d.name, (d.data IS NOT NULL OR d.file_key IS NOT NULL) AS has_file, d.mime, d.bytes,
+    `SELECT d.id, d.public_id, d.account_id, d.kind, d.name, d.seq, (d.data IS NOT NULL OR d.file_key IS NOT NULL) AS has_file, d.mime, d.bytes,
             d.partner, d.partner_kind, d.status, d.note, d.created_at,
             st.name AS reviewer, COALESCE(NULLIF(s.name, ''), a.name) AS shop_name, s.slug AS shop_slug, a.email AS shop_email
-       FROM documents d JOIN accounts a ON a.id = d.account_id LEFT JOIN shops s ON s.account_id = d.account_id
+       FROM (SELECT *, row_number() OVER (PARTITION BY account_id, kind ORDER BY created_at, id)::int AS seq FROM documents) d
+       JOIN accounts a ON a.id = d.account_id LEFT JOIN shops s ON s.account_id = d.account_id
        LEFT JOIN staff st ON st.id = d.reviewed_by
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY d.created_at DESC, d.id DESC LIMIT 200`,
@@ -45,6 +46,8 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
       shopSlug: r.shop_slug ?? null,
       shopEmail: r.shop_email,
       kind: r.kind,
+      /* this store's first, second... document of this kind, for the card's title ("Proof of delivery #001") */
+      seq: r.seq,
       name: r.name,
       partner: r.partner ?? "",
       partnerKind: r.partner_kind ?? null,
