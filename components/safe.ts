@@ -446,13 +446,14 @@ export const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
 
 /* Names a store may not take: they belong to the platform, or could be mistaken for it. Every store lives at Dukkan's
    address followed by its name (app/[slug]), so each page of the platform at the top of the site (each folder in app/)
-   must be listed here: that page always wins, so a store with its name could never be reached. A page added later goes
-   here too ("store-link" came after stores could already choose it, so it is kept in RESERVED_FOR_NEW below). */
+   must be listed here or in PAGES_ADDED_LATER below: that page always wins, so a store with its name could never be
+   reached. A page added once stores could already choose names goes in PAGES_ADDED_LATER, never here: a name here is
+   cleared from a setup that already holds it (isSlug), which would erase that store's link. */
 export const RESERVED_SLUGS = new Set([
-  "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "cdn", "checkout", "dashboard", "delivery", "demo",
-  "design", "dev", "diwan", "docs", "domain", "dukkan", "from-dukkan", "help", "home", "login", "logout", "mail", "marketing",
-  "media", "new", "null", "onboarding", "orders", "pages", "preview", "products", "register", "reports", "root", "seen",
-  "settings", "shop", "signin", "signup", "staff", "static", "status", "store", "support", "suspended", "system", "test",
+  "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "cdn", "checkout", "dashboard", "demo",
+  "design", "dev", "docs", "domain", "dukkan", "help", "home", "login", "logout", "mail", "marketing",
+  "new", "null", "onboarding", "orders", "pages", "preview", "products", "register", "reports", "root", "seen",
+  "settings", "shop", "signin", "signup", "staff", "static", "status", "store", "support", "system", "test",
   "themes", "undefined", "www",
 ]);
 
@@ -463,10 +464,25 @@ export function typedSlug(s: unknown): string {
 
 export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG_RULE.test(s) && !RESERVED_SLUGS.has(s);
 
+/* Pages of the platform added at the top of the site after stores could already choose names. Nobody can choose one
+   from now on, but a store that took one before keeps it in its setup (it is never erased) and is asked on its Store link
+   page to choose another, since the platform's page wins at that address. */
+const PAGES_ADDED_LATER = ["store-link", "delivery", "diwan", "from-dukkan", "media", "suspended"];
+
+/** A name that is one of the platform's own pages at the top of the site (each folder in app/), not a store's address */
+export const isPlatformPage = (name: string): boolean => RESERVED_SLUGS.has(name) || PAGES_ADDED_LATER.includes(name);
+
+/** The address of a page is where a store would be: one part that could be a store's link and is no page of the
+    platform's (app/[slug]). Such pages belong to the visitor, not to the signed-in merchant. */
+export function isStoreAddress(pathname: string): boolean {
+  const name = pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+  return SLUG_RULE.test(name) && !isPlatformPage(name);
+}
+
 /* Names reserved later, for new choices only: a store that already took one keeps it (saved setups are read with isSlug,
-   so its link never disappears), but nobody can choose it from now on. "store-link" became a merchant page; "your-store"
-   is the example address the site shows everywhere (and the tour's sample store), so no real store may own it. */
-const RESERVED_FOR_NEW = new Set(["store-link", "your-store", "yourstore"]);
+   so its link never disappears), but nobody can choose it from now on. The later pages above, and "your-store": the
+   example address the site shows everywhere (and the tour's sample store), so no real store may own it. */
+const RESERVED_FOR_NEW = new Set([...PAGES_ADDED_LATER, "your-store", "yourstore"]);
 /* Rude words a store link may not hold, in English and in Arabic written in Latin letters (Arabic letters can't be typed
    at all: a link is English letters, digits and dashes). Long words are found anywhere in the link, dashes ignored
    ("my-fuck-shop", "sharmoota"); short ones only as a whole part between dashes, so "glass" or "sussex" stay allowed. */

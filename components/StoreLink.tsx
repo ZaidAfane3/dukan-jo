@@ -5,7 +5,7 @@ import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
-import { isNewSlug, isSlug, reservedForNew, SLUG_RULE, typedSlug } from "./safe";
+import { isNewSlug, isPlatformPage, isSlug, reservedForNew, SLUG_RULE, typedSlug } from "./safe";
 import { reservedSlugError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { merchantCall, onServer } from "./merchantApi";
@@ -36,6 +36,7 @@ const copy = {
     setup: "Choose link",
     shareTitle: "My store",
     open: "Open my store",
+    pageNow: "This link is now one of Dukkan's own pages, so visitors can't reach your store at it. Choose another link.",
   },
   ar: {
     title: "رابط المتجر",
@@ -54,6 +55,7 @@ const copy = {
     setup: "اختيار الرابط",
     shareTitle: "متجري",
     open: "افتح متجري",
+    pageNow: "أصبح هذا الرابط صفحة من صفحات دكان، لذلك لا يصل الزوار إلى متجرك من خلاله. اختر رابطًا آخر.",
   },
 };
 
@@ -161,6 +163,8 @@ export function StoreLink() {
             )}
           </div>
 
+          {/* a link taken before it became a page of the platform (safe.ts PAGES_ADDED_LATER): kept, but it can't be reached */}
+          {ready && slug && !editing && isPlatformPage(slug) && <p className="mt-4 rounded-xl bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-700 dark:text-amber-300">{c.pageNow}</p>}
           {!ready ? null : !slug ? (
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-soft px-5 py-5">
               <p className="text-sm text-muted">{c.noSlug}</p>

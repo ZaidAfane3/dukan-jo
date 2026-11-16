@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { syncOnOpen } from "./accounts";
 import { isStaffPage } from "./diwan/nav";
+import { isStoreAddress } from "./safe";
 import { demoActive, endDemo, installAccounts, installDemoIfActive, reseedDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
 import { SaveNotice } from "./SaveNotice";
@@ -77,9 +78,13 @@ const end = "rounded-lg border border-white/30 px-3.5 py-1.5 text-xs font-semibo
 /* Switches the browser's storage to the tour's made-up copy (see demoSandbox.ts) before any page
    reads its data. It sits first in the layout. On pages without a dashboard header it also shows
    a small floating bar. */
+/* Diwan and the starter template designer are staff pages, and a store at its address (app/[slug]) belongs to its
+   visitors: none of them has the tour, the signed-in merchant's storage, or the session check that could send a visitor
+   to sign up or to the suspended page while they only look at someone else's store */
+const notMerchantPage = () => isStaffPage(window.location.pathname, window.location.search) || isStoreAddress(window.location.pathname);
+
 export function DemoBoot() {
-  /* Diwan and the starter template designer are staff pages: no tour, no merchant storage, no sync there */
-  const staff = typeof window !== "undefined" && isStaffPage(window.location.pathname, window.location.search);
+  const staff = typeof window !== "undefined" && notMerchantPage();
   if (typeof window !== "undefined" && !staff) {
     installDemoIfActive();
     /* each account's own store (not while the tour runs) */
@@ -88,7 +93,7 @@ export function DemoBoot() {
   const { on, lang, w } = useTour();
   useFormLock(on && !staff, lang);
   /* a signed-in account: check its session and bring in its store from the server (accounts.ts) */
-  useEffect(() => void (isStaffPage(window.location.pathname, window.location.search) || syncOnOpen()), []);
+  useEffect(() => void (notMerchantPage() || syncOnOpen()), []);
   /* In the store designer the bar sits higher, so it does not cover the zoom controls at the bottom of the canvas */
   const inDesigner = (usePathname() ?? "").startsWith("/design");
   if (staff) return null;
