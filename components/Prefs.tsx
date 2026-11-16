@@ -232,12 +232,37 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  /* Switch between light and dark as one smooth fade of the whole page. Many parts of the page have their own colour
+     transitions (some short, some long, some none), so letting each one change by itself left the page half light and
+     half dark for a moment. While the theme switches, those transitions are turned off (html[data-theme-switching] in
+     globals.css): every colour changes at once, and the browser crossfades a picture of the old page into the new one.
+     Browsers without that crossfade, and visitors who asked for less motion, get the new colours at once. */
+  const themeSwitches = useRef(0);
   const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const next = prev === "dark" ? "light" : "dark";
-      safeSet("seen-theme", next);
-      return next;
-    });
+    const root = document.documentElement;
+    const next: Theme = root.dataset.theme === "dark" ? "light" : "dark";
+    safeSet("seen-theme", next);
+
+    const turn = ++themeSwitches.current;
+    root.dataset.themeSwitching = "";
+    const apply = () => {
+      root.dataset.theme = next;
+      flushSync(() => setTheme(next));
+    };
+    /* Only the latest switch puts the transitions back, so pressing twice quickly never leaves them off or on too early */
+    const done = () => {
+      if (turn === themeSwitches.current) delete root.dataset.themeSwitching;
+    };
+
+    const doc = document as Document & { startViewTransition?: (update: () => void) => { finished: Promise<void> } };
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (typeof doc.startViewTransition === "function" && !reduced) {
+      doc.startViewTransition(apply).finished.then(done, done);
+      return;
+    }
+    apply();
+    /* The page takes its new colours in the next frame with the transitions still off, and only then are they put back */
+    requestAnimationFrame(() => requestAnimationFrame(done));
   }, []);
 
   return (
