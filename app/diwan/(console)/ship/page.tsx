@@ -64,9 +64,11 @@ function ChangedLine({ d }: { d: Data }) {
 }
 
 /** Saves only the part of the Dukkan Ship setting one card changes; the server merges it into what is saved now, so
-    another card's save never undoes it. Resolves to "" when saved, or what went wrong. */
-async function saveShip(_d: Data, part: Partial<DukkanShip>, reason = ""): Promise<string> {
+    another card's save never undoes it. Resolves to "" when saved, or what went wrong; `kept` gets the whole value
+    the server saved (after its own clean-up, e.g. a city written twice kept once). */
+async function saveShip(_d: Data, part: Partial<DukkanShip>, reason = "", kept?: (v: DukkanShip) => void): Promise<string> {
   const r = await send("/api/diwan/settings", "PUT", { key: "dukkan_ship", part, reason });
+  if (r.ok && r.data?.value) kept?.(r.data.value as DukkanShip);
   return r.ok ? "" : r.status === 400 ? "invalid" : "failed";
 }
 
@@ -229,9 +231,10 @@ const filled = (l: Bi[]) => l.filter((x) => x.en.trim() || x.ar.trim());
 
 function useSave(d: Data, onSaved: () => void) {
   const [state, setState] = useState<"idle" | "busy" | "saved" | "bad">("idle");
-  const save = async (part: Partial<DukkanShip>) => {
+  /* `kept`: the card shows what the server really saved, not what was typed */
+  const save = async (part: Partial<DukkanShip>, kept?: (v: DukkanShip) => void) => {
     setState("busy");
-    const why = await saveShip(d, part);
+    const why = await saveShip(d, part, "", kept);
     if (why) return setState("bad");
     setState("saved");
     setTimeout(() => setState((x) => (x === "saved" ? "idle" : x)), 2500);
@@ -271,7 +274,7 @@ function Cities({ d, onSaved }: { d: Data; onSaved: () => void }) {
         <p className="mb-2 text-sm font-medium">{t("Edit the list (English, Arabic)", "تعديل القائمة (إنجليزي، عربي)")}</p>
         <BiRows name={t("City", "مدينة")} rows={rows} setRows={setRows} max={LIMITS.city} maxRows={LIMITS.shipCities} add={t("+ Add a city", "+ إضافة مدينة")} />
       </div>
-      <SaveRow d={d} state={s.state} onSave={() => { setRows(filled(rows)); void s.save({ cities: filled(rows) }); }} />
+      <SaveRow d={d} state={s.state} onSave={() => void s.save({ cities: filled(rows) }, (v) => setRows(v.cities))} />
     </section>
   );
 }
@@ -292,7 +295,7 @@ function Words({ d, onSaved }: { d: Data; onSaved: () => void }) {
       </div>
       <p className="mb-2 mt-4 text-sm font-medium">{t("What it includes (English, Arabic)", "ما تشمله (إنجليزي، عربي)")}</p>
       <BiRows name={t("Point", "ميزة")} rows={features} setRows={setFeatures} max={LIMITS.shipFeature} maxRows={LIMITS.shipFeatures} add={t("+ Add a point", "+ إضافة ميزة")} />
-      <SaveRow d={d} state={s.state} onSave={() => { setFeatures(filled(features)); void s.save({ policy, features: filled(features) }); }} />
+      <SaveRow d={d} state={s.state} onSave={() => void s.save({ policy, features: filled(features) }, (v) => { setPolicy(v.policy); setFeatures(v.features); })} />
     </section>
   );
 }
