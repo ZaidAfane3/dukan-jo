@@ -310,6 +310,12 @@ export const DIWAN_SCHEMA = `
      delivery partner a courier proof is for (the name sealed; kind 0 a shipping company, 1 a person), as the merchant
      named them when the file was sent. Rows from before have no file (data IS NULL). */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS data BYTEA;
+  /* A document's address in every link (its file, its review): a random code of 32 letters and digits, never the
+     counting number, so no one can find a document by trying the next number. Older rows get one here. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS public_id TEXT;
+  ALTER TABLE documents ALTER COLUMN public_id SET DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+  UPDATE documents SET public_id = replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') WHERE public_id IS NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS documents_public_id ON documents (public_id);
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS mime TEXT;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS bytes INTEGER;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner TEXT NOT NULL DEFAULT '';

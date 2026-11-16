@@ -8,6 +8,6 @@ export const dynamic = "force-dynamic";
 export const DELETE = documentsRoute(async (_req, me, ctx) => {
   const id = documentId(ctx.params.id);
   if (!id) return answer({ result: "none" }, 404);
-  const { rowCount } = await (await db()).query(`DELETE FROM documents WHERE id = $1 AND account_id = $2 AND kind = ANY($3::text[])`, [id, me.id, MERCHANT_KINDS]);
+  const { rowCount } = await (await db()).query(`DELETE FROM documents WHERE public_id = $1 AND account_id = $2 AND kind = ANY($3::text[])`, [id, me.id, MERCHANT_KINDS]);
   return rowCount ? answer({ result: "ok" }) : answer({ result: "none" }, 404);
 });
