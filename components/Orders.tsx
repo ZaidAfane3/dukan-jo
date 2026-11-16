@@ -132,8 +132,10 @@ export function Orders() {
         let url = "/api/orders";
         let j: { orders?: unknown; rev?: unknown; next?: unknown; total?: unknown } = {};
         /* the newest page, then older pages until they reach the orders already here, so no order between them is
-           missed even when more than a page arrived while the tab was hidden (at most 20 pages a check) */
-        for (let page = 0; page < 20; page++) {
+           missed even when more than a page arrived while the tab was hidden. After 20 pages (2,000 new orders) the
+           list starts again from what was just read, and "Load more" goes on from there, so it never has a hole */
+        const fetched: Row[] = [];
+        for (let page = 0; ; page++) {
           const r = await fetch(url, { credentials: "same-origin", cache: "no-store" });
           if (!r.ok || stop) return;
           const got = (await r.json()) as typeof j;
@@ -143,6 +145,14 @@ export function Orders() {
           const first = !loaded;
           const meets = rows.some((x) => !!x.serverId && known.has(x.serverId));
           rows.forEach((x) => x.serverId && known.add(x.serverId));
+          fetched.push(...rows);
+          if (!first && !meets && typeof got.next === "string" && page === 19) {
+            known.clear();
+            fetched.forEach((x) => x.serverId && known.add(x.serverId));
+            setServerOrders(fetched.slice());
+            setCursor(got.next);
+            break;
+          }
           setServerOrders((list) => upsert(list, rows));
           /* where the older pages start: taken from the first answer only (the pages loaded after go on from their own) */
           if (first) setCursor((c) => (c === undefined ? (typeof got.next === "string" ? got.next : null) : c));
