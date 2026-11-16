@@ -16,11 +16,11 @@ export function MaintenancePage({ lang, name, logo, color, message, owner = fals
   const w = words[lang];
   const initial = name.trim().charAt(0) || "·";
   return (
-    <div dir={lang === "ar" ? "rtl" : "ltr"} className="flex min-h-screen flex-col bg-[#f6f5f2] text-[#12262b]">
+    <div dir={lang === "ar" ? "rtl" : "ltr"} className="flex min-h-screen flex-col bg-[#f6f5f2] text-brand-ink">
       {owner && (
-        <div role="status" className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 bg-[#00323b] px-4 py-2.5 text-center text-sm text-white">
+        <div role="status" className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 bg-brand-dark px-4 py-2.5 text-center text-sm text-white">
           <span>{w.owner}</span>
-          <Link href="/dashboard" className="rounded-lg bg-[#5fd9c4] px-3 py-1 text-xs font-bold text-[#00323b] transition hover:bg-[#8be8d6]">{w.reopen}</Link>
+          <Link href="/dashboard" className="rounded-lg bg-brand-light px-3 py-1 text-xs font-bold text-brand-dark transition hover:bg-brand-pale">{w.reopen}</Link>
         </div>
       )}
       <main className="grid flex-1 place-items-center px-5 py-16">
@@ -33,7 +33,7 @@ export function MaintenancePage({ lang, name, logo, color, message, owner = fals
           )}
           {name.trim() && <p className="mt-4 text-lg font-extrabold"><bdi>{name}</bdi></p>}
           <h1 className="mt-8 text-3xl font-extrabold tracking-tight sm:text-4xl">{d.title}</h1>
-          <p className="mx-auto mt-3 max-w-sm whitespace-pre-line leading-relaxed text-[#12262b]/70">{message.trim() || d.message}</p>
+          <p className="mx-auto mt-3 max-w-sm whitespace-pre-line leading-relaxed text-brand-ink/70">{message.trim() || d.message}</p>
           <span aria-hidden className="mx-auto mt-8 block h-1 w-16 rounded-full" style={{ background: color }} />
         </div>
       </main>

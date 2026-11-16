@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { dateLocale } from "../content";
 import { usePrefs } from "../Prefs";
 import { ArchOutline, type IconName } from "./icons";
@@ -251,6 +251,71 @@ export function Loaded<T>({ s, children }: { s: ApiState<T>; children: (d: T) =>
       </div>
     );
   return <>{children(s.data)}</>;
+}
+
+/* ---------------- long lists: "Load more" instead of pages ---------------- */
+
+export type MoreState<T> = ApiState<T> & { more: () => void; hasMore: boolean; moreLoading: boolean; moreFailed: boolean };
+
+/** A list that grows: the first batch from `url`, then each "Load more" asks for the next one (nextOf gives its query,
+    `page=2` or `before=123`, or null when there is no more) and adds its rows below the ones shown, so the page stays
+    where it is. New filters or a reload start again from the first batch. data.rows is every row loaded so far; the
+    rest of data comes from the newest batch. */
+export function useMore<T extends { rows: unknown[] }>(url: string | null, nextOf: (d: T, loaded: number) => string | null): MoreState<T> {
+  const first = useApi<T>(url);
+  /* the batches after the first, kept only while the first batch they follow is the one shown */
+  const [extra, setExtra] = useState<{ base: T | null; rows: T["rows"]; last: T | null; loaded: number }>({ base: null, rows: [], last: null, loaded: 1 });
+  const [moreLoading, setMoreLoading] = useState(false);
+  const [moreFailed, setMoreFailed] = useState(false);
+  const fresh = !!first.data && extra.base === first.data;
+  const last = fresh && extra.last ? extra.last : first.data;
+  const loaded = fresh ? extra.loaded : 1;
+  const data = useMemo(
+    () => (first.data && last ? ({ ...last, rows: [...first.data.rows, ...(fresh ? extra.rows : [])] } as T) : null),
+    [first.data, last, fresh, extra.rows],
+  );
+  const next = last ? nextOf(last, loaded) : null;
+  const more = () => {
+    const base = first.data;
+    if (!url || !base || !next || moreLoading) return;
+    setMoreLoading(true);
+    setMoreFailed(false);
+    fetch(`${url}${url.includes("?") ? "&" : "?"}${next}`, { credentials: "same-origin", cache: "no-store" })
+      .then(async (r) => {
+        if (r.status === 401) {
+          window.location.href = "/diwan/login";
+          return;
+        }
+        const j = (await r.json().catch(() => null)) as T | null;
+        if (!r.ok || !j?.rows) return setMoreFailed(true);
+        setExtra((e) => {
+          const prev = e.base === base ? e : { base, rows: [] as T["rows"], last: null, loaded: 1 };
+          return { base, rows: [...prev.rows, ...j.rows] as T["rows"], last: j, loaded: prev.loaded + 1 };
+        });
+      })
+      .catch(() => setMoreFailed(true))
+      .finally(() => setMoreLoading(false));
+  };
+  return { ...first, data, more, hasMore: !!next, moreLoading, moreFailed };
+}
+
+/** The button under a growing list, and how many are shown of how many */
+export function LoadMore({ s, total }: { s: MoreState<{ rows: unknown[] }>; total?: number }) {
+  const t = useT();
+  const f = useFmt();
+  const shown = s.data?.rows.length ?? 0;
+  if (!shown) return null;
+  return (
+    <div className="mt-5 flex flex-col items-center gap-2 text-sm">
+      {total != null && <p className="text-xs text-muted">{t(`Showing ${f.num(shown)} of ${f.num(total)}`, `يظهر ${f.num(shown)} من ${f.num(total)}`)}</p>}
+      {s.hasMore && (
+        <Btn kind="ghost" onClick={s.more} disabled={s.moreLoading}>
+          {s.moreLoading ? t("Loading…", "جارٍ التحميل…") : t("Load more", "عرض المزيد")}
+        </Btn>
+      )}
+      {s.moreFailed && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{t("Couldn't load more. Try again.", "تعذّر تحميل المزيد. حاول مجددًا.")}</p>}
+    </div>
+  );
 }
 
 /** Downloads rows as a CSV file (Excel-friendly: UTF-8 with BOM so Arabic shows correctly) */

@@ -1,4 +1,4 @@
-import { content, dateLocale, type Lang } from "./content";
+import { content, type Lang } from "./content";
 import { demoActive, signedInAs } from "./demoSandbox";
 import { bounceIfSuspended } from "./suspended";
 
@@ -11,9 +11,10 @@ import { bounceIfSuspended } from "./suspended";
      server. Their ids start with "s:". */
 
 export type LocalKind = "taskDone" | "couponCreated" | "reminderSent" | "ticketCreated" | "orderCreated";
+/* supportViewed is no longer sent ("Log in as merchant" was removed on 2026-11-16); kept so older messages still read */
 export type ServerKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "planChanged" | "paymentReceived" | "supportViewed" | "announcement";
+  | "paymentReceived" | "supportViewed" | "announcement" | "orderPlaced";
 export type NotificationKind = LocalKind | ServerKind;
 
 /** Which filter tab a notification belongs to (matches the tab order in content.ts). */
@@ -28,8 +29,8 @@ export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
   documentStatus: 1,
   shopSuspended: 1,
   shopReactivated: 1,
-  planChanged: 4, /* Payments */
-  paymentReceived: 4,
+  paymentReceived: 4, /* Payments */
+  orderPlaced: 1, /* a customer's order on the public store */
   supportViewed: 1,
   announcement: 1,
 };
@@ -57,7 +58,7 @@ function localList(): AppNotification[] {
 
 /* ---------------- from the server ---------------- */
 
-const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "planChanged", "paymentReceived", "supportViewed", "announcement"]);
+const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "paymentReceived", "supportViewed", "announcement", "orderPlaced"]);
 let serverList: AppNotification[] = [];
 let loading: Promise<void> | null = null;
 
@@ -168,6 +169,8 @@ export function onNotificationsChange(callback: () => void): () => void {
 /** Where clicking a notification takes the merchant, if anywhere */
 export function notificationLink(item: AppNotification): string | null {
   if ((item.kind === "ticketReplied" || item.kind === "ticketStatus") && /^\d+$/.test(item.params.number ?? "")) return `/support?ticket=${item.params.number}`;
+  /* an order a customer placed on the public store: the Orders page opens it */
+  if (item.kind === "orderPlaced" && /^\d+$/.test(item.params.number ?? "")) return `/orders?open=${item.params.number}`;
   return null;
 }
 
@@ -191,16 +194,12 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
       return fill(w.shopSuspended, { reason: p.reason ? `${w.sep}${p.reason}` : "" });
     case "shopReactivated":
       return w.shopReactivated;
-    case "planChanged": {
-      const d = p.ends ? new Date(/^\d+$/.test(p.ends) ? Number(p.ends) : p.ends) : null;
-      const ends = d && !Number.isNaN(d.getTime()) ? w.until.replace("{date}", new Intl.DateTimeFormat(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" }).format(d)) : "";
-      /* the plan's name comes in both languages (planAr from server/shopActions.ts) */
-      return fill(w.planChanged, { ends, plan: (lang === "ar" && p.planAr) || p.plan || "" });
-    }
     case "paymentReceived":
       return fill(w.paymentReceived, { method: w.methods[p.method as keyof typeof w.methods] ?? p.method ?? "" });
     case "supportViewed":
       return w.supportViewed;
+    case "orderPlaced":
+      return fill(w.orderPlaced);
     default:
       return "";
   }

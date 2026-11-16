@@ -19,7 +19,7 @@ const pages = [
   { href: "/marketing/coupons", en: "Coupons", ar: "الكوبونات", kw: "coupon discount code free shipping marketing خصم كود تسويق" },
   { href: "/marketing/repurchase", en: "Repurchase reminders", ar: "تذكيرات إعادة الشراء", kw: "repurchase buy again reminder marketing تسويق" },
   { href: "/reports", en: "Store performance", ar: "أداء المتجر", kw: "reports analytics visits payments sales customers تقارير مدفوعات زيارات" },
-  { href: "/store-link", en: "Store link", ar: "رابط المتجر", kw: "link address url dukkan.store domain رابط عنوان المتجر" },
+  { href: "/store-link", en: "Store link", ar: "رابط المتجر", kw: "link address url domain رابط عنوان المتجر" },
   { href: "/themes", en: "Theme store", ar: "متجر الثيمات", kw: "themes templates buy store design ثيمات قوالب شراء تصميم" },
   { href: "/themes/mine", en: "My themes", ar: "ثيماتي", kw: "my themes bought owned ثيماتي ثيمات مشتريات" },
   { href: "/design", en: "Store design", ar: "تصميم المتجر", kw: "design theme storefront colors header footer sections editor تصميم ثيم ألوان واجهة المتجر" },

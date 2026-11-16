@@ -18,7 +18,9 @@ import { RudeNote } from "../RudeNote";
 import { digitsOnlyError, isJordanNumber, numberError, typedAnyPhone, typedPhone } from "../phone";
 import { PicNoteLine } from "./PicNoteLine";
 import { countDiscounted, readProducts, storeCategories } from "../storefront/useStoreData";
-import { deleteMedia, putMedia, setLiveMedia, useMediaUrl } from "../storefront/mediaStore";
+import { deleteMedia, getMedia, putMedia, setLiveMedia, useMediaUrl } from "../storefront/mediaStore";
+import { uploadImage } from "../media";
+import { onServer } from "../merchantApi";
 import { showSlide } from "../storefront/slideSignal";
 import { useSpotWhile, type Spot } from "../storefront/spotSignal";
 import { Blocked, ColorPicker, Field, input, SecondsPicker, Toggle } from "./controls";
@@ -2176,6 +2178,21 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
     fetch(url)
       .then((r) => r.blob())
       .then(async (blob) => ((await putMedia(id, blob)) ? blob.size : 0));
+  /* A signed-in store keeps its background on Dukkan's server, so its visitors (and other devices) see it: the file kept
+     in this browser (while it was cut) is sent, and the design names it by its address from then on. The copy here
+     stays, so Undo can still show it. Signed out or in the tour, it stays in this browser only, as before. If it can't
+     be sent now, the next save of the design sends it (components/media.ts picturesOutOf). */
+  const promote = async (id: string) => {
+    if (!onServer()) return;
+    const blob = await getMedia(id);
+    if (!blob) return;
+    const r = await uploadImage(blob, "background", { redraw: false });
+    if ("problem" in r) {
+      if (r.problem === "size" || r.problem === "type" || r.problem === "broken") setProblem(uploadProblemFor(r.problem, imageRules.background, lang));
+      return;
+    }
+    update((d) => (d.config.pageBackground.media === id ? { ...d, config: { ...d.config, pageBackground: { ...d.config.pageBackground, media: r.url } } } : d));
+  };
   useEffect(
     () => () => {
       /* leaving the panel while cropping keeps the last cut, which is already being saved */
@@ -2220,6 +2237,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
     setProblem("");
     if (bg.media) void deleteMedia(bg.media);
     set({ kind: isVideo ? "video" : "image", media: id, name: cleanFileName(file.name), size: media.size, pos: undefined });
+    void promote(id);
   };
 
   if (pending) {
@@ -2251,6 +2269,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
           setLiveMedia(id, null);
           if (old.media && old.media !== id) void deleteMedia(old.media);
           if (size) set({ size });
+          if (size) void promote(id);
         }}
       />
     );

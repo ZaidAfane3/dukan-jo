@@ -1,0 +1,215 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { content } from "./content";
+import { merchantCall, onServer } from "./merchantApi";
+import { checkImage, cleanFileName, imageRules, uploadProblemText } from "./safe";
+
+/* Proof for the merchant's own delivery partner (the setup's shipping step and the Delivery page). For a signed-in
+   merchant every file is sent to Dukkan's server as soon as it is picked (app/api/documents), lands in Diwan's Documents
+   queue for staff to check, and the list shows what the server holds, with the team's answer. Removing a file removes it
+   from the server too. In the platform tour, or signed out, nothing is sent: the files stay in this browser, as before. */
+
+export const MAX_PROOFS = 5;
+
+export type ProofStatus = "waiting" | "approved" | "rejected";
+/* url: a picture to show (the server's file route, or a picture still only in this browser); null for a PDF */
+export type ProofFile = { id: string; name: string; size: string; url: string | null; status?: ProofStatus; note?: string };
+
+type Words = (typeof content)["en"]["onboarding"]["shipping"];
+type ServerDoc = { id: string; kind: string; name: string; status: ProofStatus; note: string; mime: string | null; bytes: number; hasFile: boolean };
+
+export function formatSize(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/* a document from the server as a row of the list (its picture comes from the merchant's own file route) */
+const fromServer = (d: ServerDoc): ProofFile => ({
+  id: `doc-${d.id}`,
+  name: d.name,
+  size: formatSize(d.bytes),
+  url: d.hasFile && d.mime?.startsWith("image/") ? `/api/documents/${d.id}/file` : null,
+  status: d.status,
+  note: d.note,
+});
+const serverId = (f: ProofFile) => (f.id.startsWith("doc-") ? f.id.slice(4) : null);
+
+/* the file as base64, without the "data:...;base64," in front */
+const toBase64 = (file: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result);
+      resolve(s.slice(s.indexOf(",") + 1));
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+
+/** What a refused upload or removal tells the merchant */
+function refusal(status: number, result: unknown, s: Words): string {
+  if (result === "too-many") return s.proofMax;
+  if (result === "too-big" && status === 409) return s.proofFull;
+  if (status === 413) return s.proofTooBig;
+  if (result === "invalid") return s.proofType;
+  return s.proofFailed;
+}
+
+/** The partner's proofs: the list, what went wrong last, whether a file is on its way, and whether files go to the
+    server (`sends`) or stay in this browser. `initial` is what the page already holds (only used when nothing is sent). */
+export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "ar") {
+  const [proofs, setProofs] = useState<ProofFile[]>(initial);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  /* signed in, files can be added only once the server's list is here: it replaces the whole list when it comes */
+  const [ready, setReady] = useState(true);
+  /* the list as it is now, for counting while files are being added (the state seen by add() would be stale) */
+  const current = useRef(proofs);
+  current.current = proofs;
+  /* worked out after the page is drawn: whether the merchant is signed in is only known in the browser */
+  const [sends, setSends] = useState(false);
+  /* pictures kept only in this browser: let go of them when the page closes, unless the page kept them (keep()) */
+  const created = useRef<string[]>([]);
+  const kept = useRef<Set<string>>(new Set(initial.flatMap((f) => (f.url?.startsWith("blob:") ? [f.url] : []))));
+
+  useEffect(() => {
+    const urls = created.current;
+    return () => urls.forEach((u) => !kept.current.has(u) && URL.revokeObjectURL(u));
+  }, []);
+
+  /* signed in: the list is what the server holds */
+  useEffect(() => {
+    if (!onServer()) return;
+    setSends(true);
+    setReady(false);
+    let live = true;
+    merchantCall("/api/documents", "GET").then((r) => {
+      if (!live) return;
+      setReady(true);
+      if (!r || r.status !== 200 || !Array.isArray(r.data.documents)) return;
+      setProofs((r.data.documents as ServerDoc[]).filter((d) => d.kind === "courier_proof").map(fromServer));
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /** Checks and adds the picked files: images or PDF only (read from their bytes), 5 MB each, 5 in all */
+  const add = async (picked: File[], partner: { name: string; kind: number }) => {
+    if (!ready) return;
+    let message = "";
+    setBusy(true);
+    for (const file of picked) {
+      if (current.current.length >= MAX_PROOFS) {
+        message = s.proofMax;
+        break;
+      }
+      /* what the file really is, from its bytes (a renamed file is refused); the server checks again */
+      const check = await checkImage(file, imageRules.proof);
+      if ("problem" in check) {
+        message = check.problem === "type" ? s.proofType : check.problem === "size" ? s.proofTooBig : uploadProblemText[check.problem][lang];
+        continue;
+      }
+      if (sends) {
+        let data = "";
+        try {
+          data = await toBase64(file);
+        } catch {
+          message = uploadProblemText.broken[lang];
+          continue;
+        }
+        const r = await merchantCall("/api/documents", "POST", { kind: "courier_proof", data, type: file.type, name: file.name, partner: partner.name, partnerKind: partner.kind });
+        if (!r || r.status !== 200 || !r.data.document) {
+          message = r ? refusal(r.status, r.data.result, s) : s.proofFailed;
+          /* a full list won't change on the next file */
+          if (r && r.data.result === "too-many") break;
+          continue;
+        }
+        const added = fromServer(r.data.document as ServerDoc);
+        /* added to the list as it is now, so a file removed meanwhile stays removed */
+        current.current = [...current.current, added];
+        setProofs((now) => [...now, added]);
+      } else {
+        let url: string | null = null;
+        if (check.kind !== "pdf") {
+          url = URL.createObjectURL(file);
+          created.current.push(url);
+        }
+        const added = { id: `${file.name}-${file.size}-${Date.now()}-${current.current.length}`, name: cleanFileName(file.name), size: formatSize(file.size), url };
+        current.current = [...current.current, added];
+        setProofs((now) => [...now, added]);
+      }
+    }
+    setBusy(false);
+    setError(message);
+  };
+
+  /** Removes one file (from the server too, when it is there) */
+  const remove = async (f: ProofFile) => {
+    const id = serverId(f);
+    if (id) {
+      const r = await merchantCall(`/api/documents/${id}`, "DELETE");
+      /* already gone from the server counts as removed */
+      if (!r || (r.status !== 200 && r.status !== 404)) {
+        setError(r ? refusal(r.status, r.data.result, s) : s.proofFailed);
+        return;
+      }
+    }
+    setError("");
+    setProofs((list) => list.filter((x) => x.id !== f.id));
+  };
+
+  /** The page saved the list it holds: its in-browser pictures must outlive this step */
+  const keep = () => {
+    kept.current = new Set(proofs.flatMap((f) => (f.url?.startsWith("blob:") ? [f.url] : [])));
+  };
+
+  return { proofs, error, busy, ready, sends, add, remove, keep };
+}
+
+/** Tells the server who the partner is now (after the merchant saved a new name or kind), so the proofs still waiting
+    for a check show the right partner in Diwan. Nothing is sent in the tour or signed out. */
+export function syncProofPartner(name: string, kind: number) {
+  if (!onServer()) return;
+  void merchantCall("/api/documents", "PUT", { partner: name, partnerKind: kind });
+}
+
+/** The team's answer on one file, under its name */
+export function ProofStatusLine({ f, s }: { f: ProofFile; s: Words }) {
+  if (!f.status) return null;
+  const text = f.status === "approved" ? s.proofApproved : f.status === "rejected" ? s.proofRejected : s.proofWaiting;
+  const tone = f.status === "approved" ? "text-emerald-700 dark:text-emerald-300" : f.status === "rejected" ? "text-rose-600" : "text-amber-700 dark:text-amber-300";
+  return (
+    <p className={`text-xs font-semibold ${tone}`}>
+      {text}
+      {f.status === "rejected" && f.note ? <span className="font-normal">: {f.note}</span> : null}
+    </p>
+  );
+}
+
+/** The files, each with its picture (or a PDF mark), name, size, the team's answer and a Remove button */
+export function ProofRows({ proofs, s, onRemove }: { proofs: ProofFile[]; s: Words; onRemove: (f: ProofFile) => void }) {
+  if (!proofs.length) return null;
+  return (
+    <ul className="mt-4 space-y-2">
+      {proofs.map((f) => (
+        <li key={f.id} className="flex items-center gap-3 rounded-xl border border-fg/15 p-2.5">
+          {f.url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={f.url} alt="" className="h-11 w-11 rounded-lg object-cover" />
+          ) : (
+            <span className="grid h-11 w-11 place-items-center rounded-lg bg-rose-500/10 text-[11px] font-bold text-rose-600">PDF</span>
+          )}
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="truncate font-semibold">{f.name}</p>
+            <p dir="ltr" className="text-start text-xs text-muted">{f.size}</p>
+            <ProofStatusLine f={f} s={s} />
+          </div>
+          <button type="button" onClick={() => onRemove(f)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
+            {s.remove}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}

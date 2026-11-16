@@ -6,8 +6,8 @@
 
 import { STATUS_KEYS, defaultInvoice, type InvoiceSettings, type StatusKey } from "./ordersContent";
 import { latin } from "./digits";
-import { cleanCount, cleanDate, cleanLine, cleanLines, cleanMoney, safeColor, safeImage, visibleLength } from "./safe";
-import { isKnownCity, isUnlimited, kindHasSizes, productKind, productSizes, visitorEmail, type ProductKind, type SizeStock } from "./safeOrder";
+import { cleanCount, cleanDate, cleanLine, cleanLines, cleanMoney, isMediaUrl, safeColor, safeImage, visibleLength } from "./safe";
+import { isKnownCity, isUnlimited, kindHasSizes, productKind, productSizes, soldOnline, visitorEmail, type ProductKind, type SizeStock } from "./safeOrder";
 
 /* ============================== shared ============================== */
 
@@ -50,10 +50,11 @@ export function time(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 946_684_800_000 && v <= 4_102_444_800_000 ? Math.trunc(v) : fallback;
 }
 
-/** A picture kept with a record: picture data, or a picture file of the site itself (the demo store's photos). */
+/** A picture kept with a record: picture data, a picture kept on Dukkan's server (/media/..., server/media.ts), or a
+    picture file of the site itself (the demo store's photos). */
 export function picture(v: unknown): string {
   if (typeof v !== "string") return "";
-  if (safeImage(v)) return v;
+  if (safeImage(v) || isMediaUrl(v)) return v;
   return /^\/[a-z0-9_-]+(\/[a-z0-9_-]+)*\/[a-z0-9_.-]+\.(jpe?g|png|webp|gif)$/i.test(v) && !v.includes("..") ? v : "";
 }
 
@@ -123,6 +124,9 @@ export type Product = {
   restockBy?: SendBy;
   created: number;
   deletedAt?: number;
+  /* How many the public store sold online, per size ("" without sizes): kept as it is, so the server can tell how many
+     orders his copy has not seen yet (safeOrder.ts SOLD_ONLINE) */
+  soldOnline?: Record<string, number>;
 };
 
 /** The limits of each product field, shared by the form and the checks. */
@@ -192,6 +196,7 @@ export function cleanProduct(x: Record<string, unknown>): Product | null {
     restockBy: oneOf(x.restockBy, SEND_BY, "both"),
     created: time(x.created, 0),
     ...(x.deletedAt !== undefined && x.deletedAt !== null ? { deletedAt: time(x.deletedAt, Date.now()) } : {}),
+    ...(Object.keys(soldOnline(x.soldOnline)).length ? { soldOnline: soldOnline(x.soldOnline) } : {}),
   };
 }
 
@@ -303,6 +308,9 @@ export type Coupon = {
   limit: number; /* 0 = unlimited */
   validDays: number; /* only for next-order coupons */
   used: number;
+  /* How many of those uses were orders on the public store, counted by the server: kept as it is, so a save of an older
+     copy of the coupons gets the uses it has not seen added again (mergeUsedOnline) */
+  usedOnline?: number;
   active: boolean;
 };
 
@@ -369,6 +377,36 @@ export function checkCoupon(code: unknown, coupons: Coupon[], subtotal: number, 
   return { ok: true, coupon: c, discount: Math.round(Math.min(subtotal, Math.max(0, off)) * 1000) / 1000, freeDelivery: c.kind === "shipping" };
 }
 
+/** The saved coupons after an order used one: that code counts one more use (its limit is checked against this).
+    Every other part of each coupon is kept exactly as saved. Used by the merchant's preview (Cart.tsx) and the server
+    (server/storeOrders.ts). */
+export function countCouponUse(list: unknown[], code: string, o: { online?: boolean } = {}): unknown[] {
+  const typed = code.toUpperCase();
+  return list.map((c) => {
+    if (!c || typeof c !== "object" || Array.isArray(c)) return c;
+    const x = c as Record<string, unknown>;
+    if (typeof x.code !== "string" || x.code.toUpperCase() !== typed) return x;
+    const used = (typeof x.used === "number" && x.used >= 0 ? x.used : 0) + 1;
+    /* an order on the public store also counts as an online use (see mergeUsedOnline) */
+    return o.online ? { ...x, used, usedOnline: count(x.usedOnline) + 1 } : { ...x, used };
+  });
+}
+
+/** The merchant's coupons as he saves them (`incoming`), with the online uses his copy has not seen yet added to their
+    count, from the coupons as the server has them (`stored`), matched by their id. Every other part is kept. */
+export function mergeUsedOnline(incoming: unknown[], stored: unknown[]): unknown[] {
+  const server = new Map<string, number>();
+  for (const s of stored) if (s && typeof s === "object" && typeof (s as Record<string, unknown>).id === "string") server.set((s as Record<string, unknown>).id as string, count((s as Record<string, unknown>).usedOnline));
+  return incoming.map((c) => {
+    if (!c || typeof c !== "object" || Array.isArray(c)) return c;
+    const x = c as Record<string, unknown>;
+    const known = typeof x.id === "string" ? server.get(x.id) ?? 0 : 0;
+    const mine = count(x.usedOnline);
+    if (known <= mine) return x;
+    return { ...x, used: count(x.used) + (known - mine), usedOnline: known };
+  });
+}
+
 const KINDS: readonly CouponKind[] = ["percent", "fixed", "shipping"];
 
 export function cleanCoupon(x: Record<string, unknown>): Coupon | null {
@@ -391,6 +429,7 @@ export function cleanCoupon(x: Record<string, unknown>): Coupon | null {
     limit: count(x.limit),
     validDays: type === 3 ? count(x.validDays, 30, 365, 1) : 0,
     used: count(x.used),
+    ...(count(x.usedOnline) > 0 ? { usedOnline: count(x.usedOnline) } : {}),
     active: x.active !== false,
   };
 }

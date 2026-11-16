@@ -24,7 +24,7 @@ type Row = {
   color: string;
 };
 
-const SWATCHES = ["#73e7cb", "#96edd9", "#348d9c", "#d9c9b5", "#4a9e8a", "#c1fdf6", "#e0806e", "#5b8dd6"];
+const SWATCHES = ["#ffaa63", "#ffb270", "#e67726", "#d9c9b5", "#c4621c", "#ffe3c4", "#e0806e", "#5b8dd6"];
 
 export function AbandonedCarts() {
   const { lang } = usePrefs();

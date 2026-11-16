@@ -8,7 +8,8 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS login_count   INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ NOT NULL DEFAULT now();
-  /* set when a staff member opened this session with "Log in as merchant" (impersonations.id) */
+  /* set when a staff member opened this session with "Log in as merchant" (impersonations.id). Unused since 2026-11-16,
+     when that was removed: no new session gets it, and server/auth.ts never accepts a session that has it. */
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS impersonation_id BIGINT;
 
   /* ---------- staff ---------- */
@@ -85,7 +86,10 @@ export const DIWAN_SCHEMA = `
   /* a store link belongs to one shop only */
   CREATE UNIQUE INDEX IF NOT EXISTS shops_slug ON shops (lower(slug)) WHERE slug IS NOT NULL AND slug <> '';
 
-  /* ---------- plans, subscriptions, payments ---------- */
+  /* ---------- plans, subscriptions, payments ----------
+     The plans and subscriptions tables are unused since 2026-11-16: Dukkan has no plans and no free trial, so nothing
+     reads or writes them any more (and a new database no longer gets the 'trial' plan row). They are left in place with
+     their rows, rather than dropped, so no history is lost; payments.subscription_id stays empty for new payments. */
   CREATE TABLE IF NOT EXISTS plans (
     id            BIGSERIAL PRIMARY KEY,
     key           TEXT NOT NULL UNIQUE,
@@ -99,7 +103,6 @@ export const DIWAN_SCHEMA = `
     active        BOOLEAN NOT NULL DEFAULT true,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  INSERT INTO plans (key, name_en, name_ar) VALUES ('trial', 'Trial', 'تجريبية') ON CONFLICT (key) DO NOTHING;
 
   CREATE TABLE IF NOT EXISTS subscriptions (
     id         BIGSERIAL PRIMARY KEY,
@@ -130,6 +133,7 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS payments_account ON payments (account_id, paid_on DESC);
 
   /* ---------- log in as merchant ---------- */
+  /* Unused since 2026-11-16, when "Log in as merchant" was removed: no new rows are written. Kept with its old rows. */
   CREATE TABLE IF NOT EXISTS impersonations (
     id         BIGSERIAL PRIMARY KEY,
     staff_id   BIGINT NOT NULL REFERENCES staff (id),
@@ -194,9 +198,71 @@ export const DIWAN_SCHEMA = `
     UNIQUE (account_id, order_id)
   );
 
+  /* ---------- orders placed by customers on a store's public page (app/[slug]) ----------
+     server/storeOrders.ts writes them. number counts per shop and goes on from the shop's own orders (it is what the
+     customer and the merchant see). The customer's details are sealed (server/crypto.ts); items are the products as
+     priced by the server (id, name, qty, price, size, image). No payment is taken yet: payment_status is 'test'.
+     stock_taken: the order took its products out of the shop's saved stock, so a merchant's save made before he saw
+     the order gets it taken again (server/storeOrders.ts mergeOnlineSales). */
+  CREATE TABLE IF NOT EXISTS store_orders (
+    id               BIGSERIAL PRIMARY KEY,
+    account_id       BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    number           INTEGER NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status           TEXT NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'review', 'processing', 'shipping', 'delivered', 'cancelled', 'refunded')),
+    items            JSONB NOT NULL DEFAULT '[]',
+    subtotal         NUMERIC(12, 3) NOT NULL,
+    discount         NUMERIC(12, 3) NOT NULL DEFAULT 0,
+    delivery_fee     NUMERIC(12, 3) NOT NULL DEFAULT 0,
+    total            NUMERIC(12, 3) NOT NULL,
+    coupon           TEXT,
+    fulfil           TEXT NOT NULL DEFAULT 'delivery' CHECK (fulfil IN ('delivery', 'pickup')),
+    customer_name    TEXT NOT NULL,
+    customer_phone   TEXT,
+    customer_email   TEXT,
+    city             TEXT,
+    address          TEXT,
+    notes            TEXT,
+    payment_method   TEXT NOT NULL CHECK (payment_method IN ('cliq', 'cash', 'card')),
+    payment_status   TEXT NOT NULL DEFAULT 'test' CHECK (payment_status IN ('unpaid', 'test')),
+    source           TEXT NOT NULL DEFAULT 'storefront' CHECK (source IN ('storefront')),
+    stock_taken      BOOLEAN NOT NULL DEFAULT true,
+    UNIQUE (account_id, number)
+  );
+  CREATE INDEX IF NOT EXISTS store_orders_account ON store_orders (account_id, id DESC);
+
+  /* ---------- visitors of the stores at their addresses (server/storeVisits.ts) ----------
+     store_visits: one row per page a visitor opened, kept only for yesterday and today (Jordan time). No IP address,
+     browser name or page address: visitor is a keyed fingerprint that changes every day and differs per shop, source is
+     one word. new_visit: the visitor had opened nothing in this store for 30 minutes (or it is a new day).
+     store_visit_days: the older days rolled up, one row per shop per day, kept for good. sources: visits by source
+     word; products: views of the day's 20 most viewed products, by product id. */
+  CREATE TABLE IF NOT EXISTS store_visits (
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    visitor    TEXT NOT NULL,
+    kind       TEXT NOT NULL CHECK (kind IN ('home', 'product', 'page', 'cart')),
+    product_id BIGINT,
+    source     TEXT NOT NULL CHECK (source IN ('whatsapp', 'instagram', 'facebook', 'tiktok', 'google', 'direct', 'other')),
+    new_visit  BOOLEAN NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS store_visits_shop_at ON store_visits (account_id, at);
+  CREATE TABLE IF NOT EXISTS store_visit_days (
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    day        DATE NOT NULL,
+    visitors   INTEGER NOT NULL DEFAULT 0,
+    visits     INTEGER NOT NULL DEFAULT 0,
+    views      INTEGER NOT NULL DEFAULT 0,
+    sources    JSONB NOT NULL DEFAULT '{}',
+    products   JSONB NOT NULL DEFAULT '{}',
+    PRIMARY KEY (account_id, day)
+  );
+
   /* ---------- domains ----------
      Kept only for the rows already saved: Dukkan no longer sells domains or connects a store's own domain (every store
-     lives at dukkan.store/<its link>), so nothing adds to this table or shows it any more. */
+     lives at the site address/<its link>), so nothing adds to this table or shows it any more. */
   CREATE TABLE IF NOT EXISTS domains (
     id            BIGSERIAL PRIMARY KEY,
     account_id    BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -224,7 +290,7 @@ export const DIWAN_SCHEMA = `
     paid_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (account_id, theme_id)
   );
-  -- the way it was paid (card, cliq, paypal), for the payment numbers in Diwan; purchases from before have none
+  -- the way it was paid (card or cliq), for the payment numbers in Diwan; purchases from before have none
   ALTER TABLE theme_purchases ADD COLUMN IF NOT EXISTS method TEXT;
 
   /* ---------- papers staff check (courier proof, commercial registration) ---------- */
@@ -239,6 +305,35 @@ export const DIWAN_SCHEMA = `
     note        TEXT NOT NULL DEFAULT '',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );
+  /* The file itself, kept in the database like ticket pictures (there is no separate file storage): its bytes encrypted
+     with server/crypto.ts sealBytes(), the type read from those bytes, and its size. partner and partner_kind say which
+     delivery partner a courier proof is for (the name sealed; kind 0 a shipping company, 1 a person), as the merchant
+     named them when the file was sent. Rows from before have no file (data IS NULL). */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS data BYTEA;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS mime TEXT;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS bytes INTEGER;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner_kind SMALLINT;
+  CREATE INDEX IF NOT EXISTS documents_account ON documents (account_id, kind, created_at);
+
+  /* ---------- pictures and videos of the stores (product photos, logos, designs, page backgrounds) ---------- */
+  /* One row per file a merchant's store shows, served to anyone at /media/<id> (server/media.ts). The id is random and
+     long, so a file can't be guessed. The bytes are kept here (data) while MEDIA_BACKEND is postgres; with another
+     backend this row keeps only what the file is and the bytes live there (data stays NULL). sha256 lets the same file
+     sent twice by one store be kept once. Not encrypted, on purpose: every storefront visitor sees these pictures. */
+  CREATE TABLE IF NOT EXISTS media (
+    id          TEXT PRIMARY KEY,
+    account_id  BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL CHECK (kind IN ('product', 'logo', 'design', 'background')),
+    mime        TEXT NOT NULL,
+    bytes       INTEGER NOT NULL CHECK (bytes > 0),
+    sha256      TEXT NOT NULL,
+    backend     TEXT NOT NULL DEFAULT 'postgres',
+    data        BYTEA,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS media_account_sha ON media (account_id, sha256);
+  CREATE INDEX IF NOT EXISTS media_account_created ON media (account_id, created_at);
 
   /* ---------- messages to merchants ---------- */
   CREATE TABLE IF NOT EXISTS announcements (
@@ -247,7 +342,7 @@ export const DIWAN_SCHEMA = `
     title_ar   TEXT NOT NULL,
     body_en    TEXT NOT NULL DEFAULT '',
     body_ar    TEXT NOT NULL DEFAULT '',
-    audience   JSONB NOT NULL DEFAULT '{"all": true}',   -- {"all":true} or {"accounts":[ids]} or {"plans":[keys]}
+    audience   JSONB NOT NULL DEFAULT '{"all": true}',   -- {"all":true}, {"newStores":true} or {"accounts":[ids]}
     banner     BOOLEAN NOT NULL DEFAULT true,
     starts_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     ends_at    TIMESTAMPTZ,
@@ -294,7 +389,11 @@ export const DIWAN_SCHEMA = `
     updated_by BIGINT REFERENCES staff (id),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  INSERT INTO platform_settings (key, value) VALUES ('trial_days', '14') ON CONFLICT (key) DO NOTHING;
+  /* The 'trial_days' row (the free trial's length) is no longer used since 2026-11-16: Dukkan has no free trial. It is
+     left in place where it exists, but nothing reads or writes it any more. */
+  /* The 'site_content' row (the landing page's words, once saved from Diwan > Website) is no longer used since
+     2026-11-16: the website's copy lives in code (components/siteContent.ts). The row is left in place rather than
+     deleted, but nothing reads or writes it any more. */
 
   CREATE TABLE IF NOT EXISTS feature_flags (
     key         TEXT PRIMARY KEY,
@@ -525,4 +624,10 @@ export const DIWAN_SCHEMA = `
   INSERT INTO catalog_themes (id, source, status, price, sort, released_at) VALUES
     ('atelier', 'code', 'live', 19.99, 10, now()), ('lamma', 'code', 'live', 39, 20, now())
   ON CONFLICT (id) DO NOTHING;
+
+  /* ---------- store orders: one order per checkout ----------
+     The cart sends a key of its own with an order and keeps it until it hears the order is in (server/storeOrders.ts):
+     the same key sent again (its answer was lost) gets the order already saved, never a second one. */
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS attempt_key TEXT;
+  CREATE UNIQUE INDEX IF NOT EXISTS store_orders_attempt ON store_orders (account_id, attempt_key) WHERE attempt_key IS NOT NULL;
 `;

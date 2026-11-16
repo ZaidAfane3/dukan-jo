@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Badge, card, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
-import { Pager, ticketPicture, type TicketRow } from "@/components/diwan/TicketBits";
+import { Badge, card, Loaded, LoadMore, PageHead, send, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { ticketPicture, type TicketRow } from "@/components/diwan/TicketBits";
 import { KIND, STATUS, STATUS_ORDER, type TStatus } from "@/components/diwan/ticketWords";
 
 /* Bug reports and ideas merchants send from the theme designer's "Bug or idea?" button (and any ticket sent as one),
@@ -17,15 +17,14 @@ export default function FeedbackPage() {
   const f = useFmt();
   const [kind, setKind] = useState<"" | "bug" | "idea">("");
   const [status, setStatus] = useState("active");
-  const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<number | null>(null);
   const url = useMemo(() => {
-    const p = new URLSearchParams({ page: String(page), sort: "created" });
+    const p = new URLSearchParams({ sort: "created" });
     if (kind) p.set("kind", kind);
     if (status) p.set("status", status);
     return `/api/diwan/feedback?${p}`;
-  }, [kind, status, page]);
-  const s = useApi<Data>(url);
+  }, [kind, status]);
+  const s = useMore<Data>(url, (d, n) => (n * d.pageSize < d.total ? `page=${n + 1}` : null));
   const counts = s.data?.counts ?? {};
   const all = Object.values(counts).reduce((n, x) => n + x, 0);
   const activeN = (["new", "open", "waiting_dukkan", "waiting_merchant"] as TStatus[]).reduce((n, x) => n + (counts[x] ?? 0), 0);
@@ -45,21 +44,21 @@ export default function FeedbackPage() {
 
       <div className="mb-3 flex flex-wrap gap-2">
         {(["", "bug", "idea"] as const).map((k) => (
-          <button key={k || "all"} onClick={() => { setKind(k); setPage(1); }} className={chip(kind === k)}>
+          <button key={k || "all"} onClick={() => { setKind(k); }} className={chip(kind === k)}>
             {k ? t(KIND[k].en + "s", k === "bug" ? "الأخطاء" : "الاقتراحات") : t("Bugs and ideas", "الكل")}
           </button>
         ))}
       </div>
       <div className="mb-5 flex flex-wrap gap-2">
-        <button onClick={() => { setStatus("active"); setPage(1); }} className={chip(status === "active")}>
+        <button onClick={() => { setStatus("active"); }} className={chip(status === "active")}>
           {t("Needs work", "قيد العمل")} <span dir="ltr" className="ms-1 opacity-75">{f.num(activeN)}</span>
         </button>
         {STATUS_ORDER.map((x) => (
-          <button key={x} onClick={() => { setStatus(x); setPage(1); }} className={chip(status === x)}>
+          <button key={x} onClick={() => { setStatus(x); }} className={chip(status === x)}>
             {t(STATUS[x].en, STATUS[x].ar)} <span dir="ltr" className="ms-1 opacity-75">{f.num(counts[x] ?? 0)}</span>
           </button>
         ))}
-        <button onClick={() => { setStatus(""); setPage(1); }} className={chip(status === "")}>
+        <button onClick={() => { setStatus(""); }} className={chip(status === "")}>
           {t("All", "الكل")} <span dir="ltr" className="ms-1 opacity-75">{f.num(all)}</span>
         </button>
       </div>
@@ -106,7 +105,7 @@ export default function FeedbackPage() {
                 </article>
               ))}
             </div>
-            <Pager page={d.page} pageSize={d.pageSize} total={d.total} onPage={setPage} />
+            <LoadMore s={s} total={d.total} />
           </>
         )}
       </Loaded>

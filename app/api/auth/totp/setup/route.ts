@@ -8,8 +8,7 @@ export const dynamic = "force-dynamic";
 
 /* Turning on 2-step codes (optional for merchants). GET: whether they are on. POST {}: a new secret to put in the
    authenticator app (the link as text and the secret in groups of 4 to type in); nothing changes until it is
-   confirmed. POST { code }: the first code from the app; when it matches, 2-step codes are on. Never in a session
-   opened by Dukkan staff. */
+   confirmed. POST { code }: the first code from the app; when it matches, 2-step codes are on. */
 
 const grouped = (s: string) => s.match(/.{1,4}/g)?.join(" ") ?? s;
 
@@ -23,7 +22,6 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   const a = await currentAccount(req);
   if (!a) return answer({ result: "none" }, 401);
-  if (a.impersonation) return answer({ result: "view-only" }, 403);
   if (a.totpOn) return answer({ result: "already-on" }, 409);
   const body = await readJson(req, 500);
   const pool = await db();

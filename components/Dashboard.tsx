@@ -12,6 +12,7 @@ import { cleanOrder, cleanProduct, money, parseList, typedMoney, type Order, typ
 import { latestOrders, rangeSpan, salesFigures, salesSeries } from "./storeNumbers";
 import { StoreStatus } from "./StoreStatus";
 import { AnnouncementBanner } from "./AnnouncementBanner";
+import { useStoreVisits } from "./storeVisits";
 
 const TOTAL_TASKS = 6;
 
@@ -28,10 +29,19 @@ const icon = {
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
 
-/* A real store's home page: what Dukkan does not count yet says so, instead of showing a 0 that looks like a fact */
+/* A real store's home page: what Dukkan does not count yet says so, instead of showing a 0 that looks like a fact. A
+   signed-in store's visitors are counted by Dukkan's server (components/storeVisits.ts). */
 const words = {
-  en: { notTracked: "Not tracked yet", visitsNote: "{brand} does not count store visits yet.", cartsNote: "{brand} does not keep the carts customers leave yet.", avgOrder: "Average order", open: "Open order {id}" },
-  ar: { notTracked: "لا يُتتبّع بعد", visitsNote: "لا يحسب {brand} زيارات المتجر بعد.", cartsNote: "لا يحفظ {brand} السلات التي يتركها العملاء بعد.", avgOrder: "متوسط الطلب", open: "فتح الطلب {id}" },
+  en: {
+    notTracked: "Not tracked yet", visitsNote: "{brand} counts the visitors of a store that is signed in and open at its link.", cartsNote: "{brand} does not keep the carts customers leave yet.", avgOrder: "Average order", open: "Open order {id}",
+    visitors: "Visitors", lastHour: "Visitors in the last hour", visitsViews: "{visits} visits · {views} page views",
+    noVisitors: "No visitors yet", shareHint: "Share your store's link on WhatsApp or Instagram. Visitors show here within a minute.",
+  },
+  ar: {
+    notTracked: "لا يُتتبّع بعد", visitsNote: "يحسب {brand} زوار المتجر المسجّل الدخول والمفتوح على رابطه.", cartsNote: "لا يحفظ {brand} السلات التي يتركها العملاء بعد.", avgOrder: "متوسط الطلب", open: "فتح الطلب {id}",
+    visitors: "الزوار", lastHour: "الزوار في آخر ساعة", visitsViews: "{visits} زيارة · {views} مشاهدة صفحة",
+    noVisitors: "لا زوار بعد", shareHint: "شارك رابط متجرك على واتساب أو إنستغرام. يظهر الزوار هنا خلال دقيقة.",
+  },
 };
 
 /* The monthly sales goal he sets on the home page. A "seen-" key, so it is kept on the server with the rest of his store */
@@ -99,6 +109,9 @@ export function Dashboard() {
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
   const [now, setNow] = useState<Date | null>(null);
+  /* A signed-in store's visitors, from Dukkan's server (read again every minute); the tour keeps its made-up ones */
+  const visitors = useStoreVisits();
+  const realVisits = visitors.on && !sample ? visitors.stats : null;
   /* A real store's own orders and products, read again by each refresh button */
   const [data, setData] = useState<{ orders: Order[]; products: Product[] }>({ orders: [], products: [] });
 
@@ -140,15 +153,17 @@ export function Dashboard() {
     }
   }, [readData]);
 
-  /* The tour draws a fresh set of sample numbers; a real store reads its orders again */
+  /* The tour draws a fresh set of sample numbers; a real store reads its orders (and its visitors) again */
+  const reloadVisits = visitors.reload;
   const refresh = useCallback((id: string) => {
     setBusy((b) => ({ ...b, [id]: true }));
+    if (!demoActive()) void reloadVisits();
     window.setTimeout(() => {
       setSeed((s) => s + 1);
       if (!demoActive()) readData();
       setBusy((b) => ({ ...b, [id]: false }));
     }, 900);
-  }, [readData]);
+  }, [readData, reloadVisits]);
 
   /* A real store's goal is kept, so it is still there tomorrow and on his other devices */
   const keepGoal = (v: number) => {
@@ -290,8 +305,11 @@ export function Dashboard() {
             {/* Totals */}
             <div dir={lang === "ar" ? "rtl" : "ltr"} className="space-y-5">
               {[
-                /* visits are not counted for a real store yet: it says so rather than show a 0 */
-                { title: h.visits, node: sample ? <AnimatedNumber value={visits} /> : <span className="text-base font-semibold text-muted">{w.notTracked}</span>, ico: <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" /> },
+                /* a signed-in store: this month's visitors (each day's visitors added up); a store that is not signed in has
+                   no public store to count, so it says so rather than show a 0 */
+                visitors.on && !sample
+                  ? { title: w.visitors, node: <AnimatedNumber value={realVisits?.month.visitors ?? 0} />, ico: <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" /> }
+                  : { title: h.visits, node: sample ? <AnimatedNumber value={visits} /> : <span className="text-base font-semibold text-muted">{w.notTracked}</span>, ico: <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" /> },
                 { title: h.netSales, node: <Money value={netSales} currency={cur} />, glyph: cur },
                 { title: h.orders, node: <AnimatedNumber value={orderTotal} />, ico: <path d="M4 7h16v13H4zM3 4h18v3H3zM10 11h4" /> },
                 ...(thisMonth ? [{ title: w.avgOrder, node: <Money value={thisMonth.average} currency={cur} />, ico: <path d="M4 19h16M7 15l3-4 3 2 4-6" /> }] : []),
@@ -362,8 +380,8 @@ export function Dashboard() {
         <div className="grid gap-6 lg:grid-cols-3">
           <section className={`${card} flex flex-col`}>
             <div className="flex items-center justify-between gap-2">
-              <h2 className="font-bold">{h.lastHourTitle}</h2>
-              {sample && <RefreshButton busy={!!busy.hour} onClick={() => refresh("hour")} label={r.refresh} />}
+              <h2 className="font-bold">{visitors.on && !sample ? w.lastHour : h.lastHourTitle}</h2>
+              {(sample || visitors.on) && <RefreshButton busy={!!busy.hour} onClick={() => refresh("hour")} label={r.refresh} />}
             </div>
             <div className={`flex flex-1 flex-col transition-opacity duration-300 ${busy.hour ? "opacity-40" : ""}`}>
               {sample ? (
@@ -383,6 +401,30 @@ export function Dashboard() {
                     <span>{lang === "ar" ? "الآن" : "Now"}</span>
                   </div>
                 </>
+              ) : visitors.on ? (
+                /* a signed-in store: its visitors in the last hour, in steps of 5 minutes */
+                visitors.loaded && realVisits && realVisits.days30.views === 0 && realVisits.lastHour.views === 0 ? (
+                  <EmptyState title={w.noVisitors} hint={w.shareHint} />
+                ) : (
+                  <div className={`flex flex-1 flex-col ${realVisits ? "" : "opacity-40"}`}>
+                    <p className="mt-4 text-3xl font-bold"><AnimatedNumber value={realVisits?.lastHour.visitors ?? 0} /></p>
+                    <p dir="auto" className="text-sm text-muted">
+                      {w.visitsViews.replace("{visits}", (realVisits?.lastHour.visits ?? 0).toLocaleString("en-US")).replace("{views}", (realVisits?.lastHour.views ?? 0).toLocaleString("en-US"))}
+                    </p>
+                    <div dir="ltr" className="mt-4 flex h-32 items-end gap-1.5" role="img" aria-label={w.lastHour}>
+                      {(realVisits?.minutes ?? Array.from({ length: 12 }, () => 0)).map((v, i, all) => (
+                        <div key={i} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
+                          <span title={v.toLocaleString("en-US")} className="max-w-full truncate text-[10px] font-bold tabular-nums text-fg/80 sm:text-[11px]">{short(v)}</span>
+                          <span className="w-full rounded-sm bg-primary/70 transition-all duration-500" style={{ height: `${Math.max((v / Math.max(...all, 1)) * 78, 6)}%` }} />
+                        </div>
+                      ))}
+                    </div>
+                    <div dir="ltr" className="mt-1.5 flex justify-between text-[11px] text-muted">
+                      <span>{lang === "ar" ? "قبل 60 د" : "60 min ago"}</span>
+                      <span>{lang === "ar" ? "الآن" : "Now"}</span>
+                    </div>
+                  </div>
+                )
               ) : (
                 <NotTracked title={w.notTracked} note={w.visitsNote.replace("{brand}", brandName(lang))} />
               )}

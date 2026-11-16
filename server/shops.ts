@@ -134,41 +134,19 @@ export async function slugTaken(slug: string, accountId: string | number | null)
   return rows.length > 0;
 }
 
-/** Starts the free trial of a new shop: the 'trial' plan, for platform_settings.trial_days days from `from` */
-export async function startTrial(accountId: string | number, q?: Q, from: Date | string = new Date()): Promise<void> {
-  const c: Q = q ?? (await db());
-  await c.query(
-    `INSERT INTO subscriptions (account_id, plan_id, status, starts_at, ends_at)
-     SELECT $1, p.id, 'trial', $2::timestamptz,
-            $2::timestamptz + make_interval(days => COALESCE((SELECT (value #>> '{}')::int FROM platform_settings WHERE key = 'trial_days'), 14))
-       FROM plans p WHERE p.key = 'trial'
-        AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE account_id = $1)`,
-    [accountId, from],
-  );
-}
-
-/** Marks a subscription whose end has passed as expired. Cheap: run before Diwan reads subscriptions. */
-export async function expireSubscriptions(q?: Q): Promise<void> {
-  const c: Q = q ?? (await db());
-  await c.query(`UPDATE subscriptions SET status = 'expired' WHERE status IN ('trial', 'active') AND ends_at IS NOT NULL AND ends_at < now()`);
-}
-
-/* at most once a minute per server: accounts made before the shops table (or by hand) get their row and trial */
+/* at most once a minute per server: accounts made before the shops table (or by hand) get their row. Dukkan has no plans
+   and no free trial, so nothing about a subscription is made here (the old plans and subscriptions tables are unused). */
 let lastPrepared = 0;
-/** Gets the shops table ready for Diwan: a row (and a trial from the sign-up date) for every account that has none,
-    and subscriptions that ran out marked expired. */
+/** Gets the shops table ready for Diwan: a row for every account that has none */
 export async function prepareShops(): Promise<void> {
-  const pool = await db();
-  await expireSubscriptions(pool);
   if (Date.now() - lastPrepared < 60_000) return;
   lastPrepared = Date.now();
+  const pool = await db();
   const { rows } = await pool.query(`SELECT a.id, a.created_at FROM accounts a WHERE NOT EXISTS (SELECT 1 FROM shops s WHERE s.account_id = a.id) LIMIT 500`);
   for (const r of rows) {
     await pool.query(`INSERT INTO shops (account_id, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [r.id, r.created_at]);
     await syncShop(r.id, pool);
-    await startTrial(r.id, pool, r.created_at);
   }
-  if (rows.length) await expireSubscriptions(pool);
   if (rows.length === 500) lastPrepared = 0;
 }
 
@@ -185,18 +163,9 @@ export function touchShop(accountId: string | number): void {
 
 /* ---------------- what Diwan shows ---------------- */
 
-/** A shop's status for Diwan: suspended wins, then the current subscription (none current: expired) */
-export const STATUS_SQL = `CASE WHEN s.status = 'suspended' THEN 'suspended'
-  WHEN cur.status = 'active' AND cur.plan_key <> 'trial' THEN 'active'
-  WHEN cur.status IN ('trial', 'active') THEN 'trial'
-  ELSE 'expired' END`;
-
-/** The current subscription of shop `s` (LATERAL join, as `cur`) */
-export const CURRENT_SUB_SQL = `LEFT JOIN LATERAL (
-    SELECT sub.id, sub.status, sub.ends_at, p.key AS plan_key, p.name_en AS plan_en, p.name_ar AS plan_ar, p.id AS plan_id
-      FROM subscriptions sub JOIN plans p ON p.id = sub.plan_id
-     WHERE sub.account_id = s.account_id AND sub.status IN ('trial', 'active')
-     ORDER BY sub.created_at DESC LIMIT 1) cur ON true`;
+/** A shop's status for Diwan. Dukkan has no plans and no free trial, so it says nothing about paying: suspended (by
+    Dukkan) wins, then paused (the merchant closed the store for a while), else open */
+export const STATUS_SQL = `CASE WHEN s.status = 'suspended' THEN 'suspended' WHEN s.paused THEN 'paused' ELSE 'open' END`;
 
 /** Escapes % _ and \ so a search finds them as typed */
 export const likeText = (s: string) => `%${s.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
@@ -212,7 +181,7 @@ const SORTS: Record<string, string> = {
   sales: "s.total_sales DESC",
 };
 export const SHOP_SORTS = Object.keys(SORTS);
-export const SHOP_STATUSES = ["trial", "active", "expired", "suspended"] as const;
+export const SHOP_STATUSES = ["open", "paused", "suspended"] as const;
 
 /** The WHERE and ORDER BY of the shop list from the page's search and filters. Only values from fixed lists are put in
     the SQL; everything typed goes in as a parameter. */
@@ -239,7 +208,7 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   const ship = p.get("ship");
   if (ship === "yes") where.push(`s.ship_mode = 'seen'`);
   else if (ship === "no") where.push(`s.ship_mode <> 'seen'`);
-  const sql = `FROM shops s JOIN accounts a ON a.id = s.account_id ${CURRENT_SUB_SQL} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
+  const sql = `FROM shops s JOIN accounts a ON a.id = s.account_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
   return { sql, params, order: SORTS[p.get("sort") ?? ""] ?? SORTS.newest };
 }
 

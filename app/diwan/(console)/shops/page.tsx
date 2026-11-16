@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Select, StatusBadge, statusOptions, statusText, storeLink } from "@/components/diwan/shopBits";
-import { Btn, DataTable, downloadCsv, field, Loaded, PageHead, td, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { Select, StatusBadge, statusOptions, statusText, storeLink, storeLinkHref } from "@/components/diwan/shopBits";
+import { Btn, DataTable, downloadCsv, field, Loaded, PageHead, td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { FilterBar } from "@/components/diwan/Filters";
 
 type Row = {
@@ -36,24 +36,19 @@ export default function ShopsPage() {
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [filters, setFilters] = useState<Filters>({ status: "", setup: "", published: "", ship: "", sort: "newest" });
-  const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
 
   /* the search runs a moment after typing stops */
   useEffect(() => {
     const h = setTimeout(() => {
       setQ(typed.trim());
-      setPage(1);
     }, 350);
     return () => clearTimeout(h);
   }, [typed]);
 
   const params = new URLSearchParams({ ...(q ? { q } : {}), ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) });
-  const s = useApi<List>(`/api/diwan/shops?${params}&page=${page}`);
-  const setFilter = (k: keyof Filters) => (v: string) => {
-    setFilters((x) => ({ ...x, [k]: v }));
-    setPage(1);
-  };
+  const s = useMore<List>(`/api/diwan/shops?${params}`, (d, n) => (n < d.pages ? `page=${n + 1}` : null));
+  const setFilter = (k: keyof Filters) => (v: string) => setFilters((x) => ({ ...x, [k]: v }));
 
   const exportCsv = async () => {
     setExporting(true);
@@ -103,7 +98,6 @@ export default function ShopsPage() {
         count={(["status", "setup", "published", "ship"] as const).filter((k) => filters[k]).length}
         onClear={() => {
           setFilters((x) => ({ ...x, status: "", setup: "", published: "", ship: "" }));
-          setPage(1);
         }}
         search={
           <input
@@ -203,7 +197,7 @@ export default function ShopsPage() {
                     {r.slug ? (
                       /* every store lives at Dukkan's address followed by its link name: it opens in a new tab */
                       <a
-                        href={`https://${storeLink(r.slug)}`}
+                        href={storeLinkHref(r.slug)}
                         target="_blank"
                         rel="noopener noreferrer"
                         dir="ltr"
@@ -236,19 +230,7 @@ export default function ShopsPage() {
                 </tr>
               ))}
             </DataTable>
-            {d.pages > 1 && (
-              <div className="mt-4 flex items-center justify-center gap-3 text-sm">
-                <Btn kind="ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                  {t("Previous", "السابق")}
-                </Btn>
-                <span className="tabular-nums text-muted">
-                  {f.num(d.page)} / {f.num(d.pages)}
-                </span>
-                <Btn kind="ghost" disabled={page >= d.pages} onClick={() => setPage((p) => p + 1)}>
-                  {t("Next", "التالي")}
-                </Btn>
-              </div>
-            )}
+            <LoadMore s={s} total={d.total} />
           </>
         )}
       </Loaded>

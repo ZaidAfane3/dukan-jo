@@ -7,7 +7,7 @@ import { ThemePreview } from "@/components/ThemePreview";
 import { defaultConfig } from "@/components/storefront/config";
 import { designFrom } from "@/components/storefront/storage";
 import { defaultTheme, designTheme, madaTheme, themes, withListing, type ThemeInfo } from "@/components/themes";
-import { LISTING_LIMITS, NEXT_STATUS, THEME_ID, themeIdOk, type Bi, type ListingRow, type ThemeStatus } from "@/components/themeListing";
+import { LISTING_LIMITS, NEXT_STATUS, themeIdOk, type Bi, type ListingRow, type ThemeStatus } from "@/components/themeListing";
 
 /* The theme store, run by Dukkan's staff. Every theme merchants can buy is listed here (components/themeListing.ts):
    - Dukkan's code themes (Misk, Lamma): their look is in the code; here staff show or hide them, set the price, the order,
@@ -315,7 +315,6 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
                 </div>
               )}
               <dl className="space-y-1 text-xs text-muted">
-                <div className="flex justify-between gap-2"><dt>{t("Code name", "الاسم البرمجي")}</dt><dd dir="ltr"><code>{row.id}</code></dd></div>
                 <div className="flex justify-between gap-2"><dt>{t("First released", "أول نشر")}</dt><dd>{f.date(row.releasedAt)}</dd></div>
                 <div className="flex justify-between gap-2"><dt>{t("Last changed", "آخر تعديل")}</dt><dd>{f.dateTime(row.updatedAt)}</dd></div>
               </dl>
@@ -469,15 +468,23 @@ function FreePanel({ theme: th, nums: n, onClose }: { theme: ThemeInfo; nums: Nu
 
 const codeNameOf = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/^[^a-z]+/, "").slice(0, 31);
 
+/* A theme's permanent id, which stores and purchases point to. Staff never see or type it: it comes from the English name,
+   with a number added when that one is taken or belongs to Dukkan ("noir-blanc", "noir-blanc-2"...). */
+function themeIdFor(nameEn: string, taken: Set<string>): string {
+  const base = (codeNameOf(nameEn) || "theme").slice(0, 27).replace(/-+$/, "");
+  for (let n = 1; n < 1000; n++) {
+    const id = n === 1 ? base : `${base}-${n}`;
+    if (themeIdOk(id) && !taken.has(id)) return id;
+  }
+  return `theme-${Date.now().toString(36)}`;
+}
+
 function NewTheme({ from, taken, onClose, onMade }: { from: ThemeInfo[]; taken: Set<string>; onClose: () => void; onMade: (id: string) => void }) {
   const t = useT();
   const [name, setName] = useState({ en: "", ar: "" });
-  const [id, setId] = useState("");
-  const [idTouched, setIdTouched] = useState(false);
   const [start, setStart] = useState("starter");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const code = idTouched ? id : codeNameOf(name.en);
   const close = useCallback(onClose, [onClose]);
   const choices = useMemo(() => [{ id: "starter", label: t("The starter design (Platform settings)", "التصميم الأساسي (إعدادات المنصة)") }, { id: "original", label: t("Dukkan's original design", "تصميم دكّان الأصلي") }, ...[madaTheme, ...from].map((x) => ({ id: `theme:${x.id}`, label: t(`A copy of ${x.name.en}`, `نسخة من ${x.name.ar}`) }))], [from, t]);
 
@@ -485,8 +492,7 @@ function NewTheme({ from, taken, onClose, onMade }: { from: ThemeInfo[]; taken: 
     e.preventDefault();
     setErr("");
     if (name.en.trim().length < 2 || name.ar.trim().length < 2) return setErr(t("Give it a name in English and Arabic.", "أعطه اسمًا بالعربية والإنجليزية."));
-    if (!themeIdOk(code)) return setErr(t("The code name: small English letters, digits and dashes, starting with a letter (not one of Dukkan's).", "الاسم البرمجي: أحرف إنجليزية صغيرة وأرقام وشَرطات، يبدأ بحرف (وليس أحد أسماء دكّان)."));
-    if (taken.has(code)) return setErr(t("That code name is taken.", "هذا الاسم البرمجي مستخدم."));
+    const code = themeIdFor(name.en, taken);
     setBusy(true);
     let design: unknown = defaultConfig;
     if (start === "starter") {
@@ -499,7 +505,7 @@ function NewTheme({ from, taken, onClose, onMade }: { from: ThemeInfo[]; taken: 
     const r = await send("/api/diwan/themes", "POST", { id: code, name, design });
     setBusy(false);
     if (r.ok) onMade(code);
-    else setErr(r.data?.result === "taken" ? t("That code name is taken.", "هذا الاسم البرمجي مستخدم.") : t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
+    else setErr(t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
   };
 
   return (
@@ -511,10 +517,6 @@ function NewTheme({ from, taken, onClose, onMade }: { from: ThemeInfo[]; taken: 
           <input dir="ltr" lang="en" maxLength={LISTING_LIMITS.name} className={field} placeholder="In English" aria-label={t("Name in English", "الاسم بالإنجليزية")} value={name.en} onChange={(e) => setName({ ...name, en: e.target.value })} autoFocus />
           <input dir="rtl" lang="ar" maxLength={LISTING_LIMITS.name} className={field} placeholder="بالعربية" aria-label={t("Name in Arabic", "الاسم بالعربية")} value={name.ar} onChange={(e) => setName({ ...name, ar: e.target.value })} />
         </fieldset>
-        <label className="block space-y-1 text-sm font-semibold">
-          <span>{t("Code name (never changes)", "الاسم البرمجي (لا يتغير)")}</span>
-          <input dir="ltr" maxLength={31} className={field} pattern={THEME_ID.source} value={code} onChange={(e) => { setIdTouched(true); setId(e.target.value.toLowerCase()); }} />
-        </label>
         <label className="block space-y-1 text-sm font-semibold">
           <span>{t("Start from", "ابدأ من")}</span>
           <select className={field} value={start} onChange={(e) => setStart(e.target.value)}>

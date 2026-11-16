@@ -157,7 +157,20 @@ function savedPages(): PageRef[] | null {
 export function loadConfig(): StorefrontConfig {
   void refreshTemplate();
   const own = read(KEY);
-  return withDeliveryLine(own ? relinkPages(own, savedPages()) : loadTemplate() ?? defaultConfig);
+  return withDeliveryLine(own ? relinkPages(own, savedPages()) : loadTemplate() ?? defaultConfig, loadSetup()?.shipping?.mode);
+}
+
+/** A store's design as its visitors see it (the public store, app/[slug]), from what Dukkan's server sent: its own
+    design (led to its published pages like loadConfig does), else the starter template the server sent, else the
+    original. Nothing is read from this browser's storage, which belongs to the visitor. */
+export function visitorDesign(own: unknown, template: unknown, pages: unknown[] | null, shipMode: "own" | "seen" | undefined): StorefrontConfig {
+  const isObj = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
+  const cfg = isObj(own)
+    ? relinkPages(designFrom(own), pages ? ((sanitizePages(pages) ?? null) as PageRef[] | null) : null)
+    : isObj(template)
+      ? designFrom(template)
+      : defaultConfig;
+  return withDeliveryLine(cfg, shipMode);
 }
 
 /* The line under a delivery perk that Dukkan wrote (he never changed it) follows how the store delivers: with Dukkan's delivery,
@@ -169,11 +182,12 @@ const dukkanCities = (): Bi => {
   return { en: cityList(l.en, " and ", ", "), ar: l.ar.join(" و") };
 };
 const anyCity: Bi = { en: "Straight to your door", ar: "حتى باب بيتك" };
-function withDeliveryLine(cfg: StorefrontConfig): StorefrontConfig {
+/* `shipMode`: how the store delivers (none chosen yet: undefined); the merchant's own pages read it from his setup */
+function withDeliveryLine(cfg: StorefrontConfig, shipMode: "own" | "seen" | undefined): StorefrontConfig {
   const stock = [{ en: "Irbid, Amman and Salt", ar: "إربد وعمّان والسلط" }, dukkanCities(), anyCity];
   const ours = (d?: Bi) => !!d && stock.some((x) => x.en === d.en && x.ar === d.ar);
   if (!cfg.sections.some((s) => s.type === "perks" && s.settings.items.some((p) => ours(p.desc)))) return cfg;
-  const line = loadSetup()?.shipping?.mode === "seen" ? dukkanCities() : anyCity;
+  const line = shipMode === "seen" ? dukkanCities() : anyCity;
   return { ...cfg, sections: cfg.sections.map((s) => (s.type === "perks" ? { ...s, settings: { ...s.settings, items: s.settings.items.map((p) => (ours(p.desc) ? { ...p, desc: { ...line } } : p)) } } : s)) };
 }
 

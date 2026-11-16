@@ -16,6 +16,7 @@ import { PopupTemplate } from "@/components/popupTemplates";
 import { checkImage, uploadProblemFor } from "@/components/safe";
 import type { ListingRow } from "@/components/themeListing";
 import { findTheme } from "@/components/themes";
+import { useCatalog } from "@/components/catalog";
 
 /* Pop-ups to merchants, in Diwan's marketing pages: one of the coded templates (components/popupTemplateRules.ts) with
    its slots filled in, shown in the middle of the merchant's dashboard: on the home page or on any merchant page. Made
@@ -50,6 +51,8 @@ const SHOWN_TONE: Record<Shown, Tone> = { draft: "grey", scheduled: "blue", show
 const pictureOf = (r: { slots: SlotValues }) => valueOf(r.slots, "image") || findTheme(valueOf(r.slots, "theme"))?.shot || "";
 
 export default function PopupsPage() {
+  /* the theme store's list, so a theme gift made with a theme designed in Diwan shows its picture here as merchants see it */
+  useCatalog();
   const t = useT();
   const s = useApi<Data>("/api/diwan/popups");
   const [form, setForm] = useState<Form | null>(null);

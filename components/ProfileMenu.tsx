@@ -10,6 +10,8 @@ import { accountName, loadSetup } from "./setup";
 import type { LogoConfig } from "./storefront/config";
 import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
 import { loadConfig, storeIsLive } from "./storefront/storage";
+import { storeAddress, storeUrl } from "./siteAddress";
+import { onServer } from "./merchantApi";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -100,11 +102,13 @@ export function ProfileMenu() {
   const [copied, setCopied] = useState(false);
   /* the same answer as the designer's badge: the store opens to customers with its first save */
   const [live, setLive] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const read = () => {
       setLive(storeIsLive());
+      setSignedIn(onServer());
       const s = loadSetup();
       setStore({ name: s?.name || accountName(), slug: s?.slug ?? "", color: s && /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : "#004956" });
       setLogo(resolveLogo(loadConfig().identity.logo, s?.logo ?? ""));
@@ -128,13 +132,15 @@ export function ProfileMenu() {
   }, [open]);
 
   const name = store.name || t.store;
-  const link = store.slug ? `dukkan.store/${store.slug}` : "";
+  const link = store.slug ? storeAddress(store.slug) : "";
+  /* his store opens at its address for anyone once it is kept on Dukkan's server (signed in, not the tour) */
+  const atAddress = live && !!store.slug && signedIn;
 
   const tour = useDemo();
   const copy = async () => {
     if (!link || tour) return;
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(storeUrl(store.slug));
     } catch {
       return; /* clipboard blocked: do not claim it was copied */
     }
@@ -167,8 +173,19 @@ export function ProfileMenu() {
             <Avatar logo={logo} name={store.name || brandName(lang)} color={store.color} size="h-14 w-14 text-xl" />
             <div className="min-w-0">
               <p className="truncate text-base font-bold">{name}</p>
+              {/* the store's address, written out: pressing it opens the store as visitors see it */}
+              {link && (atAddress ? (
+                <a href={storeUrl(store.slug)} target="_blank" rel="noopener noreferrer" onClick={go} dir="ltr" className="mt-0.5 block truncate text-xs font-medium text-muted hover:text-primary hover:underline">{link}</a>
+              ) : (
+                <p dir="ltr" className="mt-0.5 truncate text-xs font-medium text-muted">{link}</p>
+              ))}
               <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium text-primary">
-                {live ? (
+                {atAddress ? (
+                  <a href={storeUrl(store.slug)} target="_blank" rel="noopener noreferrer" onClick={go} className="inline-flex items-center gap-1.5 hover:underline">
+                    {t.visit}
+                    {i.link}
+                  </a>
+                ) : live ? (
                   <Link href="/store" target="_blank" onClick={go} className="inline-flex items-center gap-1.5 hover:underline">
                     {t.visit}
                     {i.link}

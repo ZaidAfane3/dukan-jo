@@ -6,8 +6,8 @@ import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
 import { payNote, shipCityLists, storePayKey, storePays, usePublicSettings } from "../platformPublic";
 import { jordanMobile } from "../phone";
-import { checkCheckout, isUnlimited, ORDER_LIMITS, priceCart, productSizes, sellableStock, stock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
-import { checkCoupon, cleanCoupon, parseList, type Coupon, type CouponRefusal } from "../records";
+import { checkCheckout, ORDER_LIMITS, priceCart, productSizes, sellableStock, takeStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
+import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type CouponRefusal } from "../records";
 import type { CartStyle } from "./config";
 import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
@@ -55,6 +55,17 @@ const words = {
     payCard: "Card",
     cardNote: "Prototype: no card details are asked and nothing is charged.",
     noPay: "This store can't take orders right now: no way to pay is open. Please try again later.",
+    testNote: "Test order: payment is not open yet, so nothing is charged. The store receives your order and will contact you.",
+    placing: "Placing your order…",
+    errNet: "Your order couldn't be sent. Check your connection and try again.",
+    errSlow: "Too many orders were sent from here. Please wait a few minutes and try again.",
+    errClosed: "This store isn't taking orders right now. Please try again later.",
+    errPay: "This way to pay is no longer available. Choose another one.",
+    couponFail: "The code couldn't be checked. Try again.",
+    placedTitle: "Thank you, your order is in",
+    placedText: "Order #{id}. The store will contact you on {phone} to confirm it.",
+    placedTest: "This is a test order: nothing was charged.",
+    yourOrder: "Your order",
     place: "Place the order",
     errName: "Enter your name.",
     errCity: "Choose your city.",
@@ -117,6 +128,17 @@ const words = {
     payCard: "بطاقة",
     cardNote: "نسخة تجريبية: لا تُطلب بيانات البطاقة ولا يُخصم أي مبلغ.",
     noPay: "لا يستقبل هذا المتجر طلبات الآن: لا توجد طريقة دفع متاحة. حاول مرة أخرى لاحقًا.",
+    testNote: "طلب تجريبي: الدفع غير مفعّل بعد، لذلك لا يُخصم أي مبلغ. يصل طلبك إلى المتجر وسيتواصل معك.",
+    placing: "جارٍ إرسال طلبك…",
+    errNet: "تعذّر إرسال طلبك. تأكد من اتصالك وحاول مرة أخرى.",
+    errSlow: "أُرسلت طلبات كثيرة من هنا. انتظر بضع دقائق ثم حاول مرة أخرى.",
+    errClosed: "لا يستقبل هذا المتجر طلبات الآن. حاول مرة أخرى لاحقًا.",
+    errPay: "طريقة الدفع هذه لم تعد متاحة. اختر طريقة أخرى.",
+    couponFail: "تعذّر التحقق من الكود. حاول مرة أخرى.",
+    placedTitle: "شكرًا لك، وصلنا طلبك",
+    placedText: "طلب رقم {id}. سيتواصل معك المتجر على {phone} لتأكيده.",
+    placedTest: "هذا طلب تجريبي: لم يُخصم أي مبلغ.",
+    yourOrder: "طلبك",
     place: "تأكيد الطلب",
     errName: "اكتب اسمك.",
     errCity: "اختر مدينتك.",
@@ -190,34 +212,52 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
     const list = readList("seen-orders");
     const id = list.reduce((m, x) => (typeof x.id === "number" && Number.isSafeInteger(x.id) && x.id < 1e9 ? Math.max(m, x.id) : m), 1000) + 1;
     localStorage.setItem("seen-orders", JSON.stringify([{ id, ...o, status: "pending", channel: 1, created: Date.now() }, ...list]));
-    /* what was bought leaves the stock (a stock with no limit stays as it is) */
-    if (localStorage.getItem("seen-products")) {
-      localStorage.setItem("seen-products", JSON.stringify(readList("seen-products").map((p) => {
-        /* clothing and shoes: each size bought leaves its own stock, and the product's stock is all its sizes again */
-        const sizes = productSizes(p);
-        if (sizes.length) {
-          const left = sizes.map((z) => ({ ...z, quantity: Math.max(0, z.quantity - o.items.filter((x) => x.id === Number(p.id) && x.size === z.name).reduce((n, x) => n + x.qty, 0)) }));
-          return o.items.some((x) => x.id === Number(p.id)) ? { ...p, sizes: left, quantity: left.reduce((n, z) => n + z.quantity, 0) } : p;
-        }
-        const line = o.items.find((x) => x.id === Number(p.id));
-        return line && !isUnlimited(p) ? { ...p, quantity: Math.max(0, stock(p.quantity) - line.qty) } : p;
-      })));
-    }
+    /* what was bought leaves the stock: each size its own, and a stock with no limit stays as it is (safeOrder.ts, the
+       same rule the server runs for orders on the public store) */
+    if (localStorage.getItem("seen-products")) localStorage.setItem("seen-products", JSON.stringify(takeStock(readList("seen-products"), o.items)));
     /* the coupon counts one more use (its limit is checked against this) */
-    if (o.coupon) {
-      const code = o.coupon.code;
-      localStorage.setItem("seen-coupons", JSON.stringify(readList("seen-coupons").map((c) => (typeof c.code === "string" && c.code.toUpperCase() === code ? { ...c, used: (typeof c.used === "number" && c.used >= 0 ? c.used : 0) + 1 } : c))));
-    }
+    if (o.coupon) localStorage.setItem("seen-coupons", JSON.stringify(countCouponUse(readList("seen-coupons"), o.coupon.code)));
     return id;
   } catch {
     return null;
   }
 }
 
+/* A key for one checkout on the public store (letters, digits and dashes, as the server takes it) */
+function checkoutKey(): string {
+  try {
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+  }
+}
+
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
+/* `orderTo`: the public store (app/[slug]) at this link name. The order is sent to Dukkan's server
+   (POST /api/public/store/<link>/orders), which prices it again from the store's saved products, takes the stock and
+   keeps it for the merchant; coupons are checked by the server too. Nothing is read from or written to the visitor's
+   own storage, and no payment is taken: the checkout says it is a test order. Without it (the merchant's own preview)
+   the order is saved in his browser, as before. */
 /* `ownFee`: the merchant delivers with his own courier and charges this per order; null means Dukkan Ship's price */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, ownFee = null, look = "drawer", contained = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | null; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean }) {
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fdIn, priceLanguage, onCleared, pickup = false, ownFee = null, look = "drawer", contained = false, orderTo }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | null; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string }) {
   const w = words[lang];
+  /* the public store: prices the server answered with when they changed since the page opened (by product id) */
+  const [priceFix, setPriceFix] = useState<Record<number, number>>({});
+  const priceAt = (p: StoreProduct) => priceFix[p.id] ?? priceOf(p);
+  /* the public store: the coupon's terms as the server gave them, the order being sent, why it was not, and what was placed */
+  const [remoteCoupon, setRemoteCoupon] = useState<Coupon | null>(null);
+  const [couponFail, setCouponFail] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState("");
+  const [placed, setPlaced] = useState<{ number: number; items: PricedLine[]; total: number; contact: string } | null>(null);
+  /* the public store: the delivery fee and free delivery offer as the server answered them, when they changed since the
+     page opened (the cart then works its total out from these, as the server does) */
+  const [termsFix, setTermsFix] = useState<{ fee: number; fd: FreeDelivery } | null>(null);
+  const fd = termsFix?.fd ?? fdIn;
+  /* the public store: this checkout's own key, kept until the order is in, so sending it again (its answer was lost)
+     gets the same order back instead of a second one */
+  const attemptKey = useRef<string | null>(null);
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", city: "", address: "", note: "" });
   /* What Dukkan's staff set in Diwan (platform settings): the ways to pay that are on, and the flat delivery price of Dukkan
@@ -225,7 +265,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
      free delivery amount pay nothing either way */
   const platform = usePublicSettings();
   const pays = storePays(platform);
-  const DELIVERY_FEE = ownFee ?? platform.dukkan_ship.price;
+  const DELIVERY_FEE = termsFix?.fee ?? ownFee ?? platform.dukkan_ship.price;
   /* the cities Dukkan Ship delivers to, as set in Diwan */
   const cities = shipCityLists(platform);
   const [payPicked, setPay] = useState<Pay>("cliq");
@@ -261,15 +301,18 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
   const [couponErr, setCouponErr] = useState<CouponRefusal | null>(null);
 
   const amount = (n: number) => `${moneyIn(n, priceLanguage)} ${currency(priceLanguage)}`;
-  const subtotal = lines.reduce((s, l) => s + l.qty * priceOf(l.p), 0);
+  const subtotal = lines.reduce((s, l) => s + l.qty * priceAt(l.p), 0);
   const freeNow = fd.on && subtotal >= fd.min;
+  /* the coupons: the merchant's own as saved in his browser, or on the public store only the one the server accepted */
+  const couponList = (): Coupon[] => (orderTo ? (remoteCoupon ? [remoteCoupon] : []) : storeCoupons());
   /* the coupon taken is checked again whenever the basket changes (it may fall under its minimum) */
-  const cp = coupon ? checkCoupon(coupon, storeCoupons(), subtotal) : null;
+  const cp = coupon ? checkCoupon(coupon, couponList(), subtotal) : null;
   const discount = cp?.ok ? cp.discount : 0;
   const delivery = lines.length === 0 || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery) ? 0 : DELIVERY_FEE;
   const total = toFils(subtotal - discount + delivery);
   const applyCoupon = () => {
     if (!couponText.trim()) return;
+    if (orderTo) return void applyRemoteCoupon(couponText);
     const r = checkCoupon(couponText, storeCoupons(), subtotal);
     if (r.ok) {
       setCoupon(r.coupon.code);
@@ -277,6 +320,115 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       setCouponErr(null);
     } else setCouponErr(r.why);
   };
+  /* The public store: the server checks the code against the store's coupons and answers its terms, so the cart can
+     show the discount as the basket changes (placing the order checks it again) */
+  const applyRemoteCoupon = async (typed: string) => {
+    setCouponFail(false);
+    try {
+      const r = await fetch(`/api/public/store/${encodeURIComponent(orderTo ?? "")}/coupon`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: typed }) });
+      const j = (await r.json().catch(() => ({}))) as { result?: string; why?: CouponRefusal; coupon?: unknown };
+      const c = j.result === "ok" && j.coupon && typeof j.coupon === "object" ? cleanCoupon(j.coupon as Record<string, unknown>) : null;
+      if (c) {
+        /* its minimum is checked here, against this basket */
+        const r2 = checkCoupon(c.code, [c], subtotal);
+        setRemoteCoupon(c);
+        if (r2.ok) {
+          setCoupon(c.code);
+          setCouponText("");
+          setCouponErr(null);
+        } else setCouponErr(r2.why);
+      } else if (j.result === "refused" && j.why) setCouponErr(j.why);
+      else setCouponFail(true);
+    } catch {
+      setCouponFail(true);
+    }
+  };
+
+  /* The public store: the order goes to Dukkan's server, which prices it again from the store's saved products. It
+     answers with the order, or with the cart priced again (stock or a price changed), a refused coupon or the fields
+     to fix. `shown`: the total the customer sees, so a price changed since the page opened is never charged unseen. */
+  const placeRemote = async (shown: number) => {
+    placing.current = true;
+    setSending(true);
+    setSendErr("");
+    let j: { result?: string; order?: { number: number; items: PricedLine[]; total: number }; items?: PricedLine[]; why?: CouponRefusal; fields?: string[]; terms?: { fee?: unknown; freeDelivery?: { on?: unknown; min?: unknown }; coupon?: unknown } } = {};
+    let status = 0;
+    attemptKey.current ??= checkoutKey();
+    try {
+      const r = await fetch(`/api/public/store/${encodeURIComponent(orderTo ?? "")}/orders`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lines: lines.map((l) => ({ id: l.p.id, qty: l.qty, ...(l.size ? { size: l.size } : {}) })),
+          customer: { ...form, fulfil, pay },
+          ...(cp?.ok ? { coupon: cp.coupon.code } : {}),
+          expect: shown,
+          attempt: attemptKey.current,
+        }),
+      });
+      status = r.status;
+      j = (await r.json().catch(() => ({}))) as typeof j;
+    } catch {
+      /* no answer: offline, or the server is restarting */
+    }
+    placing.current = false;
+    setSending(false);
+    if (j.result === "ok" && j.order) {
+      const contact = jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase();
+      setPlaced({ number: j.order.number, items: j.order.items ?? [], total: j.order.total, contact });
+      /* the next checkout is a new one */
+      attemptKey.current = null;
+      setTermsFix(null);
+      setStep("done");
+      setChanged(false);
+      setCoupon("");
+      setRemoteCoupon(null);
+      setCouponErr(null);
+      setPriceFix({});
+      onCleared();
+      return;
+    }
+    if (j.result === "changed" && Array.isArray(j.items)) {
+      /* the cart as the store can sell it now: quantities cut to the stock, sold out products out, today's prices */
+      const fresh = new Map(j.items.map((it) => [`${it.id}|${it.size ?? ""}`, it.qty]));
+      lines.forEach((l) => setQty(l.p, fresh.get(`${l.p.id}|${l.size ?? ""}`) ?? 0, l.size));
+      setPriceFix((m) => ({ ...m, ...Object.fromEntries(j.items!.map((it) => [it.id, it.price])) }));
+      /* and the store's delivery fee, free delivery offer and coupon as they are now, so the total shown is the one the
+         server charges and the next try goes through */
+      const t = j.terms;
+      if (t && typeof t.fee === "number" && t.freeDelivery && typeof t.freeDelivery.min === "number") setTermsFix({ fee: t.fee, fd: { on: t.freeDelivery.on === true, min: t.freeDelivery.min } });
+      const c = t?.coupon && typeof t.coupon === "object" ? cleanCoupon(t.coupon as Record<string, unknown>) : null;
+      if (c) setRemoteCoupon(c);
+      setChanged(true);
+      setStep("cart");
+      return;
+    }
+    if (j.result === "coupon") {
+      setCoupon("");
+      setRemoteCoupon(null);
+      setCouponErr(j.why ?? "unknown");
+      setStep("cart");
+      return;
+    }
+    if (j.result === "invalid") {
+      const f = new Set(j.fields ?? []);
+      const next: typeof errors = {};
+      if (f.has("name")) next.name = w.errName;
+      if (f.has("phone")) next.phone = w.errContact;
+      if (f.has("city")) next.city = w.errCity;
+      if (f.has("address")) next.address = w.errAddress;
+      setErrors(next);
+      if (f.has("pay")) setSendErr(w.errPay);
+      else if (f.has("lines")) {
+        setChanged(true);
+        setStep("cart");
+      }
+      return;
+    }
+    setSendErr(status === 429 ? w.errSlow : j.result === "closed" ? w.errClosed : w.errNet);
+  };
+
   const suggestions = suggestFor(products, lines.map((l) => l.p), 3);
   const field = (bad?: string) => { const k = skins[look] ?? skins.drawer; return `${k.field} ${bad ? k.fieldBad : k.fieldOk}`; };
   const set = (k: keyof typeof form, v: string) => {
@@ -300,6 +452,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       return;
     }
     if (!checked.ok) return;
+    /* the public store: the server prices it, takes the stock and keeps it for the merchant */
+    if (orderTo) return void placeRemote(total);
     /* The prices, the stock and the total come from the catalog, never from what is on screen */
     const priced = priceCart(lines.map((l) => ({ id: l.p.id, qty: l.qty, size: l.size })), currentCatalog(products));
     if (priced.changed || priced.items.length === 0) {
@@ -386,13 +540,13 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
           )}
         </div>
         {size && <p className="text-xs font-semibold opacity-70">{lang === "ar" ? "المقاس" : "Size"}: <bdi>{size}</bdi></p>}
-        <p className={s.unit} dir="auto">{amount(priceOf(p))}</p>
+        <p className={s.unit} dir="auto">{amount(priceAt(p))}</p>
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pt-2">
           <div className="flex items-center gap-3">
             {qtyControl(p, qty, size)}
             {!iconRemove && <button type="button" onClick={() => setQty(p, 0, size)} className={s.remove}>{w.remove}</button>}
           </div>
-          <p className={s.lineTotal} dir="auto">{amount(qty * priceOf(p))}</p>
+          <p className={s.lineTotal} dir="auto">{amount(qty * priceAt(p))}</p>
         </div>
       </div>
     </li>
@@ -428,14 +582,18 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
     </div>
   );
   const cta = (
-    <button type="button" onClick={next} className={s.cta} style={s.ctaStyle}>
-      <span>{step === "cart" ? w.checkout : `${w.place} · ${amount(total)}`}</span>
-      <span aria-hidden>{icons.arrow}</span>
-    </button>
+    <>
+      {/* the public store: why the order was not sent (connection, too many, store closed) */}
+      {sendErr && step === "details" && <p role="alert" className="mb-2 text-center text-xs font-semibold text-rose-600">{sendErr}</p>}
+      <button type="button" onClick={next} disabled={sending} aria-busy={sending} className={`${s.cta} disabled:cursor-wait disabled:opacity-70`} style={s.ctaStyle}>
+        <span>{step === "cart" ? w.checkout : sending ? w.placing : `${w.place} · ${amount(total)}`}</span>
+        <span aria-hidden>{icons.arrow}</span>
+      </button>
+    </>
   );
 
   /* A code refused now, or a code taken earlier that no longer fits the basket */
-  const couponMsg = couponErr ? w.refused[couponErr] : cp && !cp.ok ? w.refused[cp.why] : "";
+  const couponMsg = couponErr ? w.refused[couponErr] : couponFail ? w.couponFail : cp && !cp.ok ? w.refused[cp.why] : "";
   const couponBox = (
     <div>
       {cp?.ok ? (
@@ -447,7 +605,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
         <form onSubmit={(e) => { e.preventDefault(); applyCoupon(); }} className="flex gap-2">
           <input
             value={couponText}
-            onChange={(e) => { setCouponText(e.target.value.toUpperCase().slice(0, 24)); setCouponErr(null); if (coupon) setCoupon(""); }}
+            onChange={(e) => { setCouponText(e.target.value.toUpperCase().slice(0, 24)); setCouponErr(null); setCouponFail(false); if (coupon) setCoupon(""); }}
             aria-label={w.coupon}
             aria-invalid={!!couponMsg}
             placeholder={w.coupon}
@@ -534,7 +692,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
           ))}
         </div>
         {pay && payNote(platform, storePayKey(pay)) && <p dir="auto" className="mt-2 text-xs opacity-70">{payNote(platform, storePayKey(pay))}</p>}
-        {pay === "card" && <p className="mt-2 text-xs opacity-70">{w.cardNote}</p>}
+        {pay === "card" && !orderTo && <p className="mt-2 text-xs opacity-70">{w.cardNote}</p>}
+        {/* the public store takes no payment yet: every order is a test order, and the customer is told before placing it */}
+        {orderTo && <p role="note" className="mt-3 rounded-[var(--sf-ri,10px)] bg-amber-500/15 px-3 py-2.5 text-xs font-semibold leading-relaxed">{w.testNote}</p>}
       </div>
     </div>
   );
@@ -549,7 +709,30 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       </div>
     </div>
   );
-  const doneView = centered(check, w.doneTitle, w.doneText.replace("{id}", String(doneId)).replace("{phone}", jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase()), w.done);
+  const doneView = orderTo && placed ? (
+    /* the public store: the order as the server placed it, its number, what is in it and its total */
+    <div className="grid place-items-center py-8 text-center">
+      <div className="w-full max-w-sm">
+        <span className={s.badge} style={s.badgeStyle}>{check}</span>
+        <h3 className={s.stateTitle} style={heading}>{w.placedTitle}</h3>
+        <p className="mt-1.5 text-sm leading-relaxed opacity-70">{w.placedText.replace("{id}", String(placed.number)).replace("{phone}", placed.contact)}</p>
+        <p className="mt-1 text-xs font-semibold opacity-70">{w.placedTest}</p>
+        <div className="mt-5 rounded-[var(--sf-ri,10px)] bg-sf-text/[0.04] p-4 text-start">
+          <p className="text-sm font-bold">{w.yourOrder} <span dir="ltr">#{placed.number}</span></p>
+          <ul className="mt-2 space-y-1.5 text-sm">
+            {placed.items.map((it) => (
+              <li key={`${it.id}|${it.size ?? ""}`} className="flex justify-between gap-3">
+                <span className="min-w-0"><bdi>{it.name}</bdi>{it.size && <span className="opacity-60"> · <bdi>{it.size}</bdi></span>} <span dir="ltr" className="opacity-60">×{it.qty}</span></span>
+                <span dir="auto" className="shrink-0">{amount(it.qty * it.price)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 flex justify-between gap-3 border-t border-sf-text/10 pt-3 text-sm font-bold"><span>{w.total}</span><span dir="auto">{amount(placed.total)}</span></p>
+        </div>
+        <button type="button" onClick={onClose} className={`${s.cta} mx-auto mt-5 !w-auto px-7`} style={s.ctaStyle}>{w.done}</button>
+      </div>
+    </div>
+  ) : centered(check, w.doneTitle, w.doneText.replace("{id}", String(doneId)).replace("{phone}", jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase()), w.done);
   const emptyView = centered(icons.bag, w.empty, w.emptyHint, w.keepShopping);
 
   const back = (
@@ -633,13 +816,13 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
                       <li key={p.id} className="flex items-center gap-2.5 text-sm">
                         <ProductImage p={p} className="h-11 w-11 shrink-0 rounded-[var(--sf-ri,8px)]" />
                         <span className="min-w-0 flex-1 truncate"><bdi>{p.name}</bdi> <span className="opacity-60">× {qty}</span></span>
-                        <span dir="auto" className="shrink-0 font-semibold">{amount(qty * priceOf(p))}</span>
+                        <span dir="auto" className="shrink-0 font-semibold">{amount(qty * priceAt(p))}</span>
                       </li>
                     ))}
                   </ul>
                 )}
                 {freeLine && <div className="mt-3">{freeLine}</div>}
-                <div className="mt-3">{couponBox}</div>
+                {couponBox && <div className="mt-3">{couponBox}</div>}
                 <div className="mt-3">{sums}</div>
                 <div className="mt-4">{cta}</div>
               </aside>

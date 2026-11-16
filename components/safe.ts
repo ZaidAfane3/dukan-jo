@@ -164,7 +164,17 @@ export const imageRules = {
   /* a WebP watermark or stamp is redrawn as a PNG */
   invoice: { ...rules.invoice, kinds: ["png", "jpeg", "webp"] },
   proof: rules.proof,
+  /* A store's picture kept on Dukkan's server (server/media.ts, POST /api/media): what any picker above can end up sending,
+     after the browser shrank it. Never an SVG here: the browser has already drawn an SVG into a PNG or WebP. The page
+     background alone may also be a video. */
+  storeImage: { kinds: PICTURE_KINDS, max: PICTURE_MAX, maxByKind: { gif: PICTURE_GIF_MAX } },
+  storeBackground: { kinds: [...PICTURE_KINDS, "mp4", "webm"], max: PICTURE_MAX, maxByKind: { gif: PICTURE_GIF_MAX, mp4: PICTURE_VIDEO_MAX, webm: PICTURE_VIDEO_MAX } },
 } satisfies Record<string, ImageRule>;
+
+/** A picture or video kept on Dukkan's server (server/media.ts): "/media/" and its random id. Pages keep these in place of
+    the picture data they used to keep, and anyone can load them (storefront visitors, the merchant's own pages). */
+export const MEDIA_URL = /^\/media\/[A-Za-z0-9_-]{24}$/;
+export const isMediaUrl = (v: unknown): boolean => typeof v === "string" && MEDIA_URL.test(v);
 
 const SVG_MAX = 200_000;
 
@@ -434,12 +444,17 @@ export function cleanDate(s: unknown, min = "1900-01-01", max = "9999-12-31"): s
 /** A store's own name in the platform address: 3 to 30 lower-case letters, digits and dashes, not starting or ending with a dash. */
 export const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
 
-/* Names a store may not take: they belong to the platform, or could be mistaken for it. */
+/* Names a store may not take: they belong to the platform, or could be mistaken for it. Every store lives at Dukkan's
+   address followed by its name (app/[slug]), so each page of the platform at the top of the site (each folder in app/)
+   must be listed here or in PAGES_ADDED_LATER below: that page always wins, so a store with its name could never be
+   reached. A page added once stores could already choose names goes in PAGES_ADDED_LATER, never here: a name here is
+   cleared from a setup that already holds it (isSlug), which would erase that store's link. */
 export const RESERVED_SLUGS = new Set([
-  "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "cdn", "checkout", "dashboard", "demo", "design",
-  "dev", "docs", "domain", "dukkan", "help", "home", "login", "logout", "mail", "marketing", "new", "null", "onboarding", "orders",
-  "pages", "preview", "products", "register", "reports", "root", "seen", "settings", "shop", "signin", "signup", "staff",
-  "static", "status", "store", "support", "system", "test", "themes", "undefined", "www",
+  "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "cdn", "checkout", "dashboard", "demo",
+  "design", "dev", "docs", "domain", "dukkan", "help", "home", "login", "logout", "mail", "marketing",
+  "new", "null", "onboarding", "orders", "pages", "preview", "products", "register", "reports", "root", "seen",
+  "settings", "shop", "signin", "signup", "staff", "static", "status", "store", "support", "system", "test",
+  "themes", "undefined", "www",
 ]);
 
 /** Turns what was typed into a store address: lower case, spaces become dashes, other characters go. */
@@ -449,10 +464,44 @@ export function typedSlug(s: unknown): string {
 
 export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG_RULE.test(s) && !RESERVED_SLUGS.has(s);
 
+/* Pages of the platform added at the top of the site after stores could already choose names. Nobody can choose one
+   from now on, but a store that took one before keeps it in its setup (it is never erased) and is asked on its Store link
+   page to choose another, since the platform's page wins at that address. */
+const PAGES_ADDED_LATER = ["store-link", "delivery", "diwan", "from-dukkan", "media", "suspended"];
+
+/** A name that is one of the platform's own pages at the top of the site (each folder in app/), not a store's address */
+export const isPlatformPage = (name: string): boolean => RESERVED_SLUGS.has(name) || PAGES_ADDED_LATER.includes(name);
+
+/** The address of a page is where a store would be: one part that could be a store's link and is no page of the
+    platform's (app/[slug]). Such pages belong to the visitor, not to the signed-in merchant. */
+export function isStoreAddress(pathname: string): boolean {
+  const name = pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+  return SLUG_RULE.test(name) && !isPlatformPage(name);
+}
+
 /* Names reserved later, for new choices only: a store that already took one keeps it (saved setups are read with isSlug,
-   so its link never disappears), but nobody can choose it from now on. "store-link" became a merchant page. */
-const RESERVED_FOR_NEW = new Set(["store-link"]);
-/** A name the platform keeps, when a store chooses or changes its link */
-export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s);
+   so its link never disappears), but nobody can choose it from now on. The later pages above, and "your-store": the
+   example address the site shows everywhere (and the tour's sample store), so no real store may own it. */
+const RESERVED_FOR_NEW = new Set([...PAGES_ADDED_LATER, "your-store", "yourstore"]);
+/* Rude words a store link may not hold, in English and in Arabic written in Latin letters (Arabic letters can't be typed
+   at all: a link is English letters, digits and dashes). Long words are found anywhere in the link, dashes ignored
+   ("my-fuck-shop", "sharmoota"); short ones only as a whole part between dashes, so "glass" or "sussex" stay allowed. */
+const BAD_ANYWHERE = [
+  "fuck", "shit", "bitch", "bastard", "cunt", "pussy", "porn", "slut", "whore", "nigger", "nigga", "faggot", "asshole",
+  "hentai", "dildo", "blowjob", "boobs", "horny", "nudes",
+  "sharmoot", "sharmout", "sharmot", "sharmo6", "manyak", "manyok", "metnak", "mitnak", "qahba", "kahba", "9a7ba", "2a7ba",
+  "ahbal", "kosomak", "kosomk", "kusumak", "kosokht", "ibnelkalb", "ibnkalb",
+];
+const BAD_PART = new Set([
+  "sex", "xxx", "tits", "fag", "dick", "cock", "anal", "milf", "rape", "nazi", "isis", "nude",
+  "kos", "kus", "kuss", "koss", "zeb", "zib", "zebi", "nik", "neek", "nayek", "tiz", "teez", "ayre", "ayri", "khara", "khra", "kalb",
+]);
+/** Whether a link holds a rude word */
+export const isRudeSlug = (s: string): boolean => {
+  const flat = s.replace(/-/g, "");
+  return BAD_ANYWHERE.some((w) => flat.includes(w)) || s.split("-").some((part) => BAD_PART.has(part));
+};
+/** A name the platform keeps, or a rude one, when a store chooses or changes its link */
+export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s) || isRudeSlug(s);
 /** A link a store may choose now */
-export const isNewSlug = (s: unknown): s is string => isSlug(s) && !RESERVED_FOR_NEW.has(s);
+export const isNewSlug = (s: unknown): s is string => isSlug(s) && !RESERVED_FOR_NEW.has(s) && !isRudeSlug(s);

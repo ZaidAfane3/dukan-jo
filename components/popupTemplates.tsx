@@ -79,8 +79,11 @@ const eye = (
 );
 
 function ThemeGiftPopup({ slots, lang, act, titleId }: TemplateProps) {
-  /* the picture: the one given, else the theme's own picture of its home page */
-  const image = valueOf(slots, "image") || findTheme(valueOf(slots, "theme"))?.shot || "";
+  /* the picture: the one given, else the chosen theme's own picture of its home page. A built-in theme's own picture
+     (/themes/…) counts as "the theme's picture", so a gift first made with Mada's picture follows the theme chosen now. */
+  const given = valueOf(slots, "image");
+  const own = findTheme(valueOf(slots, "theme"))?.shot || "";
+  const image = (given && !given.startsWith("/themes/") ? given : own) || given || "";
   const w = (k: string) => textOf(slots, k, lang);
   return (
     /* never taller than the screen: page scrolling is off while a pop-up is open, so its buttons must stay reachable */

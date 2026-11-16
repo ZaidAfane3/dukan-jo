@@ -17,6 +17,8 @@ import { shownMobile } from "../phone";
 import { hasArabic } from "../safe";
 import { useSpots } from "./spotSignal";
 import { ReportStore } from "./ReportStore";
+import { useVisitorStore } from "./visitorStore";
+import { sendVisit } from "../storeVisits";
 
 /* In the designer: the open settings point at a part of the store that is empty or hidden. It gets a dashed place with what
    will show there, so he sees where his change goes (customers never see it). */
@@ -65,6 +67,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const { lang, setLang } = usePrefs();
   const c = copy[lang];
   const saved = useStoreData(lang, sample);
+  /* the public store (app/[slug]): the store as Dukkan's server sent it, for a visitor (see visitorStore.ts) */
+  const visitor = useVisitorStore();
   /* Kept the same object while nothing in it changes, so the parts of the store that use it do not draw again on every key in the designer */
   const sName = store?.name, sDescription = store?.description, sColor = store?.color, sPhone = store?.phone;
   const data = useMemo(() => ({
@@ -90,7 +94,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   useEffect(() => setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches), []);
   /* What is in the basket: how many of each product (by product id) */
   const [fd, setFd] = useState<FreeDelivery>({ on: false, min: 25 });
-  useEffect(() => setFd(loadFreeDelivery()), []);
+  useEffect(() => setFd(visitor ? visitor.freeDelivery : loadFreeDelivery()), [visitor]);
   /* by product id, or "id|size" for clothing and shoes (one entry per size) */
   const [qty, setQtyMap] = useState<Record<string, number>>({});
 
@@ -195,6 +199,23 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     else setPageId(null);
   };
   const shownPage = pageId !== null ? data.pages.find((p) => p.id === pageId) : undefined;
+  /* The public store only (never the merchant's preview, the designer or the tour): each page a visitor opens is counted
+     for the merchant's visitor numbers (components/storeVisits.ts). Sent once per page: the same page drawn again is not
+     a new one, and closing the cart is not either. */
+  const visitSlug = visitor && !design ? visitor.setup.slug : "";
+  const counted = useRef("");
+  useEffect(() => {
+    if (!visitSlug) return;
+    const key = ownProduct !== null ? `product:${ownProduct}` : ownPage !== null ? `page:${ownPage}` : "home";
+    if (counted.current === key) return;
+    counted.current = key;
+    sendVisit(visitSlug, ownProduct !== null ? "product" : ownPage !== null ? "page" : "home", ownProduct);
+  }, [visitSlug, ownPage, ownProduct]);
+  useEffect(() => {
+    if (!visitSlug || !cartOpen) return;
+    counted.current = "cart";
+    sendVisit(visitSlug, "cart");
+  }, [visitSlug, cartOpen]);
   /* the designer's product page with no products in the store: a sample product, so the page can still be designed */
   const sampleProduct = useMemo(() => (design && showProduct && !(products ?? data.products).length ? sampleProducts(lang)[0] : undefined), [design, showProduct, products, data.products, lang]);
   const shownProduct = (productId !== null ? data.products.find((x) => x.id === productId) : undefined) ?? sampleProduct;
@@ -212,8 +233,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const goods = useMemo(() => ({ products: data.products, categories: data.categories, color: data.color, isDemo: data.isDemo }), [data.products, data.categories, data.color, data.isDemo]);
   const shop = shopTarget(config);
   const ctx: Ctx = useMemo(
-    () => ({ lang, compact, data: goods, config: look, shop, design, owner, query, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS }),
-    [lang, compact, goods, look, shop, design, owner, query, interactive, qty, setQty, openPageS, openProductS, showSectionS],
+    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, query, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS }),
+    [lang, compact, goods, look, shop, design, owner, visitor, query, interactive, qty, setQty, openPageS, openProductS, showSectionS],
   );
 
   /* his text and title colors, unless they vanish on his background (the same color, or too close): then automatic ones that read */
@@ -753,7 +774,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} />
         </div>
       )}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} />}
+      {/* on the public store the order goes to Dukkan's server for the merchant (a test order: no payment yet), in his preview it is saved in his browser */}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
       <main>
         {shownProduct ? (
           <>

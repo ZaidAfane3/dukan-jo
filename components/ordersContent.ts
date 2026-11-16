@@ -55,6 +55,19 @@ type OrdersCopy = {
   paid: string;
   unpaid: string;
   paymentHint: string;
+  /* an order a customer placed on the public store: no payment is taken yet */
+  testOrder: string;
+  testOrderHint: string;
+  /* a status change of such an order did not reach the server */
+  statusFailed: string;
+  /* the orders from his public store come a page at a time */
+  storeShown: string;
+  loadMore: string;
+  loadingMore: string;
+  moreFailed: string;
+  note: string;
+  payWith: string;
+  payNames: { cliq: string; cash: string; card: string };
   cancelledPay: string;
   refundedPay: string;
   changeStatus: string;
@@ -125,6 +138,16 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     paid: "Paid",
     unpaid: "Unpaid",
     paymentHint: "You can send the customer a payment link to complete the order.",
+    testOrder: "Test order, not paid",
+    testOrderHint: "Placed on your store's page while payment is not open yet. Nothing was charged.",
+    statusFailed: "The status couldn't be saved. Check your connection and try again.",
+    storeShown: "Showing {n} of {total} orders from your store page",
+    loadMore: "Load more",
+    loadingMore: "Loading…",
+    moreFailed: "Couldn't load more. Try again.",
+    note: "Customer note",
+    payWith: "Customer chose",
+    payNames: { cliq: "CliQ", cash: "Cash on delivery", card: "Card" },
     cancelledPay: "Cancelled, not paid",
     refundedPay: "Refunded to the customer",
     changeStatus: "Change order status",
@@ -193,6 +216,16 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     paid: "مدفوع",
     unpaid: "غير مدفوع",
     paymentHint: "يمكنك إرسال رابط الدفع للعميل لإكمال الطلب.",
+    testOrder: "طلب تجريبي، غير مدفوع",
+    testOrderHint: "وصل من صفحة متجرك قبل تفعيل الدفع. لم يُخصم أي مبلغ.",
+    statusFailed: "تعذّر حفظ الحالة. تأكد من اتصالك وحاول مرة أخرى.",
+    storeShown: "يظهر {n} من {total} طلبًا من صفحة متجرك",
+    loadMore: "عرض المزيد",
+    loadingMore: "جارٍ التحميل…",
+    moreFailed: "تعذّر تحميل المزيد. حاول مجددًا.",
+    note: "ملاحظة العميل",
+    payWith: "اختار العميل",
+    payNames: { cliq: "كليك CliQ", cash: "الدفع عند الاستلام", card: "بطاقة" },
     cancelledPay: "ملغي — لم يُدفع",
     refundedPay: "أُعيد المبلغ للعميل",
     changeStatus: "تغيير حالة الطلب",

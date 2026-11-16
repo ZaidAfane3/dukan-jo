@@ -20,7 +20,7 @@ export function Logo({ light = false }: { light?: boolean }) {
   );
 }
 
-/* The Resources link opens a small menu with the help links (edited in Diwan > Website). A link with no address is left out. */
+/* The Resources link opens a small menu with the help links (set in components/siteContent.ts). A link with no address is left out. */
 function ResourcesMenu() {
   const { s } = useSite();
   const reg = s.legal;
@@ -92,7 +92,7 @@ export function Nav() {
   return (
     <header
       className={`sticky top-0 z-50 backdrop-blur-lg transition-all duration-300 ${
-        scrolled ? "bg-card/80 shadow-[0_1px_0_rgba(0,73,86,0.10)]" : "bg-soft/70"
+        scrolled ? "bg-card/80 shadow-[0_1px_0_rgba(20,20,20,0.10)]" : "bg-soft/70"
       }`}
     >
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">

@@ -167,6 +167,8 @@ function CouponDialog({
       limit: parseInt(limit, 10) > 0 ? parseInt(limit, 10) : 0,
       validDays: type === 3 ? days : 0,
       used: initial?.used ?? 0,
+      /* its uses on the public store stay counted, so the server never adds them again (records.ts mergeUsedOnline) */
+      ...(initial?.usedOnline ? { usedOnline: initial.usedOnline } : {}),
       active: initial?.active ?? true,
     });
   };
@@ -310,6 +312,11 @@ export function Coupons() {
   useEffect(() => {
     setCoupons(loadCoupons());
     setReady(true);
+    /* Another tab changed the coupons, or the server counted uses from his public store: take that list, so this page
+       never writes back an older one */
+    const onStorage = (e: StorageEvent) => e.key === KEY && setCoupons(loadCoupons());
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   /* Coupons are kept in localStorage, like the rest of the store (and on the server for a signed-in account). */

@@ -2,74 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Colors are stored as RGB channels so Tailwind opacity modifiers work. */
+/* Colors are stored as RGB channels so Tailwind opacity modifiers work.
+   Dukkan's colours (rebrand 2026-11-16): orange on off-white. Off-white is most of the screen (60), orange carries the
+   buttons, the logo and the open part of the sidebar (30), the text is near-black. The dark mode is "Espresso": a deep
+   brown instead of plain black, warm cream text, and a lighter orange with dark text on it. */
 :root {
-  --fg: 0 73 86; /* deep teal */
-  --ink: 0 73 86; /* dark brand surfaces (buttons, panels) */
-  --muted: 102 102 102;
-  --primary: 52 141 156; /* mid teal accent */
-  --deep: 0 54 64; /* hover state for dark surfaces */
-  --soft: 207 247 238; /* mint */
+  --fg: 20 20 20; /* near-black #141414 */
+  --ink: 230 119 38; /* brand surfaces (buttons, panels): orange */
+  --muted: 96 96 100;
+  --primary: 230 119 38; /* light orange accent rgb(var(--brand)) */
+  --deep: 196 98 28; /* hover state for brand surfaces #c4621c */
+  --soft: 246 232 219; /* pale orange on off-white #f6e8db */
   --card: 255 255 255;
-  --page: 255 255 255;
-  --bar: 0 73 86; /* dashboard top bar */
+  --page: 248 245 239; /* off-white #f8f5ef */
+  --bar: 230 119 38; /* the open section of the dashboard sidebar */
   --on-ink: 255 255 255; /* text on top of --ink surfaces */
+  /* The brand's fixed shades for drawings, mock-ups, the logo and the favicon (the same in light and dark mode). A rebrand
+     changes these and the tokens above, nothing else. */
+  --brand: 230 119 38; /* rgb(var(--brand)) */
+  --brand-2: 242 163 58; /* #f2a33a, the second warm hue for glows */
+  --brand-deep: 196 98 28; /* #c4621c */
+  --brand-light: 255 178 112; /* #ffb270 */
+  --brand-pale: 255 227 196; /* #ffe3c4 */
+  --brand-mist: 255 241 228; /* #fff1e4 */
+  --brand-ink: 20 20 20; /* #141414 */
+  --brand-dark: 10 10 10; /* #0a0a0a */
 }
 
 [data-theme="dark"] {
-  --fg: 207 247 238;
-  --ink: 0 73 86;
-  --muted: 160 190 190;
-  --primary: 115 231 203; /* bright mint */
-  --deep: 52 141 156;
-  --soft: 10 54 63;
-  --card: 8 44 52;
-  --page: 4 28 34;
+  --fg: 247 237 227; /* warm cream #f7ede3 */
+  --ink: 240 150 79; /* buttons turn a lighter orange, with dark text (--on-ink) */
+  --on-ink: 19 13 8;
+  --muted: 192 172 153;
+  --primary: 240 150 79; /* lighter orange #f0964f */
+  --deep: 245 182 132;
+  --soft: 52 37 26; /* #34251a */
+  --card: 39 27 19; /* #271b13 */
+  --page: 27 18 12; /* espresso #1b120c */
   color-scheme: dark;
 }
 
-/* Dashboard pages in dark mode use a neutral dark gray with mint accents
+/* Dashboard pages in dark mode use a neutral dark gray with light orange accents
    (colors sampled from the reference dashboard). */
 /* Light dashboard: panels, headers and active rows are neutral gray, not the
-   mint tint used on the marketing site. Dark mode sets its own grays below. */
+   peach tint used on the marketing site. Dark mode sets its own grays below. */
 /* .dash-mock: Diwan's small copy of the merchant dashboard (components/diwan/MerchantPreview.tsx) takes the same colors,
    without making the Diwan page around it denser (html:has(.dash) below) */
 .dash, .dash-mock {
   --soft: 244 244 245;
-  /* text inside the dashboard is near-black, so the brand teal stays for buttons, links and active items */
+  /* text inside the dashboard is near-black, so the brand orange stays for buttons, links and active items */
   --fg: 24 24 27; /* #18181b */
   color: rgb(var(--fg));
 }
 
 [data-theme="dark"] .dash, [data-theme="dark"] .dash-mock {
-  --page: 34 34 34; /* #222222 */
-  --card: 42 43 45; /* #2a2b2d */
-  --soft: 56 56 59; /* #38383b */
-  --bar: 29 30 32; /* #1d1e20 */
-  --fg: 244 244 245;
-  --muted: 168 168 173;
-  --primary: 150 237 217; /* #96edd9 */
-  --deep: 186 243 229; /* #baf3e5 */
-  --ink: 186 243 229; /* buttons turn mint in dark mode */
-  --on-ink: 29 30 32;
+  --page: 27 18 12; /* espresso #1b120c, the same as the site */
+  --card: 39 27 19; /* #271b13 */
+  --soft: 52 37 26; /* #34251a */
+  --bar: 23 15 10; /* #170f0a */
+  --fg: 247 237 227;
+  --muted: 192 172 153;
+  --primary: 240 150 79; /* #f0964f */
+  --deep: 245 182 132; /* #f5b684 */
+  --ink: 240 150 79; /* buttons turn a lighter orange in dark mode */
+  --on-ink: 19 13 8;
 }
 
 /* A store preview shows the merchant's own light storefront, so it keeps
    light colors even when the dashboard around it is dark. */
 [data-theme="dark"] .store-preview {
   --card: 255 255 255;
-  --fg: 17 41 46;
+  --fg: 20 20 20;
   --muted: 102 102 102;
-  --soft: 232 244 241;
-  --primary: 52 141 156;
-  --deep: 0 54 64;
-  --ink: 0 73 86;
+  --soft: 253 241 232;
+  --primary: 230 119 38;
+  --deep: 0 0 0;
+  --ink: 20 20 20;
   --on-ink: 255 255 255;
 }
 
-/* Dark mode: the accent is a light mint, so text on top of it must be dark. */
+/* Dark mode: the accent is a light orange, so text on top of it must be dark. */
 [data-theme="dark"] .bg-primary.text-white {
-  color: #0b1b1f;
+  color: #1b120c;
 }
 
 /* Dashboard pages: slightly denser, with lighter weights (a heavy bold
@@ -302,13 +316,13 @@ form[data-demo-lock] :disabled { cursor: not-allowed; opacity: 0.6; }
   .dk-drift-a, .dk-drift-b, .dk-bob, .dk-ring { animation: none; }
 }
 
-/* A ray of light that slowly crosses a line of text. The text is white, and the ray is a soft mint. */
+/* A ray of light that slowly crosses a line of text. The text is white, and the ray is a soft orange. */
 @keyframes dk-text-sweep {
   0% { background-position: 160% 0; }
   55%, 100% { background-position: -60% 0; }
 }
 .dk-text-sweep {
-  background-image: linear-gradient(105deg, #ffffff 0%, #ffffff 38%, #8ff5dc 50%, #ffffff 62%, #ffffff 100%);
+  background-image: linear-gradient(105deg, #ffffff 0%, #ffffff 38%, rgb(var(--brand-light)) 50%, #ffffff 62%, #ffffff 100%);
   background-size: 260% 100%;
   background-position: 160% 0;
   -webkit-background-clip: text;
@@ -368,9 +382,9 @@ form[data-demo-lock] :disabled { cursor: not-allowed; opacity: 0.6; }
   0% { background-position: 0% 50%; }
   100% { background-position: 300% 50%; }
 }
-/* The colors of the line flow slowly from deep teal through fresh mint to sky blue and back */
+/* The colors of the line flow slowly from deep amber through light orange to soft gold and back */
 .dk-text-brand {
-  background-image: linear-gradient(90deg, #00596a, #14b8a6, #3b9fd4, #14b8a6, #00596a);
+  background-image: linear-gradient(90deg, rgb(var(--brand-deep)), rgb(var(--brand)), rgb(var(--brand-2)), rgb(var(--brand)), rgb(var(--brand-deep)));
   background-size: 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -378,7 +392,7 @@ form[data-demo-lock] :disabled { cursor: not-allowed; opacity: 0.6; }
   animation: dk-pop 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both, dk-text-flow 7s linear 0.9s infinite;
 }
 :root[data-theme="dark"] .dk-text-brand {
-  background-image: linear-gradient(90deg, #ffffff, #8ff5dc, #7dd3fc, #8ff5dc, #ffffff);
+  background-image: linear-gradient(90deg, #ffffff, rgb(var(--brand-light)), rgb(var(--brand-pale)), rgb(var(--brand-light)), #ffffff);
 }
 @media (prefers-reduced-motion: reduce) {
   .dk-pop, .dk-text-brand { animation: none; }
@@ -460,9 +474,9 @@ label:has(> .sr-only) { position: relative; }
 /* the main cover: its pieces only slide sideways, and the pointer says so */
 .sf-movers[data-flat] :is(h1, h2, h3, h4, p, img, a, button, [data-move]) { cursor: ew-resize; }
 /* a group of cards he went into (double-click): a dashed line around it, and around the card under the mouse */
-.sf-movers [data-inside] { outline: 2px dashed #14b8a6; outline-offset: 8px; border-radius: 1rem; }
-.sf-movers [data-inside] [data-move-item]:hover { outline: 1px dashed #14b8a6; outline-offset: 3px; border-radius: 1rem; }
-.sf-movers :is(h1, h2, h3, h4, p):hover:not([class*="hover:outline-dashed"]):not([class*="hover:outline-dashed"] *) { outline: 1px dashed #14b8a6; outline-offset: 2px; }
+.sf-movers [data-inside] { outline: 2px dashed rgb(var(--brand)); outline-offset: 8px; border-radius: 1rem; }
+.sf-movers [data-inside] [data-move-item]:hover { outline: 1px dashed rgb(var(--brand)); outline-offset: 3px; border-radius: 1rem; }
+.sf-movers :is(h1, h2, h3, h4, p):hover:not([class*="hover:outline-dashed"]):not([class*="hover:outline-dashed"] *) { outline: 1px dashed rgb(var(--brand)); outline-offset: 2px; }
 
 /* Store perks have no room under them (the next section's top gives it), but the hero banner has little or none (none when
    edge to edge), so perks moved above a hero keep a gap and their cards are not cut against it */

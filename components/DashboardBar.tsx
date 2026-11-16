@@ -25,7 +25,7 @@ import { usePrefs } from "./Prefs";
 import { ordersCopy } from "./ordersContent";
 import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
-import { AccountBanners } from "./SupportBanner";
+import { TwoStepPrompt } from "./TwoStepSettings";
 
 export type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
@@ -442,7 +442,7 @@ export function DashboardBar({
       {/* Sidebar */}
       <aside
         aria-label={sb.main}
-        className={`fixed inset-y-0 start-0 z-40 flex w-[var(--side-w)] flex-col border-e border-fg/10 bg-card transition-[width,transform] duration-300 max-lg:w-72 ${
+        className={`fixed inset-y-0 start-0 z-40 flex w-[var(--side-w)] flex-col border-e border-fg/10 bg-page transition-[width,transform] duration-300 max-lg:w-72 ${
           mobileOpen ? "" : "max-lg:-translate-x-full max-lg:rtl:translate-x-full"
         }`}
       >
@@ -468,7 +468,8 @@ export function DashboardBar({
             const isActive = active === "settings" ? e.href === pathname : e.section === active;
             const hasSub = !!e.sub;
             const expanded = hasSub && openKey === e.key && !narrow;
-            const state = `${isActive ? "bg-black/[0.07] dark:bg-white/[0.1] font-bold text-fg" : "text-muted hover:bg-soft/60 hover:text-fg"} active:bg-fg/[0.14]`;
+            /* the open section in the brand colour with white text (Option 2 of the colour choice), the rest quiet */
+            const state = `${isActive ? "bg-bar font-bold text-white dark:bg-primary/[0.3]" : "text-muted hover:bg-soft/60 hover:text-fg active:bg-fg/[0.14]"}`;
 
             const label = (
               <>
@@ -509,7 +510,7 @@ export function DashboardBar({
                       s.href ? (
                         <li key={s.label} className="relative">
                           {pathname === s.href && <span aria-hidden className="absolute -start-[13px] bottom-1.5 top-1.5 w-[3px] rounded-full bg-primary" />}
-                          <Link href={s.href} onClick={() => setMobileOpen(false)} aria-current={pathname === s.href ? "page" : undefined} className={`block rounded-lg px-3 py-2 text-sm transition-colors active:bg-fg/[0.14] ${pathname === s.href ? "bg-black/[0.07] dark:bg-white/[0.1] font-semibold text-fg" : "text-muted hover:bg-fg/[0.05] hover:text-fg"}`}>
+                          <Link href={s.href} onClick={() => setMobileOpen(false)} aria-current={pathname === s.href ? "page" : undefined} className={`block rounded-lg px-3 py-2 text-sm transition-colors active:bg-fg/[0.14] ${pathname === s.href ? "bg-primary/[0.14] font-bold text-[rgb(var(--brand-deep))] dark:bg-primary/[0.2] dark:text-primary" : "text-muted hover:bg-fg/[0.05] hover:text-fg"}`}>
                             {s.label}
                           </Link>
                         </li>
@@ -545,8 +546,8 @@ export function DashboardBar({
       {mobileOpen && <button type="button" aria-label={sb.close} onClick={() => setMobileOpen(false)} className="fixed inset-0 z-30 bg-black/50 lg:hidden" />}
 
       {/* Header strip: tabs on one side, tools on the other */}
-      <header className="sticky top-0 z-30 border-b border-fg/10 bg-card/90 backdrop-blur">
-        <AccountBanners />
+      <header className="sticky top-0 z-30 border-b border-fg/10 bg-page/90 backdrop-blur">
+        <TwoStepPrompt />
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 md:flex-nowrap md:gap-4 md:px-10">
           <div className="flex min-w-0 items-center gap-3">
             <button type="button" onClick={() => setMobileOpen(true)} aria-label={sb.open} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-fg/15 lg:hidden">

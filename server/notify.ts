@@ -8,19 +8,21 @@ import { db } from "./db";
      documentStatus  { name, status, note }     a paper was approved or rejected
      shopSuspended   { reason }                 the store was suspended
      shopReactivated {}                         the store is back
-     planChanged     { plan, ends }             plan or trial changed or extended
      paymentReceived { amount, method }         Dukkan marked a payment as received
-     supportViewed   { minutes }                Dukkan support opened the store (log in as merchant)
-   Announcements are not sent with this: they are rows in announcements, shown to whoever they are for. */
+     orderPlaced     { number, total, name }    a customer placed an order on the store's page (server/storeOrders.ts)
+   Dukkan has no plans or free trial, so the old planChanged kind is no longer sent, and "Log in as merchant" was removed
+   on 2026-11-16, so neither is the old supportViewed kind (the bell still words both for older messages). Announcements are not sent with
+   this: they are rows in announcements, shown to whoever they are for. */
 export type NotifyKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "planChanged" | "paymentReceived" | "supportViewed";
+  | "paymentReceived" | "orderPlaced";
 
 /* the free-text details (a ticket's subject, a staff note, a suspension reason) are stored encrypted; numbers, kinds
    and statuses stay plain so the bell can find a ticket's notices. db() opens them again on the way out. */
 const sealParams = (p: Record<string, string | number>) =>
   Object.fromEntries(Object.entries(p).map(([k, v]) => [k, PRIVATE_PARAMS.includes(k) && typeof v === "string" ? seal(v) : v]));
 
-export async function notify(accountId: string | number, kind: NotifyKind, params: Record<string, string | number> = {}): Promise<void> {
-  await (await db()).query(`INSERT INTO notifications (account_id, kind, params) VALUES ($1, $2, $3)`, [accountId, kind, JSON.stringify(sealParams(params))]);
+/** `q`: a client inside a transaction, so the message is kept only if the change it tells about is (the pool otherwise) */
+export async function notify(accountId: string | number, kind: NotifyKind, params: Record<string, string | number> = {}, q?: { query: (sql: string, values: unknown[]) => Promise<unknown> }): Promise<void> {
+  await (q ?? (await db())).query(`INSERT INTO notifications (account_id, kind, params) VALUES ($1, $2, $3)`, [accountId, kind, JSON.stringify(sealParams(params))]);
 }

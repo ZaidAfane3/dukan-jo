@@ -19,7 +19,7 @@ export const themeWords = {
     checkout: {
       title: "Buy this theme",
       method: "Payment method",
-      methods: { card: "Card", cliq: "CliQ", paypal: "PayPal" },
+      methods: { card: "Card", cliq: "CliQ" },
       total: "Total",
       pay: "Pay",
       paying: "Processing…",
@@ -95,7 +95,7 @@ export const themeWords = {
     checkout: {
       title: "شراء هذا الثيم",
       method: "طريقة الدفع",
-      methods: { card: "بطاقة", cliq: "كليك", paypal: "باي بال" },
+      methods: { card: "بطاقة", cliq: "كليك" },
       total: "الإجمالي",
       pay: "ادفع",
       paying: "جارٍ المعالجة…",

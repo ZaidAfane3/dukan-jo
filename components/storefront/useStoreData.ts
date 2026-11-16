@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import type { Lang } from "../content";
 import { accountName, accountPhone, loadSetup } from "../setup";
-import { load as loadPages, pagesScope } from "../InfoPages";
+import { load as loadPages, pagesScope, starterPages } from "../InfoPages";
+import type { PublicStoreOpen } from "../publicStore";
+import { useVisitorStore } from "./visitorStore";
 import type { SectionConfig } from "./config";
 import { isUnlimited, money, productId, productSizes, salePrice, sellableStock, type SizeStock } from "../safeOrder";
 import { safeStoredImage } from "../safe";
@@ -178,11 +180,14 @@ export function storeCategories(products: { category: string; categories?: strin
   return [...named, ...(products.some((p) => isOther(p.category)) ? [OTHER_CATEGORY[lang]] : [])];
 }
 
-function build(lang: Lang, sample: boolean): StoreData {
-  const setup = read<{ name?: string; description?: string; color?: string; phone?: string; whatsapp?: string; slug?: string; logo?: string; pickup?: unknown }>("seen-setup");
+/* `visitor`: the public store (app/[slug]), built from what the server sent instead of this browser's storage. Its
+   name and phone then never fall back to the signed-in account's own (that would be the visitor's account). */
+function build(lang: Lang, sample: boolean, visitor: PublicStoreOpen | null = null): StoreData {
+  const setup = visitor ? visitor.setup : read<{ name?: string; description?: string; color?: string; phone?: string; whatsapp?: string; slug?: string; logo?: string; pickup?: unknown }>("seen-setup");
   /* Only products with a real id, each id once (a damaged list must not break the store or sell twice) */
   const seen = new Set<number>();
-  const saved = savedList("seen-products").filter((p) => !p.deletedAt && !p.hidden).map(toStoreProduct).filter((p) => !Number.isNaN(p.id) && !seen.has(p.id) && !!seen.add(p.id));
+  const list = visitor ? visitor.products.filter((p): p is Record<string, unknown> => !!p && typeof p === "object") : savedList("seen-products");
+  const saved = list.filter((p) => !p.deletedAt && !p.hidden).map(toStoreProduct).filter((p) => !Number.isNaN(p.id) && !seen.has(p.id) && !!seen.add(p.id));
 
   const isDemo = sample;
   /* a product with no category shows under "Other", in every theme */
@@ -190,17 +195,17 @@ function build(lang: Lang, sample: boolean): StoreData {
 
   const other = lang === "ar" ? "en" : "ar";
   /* the same list the Info pages dashboard and the designer's page menu show: a store that never saved its pages has the starting ones */
-  const allPages = (loadPages() as { id: number; published: boolean; footer: boolean; title: Bi; content?: Bi; sections?: SectionConfig[] }[]).filter((p) => p.published && (pagesScope() !== "seen-pages" || p.id < 9100 || p.id >= 9300));
+  const allPages = ((visitor ? visitor.pages ?? starterPages() : loadPages()) as { id: number; published: boolean; footer: boolean; title: Bi; content?: Bi; sections?: SectionConfig[] }[]).filter((p) => p.published && (pagesScope() !== "seen-pages" || p.id < 9100 || p.id >= 9300));
   const pages = allPages.filter((p) => p.footer).map((p) => ({ id: p.id, title: p.title[lang] || p.title[other] }));
   const pageList = allPages.map((p) => ({ id: p.id, title: p.title[lang] || p.title[other], content: p.content?.[lang] || p.content?.[other] || "", sections: Array.isArray(p.sections) ? p.sections : [] }));
 
   return {
-    name: setup?.name?.trim() || accountName() || (lang === "ar" ? "متجرك" : "Your store"),
+    name: setup?.name?.trim() || (visitor ? "" : accountName()) || (lang === "ar" ? "متجرك" : "Your store"),
     description: setup?.description?.trim() || "",
     color: setup?.color || "#004956",
     /* the phone is optional once the contact step is answered (it has a WhatsApp then): empty stays empty */
     phone: (() => {
-      const p = setup?.phone || (setup?.whatsapp === undefined ? accountPhone() : "");
+      const p = setup?.phone || (!visitor && setup?.whatsapp === undefined ? accountPhone() : "");
       return p ? `+962 ${shownMobile(p)}` : "";
     })(),
     whatsapp: typeof setup?.whatsapp === "string" && setup.whatsapp ? `+962 ${shownMobile(setup.whatsapp)}` : "",
@@ -214,7 +219,7 @@ function build(lang: Lang, sample: boolean): StoreData {
     pickup: setup?.pickup === true,
     /* read through the setup's own checks (a fee that is not a valid amount is dropped, so delivery is free) */
     ownFee: (() => {
-      const ship = loadSetup()?.shipping;
+      const ship = visitor ? visitor.setup.shipping : loadSetup()?.shipping;
       return ship?.mode === "own" ? ship.fee ?? 0 : null;
     })(),
     isDemo,
@@ -225,13 +230,19 @@ const empty: StoreData = { name: "", description: "", color: "#004956", phone: "
 
 export function useStoreData(lang: Lang, sample = false): StoreData {
   const [data, setData] = useState<StoreData>(empty);
+  const visitor = useVisitorStore();
   useEffect(() => {
+    /* the public store: the server's copy, which this browser's storage can't change */
+    if (visitor) {
+      setData(build(lang, sample, visitor));
+      return;
+    }
     setData(build(lang, sample));
     /* Other tabs (the dashboard) can change the data while the storefront is open. */
     const onStorage = () => setData(build(lang, sample));
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [lang, sample]);
+  }, [lang, sample, visitor]);
   return data;
 }
 

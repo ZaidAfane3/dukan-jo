@@ -157,7 +157,8 @@ export function Hero() {
     return () => clearInterval(id);
   }, [pv.names.length]);
   return (
-    <section className="relative overflow-hidden bg-soft">
+    /* The tint fades into the page colour at the bottom, so scrolling down has no hard line where the next section starts */
+    <section className="relative overflow-hidden bg-gradient-to-b from-soft from-70% to-page">
       <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 pb-20 pt-16 lg:grid-cols-2 lg:pt-24">
         <div>
           <motion.h1
@@ -206,10 +207,10 @@ export function Hero() {
         >
           <Tilt max={20}>
           {/* Dashboard picture: top bar, sales summary with chart, latest orders */}
-          <div className="overflow-hidden rounded-3xl bg-card shadow-[0_30px_80px_-20px_rgba(0,73,86,0.30)] ring-1 ring-fg/10">
-            <div className="flex items-center gap-1 bg-[#00323b] px-4 py-2.5 text-[11px] font-medium text-white/80">
+          <div className="overflow-hidden rounded-3xl bg-card shadow-[0_30px_80px_-20px_rgba(20,20,20,0.30)] ring-1 ring-fg/10">
+            <div className="flex items-center gap-1 bg-brand-dark px-4 py-2.5 text-[11px] font-medium text-white/80">
               <span className="me-2 inline-flex items-center gap-1.5 font-extrabold text-white">
-                <span className="grid h-5 w-5 place-items-center rounded-md bg-[#96edd9] text-[#00323b]">
+                <span className="grid h-5 w-5 place-items-center rounded-md bg-brand-light text-brand-dark">
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden>
                     <path d="M4 9 5.5 4h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6" />
                   </svg>
@@ -217,21 +218,21 @@ export function Hero() {
                 {brandName(lang)}
               </span>
               {pv.nav.map((n, i) => (
-                <span key={n} className={`rounded-md px-2.5 py-1 ${i === 0 ? "bg-[#c1fdf6] font-bold text-[#00323b]" : ""}`}>{n}</span>
+                <span key={n} className={`rounded-md px-2.5 py-1 ${i === 0 ? "bg-brand-pale font-bold text-brand-dark" : ""}`}>{n}</span>
               ))}
             </div>
 
             <div className="space-y-3 bg-[#f3f4f4] p-3 dark:bg-black/20">
               {/* Summary */}
               <div className="grid overflow-hidden rounded-2xl bg-card sm:grid-cols-[0.9fr_1.1fr] sm:rtl:grid-cols-[1.1fr_0.9fr]">
-                <div className="flex h-36 items-end gap-1.5 bg-[#e1f5f2] p-3 dark:bg-primary/10 sm:h-auto rtl:order-last">
+                <div className="flex h-36 items-end gap-1.5 bg-brand-mist p-3 dark:bg-primary/10 sm:h-auto rtl:order-last">
                   {bars.map((h, i) => (
                     <motion.div
                       key={i}
                       initial={{ height: 0 }}
                       animate={{ height: `${h}%` }}
                       transition={{ duration: 0.9, delay: 0.6 + i * 0.06, ease: "easeOut" }}
-                      className="flex-1 rounded-t-[3px] bg-[#348d9c]"
+                      className="flex-1 rounded-t-[3px] bg-brand"
                     />
                   ))}
                 </div>
@@ -264,7 +265,7 @@ export function Hero() {
                     <span className="font-bold" dir="ltr">{pv.goal} <Roll value={goalPct} decimals={1} />%</span>
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-fg/10">
-                    <motion.div initial={{ width: 0 }} animate={{ width: `${goalPct}%` }} transition={{ duration: 1, delay: counter.current > 3 ? 0 : 0.9, ease: "easeOut" }} className="h-full rounded-full bg-[#348d9c]" />
+                    <motion.div initial={{ width: 0 }} animate={{ width: `${goalPct}%` }} transition={{ duration: 1, delay: counter.current > 3 ? 0 : 0.9, ease: "easeOut" }} className="h-full rounded-full bg-brand" />
                   </div>
                 </div>
               </div>

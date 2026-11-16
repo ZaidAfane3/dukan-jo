@@ -163,7 +163,9 @@ export function priceCart(lines: { id: unknown; qty: unknown; size?: unknown }[]
   for (const l of Array.isArray(lines) ? lines : []) {
     const id = productId(l?.id);
     const q = typeof l?.qty === "number" && Number.isFinite(l.qty) ? Math.floor(l.qty) : 0;
-    const size = sizeName(l?.size);
+    /* a size counts only for a product sold in sizes: any other product is one line whatever size is sent with it, so
+       two lines of it with different sizes can't each take its whole stock */
+    const size = id !== null && byId.get(id)?.sizes?.length ? sizeName(l?.size) : "";
     if (id === null || q <= 0) {
       changed = true;
       continue;
@@ -234,4 +236,87 @@ export function visitorEmail(s: unknown): string {
   const t = s.trim();
   if (!t || t.length > ORDER_LIMITS.email) return "";
   return /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(t) && !/\.\.|^\.|\.@|@-|-\./.test(t) ? t.toLowerCase() : "";
+}
+
+/* ============================== stock taken by an order ============================== */
+
+/** The saved products after an order took what it bought: each size bought leaves its own stock (and a product in
+    sizes has all its sizes again as its stock), a product with a stock leaves what was bought, and a product with no
+    limit stays as it is. Every other part of each product is kept exactly as saved. The merchant's preview (Cart.tsx)
+    and the server (server/storeOrders.ts) both take stock with this. */
+export function takeStock(list: unknown[], items: { id?: unknown; qty: number; size?: string }[], o: { online?: boolean } = {}): unknown[] {
+  return list.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+    const id = productId((raw as Record<string, unknown>).id);
+    const mine = items.filter((x) => id !== null && productId(x.id) === id);
+    if (!mine.length) return raw;
+    let p = raw as Record<string, unknown>;
+    const sizes = productSizes(p);
+    /* an order from the public store also counts, on the product, how many it sold online (per size): see SOLD_ONLINE */
+    if (o.online) {
+      const sold = { ...soldOnline(p.soldOnline) };
+      for (const x of mine) {
+        const k = sizes.length ? sizeName(x.size) : "";
+        sold[k] = (sold[k] ?? 0) + x.qty;
+      }
+      p = { ...p, soldOnline: sold };
+    }
+    if (sizes.length) {
+      const left = sizes.map((z) => ({ ...z, quantity: Math.max(0, z.quantity - mine.filter((x) => x.size === z.name).reduce((n, x) => n + x.qty, 0)) }));
+      /* the saved sizes keep anything else they carry; only their stock changes */
+      const saved = Array.isArray(p.sizes) ? p.sizes : [];
+      const sizesOut = saved.map((z) => {
+        if (!z || typeof z !== "object") return z;
+        const hit = left.find((l) => l.name === sizeName((z as { name?: unknown }).name));
+        return hit ? { ...(z as Record<string, unknown>), quantity: hit.quantity } : z;
+      });
+      return { ...p, sizes: sizesOut, quantity: left.reduce((n, z) => n + z.quantity, 0) };
+    }
+    if (isUnlimited(p)) return p;
+    return { ...p, quantity: Math.max(0, stock(p.quantity) - mine.reduce((n, x) => n + x.qty, 0)) };
+  });
+}
+
+/* ============================== stock sold on the public store ==============================
+   SOLD_ONLINE: every product an order from the public store took stock from carries `soldOnline`, how many the store
+   sold online, per size ("" for a product without sizes). The merchant's own copy of his products (in his browser)
+   keeps that count as it was when his copy was made, so when he saves a copy older than some orders, the server sees
+   by how much its count is behind and takes that many again from the copy (mergeSoldOnline): his save never puts back
+   stock that was sold since, however old the screen he saved from, and a copy that already has them is kept as it is. */
+
+/** A product's online sales as saved: size (or "") -> a whole count */
+export function soldOnline(v: unknown): Record<string, number> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, n] of Object.entries(v as Record<string, unknown>).slice(0, 60)) {
+    const key = k === "" ? "" : sizeName(k);
+    if ((key || k === "") && typeof n === "number" && Number.isSafeInteger(n) && n > 0) out[key] = Math.min(n, 1_000_000_000);
+  }
+  return out;
+}
+
+/** The merchant's products as he saves them (`incoming`), with what the store sold online since his copy was made taken
+    out of their stock, from the products as the server has them (`stored`). Every other part of his copy is kept. */
+export function mergeSoldOnline(incoming: unknown[], stored: unknown[]): unknown[] {
+  const server = new Map<number, Record<string, number>>();
+  for (const s of stored) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) continue;
+    const id = productId((s as Record<string, unknown>).id);
+    const sold = soldOnline((s as Record<string, unknown>).soldOnline);
+    if (id !== null && Object.keys(sold).length) server.set(id, sold);
+  }
+  if (!server.size) return incoming;
+  return incoming.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+    const p = raw as Record<string, unknown>;
+    const id = productId(p.id);
+    const known = id !== null ? server.get(id) : undefined;
+    if (!known) return p;
+    const mine = soldOnline(p.soldOnline);
+    const behind = Object.entries(known).map(([size, n]) => ({ id, size: size || undefined, qty: n - (mine[size] ?? 0) })).filter((x) => x.qty > 0);
+    const counts = { ...mine };
+    for (const [k, n] of Object.entries(known)) counts[k] = Math.max(n, counts[k] ?? 0);
+    const taken = behind.length ? (takeStock([p], behind)[0] as Record<string, unknown>) : p;
+    return { ...taken, soldOnline: counts };
+  });
 }

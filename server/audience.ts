@@ -13,8 +13,8 @@ export function cleanWhen(v: unknown): Date | null | undefined {
 }
 
 /** Who it is for, as Diwan's pickers send it: every store, the stores that sign up while it is out ("new stores": made at
-    or after its start), chosen stores (checked to exist), or, for an older row kept as it was, the stores on chosen plans
-    (checked to exist). Null when it is none of these. Shared by announcements, pop-ups and pages. */
+    or after its start), or chosen stores (checked to exist). Null when it is none of these: Dukkan has no plans, so
+    "stores on chosen plans" is not an option. Shared by announcements, pop-ups and pages. */
 export async function cleanAudience(v: unknown): Promise<Audience | null> {
   const aud = v && typeof v === "object" ? (v as Record<string, unknown>) : null;
   if (aud?.all === true) return { all: true };
@@ -25,12 +25,6 @@ export async function cleanAudience(v: unknown): Promise<Audience | null> {
     if (!ids.length) return null;
     const { rows } = await pool.query(`SELECT id FROM accounts WHERE id = ANY($1::bigint[])`, [ids]);
     return rows.length === ids.length ? { accounts: ids.map(Number) } : null;
-  }
-  if (Array.isArray(aud?.plans)) {
-    const keys = Array.from(new Set((aud!.plans as unknown[]).filter((x): x is string => typeof x === "string" && x.length <= 60))).slice(0, 50);
-    if (!keys.length) return null;
-    const { rows } = await pool.query(`SELECT key FROM plans WHERE key = ANY($1::text[])`, [keys]);
-    return rows.length === keys.length ? { plans: keys } : null;
   }
   return null;
 }
