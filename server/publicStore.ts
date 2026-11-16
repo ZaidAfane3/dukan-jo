@@ -82,9 +82,8 @@ export async function shapePublicStore(shop: ShopRow, data: Map<string, string>,
 
   if (!shop.published) return { status: "soon", name: storeName };
   if (shop.paused) {
-    const m = parse(data.get("seen-maintenance"));
-    const msg = isObj(m) && isObj(m.message) ? m.message : {};
-    return { status: "paused", name: storeName, logo, color, message: { en: cleanLines(msg.en, MAINTENANCE_MAX), ar: cleanLines(msg.ar, MAINTENANCE_MAX) } };
+    /* always Dukkan's own "under maintenance" words: a message an older version let the merchant write is not shown */
+    return { status: "paused", name: storeName, logo, color, message: { en: "", ar: "" } };
   }
 
   const publicSetup: PublicSetup = {

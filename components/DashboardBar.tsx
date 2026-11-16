@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { DemoStrip } from "./DemoBoot";
-import { demoActive } from "./demoSandbox";
+import { demoActive, useDemo } from "./demoSandbox";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content, dateLocale } from "./content";
@@ -111,8 +111,7 @@ export function menuEntries(lang: "en" | "ar", tour = false): MenuEntry[] {
       ],
     },
     { key: "pages", label: lang === "ar" ? "الصفحات التعريفية" : "Info pages", icon: icons.doc, href: "/pages", section: "pages" },
-    /* guides, news and rules Dukkan's team publishes for merchants (Diwan's marketing pages: /diwan/pages) */
-    ...(tour ? [] : [{ key: "dukkan", label: lang === "ar" ? "من دكّان" : "From Dukkan", icon: icons.bell, href: "/from-dukkan", section: "dukkan" as Section }]),
+    /* Dukkan's guides and news (/from-dukkan) open from the bell's panel and the profile menu, not from here */
     {
       key: "reports",
       label: nav[6],
@@ -143,11 +142,11 @@ export type BellItem = { id: string; kind: AppNotification["kind"]; read: boolea
 /** The bell's open panel: its title, "mark all as read", the tabs and the list. Drawn by the bell, and by Diwan's preview
     of an announcement (components/diwan/MerchantPreview.tsx), so both show the same thing. */
 export function BellPanel({
-  lang, items, tab, setTab, unread, onMarkAll, onPick,
+  lang, items, tab, setTab, unread, onMarkAll, onPick, moreHref,
   className = "absolute end-0 top-full z-50 mt-3 w-[26rem] max-w-[92vw] animate-[fadeIn_0.2s_ease]",
 }: {
   lang: "en" | "ar"; items: BellItem[]; tab: number; setTab: (i: number) => void; unread: number;
-  onMarkAll: () => void; onPick: (id: string) => void; className?: string;
+  onMarkAll: () => void; onPick: (id: string) => void; className?: string; moreHref?: string;
 }) {
   const n = content[lang].notifications;
   return (
@@ -186,12 +185,20 @@ export function BellPanel({
         ))}
       </ul>
       {items.length === 0 && <p className="px-5 py-12 text-center text-sm text-muted">{n.empty}</p>}
+      {/* Dukkan's guides, news and rules (Diwan's marketing pages), under the notifications they are announced in */}
+      {moreHref && (
+        <Link href={moreHref} className="flex items-center justify-between gap-3 border-t border-fg/10 px-5 py-3.5 text-sm font-semibold text-primary transition-colors hover:bg-soft/60">
+          {lang === "ar" ? "من دكّان: كل الأدلة والأخبار" : "From Dukkan: all guides and news"}
+          <span aria-hidden className="rtl:-scale-x-100">→</span>
+        </Link>
+      )}
     </div>
   );
 }
 
 function NotificationBell() {
   const { lang } = usePrefs();
+  const tour = useDemo();
   const n = content[lang].notifications;
   const locale = dateLocale(lang);
 
@@ -301,6 +308,7 @@ function NotificationBell() {
           setTab={setTab}
           unread={unread}
           onMarkAll={markAllRead}
+          moreHref={tour ? undefined : "/from-dukkan"}
           onPick={(id) => {
             const item = shown.find((x) => x.id === id);
             if (item) pick(item);

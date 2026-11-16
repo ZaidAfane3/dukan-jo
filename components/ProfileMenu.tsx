@@ -12,6 +12,7 @@ import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
 import { loadConfig, storeIsLive } from "./storefront/storage";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { onServer } from "./merchantApi";
+import { StoreStatus } from "./StoreStatus";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -28,6 +29,7 @@ const i = {
   link: <svg {...ico} className="h-4 w-4"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>,
   copy: <svg {...ico} className="h-4 w-4"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>,
   chevron: <svg {...ico} className="h-4 w-4"><path d="m6 9 6 6 6-6" /></svg>,
+  book: <svg {...ico}><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5ZM4 19a2 2 0 0 1 2-2h13" /></svg>,
   headset: <svg {...ico}><path d="M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v5H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1ZM20 14h-3v5h3a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1Z" /></svg>,
   gear: <svg {...ico}><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3h-4.4l-.4 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.4 2.7h4.4l.4-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z" /></svg>,
   bell: <svg {...ico}><path d="M6 17V11a6 6 0 1 1 12 0v6l2 2H4l2-2ZM10 21a2 2 0 0 0 4 0" /></svg>,
@@ -46,6 +48,7 @@ const text = {
     soon: "Your storefront is not live yet",
     support: "Support",
     customer: "Technical support",
+    fromDukkan: "From Dukkan: guides and news",
     settings: "Settings",
     prefs: "Tools & preferences",
     notif: "Customize notifications",
@@ -64,6 +67,7 @@ const text = {
     soon: "متجرك غير منشور بعد",
     support: "الدعم",
     customer: "الدعم الفني",
+    fromDukkan: "من دكّان: أدلة وأخبار",
     settings: "الإعدادات",
     prefs: "الأدوات والتفضيلات",
     notif: "تخصيص الإشعارات",
@@ -206,13 +210,19 @@ export function ProfileMenu() {
             </div>
           </div>
 
-          {/* Notifications settings, technical support, and the language (as a full row, with the language it switches to) */}
+          {/* Open, or under maintenance (Dukkan's own page for visitors). Not in the tour, whose store is made up. */}
+          <div className="border-t border-fg/10">
+            <StoreStatus lang={lang} disabled={tour} disabledTitle={demoOffText(lang)} onLink={go} />
+          </div>
+
+          {/* Notifications settings, Dukkan's guides and news, technical support, and the language (as a full row, with the language it switches to) */}
           <div className="divide-y divide-fg/10 border-t border-fg/10">
             {tour ? (
               <span aria-disabled="true" title={demoOffText(lang)} className={`${row} cursor-not-allowed opacity-40 hover:bg-transparent`}>{i.bell}{t.notif}</span>
             ) : (
               <Link href="/settings/notifications" onClick={go} className={row}>{i.bell}{t.notif}</Link>
             )}
+            {!tour && <Link href="/from-dukkan" onClick={go} className={row}>{i.book}{t.fromDukkan}</Link>}
             <Link href="/support" onClick={go} className={row}>{i.headset}{t.customer}</Link>
             <button type="button" onClick={() => setLang(lang === "ar" ? "en" : "ar")} aria-label={lang === "ar" ? "Switch language to English" : "التبديل إلى اللغة العربية"} className={`${row} w-full justify-between`}>
               <span className="flex items-center gap-3">{i.globe}{t.language}</span>

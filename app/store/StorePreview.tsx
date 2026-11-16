@@ -80,7 +80,7 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
     setDemo(original || starter || q.get("demo") === "1");
     /* his own store, not a preview of it: paused, it shows the maintenance page instead */
     const m = loadMaintenance();
-    setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && m.on ? m.message[lang] : null);
+    setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && m.on ? "" : null);
     setReady(true);
   }, [lang, preview, catalog]);
 
