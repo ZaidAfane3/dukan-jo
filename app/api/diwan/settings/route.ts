@@ -5,6 +5,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { forgetConfirmation, hasRealPassword, staffConfirmed } from "@/server/staffConfirm";
+import { inTransaction } from "@/server/tickets";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export const GET = staffRoute("settings", async (_req, me) => {
   return answer({ settings, template: tpl.rows[0] ? { updatedAt: tpl.rows[0].updated_at, by: tpl.rows[0].by } : null, legal });
 });
 
-/** Saves one setting: { key, value, reason? }. Checked against its rules; the log keeps what it was and what it became.
+/** Saves one setting: { key, value, reason? }, or only some fields of it: { key, part, reason? }. Checked against its rules; the log keeps what it was and what it became.
     The legal pages new stores start with are locked: only an owner who typed his password again in the last 10 minutes
     (POST ./unlock) can save them (403 "owner-only" / "locked"), and the save locks them again. */
 export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
@@ -41,17 +42,34 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
     if (me.role !== "owner") return answer({ result: "owner-only" }, 403);
     if (!(await staffConfirmed(req, me))) return answer({ result: "locked" }, 403);
   }
-  const value = cleanSetting(key, body?.value);
-  if (value === null) return answer({ result: "invalid" }, 400);
-  const pool = await db();
-  const before = await pool.query(`SELECT value FROM platform_settings WHERE key = $1`, [key]);
-  await pool.query(
-    `INSERT INTO platform_settings (key, value, updated_by, updated_at) VALUES ($1, $2, $3, now())
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-    [key, JSON.stringify(value), me.id],
-  );
+  /* { part } instead of { value }: only these fields of an object setting change, merged into what is saved now (read
+     and written under a row lock), so two cards of one setting saved close together never undo each other */
+  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+  const part = isObj(body?.part) ? body.part : null;
+  if (body?.part !== undefined && (!part || !isObj(SETTING_DEFAULTS[key]))) return answer({ result: "invalid" }, 400);
+  const BAD = new Error("invalid");
+  const out = await inTransaction(async (c) => {
+    /* the row exists before it is locked, so a first save of a setting is locked too */
+    await c.query(
+      `INSERT INTO platform_settings (key, value, updated_by, updated_at) VALUES ($1, $2, NULL, now()) ON CONFLICT (key) DO NOTHING`,
+      [key, JSON.stringify(SETTING_DEFAULTS[key])],
+    );
+    const { rows } = await c.query(`SELECT value, updated_by FROM platform_settings WHERE key = $1 FOR UPDATE`, [key]);
+    const saved = rows[0]?.value ?? null;
+    const now = cleanSetting(key, saved) ?? SETTING_DEFAULTS[key];
+    const value = cleanSetting(key, part ? { ...(now as Record<string, unknown>), ...part } : body?.value);
+    /* thrown, so the transaction is rolled back and nothing (not even the starting row above) is kept */
+    if (value === null) throw BAD;
+    await c.query(`UPDATE platform_settings SET value = $2, updated_by = $3, updated_at = now() WHERE key = $1`, [key, JSON.stringify(value), me.id]);
+    return { before: rows[0]?.updated_by == null ? null : saved, value };
+  }).catch((e) => {
+    if (e === BAD) return null;
+    throw e;
+  });
+  if (!out) return answer({ result: "invalid" }, 400);
+  const value = out.value;
   await audit(req, me.id, "settings.change", { type: "setting", id: key }, cleanLine(body?.reason ?? "", 300) || null, {
-    before: before.rows[0]?.value ?? null,
+    before: out.before,
     after: value,
   });
   if (key === "store_legal_templates") await forgetConfirmation(req);

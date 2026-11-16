@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LIMITS, type Bi, type DukkanShip } from "@/components/diwan/platformSettings";
 import { Dialog } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, DataTable, field, Loaded, LoadMore, PageHead, send, td, useApi, useFmt, useMore, useT } from "@/components/diwan/ui";
@@ -63,10 +63,26 @@ function ChangedLine({ d }: { d: Data }) {
   );
 }
 
-/** Saves the whole Dukkan Ship setting with one part changed. Resolves to "" when saved, or what went wrong. */
-async function saveShip(d: Data, part: Partial<DukkanShip>, reason = ""): Promise<string> {
-  const r = await send("/api/diwan/settings", "PUT", { key: "dukkan_ship", value: { ...d.value, ...part }, reason });
+/** Saves only the part of the Dukkan Ship setting one card changes; the server merges it into what is saved now, so
+    another card's save never undoes it. Resolves to "" when saved, or what went wrong. */
+async function saveShip(_d: Data, part: Partial<DukkanShip>, reason = ""): Promise<string> {
+  const r = await send("/api/diwan/settings", "PUT", { key: "dukkan_ship", part, reason });
   return r.ok ? "" : r.status === 400 ? "invalid" : "failed";
+}
+
+/** A card's draft of one saved value. When the saved value changes (any card saved, the page reloaded it), the draft
+    follows it only if it had no unsaved edits; unfinished edits are kept. */
+function useDraft<T>(saved: T): [T, (v: T) => void] {
+  const [draft, setDraft] = useState(saved);
+  const last = useRef(JSON.stringify(saved));
+  useEffect(() => {
+    const now = JSON.stringify(saved);
+    if (now === last.current) return;
+    const before = last.current;
+    last.current = now;
+    setDraft((cur) => (JSON.stringify(cur) === before ? saved : cur));
+  }, [saved]);
+  return [draft, setDraft];
 }
 
 /* ---------------- the price ---------------- */
@@ -238,8 +254,7 @@ function SaveRow({ state, onSave, d }: { state: string; onSave: () => void; d: D
 
 function Cities({ d, onSaved }: { d: Data; onSaved: () => void }) {
   const t = useT();
-  const [rows, setRows] = useState(d.value.cities);
-  useEffect(() => setRows(d.value.cities), [d.value.cities]);
+  const [rows, setRows] = useDraft(d.value.cities);
   const s = useSave(d, onSaved);
   return (
     <section className={card}>
@@ -256,17 +271,15 @@ function Cities({ d, onSaved }: { d: Data; onSaved: () => void }) {
         <p className="mb-2 text-sm font-medium">{t("Edit the list (English, Arabic)", "تعديل القائمة (إنجليزي، عربي)")}</p>
         <BiRows name={t("City", "مدينة")} rows={rows} setRows={setRows} max={LIMITS.city} maxRows={LIMITS.shipCities} add={t("+ Add a city", "+ إضافة مدينة")} />
       </div>
-      <SaveRow d={d} state={s.state} onSave={() => s.save({ cities: filled(rows) })} />
+      <SaveRow d={d} state={s.state} onSave={() => { setRows(filled(rows)); void s.save({ cities: filled(rows) }); }} />
     </section>
   );
 }
 
 function Words({ d, onSaved }: { d: Data; onSaved: () => void }) {
   const t = useT();
-  const [policy, setPolicy] = useState(d.value.policy);
-  const [features, setFeatures] = useState(d.value.features);
-  useEffect(() => setPolicy(d.value.policy), [d.value.policy]);
-  useEffect(() => setFeatures(d.value.features), [d.value.features]);
+  const [policy, setPolicy] = useDraft(d.value.policy);
+  const [features, setFeatures] = useDraft(d.value.features);
   const s = useSave(d, onSaved);
   return (
     <section className={card}>
@@ -279,7 +292,7 @@ function Words({ d, onSaved }: { d: Data; onSaved: () => void }) {
       </div>
       <p className="mb-2 mt-4 text-sm font-medium">{t("What it includes (English, Arabic)", "ما تشمله (إنجليزي، عربي)")}</p>
       <BiRows name={t("Point", "ميزة")} rows={features} setRows={setFeatures} max={LIMITS.shipFeature} maxRows={LIMITS.shipFeatures} add={t("+ Add a point", "+ إضافة ميزة")} />
-      <SaveRow d={d} state={s.state} onSave={() => s.save({ policy, features: filled(features) })} />
+      <SaveRow d={d} state={s.state} onSave={() => { setFeatures(filled(features)); void s.save({ policy, features: filled(features) }); }} />
     </section>
   );
 }
