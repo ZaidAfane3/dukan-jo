@@ -233,6 +233,33 @@ export const DIWAN_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS store_orders_account ON store_orders (account_id, id DESC);
 
+  /* ---------- visitors of the stores at their addresses (server/storeVisits.ts) ----------
+     store_visits: one row per page a visitor opened, kept only for yesterday and today (Jordan time). No IP address,
+     browser name or page address: visitor is a keyed fingerprint that changes every day and differs per shop, source is
+     one word. new_visit: the visitor had opened nothing in this store for 30 minutes (or it is a new day).
+     store_visit_days: the older days rolled up, one row per shop per day, kept for good. sources: visits by source
+     word; products: views of the day's 20 most viewed products, by product id. */
+  CREATE TABLE IF NOT EXISTS store_visits (
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    visitor    TEXT NOT NULL,
+    kind       TEXT NOT NULL CHECK (kind IN ('home', 'product', 'page', 'cart')),
+    product_id BIGINT,
+    source     TEXT NOT NULL CHECK (source IN ('whatsapp', 'instagram', 'facebook', 'tiktok', 'google', 'direct', 'other')),
+    new_visit  BOOLEAN NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS store_visits_shop_at ON store_visits (account_id, at);
+  CREATE TABLE IF NOT EXISTS store_visit_days (
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    day        DATE NOT NULL,
+    visitors   INTEGER NOT NULL DEFAULT 0,
+    visits     INTEGER NOT NULL DEFAULT 0,
+    views      INTEGER NOT NULL DEFAULT 0,
+    sources    JSONB NOT NULL DEFAULT '{}',
+    products   JSONB NOT NULL DEFAULT '{}',
+    PRIMARY KEY (account_id, day)
+  );
+
   /* ---------- domains ----------
      Kept only for the rows already saved: Dukkan no longer sells domains or connects a store's own domain (every store
      lives at the site address/<its link>), so nothing adds to this table or shows it any more. */
@@ -597,4 +624,10 @@ export const DIWAN_SCHEMA = `
   INSERT INTO catalog_themes (id, source, status, price, sort, released_at) VALUES
     ('atelier', 'code', 'live', 19.99, 10, now()), ('lamma', 'code', 'live', 39, 20, now())
   ON CONFLICT (id) DO NOTHING;
+
+  /* ---------- store orders: one order per checkout ----------
+     The cart sends a key of its own with an order and keeps it until it hears the order is in (server/storeOrders.ts):
+     the same key sent again (its answer was lost) gets the order already saved, never a second one. */
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS attempt_key TEXT;
+  CREATE UNIQUE INDEX IF NOT EXISTS store_orders_attempt ON store_orders (account_id, attempt_key) WHERE attempt_key IS NOT NULL;
 `;

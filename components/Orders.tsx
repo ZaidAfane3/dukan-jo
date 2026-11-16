@@ -45,6 +45,13 @@ function serverRows(list: unknown): Row[] {
   return out;
 }
 
+/* The server's rows added to those already loaded: a row loaded again replaces its older copy, and none is ever dropped
+   (the newest page moves on as new orders come in, and the older pages loaded stay) */
+const upsert = (list: Row[], rows: Row[]): Row[] => {
+  const fresh = new Map(rows.map((r) => [r.serverId, r]));
+  return [...list.map((x) => fresh.get(x.serverId) ?? x), ...rows.filter((r) => !list.some((x) => x.serverId === r.serverId))];
+};
+
 /* What is saved is checked again when it is read: storage can hold old, broken or hand-changed orders */
 function loadOrders(): Order[] {
   try {
@@ -67,6 +74,12 @@ export function Orders() {
   /* the orders customers placed on his public store (never in the tour), and whether a status change of one failed */
   const [serverOrders, setServerOrders] = useState<Row[]>([]);
   const [serverReady, setServerReady] = useState(false);
+  /* a page at a time: how many store orders there are, where the next older page starts (null: none), and the
+     "Load more" button's state */
+  const [serverTotal, setServerTotal] = useState(0);
+  const [cursor, setCursor] = useState<string | null | undefined>(undefined);
+  const [moreLoading, setMoreLoading] = useState(false);
+  const [moreFailed, setMoreFailed] = useState(false);
   const [statusErr, setStatusErr] = useState(false);
   const all = useMemo<Row[]>(() => [...orders, ...serverOrders], [orders, serverOrders]);
   const [creating, setCreating] = useState(false);
@@ -114,9 +127,12 @@ export function Orders() {
       try {
         const r = await fetch("/api/orders", { credentials: "same-origin", cache: "no-store" });
         if (!r.ok || stop) return;
-        const j = (await r.json()) as { orders?: unknown; rev?: unknown };
+        const j = (await r.json()) as { orders?: unknown; rev?: unknown; next?: unknown; total?: unknown };
         if (stop) return;
-        setServerOrders(serverRows(j.orders));
+        setServerOrders((list) => upsert(list, serverRows(j.orders)));
+        if (typeof j.total === "number") setServerTotal(j.total);
+        /* where the older pages start: taken from the first answer only (the pages loaded after go on from their own) */
+        setCursor((c) => (c === undefined ? (typeof j.next === "string" ? j.next : null) : c));
         /* those orders took stock on the server: this browser's copy of the products is brought up to date */
         const mine = onlineRev();
         if (typeof j.rev === "number" && (mine === null || j.rev > mine)) void pullOnlineKeys();
@@ -145,6 +161,19 @@ export function Orders() {
     const id = Number(new URLSearchParams(window.location.search).get("open"));
     const hit = id ? serverOrders.find((x) => x.id === id) ?? orders.find((x) => x.id === id) : undefined;
     if (hit) setSelected(keyOf(hit));
+    /* a store order older than the pages loaded: asked for by its number */
+    else if (id && serverMode())
+      fetch(`/api/orders?number=${id}`, { credentials: "same-origin", cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: { orders?: unknown } | null) => {
+          const rows = serverRows(j?.orders);
+          if (!rows.length) return;
+          setServerOrders((list) => upsert(list, rows));
+          setSelected(keyOf(rows[0]));
+        })
+        .catch(() => {
+          /* offline: the order is not opened */
+        });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, serverReady]);
 
@@ -199,6 +228,23 @@ export function Orders() {
   }, [all, filter, query]);
 
   const current = all.find((x) => keyOf(x) === selected) ?? null;
+
+  /* "Load more": the next older page of his store orders, added below */
+  const loadMore = () => {
+    if (!cursor || moreLoading) return;
+    setMoreLoading(true);
+    setMoreFailed(false);
+    fetch(`/api/orders?before=${encodeURIComponent(cursor)}`, { credentials: "same-origin", cache: "no-store" })
+      .then(async (r) => {
+        const j = (r.ok ? await r.json() : null) as { orders?: unknown; next?: unknown; total?: unknown } | null;
+        if (!j || !Array.isArray(j.orders)) return setMoreFailed(true);
+        setServerOrders((list) => upsert(list, serverRows(j.orders)));
+        if (typeof j.total === "number") setServerTotal(j.total);
+        setCursor(typeof j.next === "string" ? j.next : null);
+      })
+      .catch(() => setMoreFailed(true))
+      .finally(() => setMoreLoading(false));
+  };
   const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const dateOf = (t: number, time = false) => {
     const day = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" }).format(new Date(t));
@@ -367,6 +413,18 @@ export function Orders() {
                   </li>
                 ))}
               </ul>
+            )}
+            {/* the orders from his store page come a page at a time: how many are loaded, and the older ones on request */}
+            {serverTotal > 0 && (serverOrders.length < serverTotal || !!cursor) && (
+              <div className="flex flex-col items-center gap-2 border-t border-fg/10 px-5 py-4 text-sm">
+                <p className="text-xs text-muted">{o.storeShown.replace("{n}", String(serverOrders.length)).replace("{total}", String(serverTotal))}</p>
+                {cursor && (
+                  <button type="button" onClick={loadMore} disabled={moreLoading} className="rounded-xl border border-fg/20 px-5 py-2 text-sm font-semibold transition hover:bg-soft disabled:opacity-60">
+                    {moreLoading ? o.loadingMore : o.loadMore}
+                  </button>
+                )}
+                {moreFailed && <p role="alert" className="text-xs text-rose-600">{o.moreFailed}</p>}
+              </div>
             )}
           </section>
 

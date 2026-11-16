@@ -18,6 +18,7 @@ import { hasArabic } from "../safe";
 import { useSpots } from "./spotSignal";
 import { ReportStore } from "./ReportStore";
 import { useVisitorStore } from "./visitorStore";
+import { sendVisit } from "../storeVisits";
 
 /* In the designer: the open settings point at a part of the store that is empty or hidden. It gets a dashed place with what
    will show there, so he sees where his change goes (customers never see it). */
@@ -198,6 +199,23 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     else setPageId(null);
   };
   const shownPage = pageId !== null ? data.pages.find((p) => p.id === pageId) : undefined;
+  /* The public store only (never the merchant's preview, the designer or the tour): each page a visitor opens is counted
+     for the merchant's visitor numbers (components/storeVisits.ts). Sent once per page: the same page drawn again is not
+     a new one, and closing the cart is not either. */
+  const visitSlug = visitor && !design ? visitor.setup.slug : "";
+  const counted = useRef("");
+  useEffect(() => {
+    if (!visitSlug) return;
+    const key = ownProduct !== null ? `product:${ownProduct}` : ownPage !== null ? `page:${ownPage}` : "home";
+    if (counted.current === key) return;
+    counted.current = key;
+    sendVisit(visitSlug, ownProduct !== null ? "product" : ownPage !== null ? "page" : "home", ownProduct);
+  }, [visitSlug, ownPage, ownProduct]);
+  useEffect(() => {
+    if (!visitSlug || !cartOpen) return;
+    counted.current = "cart";
+    sendVisit(visitSlug, "cart");
+  }, [visitSlug, cartOpen]);
   /* the designer's product page with no products in the store: a sample product, so the page can still be designed */
   const sampleProduct = useMemo(() => (design && showProduct && !(products ?? data.products).length ? sampleProducts(lang)[0] : undefined), [design, showProduct, products, data.products, lang]);
   const shownProduct = (productId !== null ? data.products.find((x) => x.id === productId) : undefined) ?? sampleProduct;

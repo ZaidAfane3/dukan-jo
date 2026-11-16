@@ -18,5 +18,6 @@ export async function middleware(req: NextRequest) {
   return NextResponse.next();
 }
 
-/* only addresses with a single part and no dot (no files, no /api, no /_next) */
-export const config = { matcher: "/((?!api|_next|media)[^/.]+)" };
+/* only addresses with a single part, never inside /api/, /_next/ or /media/ (those exact names: "/mediashop" is a store
+   link like any other). Files and the platform's own pages are passed on by isStoreAddress above. */
+export const config = { matcher: "/((?!(?:api|_next|media)(?:/|$))[^/]+)" };

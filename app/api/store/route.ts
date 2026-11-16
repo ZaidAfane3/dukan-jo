@@ -26,10 +26,11 @@ export const dynamic = "force-dynamic";
    numbers. Too big after that: 413 "too-big" with the key, and nothing is written.
 
    Store orders: customers' orders on the public store take stock out of the saved products (and count coupon uses)
-   on the server (server/storeOrders.ts). Each answer carries "revs": for the products and the coupons, the newest store
-   order the saved copy includes. The browser sends back, with a save of those keys, the one its own copy was made from
-   ("revs" in the body); orders placed since are taken again from what it sends (mergeOnlineSales), and the kept value
-   comes back in "rewritten" so the browser keeps it too. A save without it (an older page) is kept as it is. */
+   on the server, and count them as online sales on each product and coupon (server/storeOrders.ts). A save of the
+   products or coupons carries the counts of the copy it was made from, so the orders that copy has not seen are taken
+   again from it before it is kept (mergeOnlineSales): a save from an older copy (another tab, a page left open) can't
+   put back stock that was sold. The kept value comes back in "rewritten", so the browser keeps it too. GET answers
+   "rev", the newest store order, so the browser knows when to fetch the products again (serverSync.ts). */
 
 const MAX_KEY = 200;
 const MAX_VALUE = 3_000_000;
@@ -72,12 +73,6 @@ export const PUT = guarded(async (req: NextRequest) => {
   if (set.length + remove.length > 500) return answer({ result: "invalid" }, 400);
   for (const [k, v] of set) if (!okKey(k) || typeof v !== "string") return answer({ result: "invalid" }, 400);
   for (const k of remove) if (typeof k !== "string" || !okKey(k)) return answer({ result: "invalid" }, 400);
-  /* the newest store order the browser's copy of the products and coupons was made from (see above) */
-  const bases = body.revs && typeof body.revs === "object" && !Array.isArray(body.revs) ? (body.revs as Record<string, unknown>) : {};
-  const baseOf = (k: string) => {
-    const n = bases[k];
-    return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
-  };
   const online = set.filter(([k]) => (ONLINE_KEYS as readonly string[]).includes(k));
 
   /* pictures still inside the data become files, before anything is measured */
@@ -109,22 +104,18 @@ export const PUT = guarded(async (req: NextRequest) => {
     }
   }
 
-  const revs: Record<string, number> = {};
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
-    /* a save of the products or coupons waits for an order being placed on the store, and takes again what orders
-       placed since the browser's copy sold */
+    /* a save of the products or coupons waits for an order being placed on the store, and takes again what the store
+       sold online that the browser's copy has not seen */
     if (online.length) {
       await shopLock(client, a.id);
       for (const entry of online) {
-        const base = baseOf(entry[0]);
-        if (base === null) continue;
-        const m = await mergeOnlineSales(client, a.id, entry[0] as OnlineKey, entry[1] as string, base);
-        revs[entry[0]] = m.rev;
-        if (m.value !== entry[1]) {
-          entry[1] = m.value;
-          rewritten[entry[0]] = m.value;
+        const kept = await mergeOnlineSales(client, a.id, entry[0] as OnlineKey, entry[1] as string);
+        if (kept !== entry[1]) {
+          entry[1] = kept;
+          rewritten[entry[0]] = kept;
         }
       }
     }
@@ -154,5 +145,5 @@ export const PUT = guarded(async (req: NextRequest) => {
     await syncShop(a.id).catch((e) => console.error("[shops] sync", a.id, e));
   }
   touchShop(a.id);
-  return answer({ result: "ok", ...(Object.keys(rewritten).length ? { rewritten } : {}), ...(Object.keys(revs).length ? { revs } : {}) });
+  return answer(Object.keys(rewritten).length ? { result: "ok", rewritten } : { result: "ok" });
 });

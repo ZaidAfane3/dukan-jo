@@ -223,6 +223,16 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
   }
 }
 
+/* A key for one checkout on the public store (letters, digits and dashes, as the server takes it) */
+function checkoutKey(): string {
+  try {
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+  }
+}
+
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
 /* `orderTo`: the public store (app/[slug]) at this link name. The order is sent to Dukkan's server
    (POST /api/public/store/<link>/orders), which prices it again from the store's saved products, takes the stock and
@@ -230,7 +240,7 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
    own storage, and no payment is taken: the checkout says it is a test order. Without it (the merchant's own preview)
    the order is saved in his browser, as before. */
 /* `ownFee`: the merchant delivers with his own courier and charges this per order; null means Dukkan Ship's price */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, ownFee = null, look = "drawer", contained = false, orderTo }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | null; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string }) {
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fdIn, priceLanguage, onCleared, pickup = false, ownFee = null, look = "drawer", contained = false, orderTo }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | null; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string }) {
   const w = words[lang];
   /* the public store: prices the server answered with when they changed since the page opened (by product id) */
   const [priceFix, setPriceFix] = useState<Record<number, number>>({});
@@ -241,6 +251,13 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState("");
   const [placed, setPlaced] = useState<{ number: number; items: PricedLine[]; total: number; contact: string } | null>(null);
+  /* the public store: the delivery fee and free delivery offer as the server answered them, when they changed since the
+     page opened (the cart then works its total out from these, as the server does) */
+  const [termsFix, setTermsFix] = useState<{ fee: number; fd: FreeDelivery } | null>(null);
+  const fd = termsFix?.fd ?? fdIn;
+  /* the public store: this checkout's own key, kept until the order is in, so sending it again (its answer was lost)
+     gets the same order back instead of a second one */
+  const attemptKey = useRef<string | null>(null);
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", city: "", address: "", note: "" });
   /* What Dukkan's staff set in Diwan (platform settings): the ways to pay that are on, and the flat delivery price of Dukkan
@@ -248,7 +265,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
      free delivery amount pay nothing either way */
   const platform = usePublicSettings();
   const pays = storePays(platform);
-  const DELIVERY_FEE = ownFee ?? platform.dukkan_ship.price;
+  const DELIVERY_FEE = termsFix?.fee ?? ownFee ?? platform.dukkan_ship.price;
   /* the cities Dukkan Ship delivers to, as set in Diwan */
   const cities = shipCityLists(platform);
   const [payPicked, setPay] = useState<Pay>("cliq");
@@ -334,8 +351,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
     placing.current = true;
     setSending(true);
     setSendErr("");
-    let j: { result?: string; order?: { number: number; items: PricedLine[]; total: number }; items?: PricedLine[]; why?: CouponRefusal; fields?: string[] } = {};
+    let j: { result?: string; order?: { number: number; items: PricedLine[]; total: number }; items?: PricedLine[]; why?: CouponRefusal; fields?: string[]; terms?: { fee?: unknown; freeDelivery?: { on?: unknown; min?: unknown }; coupon?: unknown } } = {};
     let status = 0;
+    attemptKey.current ??= checkoutKey();
     try {
       const r = await fetch(`/api/public/store/${encodeURIComponent(orderTo ?? "")}/orders`, {
         method: "POST",
@@ -346,6 +364,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
           customer: { ...form, fulfil, pay },
           ...(cp?.ok ? { coupon: cp.coupon.code } : {}),
           expect: shown,
+          attempt: attemptKey.current,
         }),
       });
       status = r.status;
@@ -358,6 +377,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
     if (j.result === "ok" && j.order) {
       const contact = jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase();
       setPlaced({ number: j.order.number, items: j.order.items ?? [], total: j.order.total, contact });
+      /* the next checkout is a new one */
+      attemptKey.current = null;
+      setTermsFix(null);
       setStep("done");
       setChanged(false);
       setCoupon("");
@@ -372,6 +394,12 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       const fresh = new Map(j.items.map((it) => [`${it.id}|${it.size ?? ""}`, it.qty]));
       lines.forEach((l) => setQty(l.p, fresh.get(`${l.p.id}|${l.size ?? ""}`) ?? 0, l.size));
       setPriceFix((m) => ({ ...m, ...Object.fromEntries(j.items!.map((it) => [it.id, it.price])) }));
+      /* and the store's delivery fee, free delivery offer and coupon as they are now, so the total shown is the one the
+         server charges and the next try goes through */
+      const t = j.terms;
+      if (t && typeof t.fee === "number" && t.freeDelivery && typeof t.freeDelivery.min === "number") setTermsFix({ fee: t.fee, fd: { on: t.freeDelivery.on === true, min: t.freeDelivery.min } });
+      const c = t?.coupon && typeof t.coupon === "object" ? cleanCoupon(t.coupon as Record<string, unknown>) : null;
+      if (c) setRemoteCoupon(c);
       setChanged(true);
       setStep("cart");
       return;

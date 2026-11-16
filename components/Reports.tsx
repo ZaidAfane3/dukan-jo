@@ -8,6 +8,11 @@ import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { cleanOrder, cleanProduct, parseList, type Order, type Product } from "./records";
 import { cleanLine } from "./safe";
+import { onServer } from "./merchantApi";
+import { loadSetup } from "./setup";
+import { storeAddress, storeUrl } from "./siteAddress";
+import { useStoreVisits } from "./storeVisits";
+import { sourceNames, type VisitCounts, type VisitStats } from "./visitStats";
 import { STATUS_KEYS, ordersCopy } from "./ordersContent";
 import {
   PAY_KEYS,
@@ -427,7 +432,7 @@ const real = {
   en: {
     notTracked: "Not tracked yet",
     noCompare: "No earlier sales to compare with",
-    visitsNote: "Dukkan does not count store visits yet, so there is nothing to show here. Your orders, customers and stock are in the other reports.",
+    visitsNote: "Visitors are counted for a store that is signed in and open at its link. Your orders, customers and stock are in the other reports.",
     cartsNote: "Dukkan does not keep the carts customers leave yet, so there is nothing to show here.",
     cogsUnknown: (n: number) => `${n === 1 ? "1 sold item has" : `${n} sold items have`} no known cost (no cost on the product, or the product was deleted), so ${n === 1 ? "it is" : "they are"} left out.`,
     profitHigh: "Some sold items have no cost on their product, so the real profit is lower than this.",
@@ -467,7 +472,7 @@ const real = {
   ar: {
     notTracked: "لا يُتتبّع بعد",
     noCompare: "لا توجد مبيعات سابقة للمقارنة",
-    visitsNote: "لا يحسب دكان زيارات المتجر بعد، فلا يوجد ما يُعرض هنا. طلباتك وعملاؤك ومخزونك في التقارير الأخرى.",
+    visitsNote: "يُحسب الزوار لمتجر مسجّل الدخول ومفتوح على رابطه. طلباتك وعملاؤك ومخزونك في التقارير الأخرى.",
     cartsNote: "لا يحفظ دكان السلات التي يتركها العملاء بعد، فلا يوجد ما يُعرض هنا.",
     cogsUnknown: (n: number) => `${n === 1 ? "قطعة مباعة واحدة تكلفتها" : `${n} من القطع المباعة تكلفتها`} غير معروفة (لا تكلفة على المنتج، أو حُذف المنتج)، فلم تُحسب.`,
     profitHigh: "بعض القطع المباعة لا تكلفة على منتجها، فالربح الحقيقي أقل من هذا.",
@@ -603,7 +608,225 @@ function NotTrackedPanel({ note }: { note: string }) {
   );
 }
 
-function RealReport({ section, data, span, prev, busy, refresh }: { section: number; data: StoreData; span: Span; prev: Span; busy: Partial<Record<string, boolean>>; refresh: (id: string) => void }) {
+/* ====================================================================
+   Visitors: the people who opened the store at its link, counted by
+   Dukkan's server (server/storeVisits.ts, GET /api/visits) and read
+   again every minute while the page is open.
+   ==================================================================== */
+
+const seen = {
+  en: {
+    tiles: ["Last hour", "Today", "Yesterday", "Last 7 days", "Last 30 days"],
+    tileHelp: [
+      "People who opened your store in the last 60 minutes.",
+      "People who opened your store today, since midnight in Jordan.",
+      "People who opened your store yesterday (Jordan time).",
+      "The visitors of the last 7 days, today included. Each day's visitors are added up, so someone who came on two days counts twice.",
+      "The visitors of the last 30 days, today included. Each day's visitors are added up, so someone who came on two days counts twice.",
+    ],
+    visitors: "visitors",
+    visits: (n: number) => (n === 1 ? "1 visit" : `${n.toLocaleString("en-US")} visits`),
+    views: (n: number) => (n === 1 ? "1 page view" : `${n.toLocaleString("en-US")} page views`),
+    chart: { title: "Visitors over time", desc: "Different people who opened your store in each hour of the last 24 hours, or each day of the last 30 days." },
+    hours: "24 hours",
+    days: "30 days",
+    sources: { title: "Where visits came from", desc: "The last 30 days. Where people were just before they opened your store: a link shared on an app, a search, or another website. Links opened straight from WhatsApp often don't say where they came from, so they show as direct." },
+    products: { title: "Most viewed products", desc: "The product pages opened most in the last 30 days." },
+    help: { title: "How visitors are counted", desc: "A visitor is one person on one day (one browser on one network). A visit starts when they open your store, and a new one after 30 minutes without opening anything. A page view is each page they open. Your own visits while signed in, Dukkan's staff, search engines and link previews are not counted. Nothing that names a visitor is kept." },
+    updated: "Updated",
+    emptyTitle: "No visitors yet",
+    emptyHint: "When people open your store, you'll see them here within a minute. Share your store's link on WhatsApp, Instagram or wherever your customers are.",
+    shareLink: "Your store's link",
+  },
+  ar: {
+    tiles: ["آخر ساعة", "اليوم", "أمس", "آخر 7 أيام", "آخر 30 يومًا"],
+    tileHelp: [
+      "الأشخاص الذين فتحوا متجرك في آخر 60 دقيقة.",
+      "الأشخاص الذين فتحوا متجرك اليوم، منذ منتصف الليل بتوقيت الأردن.",
+      "الأشخاص الذين فتحوا متجرك أمس (بتوقيت الأردن).",
+      "زوار آخر 7 أيام مع اليوم. تُجمع أعداد زوار كل يوم، فمن جاء في يومين يُحسب مرتين.",
+      "زوار آخر 30 يومًا مع اليوم. تُجمع أعداد زوار كل يوم، فمن جاء في يومين يُحسب مرتين.",
+    ],
+    visitors: "زائر",
+    visits: (n: number) => (n === 1 ? "زيارة واحدة" : n === 2 ? "زيارتان" : n >= 3 && n <= 10 ? `${n} زيارات` : `${n.toLocaleString("en-US")} زيارة`),
+    views: (n: number) => (n === 1 ? "مشاهدة صفحة واحدة" : `${n.toLocaleString("en-US")} مشاهدة صفحة`),
+    chart: { title: "الزوار عبر الوقت", desc: "الأشخاص المختلفون الذين فتحوا متجرك في كل ساعة من آخر 24 ساعة، أو كل يوم من آخر 30 يومًا." },
+    hours: "24 ساعة",
+    days: "30 يومًا",
+    sources: { title: "من أين جاءت الزيارات", desc: "آخر 30 يومًا. أين كان الزوار قبل أن يفتحوا متجرك: رابط في تطبيق، أو بحث، أو موقع آخر. الروابط التي تُفتح من واتساب مباشرة كثيرًا ما لا تذكر مصدرها، فتظهر كزيارات مباشرة." },
+    products: { title: "المنتجات الأكثر مشاهدة", desc: "صفحات المنتجات التي فُتحت أكثر في آخر 30 يومًا." },
+    help: { title: "كيف يُحسب الزوار", desc: "الزائر شخص واحد في يوم واحد (متصفح واحد على شبكة واحدة). تبدأ الزيارة حين يفتح متجرك، وتبدأ زيارة جديدة بعد 30 دقيقة دون أن يفتح شيئًا. مشاهدة الصفحة هي كل صفحة يفتحها. لا تُحسب زياراتك أنت وأنت مسجّل الدخول، ولا فريق دكان، ولا محركات البحث ومعاينات الروابط. ولا يُحفظ شيء يدل على هوية الزائر." },
+    updated: "آخر تحديث",
+    emptyTitle: "لا زوار بعد",
+    emptyHint: "حين يفتح الناس متجرك ستراهم هنا خلال دقيقة. شارك رابط متجرك على واتساب أو إنستغرام أو حيث يوجد عملاؤك.",
+    shareLink: "رابط متجرك",
+  },
+};
+
+const NO_VISITS: VisitCounts = { visitors: 0, visits: 0, views: 0 };
+
+/** No one has opened the store yet: says so, and gives the link to share */
+function VisitorsEmpty() {
+  const { lang } = usePrefs();
+  const v = seen[lang];
+  const [slug, setSlug] = useState("");
+  useEffect(() => setSlug(loadSetup()?.slug ?? ""), []);
+  return (
+    <div className="flex flex-col items-center rounded-2xl bg-card p-10 text-center shadow-sm ring-1 ring-fg/10">
+      <span className="grid h-16 w-16 place-items-center rounded-3xl bg-soft text-primary">
+        <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" />
+        </svg>
+      </span>
+      <p className="mt-4 font-bold">{v.emptyTitle}</p>
+      <p className="mt-1 max-w-md text-sm text-muted">{v.emptyHint}</p>
+      {slug && (
+        <p className="mt-4 text-sm">
+          <span className="text-muted">{v.shareLink}: </span>
+          <a href={storeUrl(slug)} target="_blank" rel="noopener noreferrer" dir="ltr" className="font-semibold text-primary hover:underline">{storeAddress(slug)}</a>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The Visitors report of a signed-in store: five periods, a chart, where visits came from and the most viewed products */
+function VisitorsReport({ productNames }: { productNames: Map<number, string> }) {
+  const { lang } = usePrefs();
+  const v = seen[lang];
+  const r = content[lang].reports;
+  const { stats, loaded, reload } = useStoreVisits();
+  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"hours" | "days">("hours");
+  const [hover, setHover] = useState<number | null>(null);
+  const [at, setAt] = useState<Date | null>(null);
+  useEffect(() => {
+    if (stats) setAt(new Date());
+  }, [stats]);
+  const refresh = async () => {
+    setBusy(true);
+    await reload();
+    setBusy(false);
+  };
+
+  if (loaded && stats && stats.days30.views === 0 && stats.lastHour.views === 0) return <VisitorsEmpty />;
+  const s: VisitStats | null = stats;
+  const tiles = [s?.lastHour, s?.today, s?.yesterday, s?.week, s?.days30].map((x) => x ?? NO_VISITS);
+  const fading = `transition-opacity duration-300 ${busy || !s ? "opacity-40" : ""}`;
+
+  /* the chart: the last 24 hours by hour, or the last 30 days by day (Jordan time) */
+  const hourName = (t: number) => new Intl.DateTimeFormat(dateLocale(lang), { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Asia/Amman" }).format(new Date(t));
+  const dayName = (d: string) => new Intl.DateTimeFormat(dateLocale(lang), { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T00:00:00Z`));
+  const bars = mode === "hours"
+    ? (s?.hours ?? []).map((h) => ({ label: hourName(h.at), visitors: h.visitors, views: h.views }))
+    : (s?.days ?? []).map((d) => ({ label: dayName(d.day), visitors: d.visitors, views: d.views }));
+  const peak = Math.max(...bars.map((b) => b.visitors), 1);
+  const shown = bars[hover ?? bars.length - 1];
+
+  /* products he deleted since are left out */
+  const products = (s?.products ?? []).flatMap((p) => {
+    const name = productNames.get(p.id);
+    return name ? [{ label: name, value: p.views }] : [];
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-card p-4 shadow-sm ring-1 ring-fg/10">
+        <h3 className="flex items-start gap-2 text-sm font-bold">
+          <span className="pt-px"><HelpTip info={v.help} /></span>
+          {v.help.title}
+        </h3>
+        <div className="flex items-center gap-3">
+          {at && <span dir="ltr" className="text-xs text-muted">{v.updated} {at.toLocaleTimeString(dateLocale(lang))}</span>}
+          <RefreshButton busy={busy} onClick={() => void refresh()} label={r.refresh} />
+        </div>
+      </div>
+
+      {/* the last hour, today and yesterday on one row, the last 7 and 30 days under them */}
+      <div className={`grid gap-6 sm:grid-cols-2 lg:grid-cols-6 ${fading}`}>
+        {tiles.map((t, i) => (
+          <section key={v.tiles[i]} className={`flex min-h-[11rem] flex-col rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 ${i < 3 ? "lg:col-span-2" : "lg:col-span-3"} ${i === 4 ? "sm:col-span-2" : ""}`}>
+            <h3 className="flex items-start gap-2 text-sm font-bold">
+              <span className="pt-px"><HelpTip info={{ title: v.tiles[i], desc: v.tileHelp[i] }} /></span>
+              {v.tiles[i]}
+            </h3>
+            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
+              <p className="text-4xl font-bold text-primary"><span dir="ltr"><AnimatedNumber value={t.visitors} /></span></p>
+              <p className="text-xs font-semibold text-muted">{v.visitors}</p>
+              <p className="mt-2 text-xs text-muted">{v.visits(t.visits)} · {v.views(t.views)}</p>
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <section className={`${panel} ${fading}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h3 className="flex items-start gap-2 text-sm font-bold">
+            <span className="pt-px"><HelpTip info={v.chart} /></span>
+            {v.chart.title}
+          </h3>
+          <div role="group" className="flex rounded-lg border border-fg/15 p-0.5 text-xs font-semibold">
+            {(["hours", "days"] as const).map((m) => (
+              <button key={m} type="button" aria-pressed={mode === m} onClick={() => { setMode(m); setHover(null); }} className={`rounded-md px-3 py-1.5 transition ${mode === m ? "bg-ink text-onink" : "text-muted hover:text-fg"}`}>
+                {m === "hours" ? v.hours : v.days}
+              </button>
+            ))}
+          </div>
+        </div>
+        {shown && (
+          <div className="mt-4 rounded-xl bg-soft px-4 py-3 text-xs" dir="auto">
+            <p className="font-bold">{shown.label}</p>
+            <p className="mt-1 text-muted"><span className="font-semibold text-fg">{shown.visitors.toLocaleString("en-US")}</span> {v.visitors} · {v.views(shown.views)}</p>
+          </div>
+        )}
+        <div dir="ltr" className="mt-4 flex h-36 items-end gap-1" role="img" aria-label={v.chart.title}>
+          {bars.map((b, i) => (
+            <button
+              key={i}
+              type="button"
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover(i)}
+              onBlur={() => setHover(null)}
+              aria-label={`${b.label}: ${b.visitors} ${v.visitors}`}
+              className={`flex-1 rounded-sm transition-all duration-500 ${hover === i ? "bg-deep" : b.visitors ? "bg-primary" : "bg-primary/20"}`}
+              style={{ height: `${b.visitors ? Math.max((b.visitors / peak) * 100, 8) : 4}%` }}
+            />
+          ))}
+        </div>
+        {bars.length > 0 && (
+          <div dir="ltr" className="mt-1.5 flex justify-between text-[11px] text-muted">
+            <span>{bars[0].label}</span>
+            <span>{bars[bars.length - 1].label}</span>
+          </div>
+        )}
+      </section>
+
+      <div className={`grid gap-6 lg:grid-cols-2 ${fading}`}>
+        <section className={panel}>
+          <h3 className="flex items-start gap-2 text-sm font-bold">
+            <span className="pt-px"><HelpTip info={v.sources} /></span>
+            {v.sources.title}
+          </h3>
+          <div className="mt-4 flex flex-1 flex-col">
+            <Bars rows={(s?.sources ?? []).map((x) => ({ label: sourceNames[lang][x.source], value: x.visits, shown: v.visits(x.visits) }))} />
+          </div>
+        </section>
+        <section className={panel}>
+          <h3 className="flex items-start gap-2 text-sm font-bold">
+            <span className="pt-px"><HelpTip info={v.products} /></span>
+            {v.products.title}
+          </h3>
+          <div className="mt-4 flex flex-1 flex-col">
+            <Bars rows={products.map((x) => ({ label: x.label, value: x.value, shown: v.views(x.value) }))} />
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function RealReport({ section, data, span, prev, busy, refresh, signedIn }: { section: number; data: StoreData; span: Span; prev: Span; busy: Partial<Record<string, boolean>>; refresh: (id: string) => void; signedIn: boolean }) {
   const { lang } = usePrefs();
   const w = real[lang];
   const r = content[lang].reports;
@@ -616,7 +839,7 @@ function RealReport({ section, data, span, prev, busy, refresh }: { section: num
     </RealCard>
   );
 
-  if (section === 3) return <NotTrackedPanel note={w.visitsNote} />;
+  if (section === 3) return signedIn ? <VisitorsReport productNames={new Map(data.products.map((p) => [p.id, p.name]))} /> : <NotTrackedPanel note={w.visitsNote} />;
   if (section === 4) return <NotTrackedPanel note={w.cartsNote} />;
 
   if (section === 1) {
@@ -751,6 +974,9 @@ export function Reports() {
     if (new URLSearchParams(window.location.search).get("section") === "abandoned") setSection(4);
   }, []);
   const [busy, setBusy] = useState<Partial<Record<WidgetId, boolean>>>({});
+  /* a signed-in store outside the tour: its visitors are counted on the server */
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => setSignedIn(onServer()), []);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   /* A real store's own orders and products, read again by each refresh button and when the range changes */
   const [data, setData] = useState<StoreData>({ orders: [], products: [] });
@@ -1012,8 +1238,8 @@ export function Reports() {
 
         {/* Content */}
         <div className="min-w-0 space-y-6">
-          {/* Date and data controls */}
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-card p-4 shadow-sm ring-1 ring-fg/10">
+          {/* Date and data controls (not on a real store's Visitors report, which has its own fixed periods) */}
+          {!(section === 3 && !sample) && <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-card p-4 shadow-sm ring-1 ring-fg/10">
             <div className="flex flex-wrap items-center gap-3">
               <select
                 value={range}
@@ -1032,7 +1258,7 @@ export function Reports() {
               <span dir="ltr" className="text-sm text-muted">{rangeText}</span>
             </div>
 
-          </div>
+          </div>}
 
 
           {section === 0 ? (
@@ -1092,7 +1318,7 @@ export function Reports() {
               </section>
             </>
           ) : !sample ? (
-            <RealReport section={section} data={data} span={span} prev={prevSpan} busy={busy} refresh={refresh} />
+            <RealReport section={section} data={data} span={span} prev={prevSpan} busy={busy} refresh={refresh} signedIn={signedIn} />
           ) : section === 4 ? (
             abandonedView
           ) : section === 1 || section === 2 || section === 3 || section === 5 || section === 6 ? (

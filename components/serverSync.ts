@@ -16,10 +16,13 @@ import { bounceIfSuspended } from "./suspended";
 
 /* ---------------- store orders and the saved stock ----------------
    Customers' orders on the public store take their products out of the saved stock on the server, and count a
-   coupon's use (server/storeOrders.ts). This browser keeps, next to its copy of the products and of the coupons, the
-   newest store order that copy includes (its "rev"), and sends it with every save of those keys: the server takes
-   again from the save what orders placed since sold, and answers with the value it kept, which this browser keeps too.
-   Kept per account in this browser's own storage (a dukkan- key: shared, never sent as store data). */
+   coupon's use (server/storeOrders.ts). Each product and coupon in this browser's copy carries how many the store sold
+   online as that copy knows it (soldOnline, usedOnline), so whatever page saves them, however old its list, the server
+   takes again what that list has not seen, and answers with the value it kept: this browser keeps it, and the pages
+   showing it read it again (a page left open never goes on from its older list).
+
+   The "rev" kept here (per account, in a dukkan- key: never sent as store data) is only the newest store order this
+   browser has fetched the products after, so the Orders page knows when to fetch them again (pullOnlineKeys). */
 
 const ONLINE_KEYS = ["seen-products", "seen-coupons"];
 const revsKey = () => `dukkan-revs:${signedInAs() ?? ""}`;
@@ -33,7 +36,7 @@ function readRevs(): Record<string, number> {
   }
 }
 
-/** Notes that this browser's copy of these keys includes the store orders up to `rev` */
+/** Notes that this browser fetched these keys after the store orders up to `rev` */
 export function setOnlineRev(rev: unknown, keys: string[] = ONLINE_KEYS) {
   if (!signedInAs() || typeof rev !== "number" || !Number.isSafeInteger(rev) || rev < 0) return;
   try {
@@ -41,20 +44,20 @@ export function setOnlineRev(rev: unknown, keys: string[] = ONLINE_KEYS) {
     keys.forEach((k) => ONLINE_KEYS.includes(k) && (revs[k] = rev));
     localStorage.setItem(revsKey(), JSON.stringify(revs));
   } catch {
-    /* storage blocked: saves of these keys go without it and are kept as they are */
+    /* storage blocked: the Orders page fetches them again next time */
   }
 }
 
-/** The lowest store order this browser's products and coupons include (what the Orders page compares with the server's) */
+/** The newest store order this browser fetched its products and coupons after (the Orders page compares it with the server's) */
 export const onlineRev = (): number | null => {
   const r = readRevs();
   return ONLINE_KEYS.every((k) => typeof r[k] === "number") ? Math.min(...ONLINE_KEYS.map((k) => r[k])) : null;
 };
 
 /** Brings in the products and coupons as the server has them, after store orders took stock from them (unless this
-    browser has a change of them still waiting to go: its save takes the orders again on the server). */
+    browser has a change of them waiting to go or on its way: the server takes the orders again from that save, and its
+    answer brings the kept value). */
 export async function pullOnlineKeys(): Promise<void> {
-  /* a save on its way may hold an older copy of them: it is sent with the rev of that copy, so none is changed now */
   if (!signedInAs() || running) return;
   const before = Object.fromEntries(ONLINE_KEYS.map((k) => [k, accountValue(k)]));
   try {
@@ -67,13 +70,31 @@ export async function pullOnlineKeys(): Promise<void> {
       if (typeof v !== "string" || was === null || pending.has(k) || running) continue;
       if (replaceAccountValue(k, v, was)) {
         setOnlineRev(j.rev, [k]);
-        /* the pages that show them read them again (the same event another tab's change sends) */
-        window.dispatchEvent(new StorageEvent("storage", { key: k }));
+        showAgain(k);
       }
     }
   } catch {
     /* offline: the next page load tries again */
   }
+}
+
+/* The pages that show the products or coupons (Products, Coupons, the store preview) read them again: the same event a
+   change made in another tab sends. Called once this browser holds the server's kept copy, so a page left open never
+   saves its older list over it. */
+const showAgain = (k: string) => window.dispatchEvent(new StorageEvent("storage", { key: k }));
+
+/* Another tab of this browser changed them (its event names the key as stored, with the account in front): the pages
+   here read them again too */
+let relaying = false;
+function relayOtherTabs() {
+  if (relaying || typeof window === "undefined") return;
+  relaying = true;
+  window.addEventListener("storage", (e) => {
+    const me = signedInAs();
+    if (!me || !e.key) return;
+    const k = ONLINE_KEYS.find((x) => e.key === `acct:${me}:${x}`);
+    if (k) showAgain(k);
+  });
 }
 
 /* key -> new value, or null when it was removed */
@@ -93,6 +114,7 @@ const latest = new Map<string, number>();
 /** A change to the signed-in account's data (the key without its acct: prefix) */
 export function queueSave(key: string, value: string | null) {
   pending.set(key, value);
+  relayOtherTabs();
   if (!listening && typeof window !== "undefined") {
     listening = true;
     /* closing the tab or switching away: send what is left straight away */
@@ -158,21 +180,17 @@ const SPLIT = 1_000_000;
    8 MB, and keeps at most 3 MB per key once the pictures are out) */
 const WAIT_OVER = 7_000_000;
 
-type Reply = { status: number; result: string; rewritten?: Record<string, string>; revs?: Record<string, unknown> } | null;
+type Reply = { status: number; result: string; rewritten?: Record<string, string> } | null;
 
 async function put(set: Record<string, string>, remove: string[]): Promise<Reply> {
-  /* with the products or coupons: the newest store order this browser's copy of them includes (see above) */
-  const known = readRevs();
-  const revs = Object.fromEntries(Object.keys(set).filter((k) => typeof known[k] === "number").map((k) => [k, known[k]]));
-  const body = JSON.stringify(Object.keys(revs).length ? { set, remove, revs } : { set, remove });
+  const body = JSON.stringify({ set, remove });
   try {
     /* keepalive lets the request finish if the tab closes while it is on its way (its keys have already left the
        waiting list, so nothing would send them again); browsers allow it only for small bodies */
     const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60_000, credentials: "same-origin" });
-    const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown; revs?: unknown };
+    const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown };
     const rewritten = j.rewritten && typeof j.rewritten === "object" ? (j.rewritten as Record<string, string>) : undefined;
-    const revsBack = j.revs && typeof j.revs === "object" ? (j.revs as Record<string, unknown>) : undefined;
-    return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten, revs: revsBack };
+    return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten };
   } catch {
     /* offline or the server is restarting */
     return null;
@@ -187,11 +205,12 @@ function outcome(r: Reply, sent: Record<string, string>): Outcome {
   if (r.status >= 200 && r.status < 300) {
     /* the server kept some values with their pictures as files: this browser keeps that smaller copy, unless the page
        changed the key again since */
-    const kept = new Set<string>();
-    for (const [k, v] of Object.entries(r.rewritten ?? {})) if (typeof v === "string" && typeof sent[k] === "string" && replaceAccountValue(k, v, sent[k])) kept.add(k);
-    /* the products or coupons now include the store orders up to this one: unless the server changed them and this
-       browser has changed them again since (then the next save has the orders taken again) */
-    for (const [k, rev] of Object.entries(r.revs ?? {})) if (!r.rewritten?.[k] || kept.has(k)) setOnlineRev(rev, [k]);
+    for (const [k, v] of Object.entries(r.rewritten ?? {})) {
+      if (typeof v !== "string" || typeof sent[k] !== "string" || !replaceAccountValue(k, v, sent[k])) continue;
+      /* the server took again from the products or coupons what the store sold online since this copy: the pages
+         showing them take the kept list, so their next save goes on from it */
+      if (ONLINE_KEYS.includes(k)) showAgain(k);
+    }
     return "ok";
   }
   /* signed out: maybe because Dukkan suspended the store while this tab was open, which the merchant should be told */

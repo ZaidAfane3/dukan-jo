@@ -4,6 +4,7 @@ import { notFound, shopId } from "@/server/shopActions";
 import { prepareShops, STATUS_SQL } from "@/server/shops";
 import { SHOWN_SQL } from "@/components/diwan/activityWords";
 import { can, staffRoute } from "@/server/staff";
+import { shopVisitors30 } from "@/server/storeVisits";
 
 export const dynamic = "force-dynamic";
 
@@ -35,9 +36,11 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
          FROM audit_log l LEFT JOIN staff st ON st.id = l.staff_id
         WHERE l.target_type = 'shop' AND l.target_id = $1::text AND ${SHOWN_SQL("l")} ORDER BY l.at DESC LIMIT 100`),
   ]);
+  /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
+  const visitors30 = shop[0] ? await shopVisitors30(pool, id) : 0;
   return answer({
     result: "ok",
-    shop: shop[0],
+    shop: shop[0] && { ...shop[0], visitors_30: visitors30 },
     payments,
     themes,
     tickets,
