@@ -215,7 +215,7 @@ function Welcome({ line }: { line?: string }) {
   );
 }
 
-/* How much of a whole a part is, as one thin line in the brand colour (no colour for the rest) */
+/* How much of a whole a part is, as one thin orange line (no colour for the rest) */
 function Share({ part, whole, label }: { part: number; whole: number; label?: string }) {
   if (!whole) return null;
   return (

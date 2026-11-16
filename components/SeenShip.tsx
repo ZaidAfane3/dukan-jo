@@ -12,14 +12,14 @@ export function SeenShipMark({ className = "h-12 w-12" }: { className?: string }
     <svg viewBox="0 0 64 64" className={className} role="img" aria-label="Dukkan Ship">
       <defs>
         <linearGradient id="ssBg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#004956" />
-          <stop offset="1" stopColor="#348d9c" />
+          <stop offset="0" style={{ stopColor: "rgb(var(--brand-ink))" }} />
+          <stop offset="1" style={{ stopColor: "rgb(var(--brand))" }} />
         </linearGradient>
       </defs>
       <rect width="64" height="64" rx="18" fill="url(#ssBg)" />
 
       {/* speed lines */}
-      <g stroke="#96edd9" strokeWidth="2.6" strokeLinecap="round">
+      <g className="stroke-brand-light" strokeWidth="2.6" strokeLinecap="round">
         <path d="M5 27h8" />
         <path d="M3 34h10" opacity="0.8" />
         <path d="M6 41h7" opacity="0.6" />
@@ -35,18 +35,18 @@ export function SeenShipMark({ className = "h-12 w-12" }: { className?: string }
         <rect x="32" y="22" width="8" height="25" fill="#d9c9b5" opacity="0.7" />
 
         {/* the shop's initial on the box */}
-        <text x="29" y="43" textAnchor="middle" fontSize="22" fontWeight="800" fill="#004956" fontFamily="system-ui, sans-serif">D</text>
+        <text x="29" y="43" textAnchor="middle" fontSize="22" fontWeight="800" className="fill-brand-ink" fontFamily="system-ui, sans-serif">D</text>
 
         {/* a tiny smile on the tape side */}
-        <path d="M44 41c1.6 1.8 4 1.8 5.6 0" fill="none" stroke="#004956" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M44 41c1.6 1.8 4 1.8 5.6 0" fill="none" className="stroke-brand-ink" strokeWidth="1.8" strokeLinecap="round" />
       </g>
 
       {/* wheels */}
-      <g fill="#96edd9" stroke="#004956" strokeWidth="1.6">
+      <g className="fill-brand-light stroke-brand-ink" strokeWidth="1.6">
         <circle cx="25" cy="52" r="4.5" />
         <circle cx="47" cy="52" r="4.5" />
       </g>
-      <g fill="#004956">
+      <g className="fill-brand-ink">
         <circle cx="25" cy="52" r="1.4" />
         <circle cx="47" cy="52" r="1.4" />
       </g>

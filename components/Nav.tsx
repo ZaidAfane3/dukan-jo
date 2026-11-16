@@ -92,7 +92,7 @@ export function Nav() {
   return (
     <header
       className={`sticky top-0 z-50 backdrop-blur-lg transition-all duration-300 ${
-        scrolled ? "bg-card/80 shadow-[0_1px_0_rgba(0,73,86,0.10)]" : "bg-soft/70"
+        scrolled ? "bg-card/80 shadow-[0_1px_0_rgba(51,33,20,0.10)]" : "bg-soft/70"
       }`}
     >
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">

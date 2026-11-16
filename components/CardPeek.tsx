@@ -100,7 +100,7 @@ export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField
   const price = Number(values.price) > 0 ? Number(values.price) : 15;
   const sale = Number(values.sale) > 0 && Number(values.sale) < price ? Number(values.sale) : field === "sale" ? Math.round(price * 0.8 * 100) / 100 : null;
   /* the marked part: a teal dashed ring */
-  const mark = (on: boolean) => (on ? "rounded-md outline-dashed outline-2 outline-offset-2 outline-[#14b8a6]" : "");
+  const mark = (on: boolean) => (on ? "rounded-md outline-dashed outline-2 outline-offset-2 outline-brand" : "");
   /* the short line as the product page shows it: each word in its own chip */
   const chips = notes.split(/\s*[·•،,|]\s*/).map((x) => x.trim()).filter(Boolean).slice(0, 6);
   const photo = (h: string) => (
