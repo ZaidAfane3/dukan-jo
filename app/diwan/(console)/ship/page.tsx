@@ -74,7 +74,7 @@ async function saveShip(_d: Data, part: Partial<DukkanShip>, reason = "", kept?:
 
 /** A card's draft of one saved value. When the saved value changes (any card saved, the page reloaded it), the draft
     follows it only if it had no unsaved edits; unfinished edits are kept. */
-function useDraft<T>(saved: T): [T, (v: T) => void] {
+function useDraft<T>(saved: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [draft, setDraft] = useState(saved);
   const last = useRef(JSON.stringify(saved));
   useEffect(() => {
@@ -226,6 +226,10 @@ function BiRows({ name, rows, setRows, max, maxRows, add }: { name: string; rows
   );
 }
 
+/** After a save: the draft becomes what the server kept, unless it was edited again while the save was running (then
+    the newer edits stay, still unsaved) */
+const keepNewer = <T,>(cur: T, sent: T, kept: T): T => (JSON.stringify(cur) === JSON.stringify(sent) ? kept : cur);
+
 /* empty rows are left out; a row with only one language is sent as it is, so the server refuses it and nothing half written is saved */
 const filled = (l: Bi[]) => l.filter((x) => x.en.trim() || x.ar.trim());
 
@@ -274,7 +278,7 @@ function Cities({ d, onSaved }: { d: Data; onSaved: () => void }) {
         <p className="mb-2 text-sm font-medium">{t("Edit the list (English, Arabic)", "تعديل القائمة (إنجليزي، عربي)")}</p>
         <BiRows name={t("City", "مدينة")} rows={rows} setRows={setRows} max={LIMITS.city} maxRows={LIMITS.shipCities} add={t("+ Add a city", "+ إضافة مدينة")} />
       </div>
-      <SaveRow d={d} state={s.state} onSave={() => void s.save({ cities: filled(rows) }, (v) => setRows(v.cities))} />
+      <SaveRow d={d} state={s.state} onSave={() => { const sent = filled(rows); void s.save({ cities: sent }, (v) => setRows((cur) => keepNewer(cur, rows, v.cities))); }} />
     </section>
   );
 }
@@ -295,7 +299,7 @@ function Words({ d, onSaved }: { d: Data; onSaved: () => void }) {
       </div>
       <p className="mb-2 mt-4 text-sm font-medium">{t("What it includes (English, Arabic)", "ما تشمله (إنجليزي، عربي)")}</p>
       <BiRows name={t("Point", "ميزة")} rows={features} setRows={setFeatures} max={LIMITS.shipFeature} maxRows={LIMITS.shipFeatures} add={t("+ Add a point", "+ إضافة ميزة")} />
-      <SaveRow d={d} state={s.state} onSave={() => void s.save({ policy, features: filled(features) }, (v) => { setPolicy(v.policy); setFeatures(v.features); })} />
+      <SaveRow d={d} state={s.state} onSave={() => void s.save({ policy, features: filled(features) }, (v) => { setPolicy((cur) => keepNewer(cur, policy, v.policy)); setFeatures((cur) => keepNewer(cur, features, v.features)); })} />
     </section>
   );
 }
