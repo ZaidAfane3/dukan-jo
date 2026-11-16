@@ -10,7 +10,10 @@ export async function middleware(req: NextRequest) {
   if (!isStoreAddress(req.nextUrl.pathname)) return NextResponse.next();
   const slug = req.nextUrl.pathname.slice(1).toLowerCase();
   try {
-    const r = await fetch(new URL(`/api/public/store/${slug}`, req.nextUrl.origin), { method: "GET", headers: { accept: "application/json" }, cache: "no-store" });
+    /* asked of this same server from inside: on the live site the public address goes out through Cloudflare and back,
+       which can fail. The server listens on PORT (Dockerfile); in development the page's own address works. */
+    const base = process.env.NODE_ENV === "production" ? `http://127.0.0.1:${process.env.PORT || 3000}` : req.nextUrl.origin;
+    const r = await fetch(new URL(`/api/public/store/${slug}`, base), { method: "GET", headers: { accept: "application/json" }, cache: "no-store" });
     if (r.status === 404) return NextResponse.rewrite(new URL(`/${slug}`, req.url), { status: 404 });
   } catch {
     /* the API is restarting or unreachable: let the page decide */
