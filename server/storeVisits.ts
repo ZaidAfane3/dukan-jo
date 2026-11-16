@@ -121,13 +121,27 @@ export async function recordVisit(
   if (!shop || shop.status === "suspended" || !shop.published || shop.paused) return false;
   /* the merchant looking at his own store */
   if ((await signedIn()) === String(shop.account_id)) return false;
-  await pool.query(
-    `INSERT INTO store_visits (account_id, visitor, kind, product_id, source, new_visit)
-     SELECT $1::bigint, $2::text, $3::text, $4::bigint, $5::text,
-            NOT EXISTS (SELECT 1 FROM store_visits WHERE account_id = $1::bigint AND visitor = $2::text
-                         AND at > now() - make_interval(mins => $6::int))`,
-    [shop.account_id, visitorKey(req, String(shop.account_id)), kind, product, visitSource(body.ref, body.utm), VISIT_GAP_MINUTES],
-  );
+  const visitor = visitorKey(req, String(shop.account_id));
+  /* two pages opened at once by the same visitor must not both start a new visit: a lock for this visitor in this store
+     (held until the row is in) keeps the check and the insert of one from overlapping the other's */
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext('visit:' || $1::text || ':' || $2::text))`, [String(shop.account_id), visitor]);
+    await c.query(
+      `INSERT INTO store_visits (account_id, visitor, kind, product_id, source, new_visit)
+       SELECT $1::bigint, $2::text, $3::text, $4::bigint, $5::text,
+              NOT EXISTS (SELECT 1 FROM store_visits WHERE account_id = $1::bigint AND visitor = $2::text
+                           AND at > now() - make_interval(mins => $6::int))`,
+      [shop.account_id, visitor, kind, product, visitSource(body.ref, body.utm), VISIT_GAP_MINUTES],
+    );
+    await c.query("COMMIT");
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    c.release();
+  }
   rollUpSoon(pool);
   return true;
 }
@@ -250,7 +264,8 @@ export async function visitStats(accountId: string): Promise<VisitStats> {
       ),
       () => q(
         `SELECT day::text AS day, visitors, visits, views, sources, products FROM store_visit_days
-          WHERE account_id = $1 AND day > ${DAY_OF("now()")} - 30`,
+          WHERE account_id = $1
+            AND day >= LEAST(${DAY_OF("now()")} - 29, date_trunc('month', now() AT TIME ZONE '${TZ}')::date)`,
         [accountId],
       ),
     ]) answers.push(await run());
@@ -287,7 +302,8 @@ export async function visitStats(accountId: string): Promise<VisitStats> {
   const products = new Map<number, number>();
   const inRange = (day: string) => day >= dayNames[0];
   for (const r of saved.rows) {
-    if (rawDayNames.has(r.day)) continue;
+    /* the saved rows reach back to the 1st of the month for "this month": only the 30 days count here */
+    if (rawDayNames.has(r.day) || !inRange(r.day)) continue;
     for (const [k, n] of Object.entries((r.sources ?? {}) as Record<string, unknown>))
       if (VISIT_SOURCES.includes(k as VisitSource)) sources.set(k as VisitSource, (sources.get(k as VisitSource) ?? 0) + Number(n));
     for (const [k, n] of Object.entries((r.products ?? {}) as Record<string, unknown>)) products.set(Number(k), (products.get(Number(k)) ?? 0) + Number(n));
@@ -306,7 +322,8 @@ export async function visitStats(accountId: string): Promise<VisitStats> {
     yesterday: byDay.get(yesterday) ?? ZERO(),
     week: sum(23),
     days30: sum(0),
-    month: days.filter((d) => d.day >= monthStart).reduce((a, d) => add(a, d), ZERO()),
+    /* every day of this month, which on the 31st reaches one day further back than the 30 days above */
+    month: Array.from(byDay).filter(([day]) => day >= monthStart && day <= today).reduce((a, [, d]) => add(a, d), ZERO()),
     minutes: fiveMin,
     hours: Array.from({ length: 24 }, (_, i) => {
       const at = hourNow - (23 - i) * 3_600_000;
@@ -323,7 +340,8 @@ export async function shopVisitors30(pool: Pool, accountId: string): Promise<num
   const { rows } = await pool.query(
     `SELECT (SELECT COALESCE(sum(visitors), 0) FROM store_visit_days d WHERE d.account_id = $1 AND d.day > ${DAY_OF("now()")} - 30
                AND NOT EXISTS (SELECT 1 FROM store_visits v WHERE v.account_id = $1 AND ${DAY_OF("v.at")} = d.day))
-          + (SELECT COALESCE(sum(n), 0) FROM (SELECT count(DISTINCT visitor) AS n FROM store_visits WHERE account_id = $1 GROUP BY ${DAY_OF("at")}) r) AS n`,
+          + (SELECT COALESCE(sum(n), 0) FROM (SELECT count(DISTINCT visitor) AS n FROM store_visits
+               WHERE account_id = $1 AND ${DAY_OF("at")} > ${DAY_OF("now()")} - 30 GROUP BY ${DAY_OF("at")}) r) AS n`,
     [accountId],
   );
   return Number(rows[0]?.n ?? 0);

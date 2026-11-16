@@ -123,16 +123,31 @@ export function Orders() {
       return;
     }
     let stop = false;
+    /* the store orders this page already holds: a check finds where the new ones meet them */
+    const known = new Set<string>();
     const load = async () => {
       try {
-        const r = await fetch("/api/orders", { credentials: "same-origin", cache: "no-store" });
-        if (!r.ok || stop) return;
-        const j = (await r.json()) as { orders?: unknown; rev?: unknown; next?: unknown; total?: unknown };
-        if (stop) return;
-        setServerOrders((list) => upsert(list, serverRows(j.orders)));
+        let url = "/api/orders";
+        let j: { orders?: unknown; rev?: unknown; next?: unknown; total?: unknown } = {};
+        /* the newest page, then older pages until they reach the orders already here, so no order between them is
+           missed even when more than a page arrived while the tab was hidden (at most 20 pages a check) */
+        for (let page = 0; page < 20; page++) {
+          const r = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+          if (!r.ok || stop) return;
+          const got = (await r.json()) as typeof j;
+          if (stop) return;
+          if (page === 0) j = got;
+          const rows = serverRows(got.orders);
+          const first = known.size === 0;
+          const meets = rows.some((x) => !!x.serverId && known.has(x.serverId));
+          rows.forEach((x) => x.serverId && known.add(x.serverId));
+          setServerOrders((list) => upsert(list, rows));
+          /* where the older pages start: taken from the first answer only (the pages loaded after go on from their own) */
+          if (first) setCursor((c) => (c === undefined ? (typeof got.next === "string" ? got.next : null) : c));
+          if (first || meets || typeof got.next !== "string") break;
+          url = `/api/orders?before=${encodeURIComponent(got.next)}`;
+        }
         if (typeof j.total === "number") setServerTotal(j.total);
-        /* where the older pages start: taken from the first answer only (the pages loaded after go on from their own) */
-        setCursor((c) => (c === undefined ? (typeof j.next === "string" ? j.next : null) : c));
         /* those orders took stock on the server: this browser's copy of the products is brought up to date */
         const mine = onlineRev();
         if (typeof j.rev === "number" && (mine === null || j.rev > mine)) void pullOnlineKeys();
