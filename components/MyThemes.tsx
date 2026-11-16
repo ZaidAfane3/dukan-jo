@@ -4,25 +4,28 @@ import { useCatalog } from "./catalog";
 import { usePublicSettings } from "./platformPublic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { brandName, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { PreviewEye, PreviewWindow } from "./ThemePopup";
 import { ThemePreview } from "./ThemePreview";
 import { themeWords } from "./themesContent";
-import { applyTheme, customizeTheme, renameTheme, DEFAULT_THEME_ID, deleteSavedTheme, findTheme, freeThemes, isFreeTheme, loadThemeState, resetCopy, saveDesignAsTheme, savedThemeInfo, type ThemeInfo, type ThemeState } from "./themes";
+import { applyTheme, copyName, copyTheme, customizeTheme, renameTheme, DEFAULT_THEME_ID, deleteSavedTheme, findTheme, freeThemes, isFreeTheme, loadThemeState, NAME_MAX, resetCopy, saveDesignAsTheme, savedThemeInfo, type ThemeInfo, type ThemeState } from "./themes";
 import { input } from "./designer/controls";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-6";
 
-type Note = "" | "applied" | "failed" | "saved" | "full" | "limit" | "reset";
+type Note = "" | "applied" | "failed" | "saved" | "full" | "limit" | "reset" | "copied";
+type Kind = "default" | "bought" | "copy" | "saved" | "dup";
 
 /* What can be done with each kind of theme:
    - Dukkan's two free designs (the default one and «مؤسسو دكان»): always first, use them or customize them (never deleted);
    - a bought theme: use it, customize it (never deleted);
    - a customized copy of a bought theme: use it, customize it, reset it to the original (never deleted);
-   - a design he saved from his own store: use it, customize it, delete it. */
+   - a design he saved from his own store: use it, customize it, delete it;
+   - a copy he made of any of them ("Make a copy"): use it, customize it, delete it (the theme it came from stays).
+   Every one of them can be renamed and copied. */
 /* A small eye beside a theme's name: it opens the theme in a new tab, as a whole store, to look at */
 export function MyThemes() {
   const { lang } = usePrefs();
@@ -41,7 +44,9 @@ export function MyThemes() {
   /* the theme shown in the preview window (the eye, or a click on its picture) */
   const [previewing, setPreviewing] = useState<ThemeInfo | null>(null);
   /* the theme whose name he is changing, and the name typed so far */
-  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  /* the copy just made: marked for a moment so he sees where it went */
+  const [fresh, setFresh] = useState("");
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${w.title}`;
@@ -54,9 +59,9 @@ export function MyThemes() {
   /* Drawn once the browser's state is read: the previews show his own store, which the server cannot know (no hydration mismatch) */
   /* the name he gave a theme, if he renamed it */
   const named = (t: ThemeInfo): ThemeInfo => (state?.names?.[t.id] ? { ...t, name: { en: state.names[t.id], ar: state.names[t.id] } } : t);
-  const all = !state ? [] : [...freeThemes().map((t) => ({ at: 0, theme: named(t), kind: "default" as const })), ...bought.map((x) => ({ ...x, theme: named(x.theme), kind: "bought" as const })), ...saved.map((x) => ({ ...x, kind: x.theme.from ? ("copy" as const) : ("saved" as const) }))];
-  const saveName = () => {
-    if (renaming) setState(renameTheme(renaming.id, renaming.name));
+  const all: { at: number; theme: ThemeInfo; kind: Kind }[] = !state ? [] : [...freeThemes().map((t) => ({ at: 0, theme: named(t), kind: "default" as const })), ...bought.map((x) => ({ ...x, theme: named(x.theme), kind: "bought" as const })), ...saved.map((x) => ({ ...x, kind: typeof x.theme.copyOf === "string" ? ("dup" as const) : x.theme.from ? ("copy" as const) : ("saved" as const) }))];
+  const saveName = (id: string, name: string) => {
+    setState(renameTheme(id, name));
     setRenaming(null);
   };
 
@@ -70,7 +75,7 @@ export function MyThemes() {
   const use = (t: ThemeInfo) => done(applyTheme(t, lang) ? "applied" : "failed");
 
   /* "Customize": a bought theme gets its own copy in My themes (once), then the designer opens on it */
-  const customize = (t: ThemeInfo, kind: "default" | "bought" | "copy" | "saved") => {
+  const customize = (t: ThemeInfo, kind: Kind) => {
     if (kind === "bought") {
       if (customizeTheme(t, lang) === "ok") router.push("/design");
       else done("full");
@@ -86,8 +91,23 @@ export function MyThemes() {
     done(r === "ok" ? "saved" : r);
   };
 
-  const noteText: Record<Exclude<Note, "">, string> = { applied: w.applied, failed: w.failed, saved: w.saved, full: w.full, limit: w.limit, reset: w.resetDone };
-  const good = note === "applied" || note === "saved" || note === "reset";
+  /* "Make a copy": a new theme of his own with the same design, not in use, next to the others; the original stays as it is */
+  const makeCopy = (t: ThemeInfo) => {
+    setRenaming(null);
+    setAsking(null);
+    const shown = t.name[lang];
+    const r = copyTheme(t, copyName(shown, w.copySuffix, all.map((x) => x.theme.name[lang])), shown, lang);
+    if (!r.ok) return done(r.why);
+    done("copied");
+    /* copies are with his own designs: a filter that hides them shows his designs instead */
+    if (show !== "all" && show !== "mine") setShow("mine");
+    setFresh(r.id);
+    window.setTimeout(() => document.getElementById(`theme-${r.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+    window.setTimeout(() => setFresh((f) => (f === r.id ? "" : f)), 4000);
+  };
+
+  const noteText: Record<Exclude<Note, "">, string> = { applied: w.applied, failed: w.failed, saved: w.saved, full: w.full, limit: w.limit, reset: w.resetDone, copied: w.copied };
+  const good = note === "applied" || note === "saved" || note === "reset" || note === "copied";
 
   return (
     <div className="dash min-h-screen bg-page">
@@ -127,7 +147,7 @@ export function MyThemes() {
 
         {/* the themes side by side: three in a row on a big screen, two on a tablet, one on a phone */}
         {(() => {
-          const group = (k: (typeof all)[number]["kind"]) => (k === "default" ? "default" : k === "saved" ? "mine" : "bought");
+          const group = (k: Kind) => (k === "default" ? "default" : k === "saved" || k === "dup" ? "mine" : "bought");
           const count = (g: "default" | "bought" | "mine") => all.filter((x) => group(x.kind) === g).length;
           return (
             <div role="tablist" aria-label={w.title} className="flex flex-wrap gap-2">
@@ -143,13 +163,14 @@ export function MyThemes() {
           );
         })()}
         <div className="grid items-stretch gap-6 sm:grid-cols-2 xl:grid-cols-3">
-        {all.filter((x) => show === "all" || (show === "default" ? x.kind === "default" : show === "mine" ? x.kind === "saved" : x.kind === "bought" || x.kind === "copy")).map(({ at, theme: t, kind }) => {
+        {all.filter((x) => show === "all" || (show === "default" ? x.kind === "default" : show === "mine" ? x.kind === "saved" || x.kind === "dup" : x.kind === "bought" || x.kind === "copy")).map(({ at, theme: t, kind }) => {
           /* Dukkan's default design is the one in use until he picks another theme (or when the one he picked is gone) */
           const active = state?.active === t.id || (t.id === DEFAULT_THEME_ID && !all.some((x) => x.theme.id === state?.active));
           const ask = asking?.id === t.id ? asking.kind : null;
           const base = t.from ? findTheme(t.from) : null;
+          const editing = renaming === t.id;
           return (
-            <section key={t.id} className={`${card} flex flex-col gap-5 ${active ? "ring-2 ring-primary/60" : ""}`}>
+            <section key={t.id} id={`theme-${t.id}`} className={`${card} flex scroll-mt-24 flex-col gap-5 transition-shadow duration-700 ${fresh === t.id ? "!ring-2 !ring-primary shadow-xl" : active ? "ring-2 ring-primary/60" : ""}`}>
               {/* like the theme store: the picture is a store with buttons of its own, so it is not inside a real button (a button
                   inside a button) but a box that acts as one, from the mouse and the keys */}
               <div
@@ -167,44 +188,35 @@ export function MyThemes() {
               >
                 <ThemePreview theme={t} height={260} />
               </div>
+              {editing ? (
+                <RenameForm
+                  name={t.name[lang]}
+                  taken={all.filter((x) => x.theme.id !== t.id).map((x) => x.theme.name[lang])}
+                  onSave={(v) => saveName(t.id, v)}
+                  onCancel={() => setRenaming(null)}
+                />
+              ) : (
               <div className="flex flex-1 flex-col">
                 <div className="flex flex-wrap items-center gap-3">
-                  {renaming?.id === t.id ? (
-                    <input
-                      autoFocus
-                      value={renaming.name}
-                      onChange={(e) => setRenaming({ id: t.id, name: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveName();
-                        if (e.key === "Escape") setRenaming(null);
-                      }}
-                      onBlur={saveName}
-                      maxLength={40}
-                      aria-label={lang === "ar" ? "اسم الثيم" : "Theme name"}
-                      className={`${input} h-10 min-w-0 flex-1 text-lg font-extrabold`}
-                    />
-                  ) : (
-                    <>
-                      <h2 className="text-xl font-extrabold">{t.name[lang]}</h2>
-                      <button type="button" onClick={() => setRenaming({ id: t.id, name: t.name[lang] })} aria-label={lang === "ar" ? "إعادة التسمية" : "Rename"} title={lang === "ar" ? "إعادة التسمية" : "Rename"} className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-fg/15 text-muted transition hover:bg-soft hover:text-fg">
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9M16.500 3.500a2.100 2.100 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                      </button>
-                    </>
-                  )}
+                  <h2 className="min-w-0 break-words text-xl font-extrabold">{t.name[lang]}</h2>
+                  <button type="button" onClick={() => { setNote(""); setAsking(null); setRenaming(t.id); }} aria-label={`${w.rename}: ${t.name[lang]}`} title={w.rename} className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-fg/15 text-muted transition hover:bg-soft hover:text-fg">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9M16.500 3.500a2.100 2.100 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  </button>
                   <PreviewEye onOpen={() => setPreviewing(t)} />
                   {active && <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-400">{w.inUse}</span>}
                   {kind === "copy" && <span className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{w.copyTag}</span>}
+                  {kind === "dup" && <span className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{w.dupTag}</span>}
                   {kind === "saved" && <span className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{w.savedTag}</span>}
                   {kind === "default" && <span className="rounded-full bg-soft px-3 py-1 text-xs font-bold text-deep dark:text-primary">{t.id === DEFAULT_THEME_ID ? w.defaultTag : w.freeTag}</span>}
                 </div>
-                <p className="mt-1 text-sm text-muted">{kind === "copy" && base ? `${w.copyOf} ${base.name[lang]}` : t.tagline[lang]}</p>
+                <p className="mt-1 text-sm text-muted">{kind === "dup" ? `${w.dupOf} ${t.copyOf}` : kind === "copy" && base ? `${w.copyOf} ${base.name[lang]}` : t.tagline[lang]}</p>
                 <p className="mt-2 text-xs text-muted">
                   {kind === "default" ? w.defaultNote : `${kind === "bought" ? w.boughtOn : w.savedOn}: ${new Date(at).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" })}`}
                 </p>
 
                 {ask ? (
                   <div className={`mt-5 rounded-xl p-4 ${ask === "use" ? "bg-amber-500/12" : "bg-rose-500/10"}`}>
-                    <p className="text-sm">{ask === "use" ? w.applyAsk : ask === "reset" ? w.resetAsk : w.deleteAsk}</p>
+                    <p className="text-sm">{ask === "use" ? w.applyAsk : ask === "reset" ? w.resetAsk : kind === "dup" ? w.deleteCopyAsk : w.deleteAsk}</p>
                     {ask === "use" && (
                       <>
                         <p className="mt-2 text-sm font-semibold">{w.applyKeepsTitle}</p>
@@ -237,16 +249,24 @@ export function MyThemes() {
                       <button type="button" onClick={() => { setNote(""); setAsking({ id: t.id, kind: "use" }); }} className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{w.use}</button>
                     )}
                     <button type="button" onClick={() => customize(t, kind)} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{w.customize}</button>
-                    {/* A copy of a bought theme is never deleted, it can be reset. A design he saved himself can be deleted. A bought theme has neither. */}
-                    {kind === "copy" && (
-                      <button type="button" onClick={() => { setNote(""); setAsking({ id: t.id, kind: "reset" }); }} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{w.reset}</button>
-                    )}
-                    {kind === "saved" && (
-                      <button type="button" onClick={() => { setNote(""); setAsking({ id: t.id, kind: "delete" }); }} className="h-11 rounded-xl border border-rose-500/50 px-6 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{w.delete}</button>
-                    )}
+                    {/* Every theme can be copied. The customized copy of a bought theme is never deleted, it can be reset. A design he
+                        saved himself, and a copy he made, can be deleted. A bought or free theme has neither. */}
+                    <div className="flex w-full flex-wrap gap-2">
+                      <button type="button" onClick={() => makeCopy(t)} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-muted transition hover:bg-soft hover:text-fg">
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+                        {w.makeCopy}
+                      </button>
+                      {kind === "copy" && (
+                        <button type="button" onClick={() => { setNote(""); setAsking({ id: t.id, kind: "reset" }); }} className="h-9 rounded-lg px-3 text-sm font-semibold text-muted transition hover:bg-soft hover:text-fg">{w.reset}</button>
+                      )}
+                      {(kind === "saved" || kind === "dup") && (
+                        <button type="button" onClick={() => { setNote(""); setAsking({ id: t.id, kind: "delete" }); }} className="h-9 rounded-lg px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10 dark:text-rose-400">{w.delete}</button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
+              )}
             </section>
           );
         })}
@@ -275,5 +295,79 @@ export function MyThemes() {
       </main>
       {previewing && <PreviewWindow theme={previewing} onClose={() => setPreviewing(null)} />}
     </div>
+  );
+}
+
+/* Renaming a theme: a big field across the whole card, with the badges and the card's buttons out of the way. Enter saves, Esc
+   cancels; the name is chosen whole so typing replaces it. An empty name, or one another theme in My themes already has, is
+   not saved: a short note under the field says why. */
+function RenameForm({ name, taken, onSave, onCancel }: { name: string; taken: string[]; onSave: (v: string) => void; onCancel: () => void }) {
+  const { lang } = usePrefs();
+  const w = themeWords[lang].mine;
+  const [value, setValue] = useState(name);
+  const [err, setErr] = useState<"" | "empty" | "taken">("");
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  const submit = () => {
+    const v = value.trim();
+    if (!v) return setErr("empty");
+    if (v === name.trim()) return onCancel();
+    if (taken.some((x) => x.trim().toLowerCase() === v.toLowerCase())) return setErr("taken");
+    onSave(v);
+  };
+  const id = useRef(`rename-${Math.random().toString(36).slice(2, 8)}`).current;
+  return (
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+      className="flex flex-1 flex-col"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <label htmlFor={id} className="text-sm font-bold">{w.renameTitle}</label>
+        <span dir="ltr" aria-live="polite" className={`text-xs tabular-nums ${value.length >= NAME_MAX ? "font-bold text-amber-700 dark:text-amber-400" : "text-muted"}`}>
+          {value.length}/{NAME_MAX}
+        </span>
+      </div>
+      <input
+        ref={ref}
+        id={id}
+        dir="auto"
+        value={value}
+        maxLength={NAME_MAX}
+        onChange={(e) => {
+          setValue(e.target.value);
+          if (err) setErr("");
+        }}
+        onKeyDown={(e) => {
+          /* Enter saves (not while an Arabic or other keyboard is still composing a word) */
+          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            submit();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }
+        }}
+        aria-invalid={!!err}
+        aria-describedby={`${id}-help`}
+        autoComplete="off"
+        className={`${input} mt-2 h-14 !text-lg font-bold ${err ? "!border-rose-500 focus:!ring-rose-500/25" : ""}`}
+      />
+      <p id={`${id}-help`} role={err ? "alert" : undefined} className={`mt-2 min-h-[1.25rem] text-sm ${err ? "font-semibold text-rose-600 dark:text-rose-400" : "text-muted"}`}>
+        {err === "empty" ? w.nameEmpty : err === "taken" ? w.nameTaken : <span className="hidden sm:inline">{w.renameKeys}</span>}
+      </p>
+      <div className="mt-auto flex flex-wrap gap-3 pt-4">
+        <button type="submit" className="h-11 flex-1 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep sm:flex-none">{w.save}</button>
+        <button type="button" onClick={onCancel} className="h-11 flex-1 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft sm:flex-none">{w.cancel}</button>
+      </div>
+    </form>
   );
 }

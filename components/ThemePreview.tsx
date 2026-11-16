@@ -152,7 +152,9 @@ export function ThemePreview({ theme, height, scroll = false, sample = false }: 
 
         <div
           ref={box}
-          className={`relative select-none ${scroll ? "overflow-y-auto overflow-x-hidden" : `overflow-hidden ${grabbing ? "cursor-grabbing" : "cursor-grab"}`}`}
+          /* contain: its width comes from the card around it, never from the store drawn inside (that store is sized from this
+             width, so without it a card could never get narrower than it first was, and a phone page scrolled sideways) */
+          className={`relative select-none [contain:inline-size] ${scroll ? "overflow-y-auto overflow-x-hidden" : `overflow-hidden ${grabbing ? "cursor-grabbing" : "cursor-grab"}`}`}
           style={{ height, touchAction: scroll ? undefined : "pan-y" }}
           onPointerDown={down}
           onPointerMove={move}
