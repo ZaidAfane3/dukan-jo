@@ -33,6 +33,10 @@ import type { StorefrontConfig } from "../storefront/config";
 import type { Lang } from "../content";
 import { shownMobile } from "../phone";
 import { savedPhone } from "../safeAccount";
+import { keepPicture } from "../media";
+import { picturesIn, swapKnown } from "../mediaRules";
+import { onServer } from "../merchantApi";
+import { pictureSavesHeld } from "../serverSync";
 
 /* The design as text for "is anything changed?": keys in one order, and what draws the same as nothing (a value taken away, an
    empty group of settings, words left empty in both languages) left out, so a value changed and then put back by hand is no change */
@@ -387,6 +391,40 @@ export function Designer() {
   /* Kept from one render to the next: the whole design is turned into text only when it changes */
   const savedText = useMemo(() => (saved ? designText(JSON.parse(saved)) : ""), [saved]);
   const dirty = useMemo(() => draft !== null && designText(draft) !== savedText, [draft, savedText]);
+
+  /* A signed-in store keeps its pictures on Dukkan's server as files (components/media.ts). A picture just put in the design
+     is picture data: once he stops for a moment (and is not cutting a picture), it is sent, and the design names it by its
+     address from then on, in the undo steps and in the saved copy it is compared with too, so nothing looks changed and the
+     save stays small. Signed out or in the tour, pictures stay as they are. */
+  useEffect(() => {
+    if (!draft || readOnly || !onServer()) return;
+    const text = JSON.stringify(draft);
+    if (!text.includes("data:image/")) return;
+    const found = picturesIn(text);
+    if (!found.length) return;
+    let alive = true;
+    const t = setTimeout(async () => {
+      if (pictureSavesHeld()) return;
+      const map = new Map<string, string>();
+      for (const u of found) {
+        const url = await keepPicture(u, "design");
+        if (url !== u) map.set(u, url);
+      }
+      /* changed meanwhile: the next look starts again (the pictures already sent are not sent twice) */
+      if (!alive || !map.size || !draftRef.current) return;
+      const swap = <T,>(v: T): T => swapKnown(v, map);
+      const next = swap(draftRef.current);
+      draftRef.current = next;
+      hist.current.past = hist.current.past.map(swap);
+      hist.current.future = hist.current.future.map(swap);
+      setDraft(next);
+      setSaved((s0) => (s0 ? JSON.stringify(swap(JSON.parse(s0))) : s0));
+    }, 1_500);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [draft, readOnly]);
 
   /* Texts written in one language only (changed since the designer opened, or before: his words in one language, the sample
      words of the design the store started from in the other): the other language still shows the old words */

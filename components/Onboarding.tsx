@@ -15,11 +15,13 @@ import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
 import { Tilt } from "./ui";
 import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, savedMobile, shownMobile, typedPhone } from "./phone";
-import { checkImage, cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isNewSlug, isPickupAddress, isSlug, normalizeHex, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
+import { cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isMediaUrl, isNewSlug, isPickupAddress, isSlug, normalizeHex, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
 import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
 import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
+import { keepPicture } from "./media";
 import { merchantCall, onServer } from "./merchantApi";
+import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
 import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
 
 /* ====================================================================
@@ -28,11 +30,9 @@ import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
 
 const TOTAL_TASKS = 6;
 const MAX_DESCRIPTION = 200;
-const MAX_PROOFS = 5;
 const SWATCHES = ["#004956", "#0b6b4a", "#8b2f35", "#e0806e", "#e0a94e", "#4caf8a", "#5b8dd6", "#e06070"];
 
 type LogoFile = { url: string; name: string; size: string };
-type ProofFile = { id: string; name: string; size: string; url: string | null };
 
 type Store = {
   name: string;
@@ -502,7 +502,8 @@ function IdentityStep({ store, onSave }: StepProps) {
             const kept = logoPending ? (() => { const url = logoLive ?? logoPending.url; return { url, name: logoPending.name, size: formatSize(Math.round((url.length * 3) / 4)) }; })() : logo;
             if (logoPending) { setLogo(kept); setLogoPending(null); setLogoLive(null); }
             savedUrl.current = kept?.url ?? null;
-            const logoData = kept ? await toSavedLogo(kept.url) : "";
+            /* a signed-in store keeps the logo on Dukkan's server and saves its address (components/media.ts) */
+            const logoData = kept ? await keepPicture(await toSavedLogo(kept.url), "logo") : "";
             onSave({ name: cleanLine(name, ACCOUNT_LIMITS.storeName), description: cleanLines(description, ACCOUNT_LIMITS.description), logo: kept, logoData, color });
           }}
         >
@@ -975,7 +976,7 @@ function ProductStep({ store, onSave }: StepProps) {
           <div>
             <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
             {imagePending ? (
-              <ImageCropper lang={lang} src={imagePending} shapes={["square", "tall", "wide"]} out={1200} type="image/jpeg" onLive={setImageLive} onCancel={() => { setImagePending(""); setImageLive(null); }} onDone={(url) => { setImage(url); setImagePending(""); setImageLive(null); }} />
+              <ImageCropper lang={lang} src={imagePending} shapes={["square", "tall", "wide"]} out={1200} type="image/jpeg" onLive={setImageLive} onCancel={() => { setImagePending(""); setImageLive(null); }} onDone={(url) => { setImage(url); setImagePending(""); setImageLive(null); void keepPicture(url, "product").then((kept) => kept !== url && setImage((cur) => (cur === url ? kept : cur))); }} />
             ) : image ? (
               <div className="flex items-center gap-4 rounded-2xl border border-fg/15 p-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1140,45 +1141,17 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [kind, setKind] = useState(own?.kind ?? 0);
   const [name, setName] = useState(own?.name ?? "");
   const [phone, setPhone] = useState(shownMobile(own?.phone ?? ""));
-  const [proofs, setProofs] = useState<ProofFile[]>(own?.proofs ?? []);
-  const [error, setError] = useState("");
+  /* the proofs go to Dukkan's server as soon as they are picked (components/partnerProofs.tsx) */
+  const { proofs, error, busy, sends: proofsSent, add: addProofs, remove: removeProof, keep: keepProofs } = usePartnerProofs(own?.proofs ?? [], s, lang);
   const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
-  const created = useRef<string[]>([]);
-  const savedUrls = useRef<Set<string>>(new Set((own?.proofs ?? []).flatMap((f) => (f.url ? [f.url] : []))));
 
-  useEffect(() => {
-    const urls = created.current;
-    return () => urls.forEach((u) => !savedUrls.current.has(u) && URL.revokeObjectURL(u));
-  }, []);
-
-  /* Images and PDFs only, up to 5 files of 5 MB. Files stay in the browser. */
-  const onFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  /* Images and PDFs only, up to 5 files of 5 MB, checked from their bytes. Each one is sent with the partner as typed
+     now; saving the step tells the server the final name (syncProofPartner). */
+  const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = "";
-    let message = "";
-    const next = [...proofs];
-    for (const file of picked) {
-      if (next.length >= MAX_PROOFS) {
-        message = s.proofMax;
-        break;
-      }
-      /* what the file really is, from its bytes (a renamed file is refused) */
-      const check = await checkImage(file, imageRules.proof);
-      if ("problem" in check) {
-        message = check.problem === "type" ? s.proofType : check.problem === "size" ? s.proofTooBig : uploadProblemText[check.problem][lang];
-        continue;
-      }
-      const isImage = check.kind !== "pdf";
-      let url: string | null = null;
-      if (isImage) {
-        url = URL.createObjectURL(file);
-        created.current.push(url);
-      }
-      next.push({ id: `${file.name}-${file.size}-${next.length}`, name: cleanFileName(file.name), size: formatSize(file.size), url });
-    }
-    setProofs(next);
-    setError(message);
+    void addProofs(picked, { name: cleanLine(name, ACCOUNT_LIMITS.shipName), kind });
   };
 
   const pickupBox = (
@@ -1348,7 +1321,8 @@ function ShippingStep({ store, onSave }: StepProps) {
       focusFirst(wrong.map((k) => `ob-ship-${k}`));
       return;
     }
-    savedUrls.current = new Set(proofs.flatMap((f) => (f.url ? [f.url] : [])));
+    keepProofs();
+    syncProofPartner(cleanLine(name, ACCOUNT_LIMITS.shipName), kind);
     onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "", ...(own?.fee !== undefined ? { fee: own.fee } : {}) } });
   };
 
@@ -1405,36 +1379,16 @@ function ShippingStep({ store, onSave }: StepProps) {
         <div>
           <Label title={s.proofLabel} hint={s.proofHint} optional={c.optional} />
           <input ref={fileInput} type="file" multiple accept="image/*,application/pdf" onChange={onFiles} className="hidden" />
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={proofs.length >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || proofs.length >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
             <span>
-              {s.proofAdd} <span dir="ltr" className="text-muted">({proofs.length}/{MAX_PROOFS})</span>
+              {busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofs.length}/{MAX_PROOFS})</span>
             </span>
           </button>
           <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
-          {error && <p className="mt-1 text-xs text-rose-600">{error}</p>}
+          {error && <p role="alert" className="mt-1 text-xs text-rose-600">{error}</p>}
 
-          {proofs.length > 0 && (
-            <ul className="mt-4 space-y-2">
-              {proofs.map((f) => (
-                <li key={f.id} className="flex items-center gap-3 rounded-xl border border-fg/15 p-2.5">
-                  {f.url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={f.url} alt="" className="h-11 w-11 rounded-lg object-cover" />
-                  ) : (
-                    <span className="grid h-11 w-11 place-items-center rounded-lg bg-rose-500/10 text-[11px] font-bold text-rose-600">PDF</span>
-                  )}
-                  <div className="min-w-0 flex-1 text-sm">
-                    <p className="truncate font-semibold">{f.name}</p>
-                    <p dir="ltr" className="text-start text-xs text-muted">{f.size}</p>
-                  </div>
-                  <button type="button" onClick={() => setProofs((list) => list.filter((x) => x.id !== f.id))} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
-                    {s.remove}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-3 text-xs text-muted">{s.localNote}</p>
+          <ProofRows proofs={proofs} s={s} onRemove={(f) => void removeProof(f)} />
+          <p className="mt-3 text-xs text-muted">{proofsSent ? s.serverNote : s.localNote}</p>
         </div>
 
         <SaveButton onClick={saveOwn}>{c.save}</SaveButton>
@@ -1539,7 +1493,7 @@ export function Onboarding() {
       done,
       pickup: store.pickup,
       logo: store.logoData,
-      product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.image?.startsWith("data:") ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
+      product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.image && (store.product.image.startsWith("data:") || isMediaUrl(store.product.image)) ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
       shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address, ...(store.shipping.fee !== undefined ? { fee: store.shipping.fee } : {}) } : null,
     });
   }, [restored, store, done]);

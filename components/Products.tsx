@@ -10,7 +10,9 @@ import { readPhoto } from "./designer/image";
 import { demoActive } from "./demoSandbox";
 import { nextProductId } from "./productIds";
 import { FocusPicker } from "./FocusPicker";
-import { ImageCropper } from "./ImageCropper";
+import { cutKeptAs, ImageCropper } from "./ImageCropper";
+import { keepPicture, uploadImage } from "./media";
+import { onServer } from "./merchantApi";
 import { PRODUCT_MAX, cleanCategory, cleanProduct, productCategories, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
 import { cleanLine, cleanLines } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote } from "./Required";
@@ -214,7 +216,9 @@ function SizesEditor({ lang, kind, sizes, onChange, chart, onChart, error, input
   const pickChart = async (f?: File) => {
     if (!f) return;
     setChartBusy(true);
-    const url = f.size <= 8_000_000 ? await readPhoto(f, 1400) : null;
+    const read = f.size <= 8_000_000 ? await readPhoto(f, 1400) : null;
+    /* a signed-in store keeps it on the server (components/media.ts); otherwise, or if it can't be sent now, it stays here */
+    const url = read && (await keepPicture(read, "product"));
     setChartBusy(false);
     setChartBad(!url);
     if (url) onChart(url);
@@ -558,12 +562,23 @@ export function Products() {
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
-  /* Each photo is shrunk to a small picture, so a few of them fit in the browser's storage */
+  /* A signed-in store sends each photo to Dukkan's server (shrunk in the browser first, components/media.ts) and keeps its
+     address. Signed out or in the tour, or when it can't be sent right now, it is shrunk to a small picture kept in this
+     browser (so a few of them fit in its storage); the next save sends it. */
+  const onePhoto = async (f: File): Promise<string | null> => {
+    if (onServer()) {
+      const up = await uploadImage(f, "product");
+      if ("url" in up) return up.url;
+      /* not a picture we take: no use trying again here */
+      if (up.problem === "type" || up.problem === "size" || up.problem === "broken" || up.problem === "dimensions" || up.problem === "empty") return null;
+    }
+    return readPhoto(f, 900);
+  };
   const addPhotos = async (files: FileList | null) => {
     if (!files || !files.length) return;
     const n = files.length;
     setUploading((u) => u + n);
-    const made = await Promise.all(Array.from(files).filter((f) => f.size <= 8_000_000).map((f) => readPhoto(f, 900))).finally(() => setUploading((u) => Math.max(0, u - n)));
+    const made = await Promise.all(Array.from(files).filter((f) => f.size <= 8_000_000).map(onePhoto)).finally(() => setUploading((u) => Math.max(0, u - n)));
     const ok = made.filter((u): u is string => !!u);
     if (ok.length) setErrors((x) => ({ ...x, images: undefined }));
     /* a file that is not a picture, and pictures past the 6 that fit, are reported, not dropped silently */
@@ -896,7 +911,7 @@ export function Products() {
                     </div>
                     {cropAt !== null && photos[cropAt] && (
                       <div className="mt-3">
-                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onLive={setPhotoLive} onCancel={() => { setCropAt(null); setPhotoLive(null); }} onDone={(url) => { const at = cropAt; setPhotos((cur) => cur.map((x, j) => (j === at ? url : x))); setCropAt(null); setPhotoLive(null); }} />
+                        <ImageCropper lang={lang} src={photos[cropAt]} shapes={["square", "tall", "wide", "original"]} out={900} type="image/jpeg" onLive={setPhotoLive} onCancel={() => { setCropAt(null); setPhotoLive(null); }} onDone={(url) => { const at = cropAt; setPhotos((cur) => cur.map((x, j) => (j === at ? url : x))); setCropAt(null); setPhotoLive(null); void keepPicture(url, "product").then((kept) => { if (kept === url) return; cutKeptAs(url, kept); setPhotos((cur) => cur.map((x) => (x === url ? kept : x))); }); }} />
                       </div>
                     )}
                     <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />

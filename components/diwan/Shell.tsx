@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LangSwitch, ThemeToggle } from "../Prefs";
-import { ArchMarker, DiwanMark, Icon, iconForPath } from "./icons";
+import { DiwanMark, GROUP_ICON, Icon, iconForPath } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS, type NavGroup } from "./nav";
 import { can, roleName as roleWords, type Role } from "./perms";
 import { send, StaffContext, useT } from "./ui";
@@ -12,8 +12,8 @@ import { send, StaffContext, useT } from "./ui";
 export type ShellStaff = { name: string; email: string; role: Role };
 
 /* Diwan's look. A diwan is the hall where guests are received; its doorway, the pointed arch, is the one shape Diwan
-   repeats (the mark, the welcome's window, the marker of the page you are on). The page is warm paper in the light and
-   Dukkan's deep teal in the dark; teal is for what is chosen; saffron only for what needs someone (ui.tsx ATTENTION).
+   repeats (the mark and the welcome's window). The page is warm paper in the light and
+   Dukkan's warm dark in the dark; orange is for what is chosen; saffron only for what needs someone (ui.tsx ATTENTION).
    The name is set in Ruq'ah, the hand of Arabic letters and signs. The rest stays quiet: it is a work tool. */
 const RUQAA = { fontFamily: "var(--font-ruqaa), var(--font-sans)" };
 /** Diwan's paper: a warm off-white in the light, the app's own page colour in the dark */
@@ -87,8 +87,6 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
       >
         <Icon name={iconForPath(i.href)} className={`h-[18px] w-[18px] shrink-0 ${on ? "text-primary" : "text-fg/45"}`} strokeWidth={on ? 1.9 : 1.6} />
         <span className="truncate">{t(i.en, i.ar)}</span>
-        {/* the page you are on: a small arch, Diwan's doorway */}
-        {on && <ArchMarker className="ms-auto h-3 w-2.5 shrink-0 text-primary" />}
       </Link>
     );
   };
@@ -112,8 +110,9 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
                   g === here ? "text-fg" : "text-fg/65"
                 }`}
               >
+                <Icon name={GROUP_ICON[g]} className={`h-[18px] w-[18px] shrink-0 ${g === here ? "text-primary" : "text-fg/45"}`} strokeWidth={1.7} />
                 <span className="flex-1 truncate">{t(NAV_GROUPS[g].en, NAV_GROUPS[g].ar)}</span>
-                {/* closed: how many pages are inside, and a teal dot when the page you are on is one of them */}
+                {/* closed: how many pages are inside, and an orange dot when the page you are on is one of them */}
                 {!openG && g === here && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />}
                 {!openG && <span className="text-[11px] font-medium tabular-nums text-muted">{list.length}</span>}
                 <svg viewBox="0 0 24 24" className={`h-4 w-4 shrink-0 text-fg/40 transition-transform duration-200 ${openG ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

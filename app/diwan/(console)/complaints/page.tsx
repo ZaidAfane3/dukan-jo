@@ -5,6 +5,7 @@ import { useState } from "react";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { FilterBar } from "@/components/diwan/Filters";
 import { REASON_WORDS, REPORT_LIMITS, REPORT_REASONS, type ReportReason } from "@/components/storeReports";
+import { storeAddress } from "@/components/siteAddress";
 
 /* Store reports: what customers sent with "Report this store" in a store's footer, and what staff found themselves.
    Staff check each one (New → Checking → Closed) and keep notes the reporter and the shop never see. Suspending a
@@ -126,7 +127,7 @@ function ReportCard({ row, statusName, onDone }: { row: Row; statusName: (x: Sta
         <div className="min-w-0 flex-1">
           <p className="font-bold">
             <Link href={`/diwan/shops/${row.shopId}`} className="text-primary hover:underline">{row.shopName}</Link>
-            {row.shopSlug && <span dir="ltr" className="ms-2 text-xs font-normal text-muted">dukkan.store/{row.shopSlug}</span>}
+            {row.shopSlug && <span dir="ltr" className="ms-2 text-xs font-normal text-muted">{storeAddress(row.shopSlug)}</span>}
           </p>
           <p className="mt-1 text-xs text-muted">
             {f.dateTime(row.createdAt)} · {row.from === "staff" ? t("Found by staff", "وجده الفريق") : t("From a customer", "من عميل")}

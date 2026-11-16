@@ -9,7 +9,7 @@
    Plain TypeScript with no browser APIs, so the backend can run the very same rules on every design it receives. */
 
 import { ANNOUNCE_MESSAGES_MAX, ANNOUNCE_TEXT_MAX, cartStyles, defaultConfig, HERO_TITLE_MAX, HERO_TITLE_MIN, FOOTER_SIZES, productPageStyles, newBanners, newChips, newCollection, newNewsletter, newRibbon, newSlides, newTextSection, newTiles, type SectionConfig, type SectionType, type StorefrontConfig } from "./storefront/config";
-import { normalizeHex, safeUrl } from "./safe";
+import { isMediaUrl, normalizeHex, safeUrl } from "./safe";
 
 type Spec = (v: unknown, i: number) => unknown;
 type Obj = Record<string, unknown>;
@@ -327,7 +327,7 @@ const top: Top = {
     favicon: pic, showName: bool, nameFont: heroFont, nameColor: color, nameSize: num(12, 72, true), tagline: bi(160), taglineFont: heroFont, taglineColor: color,
   }),
   sections: sanitizeSections,
-  pageBackground: obj({ kind: oneOf("none", "image", "video"), media: (v) => (typeof v === "string" && /^[\w:.-]{0,120}$/.test(v) ? v : undefined), name: text(160), size: num(0, 1e10, true), veil: num(0, 90), pos }),
+  pageBackground: obj({ kind: oneOf("none", "image", "video"), media: (v) => (typeof v === "string" && (/^[\w:.-]{0,120}$/.test(v) || isMediaUrl(v)) ? v : undefined), name: text(160), size: num(0, 1e10, true), veil: num(0, 90), pos }),
   announcement: obj({
     show: bool, motion: oneOf("fade", "ticker"), seconds, speed: oneOf("slow", "normal", "fast"),
     messages: list(obj({ text: messageText, link, color, textColor: color }, () => ({ text: E(), link: "", color: "#004956", textColor: "" })), ANNOUNCE_MESSAGES_MAX),

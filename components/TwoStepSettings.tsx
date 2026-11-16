@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { logInCode, SUPPORT_VIEW, TWO_STEP_ASK } from "./accounts";
+import { logInCode, TWO_STEP_ASK } from "./accounts";
 import { merchantCall, onServer } from "./merchantApi";
 import { usePrefs } from "./Prefs";
 
@@ -46,7 +46,6 @@ const words = {
     wrongPassword: "The password is not right.",
     slow: "Too many tries. Wait a few minutes and try again.",
     server: "We couldn't reach Dukkan right now. Try again.",
-    support: "Dukkan support can't change this while viewing your store.",
     lost: "Lost your phone? Contact Dukkan support: after checking it's you, they can turn the code off.",
     signInTitle: "Enter your 2-step code",
     signInHint: "Open your authenticator app and type the 6-digit code for Dukkan.",
@@ -82,7 +81,6 @@ const words = {
     wrongPassword: "كلمة المرور غير صحيحة.",
     slow: "محاولات كثيرة. انتظر بضع دقائق وحاول مجددًا.",
     server: "تعذّر الاتصال بدكّان الآن. حاول مجددًا.",
-    support: "لا يستطيع دعم دكّان تغيير هذا أثناء عرض متجرك.",
     lost: "فقدت هاتفك؟ تواصل مع دعم دكّان: بعد التأكد من هويتك يمكنهم إيقاف الرمز.",
     signInTitle: "أدخل رمز التحقق",
     signInHint: "افتح تطبيق المصادقة واكتب الرمز المكوّن من 6 أرقام الخاص بدكّان.",
@@ -147,9 +145,7 @@ export function TwoStepSettings() {
           ? w.wrongPassword
           : result === "slow-down"
             ? w.slow
-            : result === "view-only"
-              ? w.support
-              : w.server,
+            : w.server,
     );
 
   const start = async () => {
@@ -332,7 +328,7 @@ export function TwoStepPrompt() {
   useEffect(() => {
     if (!onServer()) return;
     try {
-      if (sessionStorage.getItem(TWO_STEP_ASK) !== "1" || sessionStorage.getItem(SUPPORT_VIEW)) return;
+      if (sessionStorage.getItem(TWO_STEP_ASK) !== "1") return;
       /* kept with the account's store, so skipping is remembered on every device */
       if (localStorage.getItem(SKIPPED)) return;
     } catch {

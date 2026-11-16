@@ -9,12 +9,13 @@ import { isNewSlug, isSlug, reservedForNew, SLUG_RULE, typedSlug } from "./safe"
 import { reservedSlugError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { merchantCall, onServer } from "./merchantApi";
+import { STORE_PREFIX } from "./siteAddress";
 
-/* The store link: every store lives at Dukkan's address followed by its own link name (dukkan.store/olive). Dukkan
+/* The store link: every store lives at Dukkan's address followed by its own link name (components/siteAddress.ts, e.g. dukkan-demo.afaneh.dev/olive). Dukkan
    does not sell domains or connect a merchant's own domain, so this page is only about that link: see it, copy it,
    share it, change it. */
 
-const PREFIX = "dukkan.store/";
+const PREFIX = STORE_PREFIX;
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 
 const copy = {

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { cleanDeleteReason, deleteReasonOk } from "@/components/orderDeleteRule";
 import { cleanLine } from "@/components/safe";
@@ -13,18 +12,6 @@ export const dynamic = "force-dynamic";
    as the delete dialog (deleteReasonOk); who deleted it comes from the session, never from the page. One record per
    order: sending the same deletion again changes nothing. Answers: "ok", "invalid", "none" (signed out). */
 
-/** Who is deleting: the account's email, or the Dukkan staff member using "Log in as merchant" on it */
-async function deletedBy(req: NextRequest, email: string): Promise<string> {
-  const token = req.cookies.get("dukkan-session")?.value;
-  if (!token) return email;
-  const { rows } = await (await db()).query(
-    `SELECT st.email FROM sessions s JOIN impersonations i ON i.id = s.impersonation_id JOIN staff st ON st.id = i.staff_id
-      WHERE s.token_hash = $1`,
-    [createHash("sha256").update(token).digest("hex")],
-  );
-  return rows[0] ? `${email} (Dukkan: ${rows[0].email})` : email;
-}
-
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   if (tooMany(req, "order-deletions", 300, 60)) return answer({ result: "slow-down" }, 429);
@@ -38,7 +25,7 @@ export const POST = guarded(async (req: NextRequest) => {
   await (await db()).query(
     `INSERT INTO order_deletions (account_id, order_id, order_no, reason, deleted_by) VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (account_id, order_id) DO NOTHING`,
-    [a.id, orderId, orderNo, seal(reason), seal(await deletedBy(req, a.email))],
+    [a.id, orderId, orderNo, seal(reason), seal(a.email)],
   );
   return answer({ result: "ok" });
 });

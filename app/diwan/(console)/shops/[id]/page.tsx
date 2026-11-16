@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { METHODS, MethodBadge, methodText, Select, StatusBadge, storeLink, todayJo } from "@/components/diwan/shopBits";
+import { actionWords } from "@/components/diwan/activityWords";
+import { MARK_METHODS, MethodBadge, methodText, Select, StatusBadge, storeLink, todayJo } from "@/components/diwan/shopBits";
 import { area, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
 
 type Shop = {
@@ -46,12 +47,11 @@ type Detail = {
   deletions: Rows;
   reports: Rows;
   documents: Rows;
-  visits: Rows;
   activity: Rows;
-  can: { status: boolean; billing: boolean; impersonate: boolean; editAsMerchant: boolean };
+  can: { status: boolean; billing: boolean };
 };
 
-type Panel = null | "suspend" | "reactivate" | "paid" | "impersonate" | "totp";
+type Panel = null | "suspend" | "reactivate" | "paid" | "totp";
 
 /* One shop: who owns it, how far it got, its payments, and everything other sections hold about it. Opening
    this page is written to the activity log. The actions are only shown to staff whose role allows them (the server
@@ -77,9 +77,6 @@ export default function ShopPage({ params }: { params: { id: string } }) {
               sub={sh.slug ? storeLink(sh.slug) : t("No store link chosen yet", "لم يُختر رابط المتجر بعد")}
               actions={
                 <>
-                  {d.can.impersonate && (
-                    <Btn onClick={() => setPanel("impersonate")}>{t("Log in as merchant", "الدخول كتاجر")}</Btn>
-                  )}
                   {d.can.billing && (
                     <Btn kind="ghost" onClick={() => setPanel("paid")}>
                       {t("Mark as paid", "تسجيل دفعة")}
@@ -197,11 +194,6 @@ export default function ShopPage({ params }: { params: { id: string } }) {
                 rows={d.payments}
                 row={(r) => [f.date(r.paid_on), f.jod(r.amount), <MethodBadge key="m" method={r.method} />, r.reference, r.marked_by ?? "—", r.note]}
               />
-              <Section title={t("Support visits (log in as merchant)", "زيارات الدعم (الدخول كتاجر)")} empty={t("No visits yet.", "لا توجد زيارات بعد.")}
-                head={[t("Started", "البداية"), t("Staff", "الموظف"), t("Reason", "السبب"), t("Mode", "النوع"), t("Ended", "الانتهاء")]}
-                rows={d.visits}
-                row={(r) => [f.dateTime(r.started_at), r.staff, r.reason, r.view_only ? t("View only", "عرض فقط") : t("Could change", "مع التعديل"), r.ended_at ? f.dateTime(r.ended_at) : new Date(r.ends_at) > new Date() ? t("Open now", "مفتوحة الآن") : f.dateTime(r.ends_at)]}
-              />
               <Section title={t("Themes bought", "الثيمات المشتراة")} empty={t("No themes bought yet.", "لم تُشترَ أي ثيمات بعد.")}
                 head={[t("Theme", "الثيم"), t("Price", "السعر"), t("Paid", "الدفع")]}
                 rows={d.themes}
@@ -238,7 +230,7 @@ export default function ShopPage({ params }: { params: { id: string } }) {
               <Section title={t("Activity on this store", "النشاط على هذا المتجر")} empty={t("Nothing logged yet.", "لا يوجد نشاط مسجّل بعد.")}
                 head={[t("When", "متى"), t("Staff", "الموظف"), t("Action", "الإجراء"), t("Reason", "السبب")]}
                 rows={d.activity}
-                row={(r) => [f.dateTime(r.at), r.staff ?? "—", <code key="a" className="text-xs">{r.action}</code>, r.reason ?? ""]}
+                row={(r) => [f.dateTime(r.at), r.staff ?? "—", actionWords(t, r.action), r.reason ?? ""]}
               />
             </div>
           </>
@@ -294,7 +286,6 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
   const sh = d.shop;
   const base = `/api/diwan/shops/${sh.id}`;
   const [reason, setReason] = useState("");
-  const [viewOnly, setViewOnly] = useState(true);
   const [note, setNote] = useState("");
   const [pay, setPay] = useState({ amount: "", method: "cliq", reference: "", paidOn: todayJo() });
   const [busy, setBusy] = useState(false);
@@ -307,14 +298,13 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
     "not-allowed": t("Your role can't do this.", "صلاحياتك لا تسمح بذلك."),
   };
 
-  const go = async (url: string, body: unknown, after?: (data: any) => void) => {
+  const go = async (url: string, body: unknown) => {
     setBusy(true);
     setError("");
     const r = await send(url, "POST", body);
     setBusy(false);
     if (!r.ok) return setError(errors[r.data?.result] ?? t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
-    if (after) after(r.data);
-    else done();
+    done();
   };
 
   const reasonBox = (label: string, required = true) => (
@@ -375,27 +365,6 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
       </>
     );
     submit = () => go(`${base}/totp`, { reason });
-  } else if (panel === "impersonate") {
-    title = t("Log in as merchant", "الدخول كتاجر");
-    ok = reason.trim().length >= 5;
-    body = (
-      <>
-        <p className="text-sm text-muted">
-          {t(
-            "Opens this store's dashboard in this browser for 30 minutes. The merchant gets a message that Dukkan support viewed the store, and the visit is logged.",
-            "يفتح لوحة هذا المتجر في هذا المتصفح لمدة 30 دقيقة. تصل التاجر رسالة بأن دعم دكّان عرض المتجر، وتُسجَّل الزيارة.",
-          )}
-        </p>
-        {reasonBox(t("Reason", "السبب"))}
-        {d.can.editAsMerchant && (
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={viewOnly} onChange={(e) => setViewOnly(e.target.checked)} />
-            {t("View only (changes are refused)", "عرض فقط (تُرفض التعديلات)")}
-          </label>
-        )}
-      </>
-    );
-    submit = () => go(`${base}/impersonate`, { reason, viewOnly }, () => (window.location.href = "/diwan/enter"));
   } else if (panel === "paid") {
     title = t("Mark a payment as received", "تسجيل دفعة مستلمة");
     ok = /^\d{1,7}(\.\d{1,3})?$/.test(pay.amount) && !!pay.paidOn;
@@ -409,7 +378,7 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
           </label>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">{t("Method *", "الطريقة *")}</span>
-            <Select label={t("Method", "الطريقة")} value={pay.method} onChange={P("method")} className="w-full" options={METHODS.map((m) => ({ value: m, label: methodText(t, m) }))} />
+            <Select label={t("Method", "الطريقة")} value={pay.method} onChange={P("method")} className="w-full" options={MARK_METHODS.map((m) => ({ value: m, label: methodText(t, m) }))} />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">{t("Paid on *", "تاريخ الدفع *")}</span>
@@ -423,7 +392,7 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
         <input maxLength={300} placeholder={t("Note (optional)", "ملاحظة (اختياري)")} value={note} onChange={(e) => setNote(e.target.value)} className={field} />
       </>
     );
-    /* a payment on its own: Dukkan has no plans for now, so nothing is extended with it */
+    /* a payment on its own: Dukkan has no plans or free trial, so nothing is extended with it */
     submit = () => go(`${base}/payments`, { ...pay, note });
   }
 

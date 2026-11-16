@@ -40,7 +40,6 @@ export const GET = staffRoute("complaints", async (req: NextRequest, me) => {
     args,
   );
   const counts = await pool.query(`SELECT status, count(*)::int AS n FROM store_reports GROUP BY status`);
-  await audit(req, me.id, "complaints.view", undefined, null, { status, reason: reason || undefined, from: from || undefined });
   return answer({
     result: "ok",
     counts: Object.fromEntries(counts.rows.map((r) => [r.status, r.n])),

@@ -25,7 +25,7 @@ import { usePrefs } from "./Prefs";
 import { ordersCopy } from "./ordersContent";
 import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
-import { AccountBanners } from "./SupportBanner";
+import { TwoStepPrompt } from "./TwoStepSettings";
 
 export type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
@@ -546,7 +546,7 @@ export function DashboardBar({
 
       {/* Header strip: tabs on one side, tools on the other */}
       <header className="sticky top-0 z-30 border-b border-fg/10 bg-card/90 backdrop-blur">
-        <AccountBanners />
+        <TwoStepPrompt />
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 md:flex-nowrap md:gap-4 md:px-10">
           <div className="flex min-w-0 items-center gap-3">
             <button type="button" onClick={() => setMobileOpen(true)} aria-label={sb.open} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-fg/15 lg:hidden">

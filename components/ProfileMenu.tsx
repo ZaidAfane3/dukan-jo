@@ -10,6 +10,7 @@ import { accountName, loadSetup } from "./setup";
 import type { LogoConfig } from "./storefront/config";
 import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
 import { loadConfig, storeIsLive } from "./storefront/storage";
+import { storeAddress } from "./siteAddress";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -128,7 +129,7 @@ export function ProfileMenu() {
   }, [open]);
 
   const name = store.name || t.store;
-  const link = store.slug ? `dukkan.store/${store.slug}` : "";
+  const link = store.slug ? storeAddress(store.slug) : "";
 
   const tour = useDemo();
   const copy = async () => {

@@ -81,6 +81,29 @@ export function open(value: string | null | undefined): string | null {
   return value;
 }
 
+/** Encrypts a file's bytes for a BYTEA column (iv | tag | ciphertext, the same key and cipher as seal()). Files are kept
+    as raw bytes rather than sealed text, because turning a 5 MB file into text and sealing that text would store it
+    almost twice over. */
+export function sealBytes(bytes: Uint8Array): Buffer {
+  const iv = randomBytes(12);
+  const c = createCipheriv("aes-256-gcm", loadKeys().enc, iv);
+  const body = Buffer.concat([c.update(bytes), c.final()]);
+  return Buffer.concat([iv, c.getAuthTag(), body]);
+}
+
+/** The file's bytes again, or null when they don't open with this key (a wrong key, or a damaged row). db.ts never
+    opens binary columns by itself, so the route that serves a file calls this. */
+export function openBytes(sealed: Buffer | null | undefined): Buffer | null {
+  if (!sealed || sealed.length < 28) return null;
+  try {
+    const d = createDecipheriv("aes-256-gcm", loadKeys().enc, sealed.subarray(0, 12));
+    d.setAuthTag(sealed.subarray(12, 28));
+    return Buffer.concat([d.update(sealed.subarray(28)), d.final()]);
+  } catch {
+    return null;
+  }
+}
+
 /** Seals every text inside a JSON value (for JSON columns such as the activity log's details). Numbers, true/false and
     the keys stay as they are; db.ts opens the texts again on the way out. Below a few levels the rest is sealed as one
     JSON text, since db.ts stops opening there. Every text is sealed, even one that starts like a sealed value (a note

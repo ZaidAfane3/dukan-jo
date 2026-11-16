@@ -20,7 +20,6 @@ export const priceText = (n: number, lang: "en" | "ar", free: string) => (n === 
 const methods: { key: ThemePay; logo: string; h: string }[] = [
   { key: "card", logo: "/logos/visa.png", h: "h-5" },
   { key: "cliq", logo: "/logos/cliq-tight.png", h: "h-7" },
-  { key: "paypal", logo: "/logos/paypal.png", h: "h-5" },
 ];
 
 /* A small eye beside a theme's name: it opens the theme in a new tab, as a whole store, to look at */

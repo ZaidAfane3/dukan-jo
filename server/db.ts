@@ -1,6 +1,7 @@
 import { Pool, type PoolClient } from "pg";
 import { isSealed, open } from "./crypto";
 import { encryptOldRows } from "./encryptData";
+import { moveOldPictures } from "./media";
 import { DIWAN_SCHEMA } from "./schema";
 
 /* The database. Accounts, their sign-in sessions and every store's saved data live here, so a merchant can close the
@@ -86,7 +87,11 @@ const pool = (g.dukkanPool ??= (() => {
 
 /** The pool, once the tables exist and older plain rows are encrypted */
 export async function db(): Promise<Pool> {
-  g.dukkanReady ??= pool.query(SCHEMA).then(() => encryptOldRows(pool));
+  g.dukkanReady ??= pool.query(SCHEMA)
+    .then(() => encryptOldRows(pool))
+    /* pictures saved inside the stores' data before files existed become files (server/media.ts). In the background:
+       requests don't wait for it, and a failure only means it runs again on the next start. */
+    .then(() => void moveOldPictures(pool).catch((e) => console.error("[media] moving old pictures", e)));
   try {
     await g.dukkanReady;
   } catch (e) {

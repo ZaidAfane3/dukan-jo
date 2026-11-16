@@ -8,13 +8,13 @@ import { db } from "./db";
      documentStatus  { name, status, note }     a paper was approved or rejected
      shopSuspended   { reason }                 the store was suspended
      shopReactivated {}                         the store is back
-     planChanged     { plan, ends }             plan or trial changed or extended
      paymentReceived { amount, method }         Dukkan marked a payment as received
-     supportViewed   { minutes }                Dukkan support opened the store (log in as merchant)
-   Announcements are not sent with this: they are rows in announcements, shown to whoever they are for. */
+   Dukkan has no plans or free trial, so the old planChanged kind is no longer sent, and "Log in as merchant" was removed
+   on 2026-11-16, so neither is the old supportViewed kind (the bell still words both for older messages). Announcements are not sent with
+   this: they are rows in announcements, shown to whoever they are for. */
 export type NotifyKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "planChanged" | "paymentReceived" | "supportViewed";
+  | "paymentReceived";
 
 /* the free-text details (a ticket's subject, a staff note, a suspension reason) are stored encrypted; numbers, kinds
    and statuses stay plain so the bell can find a ticket's notices. db() opens them again on the way out. */

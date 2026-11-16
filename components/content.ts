@@ -1,5 +1,6 @@
+import { STORE_PREFIX } from "./siteAddress";
 /* Page content in both languages. The landing page's own words (hero, industries, features, testimonials, footer...)
-   are edited in Diwan and live in components/siteContent.ts; what is here is the rest of the site. */
+   live in components/siteContent.ts; what is here is the rest of the site. */
 
 export type Lang = "en" | "ar";
 
@@ -154,6 +155,13 @@ export type Content = {
       proofType: string;
       proofMax: string;
       localNote: string;
+      serverNote: string;
+      proofSending: string;
+      proofFailed: string;
+      proofFull: string;
+      proofWaiting: string;
+      proofApproved: string;
+      proofRejected: string;
       remove: string;
       previewHint: string;
       previewName: string;
@@ -361,7 +369,6 @@ export type Content = {
       ticketReplied: string; ticketSolved: string; ticketClosed: string;
       documentApproved: string; documentRejected: string; documentOther: string;
       shopSuspended: string; shopReactivated: string;
-      planChanged: string; until: string;
       paymentReceived: string; methods: { bank: string; cliq: string; cash: string; card: string };
       supportViewed: string;
       statusWords: Record<string, string>;
@@ -627,6 +634,13 @@ export const content: Record<Lang, Content> = {
         proofType: "Only images or PDF files are allowed.",
         proofMax: "You can add up to 5 files.",
         localNote: "In this prototype your files stay on your device and are not uploaded.",
+        serverNote: "Your files are sent to the Dukkan team to check. Only the team can see them.",
+        proofSending: "Uploading…",
+        proofFailed: "That file could not be uploaded. Check your connection and try again.",
+        proofFull: "Your account has no room for more files. Remove one first.",
+        proofWaiting: "Waiting for the team to check",
+        proofApproved: "Approved",
+        proofRejected: "Not accepted",
         remove: "Remove",
         previewHint: "This is how your shipping partner will look in your account",
         previewName: "Partner name",
@@ -680,9 +694,9 @@ export const content: Record<Lang, Content> = {
       link: {
         label: "Store link",
         hint: "This is the link your customers use to visit your store.",
-        prefix: "dukkan.store/",
+        prefix: STORE_PREFIX,
         ph: "your-store",
-        examples: "Examples: dukkan.store/brandname or dukkan.store/brand-name",
+        examples: `Examples: ${STORE_PREFIX}brandname or ${STORE_PREFIX}brand-name`,
         invalid: "Use 3 to 30 letters (a to z), numbers or hyphens. It can't start or end with a hyphen.",
         errEmpty: "Choose your store link.",
         previewHint: "Your store link appears in the browser tab and when your store is shared",
@@ -936,8 +950,6 @@ export const content: Record<Lang, Content> = {
         documentOther: "Your document “{name}”: {status}{note}",
         shopSuspended: "Your store was suspended{reason}",
         shopReactivated: "Your store is open again",
-        planChanged: "Your plan is now {plan}{ends}",
-        until: ", until {date}",
         paymentReceived: "Dukkan received your payment of {amount} JOD by {method}",
         methods: { bank: "bank transfer", cliq: "CliQ", cash: "cash", card: "card" },
         supportViewed: "Dukkan support opened your store to help you",
@@ -1201,6 +1213,13 @@ export const content: Record<Lang, Content> = {
         proofType: "يُسمح بالصور وملفات PDF فقط.",
         proofMax: "يمكنك إضافة 5 ملفات كحد أقصى.",
         localNote: "في هذا النموذج الأولي تبقى ملفاتك على جهازك ولا تُرفع.",
+        serverNote: "تُرسَل ملفاتك إلى فريق دكان لمراجعتها، ولا يراها أحد غيرهم.",
+        proofSending: "جارٍ الرفع…",
+        proofFailed: "تعذّر رفع الملف. تأكد من اتصالك بالإنترنت وحاول مرة أخرى.",
+        proofFull: "لا توجد مساحة لملفات أخرى في حسابك. احذف ملفًا أولًا.",
+        proofWaiting: "بانتظار مراجعة الفريق",
+        proofApproved: "مقبول",
+        proofRejected: "غير مقبول",
         remove: "إزالة",
         previewHint: "هكذا سيظهر شريك الشحن في حسابك",
         previewName: "اسم الشريك",
@@ -1252,9 +1271,9 @@ export const content: Record<Lang, Content> = {
       link: {
         label: "رابط المتجر",
         hint: "هذا هو الرابط الذي يستخدمه العملاء لزيارة متجرك.",
-        prefix: "dukkan.store/",
+        prefix: STORE_PREFIX,
         ph: "your-store",
-        examples: "أمثلة: dukkan.store/brandname أو dukkan.store/brand-name",
+        examples: `أمثلة: ${STORE_PREFIX}brandname أو ${STORE_PREFIX}brand-name`,
         invalid: "استخدم من 3 إلى 30 حرفًا لاتينيًا (a-z) أو أرقامًا أو شرطات، ولا يبدأ أو ينتهي بشرطة.",
         errEmpty: "اختر رابط متجرك.",
         previewHint: "يظهر رابط متجرك في تبويب المتصفح وعند مشاركة المتجر",
@@ -1508,8 +1527,6 @@ export const content: Record<Lang, Content> = {
         documentOther: "مستندك «{name}»: {status}{note}",
         shopSuspended: "تم إيقاف متجرك{reason}",
         shopReactivated: "عاد متجرك للعمل",
-        planChanged: "باقتك الآن {plan}{ends}",
-        until: "، حتى {date}",
         paymentReceived: "استلم دكّان دفعتك بقيمة {amount} د.أ عبر {method}",
         methods: { bank: "تحويل بنكي", cliq: "كليك", cash: "نقدًا", card: "بطاقة" },
         supportViewed: "فتح فريق دعم دكّان متجرك لمساعدتك",

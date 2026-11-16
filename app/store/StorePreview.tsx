@@ -116,13 +116,13 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   return (
     <div className="min-h-screen bg-[#eef0f0]">
       {preview && (
-        <div role="status" className="relative isolate overflow-hidden bg-[#00323b] text-white">
+        <div role="status" className="relative isolate overflow-hidden bg-brand-dark text-white">
           <span aria-hidden className="absolute -end-10 -top-16 -z-10 h-52 w-52 rounded-full bg-white/[0.06]" />
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-8 gap-y-4 px-5 py-5 sm:px-8">
             {/* A small drawing of a page behind a barrier */}
             <svg aria-hidden viewBox="0 0 120 80" className="h-16 w-24 shrink-0">
-              <rect x="22" y="6" width="76" height="52" rx="6" fill="#ffffff" fillOpacity="0.12" stroke="#96edd9" strokeWidth="2" />
-              <rect x="30" y="16" width="34" height="5" rx="2.500" fill="#96edd9" />
+              <rect x="22" y="6" width="76" height="52" rx="6" fill="#ffffff" fillOpacity="0.12" strokeWidth="2" className="stroke-brand-light" />
+              <rect x="30" y="16" width="34" height="5" rx="2.500" className="fill-brand-light" />
               <rect x="30" y="28" width="58" height="4" rx="2" fill="#ffffff" fillOpacity="0.35" />
               <rect x="30" y="38" width="46" height="4" rx="2" fill="#ffffff" fillOpacity="0.35" />
               <rect x="6" y="46" width="62" height="12" rx="3" fill="#e5484d" />
@@ -133,7 +133,7 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
               <h1 className="text-lg font-extrabold sm:text-xl">{b.title}</h1>
               <p className="mt-1 text-sm text-white/75">{b.body}</p>
             </div>
-            <Link href="/onboarding" className="shrink-0 rounded-lg bg-[#5fd9c4] px-6 py-3 text-sm font-bold text-[#00323b] transition hover:bg-[#8be8d6]">
+            <Link href="/onboarding" className="shrink-0 rounded-lg bg-brand-light px-6 py-3 text-sm font-bold text-brand-dark transition hover:bg-brand-pale">
               {b.button}
             </Link>
           </div>

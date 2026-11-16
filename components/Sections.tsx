@@ -8,6 +8,7 @@ import { linkAttrs, SOCIAL_NAMES, type IndustryIcon, type SiteView } from "./sit
 import { useSite, useSiteLang } from "./useSiteContent";
 import { SeenShipMark } from "./SeenShip";
 import { Reveal, Tilt, Typed } from "./ui";
+import { STORE_PREFIX } from "./siteAddress";
 
 const cta = "rounded-xl bg-ink px-6 py-3.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-deep";
 
@@ -18,7 +19,7 @@ const svg = (d: React.ReactNode) => (
   </svg>
 );
 
-/* Own simple line icons; each industry in Diwan > Website picks one by name */
+/* Own simple line icons; each industry in components/siteContent.ts picks one by name */
 const industryIcons: Record<IndustryIcon, React.ReactNode> = {
   /* a hoodie: the hood, the sleeves, the pocket and the two strings */
   fashion: svg(<><path d="M8.5 5.2C9.2 3.8 10.5 3 12 3s2.8.8 3.500 2.200" /><path d="M8.500 5.200 4 7.500 2.500 17l3 .8L6.500 13v8h11v-8l1 4.800 3-.8L20 7.500l-4.500-2.300" /><path d="M8.500 5.200C9 8 10.300 9.500 12 9.500s3-1.500 3.500-4.300" /><path d="M10.500 9.500v3M13.500 9.500v3" /><path d="M8.500 17h7l-.8 3.500H9.300L8.500 17Z" /></>),
@@ -60,7 +61,7 @@ function StoreTurns({ stores }: { stores: { src: string; address: string; view: 
   const st = stores[i];
   const after = stores[(i + 1) % stores.length];
   return (
-    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(0,73,86,0.55)] ring-1 ring-black/10">
+    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(51,33,20,0.55)] ring-1 ring-black/10">
       <div dir="ltr" className="relative flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
         <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
@@ -122,11 +123,11 @@ function IndustryCard({ d }: { d: Detail }) {
             <StoreTurns stores={d.stores} />
           ) : shot && (
             <div className="relative pb-8 sm:pb-10">
-            <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(0,73,86,0.55)] ring-1 ring-black/10">
+            <div className="group overflow-hidden rounded-2xl bg-white shadow-[0_40px_80px_-30px_rgba(51,33,20,0.55)] ring-1 ring-black/10">
               <div dir="ltr" className="flex items-center border-b border-black/10 bg-[#f4f1ea] px-4 py-2.5">
                 <span className="mx-auto flex h-7 w-3/5 items-center justify-center gap-1.5 rounded-full bg-white text-xs text-[#7a6f62] ring-1 ring-black/5">
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
-                  dukkan.store/your-store
+                  {STORE_PREFIX}your-store
                 </span>
               </div>
               <div className="h-[var(--box)] overflow-hidden [--box:22rem] sm:[--box:30rem] lg:[--box:36rem]">
@@ -136,7 +137,7 @@ function IndustryCard({ d }: { d: Detail }) {
             </div>
             {/* A second page of the same store, in a smaller window that overlaps the first, scrolling on its own */}
             {d.shots[1] && (
-              <div className="absolute bottom-0 end-3 w-[44%] overflow-hidden rounded-xl bg-white shadow-[0_30px_60px_-20px_rgba(0,73,86,0.65)] ring-1 ring-black/10 sm:end-6">
+              <div className="absolute bottom-0 end-3 w-[44%] overflow-hidden rounded-xl bg-white shadow-[0_30px_60px_-20px_rgba(51,33,20,0.65)] ring-1 ring-black/10 sm:end-6">
                 <div dir="ltr" className="flex items-center gap-1 border-b border-black/10 bg-[#f4f1ea] px-2.5 py-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#ff5f57]" /><span className="h-1.5 w-1.5 rounded-full bg-[#febc2e]" /><span className="h-1.5 w-1.5 rounded-full bg-[#28c840]" />
                 </div>
@@ -162,7 +163,7 @@ export function Industries() {
      The ones near it show and the farther ones fade away toward the edges. Each press of the arrow opens the next one and they
      all glide to their new place together. */
   const [picked, setActive] = useState(0);
-  /* a list that got shorter (in Diwan's preview) keeps a card that still exists */
+  /* if the list is shorter than the card that was open, the last card that exists stays open */
   const active = Math.min(picked, Math.max(0, items.length - 1));
   /* The opening (when the row first comes into view) and the end (after the last industry): all the icons stand in one even
      row and a wave runs through them. After the end it starts again from the first. */
@@ -203,7 +204,7 @@ export function Industries() {
     setActive(active + 1);
   };
 
-  /* Diwan can take every industry away; then the section goes too */
+  /* with no industries in components/siteContent.ts the section goes too */
   if (!items.length) return null;
 
   /* How far an item's middle is from the middle of the stage, toward the end side */
@@ -294,7 +295,7 @@ function Tile({ children }: { children: React.ReactNode }) {
         {/* Soft shadow on the "floor" under the raised card */}
         <div className="absolute bottom-6 h-6 w-44 rounded-full bg-ink/20 blur-xl" style={{ transform: "translateZ(5px)" }} />
         <div
-          className="w-full max-w-[19rem] rounded-2xl bg-card p-5 shadow-[0_30px_60px_-20px_rgba(0,73,86,0.45)]"
+          className="w-full max-w-[19rem] rounded-2xl bg-card p-5 shadow-[0_30px_60px_-20px_rgba(51,33,20,0.45)]"
           style={{ transform: "translateZ(55px)" }}
         >
           {children}
@@ -461,7 +462,7 @@ export function Experience() {
 
 /* ---------- Feature rows ---------- */
 function MockCard({ index }: { index: number }) {
-  const hues = ["from-[#73e7cb] to-[#348d9c]", "from-[#96edd9] to-[#4a9e8a]", "from-[#348d9c] to-[#004956]", "from-[#f7f1ea] to-[#d9c9b5]", "from-[#c1fdf6] to-[#73e7cb]", "from-[#4a9e8a] to-[#004956]"];
+  const hues = ["from-brand-light to-brand", "from-brand-light to-brand-deep", "from-brand to-brand-ink", "from-[#f7f1ea] to-[#d9c9b5]", "from-brand-pale to-brand-light", "from-brand-deep to-brand-ink"];
   const hue = hues[index % hues.length];
   return (
     <Tilt max={20} className="mx-auto w-full max-w-md">
@@ -470,7 +471,7 @@ function MockCard({ index }: { index: number }) {
         <div className={`absolute inset-0 rounded-3xl bg-gradient-to-br ${hue} opacity-30`} style={{ transform: "translateZ(-40px) translate(18px, 18px)" }} />
         {/* Main card */}
         <div
-          className="absolute inset-0 rounded-3xl bg-card p-5 shadow-[0_35px_70px_-25px_rgba(0,73,86,0.45)]"
+          className="absolute inset-0 rounded-3xl bg-card p-5 shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]"
           style={{ transform: "translateZ(10px)", transformStyle: "preserve-3d" }}
         >
           <div className="mb-4 flex gap-1.5">
@@ -537,14 +538,14 @@ function PaymentsMock() {
     <Tilt max={20} className="mx-auto w-full max-w-lg">
       <div className="relative aspect-[5/3.8] w-full" style={{ transformStyle: "preserve-3d" }}>
         {/* Soft blue and mint glows that wander behind the card */}
-        <span aria-hidden className={`absolute -start-6 bottom-[14%] h-44 w-44 rounded-full bg-[#4aa3c7]/35 blur-2xl ${drift[0] ? "dk-plate" : ""}`} style={{ ...move(0), transform: "translateZ(-70px)" }} />
-        <span aria-hidden className={`absolute -end-4 top-[22%] h-40 w-40 rounded-full bg-[#73e7cb]/40 blur-2xl ${drift[1] ? "dk-plate" : ""}`} style={{ ...move(1), transform: "translateZ(-70px)" }} />
+        <span aria-hidden className={`absolute -start-6 bottom-[14%] h-44 w-44 rounded-full bg-brand-2/35 blur-2xl ${drift[0] ? "dk-plate" : ""}`} style={{ ...move(0), transform: "translateZ(-70px)" }} />
+        <span aria-hidden className={`absolute -end-4 top-[22%] h-40 w-40 rounded-full bg-brand-light/40 blur-2xl ${drift[1] ? "dk-plate" : ""}`} style={{ ...move(1), transform: "translateZ(-70px)" }} />
         <div className="absolute inset-x-0 bottom-0 top-[25%]" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }}>
-          <div className={`h-full w-full rounded-3xl bg-gradient-to-br from-[#73e7cb] to-[#348d9c] opacity-30 ${drift[2] ? "dk-plate" : ""}`} style={move(2)} />
+          <div className={`h-full w-full rounded-3xl bg-gradient-to-br from-brand-light to-brand opacity-30 ${drift[2] ? "dk-plate" : ""}`} style={move(2)} />
         </div>
 
         {/* Payments list */}
-        <div className="absolute inset-x-0 bottom-[6%] top-[25%] rounded-3xl bg-card p-4 pt-[14%] shadow-[0_35px_70px_-25px_rgba(0,73,86,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
+        <div className="absolute inset-x-0 bottom-[6%] top-[25%] rounded-3xl bg-card p-4 pt-[14%] shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
           <div className="mb-2 space-y-1.5">
             <div className="h-2 w-16 rounded-full bg-primary/50" />
             <div className="h-2 w-10 rounded-full bg-soft" />
@@ -671,8 +672,8 @@ function FleetMap() {
     <Tilt max={20} className="mx-auto w-full max-w-md">
       {/* dir="ltr" keeps the geometry of the picture the same in both languages */}
       <div dir="ltr" className="relative aspect-[4/4.3] w-full" style={{ transformStyle: "preserve-3d" }}>
-        <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-[#73e7cb] to-[#348d9c] opacity-30" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }} />
-        <div className="absolute inset-0 rounded-3xl bg-card shadow-[0_35px_70px_-25px_rgba(0,73,86,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
+        <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-brand-light to-brand opacity-30" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }} />
+        <div className="absolute inset-0 rounded-3xl bg-card shadow-[0_35px_70px_-25px_rgba(51,33,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
           {/* The whole of Jordan, small, with a ring on the part the magnifier shows */}
           <div className="absolute bottom-[5%] left-[5%] aspect-[374/422] w-[56%]">
             <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, WebkitMaskSize: "contain", maskSize: "contain", WebkitMaskPosition: "center", maskPosition: "center" }} />
@@ -689,8 +690,8 @@ function FleetMap() {
           </svg>
 
           {/* The magnifier: the north of Jordan, large, with Dukkan Ship in its cities */}
-          <div className="absolute right-[3%] top-[3%] aspect-square w-[64%] overflow-hidden rounded-full bg-card shadow-[0_25px_50px_-15px_rgba(0,73,86,0.55)] ring-[5px] ring-white" style={{ transform: "translateZ(30px)" }}>
-            <div className="absolute inset-0 bg-gradient-to-br from-[#e8f7f3] to-[#cfeae3]" />
+          <div className="absolute right-[3%] top-[3%] aspect-square w-[64%] overflow-hidden rounded-full bg-card shadow-[0_25px_50px_-15px_rgba(51,33,20,0.55)] ring-[5px] ring-white" style={{ transform: "translateZ(30px)" }}>
+            <div className="absolute inset-0 bg-gradient-to-br from-brand-mist to-brand-pale" />
             <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-[#d4d4d8] to-[#8b8b92]" style={{ ...maskImg, ...lensMask }} />
             <svg aria-hidden viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">
               {roads.map((d, i) => (
@@ -787,7 +788,7 @@ export function Features() {
         <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{c.title}</h2>
       </Reveal>
       {c.items.map((f, i) => {
-        /* the picture and the icons come with the kind of feature chosen in Diwan */
+        /* the picture and the icons come with the kind of feature set in components/siteContent.ts */
         const icons = f.kind === "payments" ? payIcons : featureIcons[f.kind];
         const pointIcons = f.kind === "payments" ? payIcons : icons?.slice(1);
         return (
@@ -951,7 +952,7 @@ export function Trust() {
   const w = s.legal;
   const reg = s.legal;
   const contact = s.contact;
-  /* the registration links to the ministry's register when Diwan gives its address */
+  /* the registration links to the ministry's register when components/siteContent.ts gives its address */
   const regLink = reg.url ? linkAttrs(reg.url) : null;
   const icons = [
     <path key="0" d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h6M9 17h6" />,
@@ -1065,8 +1066,8 @@ export function FinalCta() {
       <Reveal>
         <div className="relative isolate mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-ink px-6 py-24 text-center text-white">
           {/* A slow glow that drifts across the banner in two directions */}
-          <span aria-hidden className="dk-drift-a absolute -start-24 -top-32 -z-10 h-80 w-80 rounded-full bg-[#2fb7a0]/30 blur-3xl" style={motion[6] ? { animationDuration: `${motion[6].dur + 4}s`, animationDelay: `${motion[6].delay}s` } : undefined} />
-          <span aria-hidden className="dk-drift-b absolute -bottom-36 -end-20 -z-10 h-96 w-96 rounded-full bg-[#4aa3c7]/25 blur-3xl" style={motion[7] ? { animationDuration: `${motion[7].dur + 5}s`, animationDelay: `${motion[7].delay}s` } : undefined} />
+          <span aria-hidden className="dk-drift-a absolute -start-24 -top-32 -z-10 h-80 w-80 rounded-full bg-brand/30 blur-3xl" style={motion[6] ? { animationDuration: `${motion[6].dur + 4}s`, animationDelay: `${motion[6].delay}s` } : undefined} />
+          <span aria-hidden className="dk-drift-b absolute -bottom-36 -end-20 -z-10 h-96 w-96 rounded-full bg-brand-2/25 blur-3xl" style={motion[7] ? { animationDuration: `${motion[7].dur + 5}s`, animationDelay: `${motion[7].delay}s` } : undefined} />
           {/* Fine dots, fading toward the edges */}
           <span aria-hidden className="absolute inset-0 -z-10 opacity-30 [background-image:radial-gradient(rgb(255_255_255/0.5)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]" />
 
@@ -1086,7 +1087,7 @@ export function FinalCta() {
           {c.button.href && <div className="relative mt-9 inline-block">
             {/* A ring that keeps growing and fading around the button */}
             <span aria-hidden className="dk-ring absolute inset-0 rounded-xl ring-2 ring-white/50" style={{ animationDuration: "5s" }} />
-            <a {...linkAttrs(c.button.href)} style={{ animationDuration: "15s" }} className="dk-shimmer group relative inline-flex items-center gap-2 rounded-xl bg-white px-7 py-4 font-semibold text-[#00323b] transition hover:-translate-y-0.5 hover:bg-[#e8faf5]">
+            <a {...linkAttrs(c.button.href)} style={{ animationDuration: "15s" }} className="dk-shimmer group relative inline-flex items-center gap-2 rounded-xl bg-white px-7 py-4 font-semibold text-brand-dark transition hover:-translate-y-0.5 hover:bg-brand-mist">
               {c.button.label}
               <svg viewBox="0 0 24 24" className="h-4 w-4 transition-transform group-hover:-translate-x-1 ltr:rotate-180 ltr:group-hover:translate-x-1" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 6-6 6 6 6" /></svg>
             </a>
@@ -1097,7 +1098,7 @@ export function FinalCta() {
   );
 }
 
-/* One icon per social network; Diwan > Website gives each network its address */
+/* One icon per social network; components/siteContent.ts gives each network its address */
 const socialIcons: Record<SiteView["social"][number]["kind"], React.ReactNode> = {
   tiktok: <path d="M14 4v10.500a3.500 3.500 0 1 1-3.500-3.500M14 4c.4 2.500 2 4 4.500 4.200" />,
   x: <path d="M5 5l14 14M19 5 5 19" />,

@@ -5,13 +5,14 @@ import { ACCOUNT_LIMITS } from "@/components/safeAccount";
 import { answer, guarded, hashPassword, noteLogin, readJson, sameOrigin, startSession, tooMany } from "@/server/auth";
 import { emailKey, phoneKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { startTrial, touchShop } from "@/server/shops";
+import { touchShop } from "@/server/shops";
 
 export const dynamic = "force-dynamic";
 
 /* Makes an account and signs in to it. The same rules as the sign-up form (SignupForm.tsx), checked again here because
    anything in the browser can be skipped. Answers: "ok", "taken" (the email has an account), "taken-phone" (the
-   mobile has one), "invalid". The new shop gets its row in shops (for Diwan) and its free trial. */
+   mobile has one), "invalid". The new shop gets its row in shops (for Diwan); Dukkan has no plans or free trial, so nothing
+   else is started for it. */
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   if (tooMany(req, "signup", 10, 60)) return answer({ result: "slow-down" }, 429);
@@ -39,7 +40,6 @@ export const POST = guarded(async (req: NextRequest) => {
     throw e;
   }
   await pool.query(`INSERT INTO shops (account_id) VALUES ($1) ON CONFLICT DO NOTHING`, [id]);
-  await startTrial(id, pool);
   const res = answer({ result: "ok", account: { email, name, phone }, totpOn: false });
   await startSession(res, req, id);
   await noteLogin(id);

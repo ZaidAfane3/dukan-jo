@@ -30,7 +30,6 @@ export const GET = staffRoute("tickets", async (req, staff, ctx) => {
     pool.query(`SELECT id, message_id FROM ticket_pictures WHERE ticket_id = $1 ORDER BY id`, [t.id]),
     staffList(),
   ]);
-  await audit(req, staff.id, "ticket.view", { type: "ticket", id: number }, null, { account: String(t.account_id) });
   return answer({
     result: "ok",
     staff: staffRows,

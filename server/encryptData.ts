@@ -19,7 +19,7 @@ const SEALED: { table: string; key: string[]; cols: string[] }[] = [
   { table: "store_reports", key: ["id"], cols: ["reporter_contact", "body", "notes", "ip"] },
   { table: "order_deletions", key: ["id"], cols: ["reason", "deleted_by"] },
   { table: "payments", key: ["id"], cols: ["note"] }, // the bank reference stays plain: Dukkan's own code, searched by staff
-  { table: "documents", key: ["id"], cols: ["name", "note"] },
+  { table: "documents", key: ["id"], cols: ["name", "note", "partner"] },
   { table: "impersonations", key: ["id"], cols: ["reason", "ip"] },
 ];
 

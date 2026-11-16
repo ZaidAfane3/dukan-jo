@@ -1,5 +1,5 @@
 import { accountData, demoActive, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
-import { dropSaves, flushSaves, savesPending } from "./serverSync";
+import { dropSaves, flushSaves, resendOldPictures, savesPending } from "./serverSync";
 import { asSuspension, forgetSuspension, rememberSuspension, SUSPENDED_PATH } from "./suspended";
 
 /* The merchants' accounts. They live on the server (app/api/auth, the passwords hashed with scrypt, in a session cookie
@@ -141,7 +141,7 @@ export async function logOut(): Promise<void> {
    store has on the server, in case it was changed on another device. If anything differs, the page loads again with it. */
 let checked = false;
 export async function syncOnOpen() {
-  /* Diwan's pages are staff pages: never a merchant's (its "log in as merchant" page loads the store itself) */
+  /* Diwan's pages are staff pages: never a merchant's */
   if (checked || demoActive() || window.location.pathname.startsWith("/diwan")) return;
   checked = true;
   const email = signedInAs();
@@ -184,55 +184,19 @@ export async function syncOnOpen() {
   } catch {
     /* storage blocked */
   }
-  if (done) return;
+  /* This tab has the store as the server has it: pictures still kept inside it (saved before they went to the server as
+     files, or a page background kept only in this browser) are sent now, once. */
+  const pictures = () => void resendOldPictures(accountData());
+  if (done) return pictures();
   const r = await call("/api/store", "GET");
   if (r?.status !== 200 || !r.reply.data) return;
   markSynced();
   /* a change made in the meantime is newer than the server's copy: keep it */
-  if (savesPending()) return;
+  if (savesPending()) return pictures();
   const local = accountData();
   const server = r.reply.data;
   const same = Object.keys(local).length === Object.keys(server).length && Object.entries(server).every(([k, v]) => local[k] === v);
-  if (same) return;
+  if (same) return pictures();
   replaceAccountData(server);
   window.location.reload();
-}
-
-/* ---------------- Dukkan support looking at a store ("log in as merchant" in Diwan) ---------------- */
-
-/* The support visit of this tab, for the banner (SupportBanner.tsx): who, until when, view only or not */
-export const SUPPORT_VIEW = "dukkan-support";
-export type SupportView = { staffName: string; endsAt: string; viewOnly: boolean };
-
-/** Loads the store Diwan just opened (its session cookie is already set) into this browser, like a sign-in. */
-export async function enterSupportView(): Promise<boolean> {
-  const me = await call("/api/auth/me", "GET");
-  const acct = me?.reply.account;
-  const imp = (me?.reply as { impersonation?: SupportView | null } | undefined)?.impersonation;
-  if (me?.status !== 200 || !acct || !imp) return false;
-  dropSaves();
-  signInAs(acct.email);
-  rememberProfile(acct);
-  try {
-    sessionStorage.setItem(SUPPORT_VIEW, JSON.stringify(imp));
-  } catch {
-    /* storage blocked */
-  }
-  return loadStore();
-}
-
-/** Ends the support visit: Diwan logs the end, and the store is taken out of this browser. Gives the shop's id. */
-export async function leaveSupportView(): Promise<string | null> {
-  const r = await call("/api/auth/support-end", "POST");
-  dropSaves();
-  /* nothing of the merchant's store stays in the staff member's browser */
-  replaceAccountData({});
-  signInAs(null);
-  try {
-    [SUPPORT_VIEW, SYNCED, "seen-signed-in", "seen-account-profile", "seen-account-phone"].forEach((k) => sessionStorage.removeItem(k));
-  } catch {
-    /* storage blocked */
-  }
-  const shop = (r?.reply as { shop?: string | null } | undefined)?.shop;
-  return shop ?? null;
 }

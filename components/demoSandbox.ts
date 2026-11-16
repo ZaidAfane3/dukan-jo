@@ -161,6 +161,20 @@ export function accountData(): Record<string, string> {
   return out;
 }
 
+/** Replaces one key of the account's data in this browser without sending it (the server already has this value: its
+    pictures were moved into files, see serverSync.ts). Only while the browser still holds `expected`: a newer change the
+    page made since is kept, and is sent with its own save. */
+export function replaceAccountValue(key: string, value: string, expected: string) {
+  if (!account || !orig) return;
+  const k = `acct:${account}:${key}`;
+  try {
+    const ls = window.localStorage;
+    if (orig.get.call(ls, k) === expected) orig.set.call(ls, k, value);
+  } catch {
+    /* storage blocked */
+  }
+}
+
 /** Puts the account's data from the server into this browser, in place of what was there (nothing is sent back) */
 export function replaceAccountData(data: Record<string, string>) {
   if (!account || !orig) return;

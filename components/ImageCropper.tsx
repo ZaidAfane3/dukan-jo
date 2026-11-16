@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cropBox, cropPicture, fitZoom, type Crop } from "./designer/image";
+import { holdPictureSaves } from "./serverSync";
 
 type Lang = "en" | "ar";
 export type CropShape = "square" | "wide" | "tall" | "original";
@@ -29,6 +30,12 @@ const remember = (url: string, cut: Cut) => {
   cuts.set(url, cut);
   if (cuts.size > 24) cuts.delete(cuts.keys().next().value as string);
 };
+/** A cut picture was kept on the server under a new address (components/media.ts): cropping it again still starts from
+    its original */
+export function cutKeptAs(from: string, to: string) {
+  const cut = cuts.get(from);
+  if (cut && from !== to) remember(to, cut);
+}
 
 export function ImageCropper({
   lang,
@@ -70,6 +77,8 @@ export function ImageCropper({
   const grab = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   const live = useRef(onLive);
   live.current = onLive;
+  /* each cut shown while he works must not be sent to the server as a file: the save waits until he is done */
+  useEffect(() => holdPictureSaves(), []);
 
   useEffect(() => {
     const img = new Image();

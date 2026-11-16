@@ -8,7 +8,7 @@ export type { Lang };
 type Theme = "light" | "dark";
 
 /* The landing page's first words, kept as `t` for any page that still reads it. The landing page itself no longer reads
-   them from here: its words are edited in Diwan and come from components/siteContent.ts (through useSiteContent.ts). */
+   them from here: its words come from components/siteContent.ts (through useSiteContent.ts). */
 const en = {
     solutions: "Solutions",
     industries: "Industries",

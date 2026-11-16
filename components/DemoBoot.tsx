@@ -6,6 +6,7 @@ import { syncOnOpen } from "./accounts";
 import { isStaffPage } from "./diwan/nav";
 import { demoActive, endDemo, installAccounts, installDemoIfActive, reseedDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
+import { SaveNotice } from "./SaveNotice";
 
 const words = {
   en: { label: "Platform tour: fake data only", create: "Create your own store", end: "End the tour" },
@@ -70,7 +71,7 @@ function useTour() {
   return { on, lang, w: words[lang] };
 }
 
-const create = "rounded-lg bg-[#5fd9c4] px-3.5 py-1.5 text-xs font-bold text-[#00323b] transition hover:bg-[#8be8d6]";
+const create = "rounded-lg bg-brand-light px-3.5 py-1.5 text-xs font-bold text-brand-dark transition hover:bg-brand-pale";
 const end = "rounded-lg border border-white/30 px-3.5 py-1.5 text-xs font-semibold transition hover:bg-white/10";
 
 /* Switches the browser's storage to the tour's made-up copy (see demoSandbox.ts) before any page
@@ -90,9 +91,11 @@ export function DemoBoot() {
   useEffect(() => void (isStaffPage(window.location.pathname, window.location.search) || syncOnOpen()), []);
   /* In the store designer the bar sits higher, so it does not cover the zoom controls at the bottom of the canvas */
   const inDesigner = (usePathname() ?? "").startsWith("/design");
-  if (!on || staff) return null;
+  if (staff) return null;
+  /* a signed-in store: a change the server refused for good is said, on every page (the tour saves nothing) */
+  if (!on) return <SaveNotice />;
   return (
-    <div role="status" className={`demo-pill dash fixed ${inDesigner ? "bottom-20" : "bottom-4"} start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-[#00323b] px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2`}>
+    <div role="status" className={`demo-pill dash fixed ${inDesigner ? "bottom-20" : "bottom-4"} start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-brand-dark px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2`}>
       <span className="text-xs font-semibold sm:text-sm">{w.label}</span>
       <div className="flex gap-2">
         <button type="button" onClick={() => endDemo("/signup")} className={create}>{w.create}</button>
@@ -114,7 +117,7 @@ export function DemoStrip() {
   }, [on]);
   if (!on) return null;
   return (
-    <div role="status" className="dash flex flex-wrap items-center justify-center gap-x-4 gap-y-2 bg-[#00323b] px-5 py-2 text-white md:px-10">
+    <div role="status" className="dash flex flex-wrap items-center justify-center gap-x-4 gap-y-2 bg-brand-dark px-5 py-2 text-white md:px-10">
       <span className="text-xs font-semibold sm:text-sm">{w.label}</span>
       <div className="flex gap-2">
         <button type="button" onClick={() => endDemo("/signup")} className={create}>{w.create}</button>

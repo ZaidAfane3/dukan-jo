@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { isMediaUrl } from "../safe";
 
 /* The browser's own storage for larger files (videos, big pictures and GIFs). Small settings stay in
-   localStorage, which only holds a few megabytes. Everything stays in this browser. */
+   localStorage, which only holds a few megabytes. Everything stays in this browser.
+
+   Today this is where the page background waits while it is being cut, and where it stays for a store that is not on
+   the server (signed out, the tour). A signed-in store keeps it on Dukkan's server instead, and the design names it by
+   its address ("/media/<id>", see components/media.ts); a background kept here before that is sent there the next
+   time the store is opened (serverSync.ts resendOldPictures). useMediaUrl shows both. */
 
 const DB = "dukkan-media";
 const STORE = "media";
@@ -55,14 +61,16 @@ export function setLiveMedia(id: string, url: string | null) {
   listeners.forEach((fn) => fn());
 }
 
-/** A temporary link to a stored file, for <img> and <video>. */
+/** A link to a stored file, for <img> and <video>: a file on Dukkan's server as it is, or a temporary link to one kept
+    in this browser. */
 export function useMediaUrl(id: string): string {
   const [url, setUrl] = useState("");
   useSyncExternalStore(subscribe, () => tick, () => 0);
   const live = id ? lives.get(id) ?? "" : "";
   const version = versions.get(id) ?? 0;
+  const onServer = isMediaUrl(id);
   useEffect(() => {
-    if (!id) {
+    if (!id || onServer) {
       setUrl("");
       return;
     }
@@ -77,6 +85,6 @@ export function useMediaUrl(id: string): string {
       alive = false;
       if (made) URL.revokeObjectURL(made);
     };
-  }, [id, version]);
-  return live || url;
+  }, [id, version, onServer]);
+  return live || (onServer ? id : url);
 }

@@ -6,7 +6,7 @@
 
 import { STATUS_KEYS, defaultInvoice, type InvoiceSettings, type StatusKey } from "./ordersContent";
 import { latin } from "./digits";
-import { cleanCount, cleanDate, cleanLine, cleanLines, cleanMoney, safeColor, safeImage, visibleLength } from "./safe";
+import { cleanCount, cleanDate, cleanLine, cleanLines, cleanMoney, isMediaUrl, safeColor, safeImage, visibleLength } from "./safe";
 import { isKnownCity, isUnlimited, kindHasSizes, productKind, productSizes, visitorEmail, type ProductKind, type SizeStock } from "./safeOrder";
 
 /* ============================== shared ============================== */
@@ -50,10 +50,11 @@ export function time(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 946_684_800_000 && v <= 4_102_444_800_000 ? Math.trunc(v) : fallback;
 }
 
-/** A picture kept with a record: picture data, or a picture file of the site itself (the demo store's photos). */
+/** A picture kept with a record: picture data, a picture kept on Dukkan's server (/media/..., server/media.ts), or a
+    picture file of the site itself (the demo store's photos). */
 export function picture(v: unknown): string {
   if (typeof v !== "string") return "";
-  if (safeImage(v)) return v;
+  if (safeImage(v) || isMediaUrl(v)) return v;
   return /^\/[a-z0-9_-]+(\/[a-z0-9_-]+)*\/[a-z0-9_.-]+\.(jpe?g|png|webp|gif)$/i.test(v) && !v.includes("..") ? v : "";
 }
 

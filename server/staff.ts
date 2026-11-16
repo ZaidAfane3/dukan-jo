@@ -118,7 +118,7 @@ export function staffRoute(perm: Perm | null, fn: (req: NextRequest, staff: Staf
 
 /* ---------------- activity log ---------------- */
 
-/** Writes one line to the activity log. Views count too: call it when staff open a shop or a ticket. */
+/** Writes one line to the activity log: sign-ins and changes only, never what staff merely opened or read */
 export async function audit(
   req: NextRequest,
   staffId: string | null,

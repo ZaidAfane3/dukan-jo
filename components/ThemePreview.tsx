@@ -6,6 +6,7 @@ import { loadSetup } from "./setup";
 import { StorefrontTheme } from "./storefront/StorefrontTheme";
 import { composeDesign, DEFAULT_THEME_ID, lookOf, previewProducts, type ThemeInfo } from "./themes";
 import { loadConfig } from "./storefront/storage";
+import { storeAddress } from "./siteAddress";
 
 /* A live preview is laid out as on a wide screen and shrunk to fit, so it shows a lot of the page, not a zoomed-in corner */
 const WIDTH = 1920;
@@ -21,10 +22,10 @@ export function ThemePreview({ theme, height, scroll = false, sample = false }: 
   const { lang } = usePrefs();
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(380);
-  /* The address of the merchant's own store: his dukkan.store link (every store lives at Dukkan's address) */
+  /* The address of the merchant's own store: his store link (every store lives at Dukkan's address) */
   const [address, setAddress] = useState("");
   useEffect(() => {
-    setAddress(`dukkan.store/${sample ? theme.id : loadSetup()?.slug || "your-store"}`);
+    setAddress(storeAddress(sample ? theme.id : loadSetup()?.slug || "your-store"));
   }, [sample, theme.id]);
 
   /* React 18 does not know the inert attribute yet, so it is set by hand */

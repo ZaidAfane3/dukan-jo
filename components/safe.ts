@@ -164,7 +164,17 @@ export const imageRules = {
   /* a WebP watermark or stamp is redrawn as a PNG */
   invoice: { ...rules.invoice, kinds: ["png", "jpeg", "webp"] },
   proof: rules.proof,
+  /* A store's picture kept on Dukkan's server (server/media.ts, POST /api/media): what any picker above can end up sending,
+     after the browser shrank it. Never an SVG here: the browser has already drawn an SVG into a PNG or WebP. The page
+     background alone may also be a video. */
+  storeImage: { kinds: PICTURE_KINDS, max: PICTURE_MAX, maxByKind: { gif: PICTURE_GIF_MAX } },
+  storeBackground: { kinds: [...PICTURE_KINDS, "mp4", "webm"], max: PICTURE_MAX, maxByKind: { gif: PICTURE_GIF_MAX, mp4: PICTURE_VIDEO_MAX, webm: PICTURE_VIDEO_MAX } },
 } satisfies Record<string, ImageRule>;
+
+/** A picture or video kept on Dukkan's server (server/media.ts): "/media/" and its random id. Pages keep these in place of
+    the picture data they used to keep, and anyone can load them (storefront visitors, the merchant's own pages). */
+export const MEDIA_URL = /^\/media\/[A-Za-z0-9_-]{24}$/;
+export const isMediaUrl = (v: unknown): boolean => typeof v === "string" && MEDIA_URL.test(v);
 
 const SVG_MAX = 200_000;
 
@@ -450,8 +460,9 @@ export function typedSlug(s: unknown): string {
 export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG_RULE.test(s) && !RESERVED_SLUGS.has(s);
 
 /* Names reserved later, for new choices only: a store that already took one keeps it (saved setups are read with isSlug,
-   so its link never disappears), but nobody can choose it from now on. "store-link" became a merchant page. */
-const RESERVED_FOR_NEW = new Set(["store-link"]);
+   so its link never disappears), but nobody can choose it from now on. "store-link" became a merchant page; "your-store"
+   is the example address the site shows everywhere (and the tour's sample store), so no real store may own it. */
+const RESERVED_FOR_NEW = new Set(["store-link", "your-store", "yourstore"]);
 /** A name the platform keeps, when a store chooses or changes its link */
 export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s);
 /** A link a store may choose now */

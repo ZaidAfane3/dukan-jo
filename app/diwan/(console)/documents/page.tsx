@@ -7,12 +7,21 @@ import { FilterBar } from "@/components/diwan/Filters";
 
 /* Documents: papers shops send for checking (courier proof, commercial registration). Staff approve
    or reject each one with a note; the merchant's bell is told (documentStatus) and the activity log keeps it. Live
-   data from /api/diwan/documents. Merchants can't upload files yet (there is no file storage), so this stays empty
-   until uploads exist. */
+   data from /api/diwan/documents. Merchants send these from the setup's shipping step and the Delivery page; each card
+   opens its file through /api/diwan/documents/[id]/file (a picture opens in a new tab, a PDF downloads). */
 
 type Status = "waiting" | "approved" | "rejected";
 type Kind = "courier_proof" | "commercial_registration" | "other";
-type Row = { id: string; shopId: string; shopName: string; shopEmail: string; kind: Kind; name: string; hasFile: boolean; status: Status; note: string; reviewer: string | null; createdAt: string };
+type Row = {
+  id: string; shopId: string; shopName: string; shopSlug: string | null; shopEmail: string; kind: Kind; name: string;
+  partner: string; partnerKind: 0 | 1 | null; hasFile: boolean; mime: string | null; bytes: number | null;
+  status: Status; note: string; reviewer: string | null; createdAt: string;
+};
+
+/** The file of one document, served by Diwan's file route (never the file itself in the page's JSON) */
+const documentFile = (id: string) => `/api/diwan/documents/${id}/file`;
+
+const sizeOf = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`);
 type Data = { counts: Partial<Record<Status, number>>; documents: Row[] };
 
 const tone: Record<Status, Tone> = { waiting: "amber", approved: "green", rejected: "red" };
@@ -65,7 +74,7 @@ export default function DocumentsPage() {
           d.documents.length === 0 ? (
             <div className={`${card} text-center text-sm text-muted`}>
               <p>{t("No documents here.", "لا توجد مستندات هنا.")}</p>
-              <p className="mt-1 text-xs">{t("Stores can't upload papers yet: uploads come once file storage is set up.", "لا تستطيع المتاجر رفع الأوراق بعد: يأتي الرفع بعد تجهيز تخزين الملفات.")}</p>
+              <p className="mt-1 text-xs">{t("Stores send these when they add their own delivery partner.", "ترسلها المتاجر عند إضافة جهة التوصيل الخاصة بها.")}</p>
             </div>
           ) : (
             <div className="grid gap-3">
@@ -87,6 +96,7 @@ function DocCard({ row, statusName, kindName, onDone }: { row: Row; statusName: 
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const partnerKindName = (k: 0 | 1) => (k === 0 ? t("shipping company", "شركة شحن") : t("a person", "شخص"));
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,14 +117,40 @@ function DocCard({ row, statusName, kindName, onDone }: { row: Row; statusName: 
         <div className="min-w-0 flex-1">
           <p className="break-words font-bold">{row.name}</p>
           <p className="mt-1 text-sm">
+            <span className="text-muted">{t("Store:", "المتجر:")} </span>
             <Link href={`/diwan/shops/${row.shopId}`} className="font-semibold text-primary hover:underline">{row.shopName}</Link>
+            {row.shopSlug && <span dir="ltr" className="ms-2 text-xs text-muted">/{row.shopSlug}</span>}
             <span dir="ltr" className="ms-2 text-xs text-muted">{row.shopEmail}</span>
           </p>
+          {row.kind === "courier_proof" && (
+            <p className="mt-1 text-sm">
+              <span className="text-muted">{t("Delivery partner:", "جهة التوصيل:")} </span>
+              {row.partner ? (
+                <>
+                  <bdi className="font-semibold">{row.partner}</bdi>
+                  {row.partnerKind !== null && <span className="text-muted"> ({partnerKindName(row.partnerKind)})</span>}
+                </>
+              ) : (
+                <span className="text-muted">{t("Not named yet", "لم يُسمَّ بعد")}</span>
+              )}
+            </p>
+          )}
           <p className="mt-1 text-xs text-muted">
-            {f.dateTime(row.createdAt)}
+            {t("Sent", "أُرسل")} {f.dateTime(row.createdAt)}
             {row.reviewer && <> · {t(`Reviewed by ${row.reviewer}`, `راجعه ${row.reviewer}`)}</>}
-            {!row.hasFile && <> · {t("No file yet", "لا يوجد ملف بعد")}</>}
+            {row.hasFile && row.mime && <> · <span dir="ltr">{row.mime === "application/pdf" ? "PDF" : t("Picture", "صورة")}{row.bytes ? `, ${sizeOf(row.bytes)}` : ""}</span></>}
+            {!row.hasFile && <> · {t("No file", "لا يوجد ملف")}</>}
           </p>
+          {row.hasFile && (
+            <a
+              href={documentFile(row.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 -ms-2 text-sm font-semibold text-primary hover:bg-primary/10"
+            >
+              {row.mime === "application/pdf" ? t("Download file (PDF)", "تنزيل الملف (PDF)") : t("View file", "عرض الملف")}
+            </a>
+          )}
         </div>
         <div className="flex flex-wrap gap-1.5">
           <Badge tone={tone[row.status]}>{statusName(row.status)}</Badge>

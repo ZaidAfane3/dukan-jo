@@ -1,4 +1,5 @@
 import { useId } from "react";
+import type { NavGroup } from "./nav";
 
 /* Diwan's small line icons (24×24, drawn with the text colour), so the sidebar, page titles and number cards each carry a
    picture of what they are. Inline SVG only: nothing is loaded from outside. */
@@ -10,7 +11,6 @@ const P = {
   funnel: "M4 5h16l-6 7.5V19l-4 1.5v-8z",
   tickets: "M4 8a2 2 0 0 0 0 4v0a2 2 0 0 1 0 4v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1a2 2 0 0 1 0-4 2 2 0 0 1 0-4V7a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1zM14 6v12",
   feedback: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1v.5h6V15c0-.4.2-.8.5-1.1A6 6 0 0 0 12 3z",
-  globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z",
   documents: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4",
   complaints: "M5 21V4M5 4h11l-2 4 2 4H5",
   themes: "M12 3a9 9 0 0 0 0 18c1 0 1.6-.8 1.6-1.7 0-.5-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1.1 0-.9.8-1.6 1.7-1.6H16a5 5 0 0 0 5-5c0-4.1-4-7.5-9-7.5zM7.5 11.5h.01M10 7.5h.01M14.5 7.5h.01M17 11h.01",
@@ -31,6 +31,12 @@ const P = {
   sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1.5V3M12 21v1.5M4.2 4.2l1.1 1.1M18.7 18.7l1.1 1.1M1.5 12H3M21 12h1.5M4.2 19.8l1.1-1.1M18.7 5.3l1.1-1.1",
   moon: "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z",
   dot: "M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
+  /* the sidebar sections */
+  bag: "M5.5 8h13l-1 12.5h-11zM9 8V6.5a3 3 0 0 1 6 0V8",
+  lifebuoy: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM5.6 5.6l3.6 3.6M14.8 14.8l3.6 3.6M14.8 9.2l3.6-3.6M5.6 18.4l3.6-3.6",
+  growth: "M3 17l6-6 4 4 8-8M15 7h6v6",
+  layers: "M12 3l9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5",
+  shield: "M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6zM9 12l2 2 4-4",
 } as const;
 
 export type IconName = keyof typeof P;
@@ -47,10 +53,13 @@ export function Icon({ name, className = "h-5 w-5", strokeWidth = 1.8 }: { name:
 const BY_PATH: [string, IconName][] = [
   ["/diwan/shops", "shops"], ["/diwan/payments", "payments"], ["/diwan/funnel", "funnel"], ["/diwan/tickets", "tickets"],
   ["/diwan/feedback", "feedback"], ["/diwan/documents", "documents"], ["/diwan/complaints", "complaints"],
-  ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/website", "globe"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
+  ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
   ["/diwan/marketplace", "developers"], ["/diwan/flags", "flags"], ["/diwan/settings", "settings"], ["/diwan/staff", "staff"],
   ["/diwan/activity", "activity"],
 ];
+/* Each sidebar section's picture */
+export const GROUP_ICON: Record<NavGroup, IconName> = { stores: "bag", support: "lifebuoy", merchants: "growth", themes: "layers", admin: "shield" };
+
 export function iconForPath(path: string): IconName {
   if (path === "/diwan" || path === "/diwan/") return "overview";
   return BY_PATH.find(([p]) => path === p || path.startsWith(p + "/"))?.[1] ?? "dot";
@@ -69,7 +78,7 @@ export function DiwanMark({ className = "h-7 w-7" }: { className?: string }) {
 
 /* ---------------- The arch ----------------
    A diwan is the hall where guests are received, and its doorway is an arch: the one shape Diwan repeats, on purpose and
-   in three places only: the mark, the window of the welcome, and the marker of the page you are on. */
+   in two places only: the mark and the window of the welcome. */
 
 /** The welcome's window: one tall pointed arch, a frame with the light inside it */
 export function ArchWindow({ className = "" }: { className?: string }) {
@@ -88,15 +97,6 @@ export function ArchWindow({ className = "" }: { className?: string }) {
       <path d="M14 260V116C14 52 60 12 100-10c40 22 86 62 86 126v144" fill="none" stroke="currentColor" strokeOpacity=".22" strokeWidth="1.5" />
       {/* the sill */}
       <path d="M0 259h200" stroke="currentColor" strokeOpacity=".3" strokeWidth="2" />
-    </svg>
-  );
-}
-
-/** The small arch that marks the page you are on in the sidebar */
-export function ArchMarker({ className = "h-3 w-2.5" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 10 12" className={className} aria-hidden>
-      <path d="M1 12V6.5C1 3.7 3.2 1.6 5 .5c1.8 1.1 4 3.2 4 6V12z" fill="currentColor" />
     </svg>
   );
 }

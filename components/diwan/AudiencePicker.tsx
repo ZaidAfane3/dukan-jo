@@ -4,31 +4,32 @@ import { useEffect, useState } from "react";
 import { field, useT } from "./ui";
 
 /* "Who sees it" for what Dukkan's team sends merchants (announcements, pop-ups, pages): every store, new stores (the
-   stores that sign up while it is live), or chosen stores. Plans are gone: a row that was set for stores on certain
-   plans keeps that audience (the server still knows it) until another one is chosen here. The same rules are checked by
-   the server (server/audience.ts) and applied in SQL (server/announce.ts AUDIENCE_HAS). */
+   stores that sign up while it is live), or chosen stores. Dukkan has no plans, so there is no audience by plan. A row
+   saved in any other shape (an old audience by plan) reaches no store: it opens here as chosen stores with none chosen,
+   never as every store, so saving it can't send it to everyone by mistake. The same rules are checked by the server
+   (server/audience.ts) and applied in SQL (server/announce.ts AUDIENCE_HAS). */
 
-export type Audience = { all: true } | { newStores: true } | { accounts: (number | string)[] } | { plans: string[] };
-export type Who = "all" | "newStores" | "accounts" | "plans";
+export type Audience = { all: true } | { newStores: true } | { accounts: (number | string)[] };
+export type Who = "all" | "newStores" | "accounts";
 export type Shop = { id: string; name: string; email: string };
 export type ShopNames = Record<string, { name: string; email: string }>;
-export type AudienceForm = { who: Who; shops: Shop[]; plans: string[] };
+export type AudienceForm = { who: Who; shops: Shop[] };
 
-export const blankAudience = (): AudienceForm => ({ who: "all", shops: [], plans: [] });
+export const blankAudience = (): AudienceForm => ({ who: "all", shops: [] });
 
 /** A saved audience as the picker's value (shop names from the list's answer) */
 export function audienceForm(audience: Audience, names: ShopNames): AudienceForm {
   const a = audience as Record<string, unknown>;
   if (Array.isArray(a.accounts))
-    return { who: "accounts", plans: [], shops: (a.accounts as unknown[]).map((id) => ({ id: String(id), name: names[String(id)]?.name ?? `#${id}`, email: names[String(id)]?.email ?? "" })) };
-  if (Array.isArray(a.plans)) return { who: "plans", shops: [], plans: a.plans as string[] };
-  if (a.newStores === true) return { who: "newStores", shops: [], plans: [] };
-  return blankAudience();
+    return { who: "accounts", shops: (a.accounts as unknown[]).map((id) => ({ id: String(id), name: names[String(id)]?.name ?? `#${id}`, email: names[String(id)]?.email ?? "" })) };
+  if (a.newStores === true) return { who: "newStores", shops: [] };
+  if (a.all === true) return blankAudience();
+  return { who: "accounts", shops: [] };
 }
 
 /** The picker's value as the server takes it */
 export const audienceBody = (f: AudienceForm): Audience =>
-  f.who === "all" ? { all: true } : f.who === "newStores" ? { newStores: true } : f.who === "accounts" ? { accounts: f.shops.map((x) => x.id) } : { plans: f.plans };
+  f.who === "all" ? { all: true } : f.who === "newStores" ? { newStores: true } : { accounts: f.shops.map((x) => x.id) };
 
 /** Who a saved row is for, in a few words, for the lists */
 export function useAudienceText() {
@@ -40,9 +41,9 @@ export function useAudienceText() {
       const more = n.length > 4 ? ` +${n.length - 4}` : "";
       return t(`Stores: ${n.slice(0, 4).join(", ")}${more}`, `متاجر: ${n.slice(0, 4).join("، ")}${more}`);
     }
-    if (Array.isArray(a.plans)) return t("Stores on certain plans (older setting)", "متاجر بباقات معينة (إعداد قديم)");
     if (a.newStores === true) return t("New stores", "المتاجر الجديدة");
-    return t("Every store", "كل المتاجر");
+    if (a.all === true) return t("Every store", "كل المتاجر");
+    return t("No store (an older setting)", "لا متجر (إعداد قديم)");
   };
 }
 
@@ -106,12 +107,6 @@ export function AudiencePicker({ value, onChange, name }: { value: AudienceForm;
             </ul>
           )}
         </div>
-      )}
-      {/* plans are gone: an older one set for stores on certain plans keeps that audience until another is chosen */}
-      {value.who === "plans" && (
-        <p className="mt-3 text-sm text-muted">
-          {t("This was set for stores on certain plans, before plans were removed. It stays as it is unless you choose above.", "ضُبط هذا لمتاجر بباقات معينة قبل إلغاء الباقات، ويبقى كما هو ما لم تختر أعلاه.")}
-        </p>
       )}
     </fieldset>
   );

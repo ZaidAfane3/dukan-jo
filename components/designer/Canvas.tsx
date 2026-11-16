@@ -304,9 +304,9 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
             {/* what the open settings change: the same teal outline and name tag as a selected block */}
             {mark && (
               <>
-                <span aria-hidden data-spot-mark className="pointer-events-none absolute z-40 rounded-[10px] ring-2 ring-[#14b8a6] transition-[top,left,width,height] duration-200" style={{ top: mark.top, left: mark.left, width: mark.width, height: mark.height }} />
+                <span aria-hidden data-spot-mark className="pointer-events-none absolute z-40 rounded-[10px] ring-2 ring-brand transition-[top,left,width,height] duration-200" style={{ top: mark.top, left: mark.left, width: mark.width, height: mark.height }} />
                 {mark.label && (
-                  <span aria-hidden dir={lang === "ar" ? "rtl" : "ltr"} className="pointer-events-none absolute z-40 max-w-[60%] -translate-y-1/2 truncate rounded-md bg-[#14b8a6] px-2.5 py-1 text-[11px] font-bold text-white shadow" style={{ /* at the very top of the page the tag would cover what it names: it sits on the outline's lower edge instead */ top: mark.top >= 14 ? mark.top : mark.top + mark.height, /* at the reading start of the outline, unless that would push it off the page's edge */ ...((lang === "ar" ? mark.left + mark.width > 240 : mark.left > BASE - 240) ? { right: BASE - mark.left - mark.width + 8 } : { left: mark.left + 8 }) }}>
+                  <span aria-hidden dir={lang === "ar" ? "rtl" : "ltr"} className="pointer-events-none absolute z-40 max-w-[60%] -translate-y-1/2 truncate rounded-md bg-brand px-2.5 py-1 text-[11px] font-bold text-white shadow" style={{ /* at the very top of the page the tag would cover what it names: it sits on the outline's lower edge instead */ top: mark.top >= 14 ? mark.top : mark.top + mark.height, /* at the reading start of the outline, unless that would push it off the page's edge */ ...((lang === "ar" ? mark.left + mark.width > 240 : mark.left > BASE - 240) ? { right: BASE - mark.left - mark.width + 8 } : { left: mark.left + 8 }) }}>
                     {mark.label}
                   </span>
                 )}

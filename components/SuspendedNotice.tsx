@@ -11,7 +11,7 @@ import { useSiteContent } from "./useSiteContent";
 /* The page a merchant sees when Dukkan suspended their store: after signing in with the right password, or in a tab
    that was open when it happened. It says why (the reason staff wrote in Diwan), since when, and how to reach support.
    Support tickets need a signed-in store, so it gives the phone, email and WhatsApp of the site's contact section
-   (Diwan > Website > Contact and legal), so changing them there changes this page too; an empty one is left out. The reason comes from this tab (components/suspended.ts) or, when the page is opened again, from the
+   (the `contact` part of components/siteContent.ts), so changing them there changes this page too; an empty one is left out. The reason comes from this tab (components/suspended.ts) or, when the page is opened again, from the
    session the merchant signed in with; anyone else just sees a way back to sign in. */
 
 const words = {

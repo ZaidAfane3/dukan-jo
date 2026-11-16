@@ -6,18 +6,13 @@ import { cleanAudience } from "./audience";
    (account_id NULL, kind 'announcement'), made with it; a merchant who reads or dismisses it gets a notification_reads row
    for that one notification. So "read by" is simply the count of its notification_reads. */
 
-/** The plan a shop is on: its current subscription's plan, else 'trial' (every new shop starts on the trial) */
-export const PLAN_OF = (account: string) =>
-  `COALESCE((SELECT p.key FROM subscriptions s JOIN plans p ON p.id = s.plan_id
-              WHERE s.account_id = ${account} AND s.status IN ('trial', 'active') ORDER BY s.created_at DESC LIMIT 1), 'trial')`;
-
 /** SQL (for the announcement, pop-up or page aliased `a`) that is true when it is meant for the account given by the SQL
     `account` (a column or a parameter, never typed text). "New stores" are the stores made at or after `since`: the
-    moment it goes out (an announcement's or pop-up's start; pages pass PAGE_SINCE). */
+    moment it goes out (an announcement's or pop-up's start; pages pass PAGE_SINCE). Dukkan has no plans, so there is no
+    audience by plan: any other saved shape (such as an old {"plans": [...]}) reaches no store. */
 export const AUDIENCE_HAS = (account: string, since = "a.starts_at") => `(
     a.audience @> '{"all": true}'::jsonb
     OR (a.audience->'accounts') @> jsonb_build_array((${account})::bigint)
-    OR (a.audience->'plans') ? ${PLAN_OF(`(${account})::bigint`)}
     OR (a.audience @> '{"newStores": true}'::jsonb
         AND EXISTS (SELECT 1 FROM accounts nw WHERE nw.id = (${account})::bigint AND nw.created_at >= ${since}))
   )`;
@@ -56,8 +51,7 @@ export async function liveAnnouncements(accountId: string): Promise<LiveAnnounce
 
 /* ---------------- what Diwan sends ---------------- */
 
-/* plans: an older choice (plans are gone), kept working for the rows that have it; the pickers no longer offer it */
-export type Audience = { all: true } | { newStores: true } | { accounts: number[] } | { plans: string[] };
+export type Audience = { all: true } | { newStores: true } | { accounts: number[] };
 export type AnnouncementInput = {
   titleEn: string; titleAr: string; bodyEn: string; bodyAr: string;
   audience: Audience; banner: boolean; startsAt: Date; endsAt: Date | null;
@@ -70,7 +64,7 @@ const date = (v: unknown): Date | null | undefined => {
   return Number.isNaN(d.getTime()) || d.getFullYear() < 2020 || d.getFullYear() > 2100 ? undefined : d;
 };
 
-/** Checks an announcement from Diwan's form. Gives it cleaned, or the name of the first wrong field. Shops and plans are
+/** Checks an announcement from Diwan's form. Gives it cleaned, or the name of the first wrong field. Chosen shops are
     checked against the database (unknown ones are refused). */
 export async function cleanAnnouncement(b: Record<string, unknown>): Promise<AnnouncementInput | { bad: string }> {
   const titleEn = cleanLine(b.titleEn, 120), titleAr = cleanLine(b.titleAr, 120);

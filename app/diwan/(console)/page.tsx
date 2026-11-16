@@ -17,7 +17,6 @@ type Overview = {
   inactive: number;
   suspended: number;
   published: number;
-  onTrial: number;
   waiting: { tickets: number; reports: number; documents: number };
   newest: { id: string; name: string; slug: string | null; owner: string; created_at: string; setup_done: number; status: string }[];
 };
@@ -67,7 +66,6 @@ function ShopsOverview() {
                       note: t(`of ${f.num(d.total)} stores`, `من ${f.num(d.total)} متجر`),
                       extra: <Share part={d.published} whole={d.total} />,
                     },
-                    { label: t("On trial", "في الفترة التجريبية"), value: f.num(d.onTrial), note: t("in their free trial now", "في الفترة المجانية الآن") },
                   ]}
                 />
               </section>
@@ -217,7 +215,7 @@ function Welcome({ line }: { line?: string }) {
   );
 }
 
-/* How much of a whole a part is, as one thin teal line (no colour for the rest) */
+/* How much of a whole a part is, as one thin orange line (no colour for the rest) */
 function Share({ part, whole, label }: { part: number; whole: number; label?: string }) {
   if (!whole) return null;
   return (

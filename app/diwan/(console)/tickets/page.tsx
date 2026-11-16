@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Badge, Btn, card, DataTable, field, Loaded, PageHead, td, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { Badge, Btn, card, DataTable, field, Loaded, PageHead, td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER } from "@/components/diwan/ticketWords";
-import { Pager, type TicketRow } from "@/components/diwan/TicketBits";
+import type { TicketRow } from "@/components/diwan/TicketBits";
 import { FilterBar } from "@/components/diwan/Filters";
 
 /* Support tickets from merchants, live from the database: counts per status, filters, sorting and pages. Opening one
@@ -21,18 +21,13 @@ export default function TicketsPage() {
   const f = useFmt();
   const [filters, setFilters] = useState<Filters>({ status: "active", priority: "", assignee: "", q: "", sort: "updated" });
   const [q, setQ] = useState("");
-  const [page, setPage] = useState(1);
   const url = useMemo(() => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(filters)) if (v) p.set(k, v);
-    p.set("page", String(page));
     return `/api/diwan/tickets?${p}`;
-  }, [filters, page]);
-  const s = useApi<Data>(url);
-  const set = (k: keyof Filters, v: string) => {
-    setFilters((x) => ({ ...x, [k]: v }));
-    setPage(1);
-  };
+  }, [filters]);
+  const s = useMore<Data>(url, (d, n) => (n * d.pageSize < d.total ? `page=${n + 1}` : null));
+  const set = (k: keyof Filters, v: string) => setFilters((x) => ({ ...x, [k]: v }));
   const counts = s.data?.counts ?? {};
   const active = STATUS_ORDER.filter((x) => x !== "resolved" && x !== "closed").reduce((n, x) => n + (counts[x] ?? 0), 0);
   const all = Object.values(counts).reduce((n, x) => n + x, 0);
@@ -134,7 +129,7 @@ export default function TicketsPage() {
                 </tr>
               ))}
             </DataTable>
-            <Pager page={d.page} pageSize={d.pageSize} total={d.total} onPage={setPage} />
+            <LoadMore s={s} total={d.total} />
           </>
         )}
       </Loaded>

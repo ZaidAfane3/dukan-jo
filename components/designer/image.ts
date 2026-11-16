@@ -1,9 +1,10 @@
 /* Reading a picture the merchant chooses. It is checked from its bytes (components/safe.ts), redrawn and shrunk, and kept as a
-   small data URL in this browser (inside his saved design). Nothing is uploaded anywhere.
+   small data URL in this browser while he works on it (crops it). For a signed-in store it is then kept on Dukkan's server
+   as a file and the saved data keeps its address (components/media.ts); signed out or in the tour, it stays here.
    Redrawing turns a phone photo the right way up (its EXIF orientation), drops its hidden data (EXIF, GPS) and turns an SVG
    into a normal picture, so its scripts can never run. */
 
-import { checkImage, imageRules, smallPictureNote, uploadProblemFor, type ImageRule, type UploadProblem } from "../safe";
+import { checkImage, imageRules, isMediaUrl, smallPictureNote, uploadProblemFor, type ImageRule, type UploadProblem } from "../safe";
 
 export const MAX_FILE = 2_000_000;
 /* A GIF (or an animated WebP) must be kept exactly as it is, or it stops moving, so it has a smaller size limit. */
@@ -12,7 +13,7 @@ export const MAX_GIF = 1_200_000;
 export type Picked = { url: string; /* the picture's own size, before it was shrunk (none for an SVG) */ w?: number; h?: number } | { problem: UploadProblem };
 
 /** Opens a checked picture. The browser turns it the right way up from its EXIF when it decodes it. */
-function decode(file: Blob, svg: boolean): Promise<HTMLImageElement | null> {
+export function decode(file: Blob, svg: boolean): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(svg ? new Blob([file], { type: "image/svg+xml" }) : file);
     const img = new Image();
@@ -93,7 +94,8 @@ export async function readPicture(file: File, lang: "en" | "ar", o: { max?: numb
 
 /** Turns a picture that is only shown through a temporary link into a small saved one. */
 export async function toSavedLogo(url: string): Promise<string> {
-  if (url.startsWith("data:")) return url;
+  /* picture data, or a picture already kept on Dukkan's server */
+  if (url.startsWith("data:") || isMediaUrl(url)) return url;
   try {
     const blob = await (await fetch(url)).blob();
     return (await readLogo(new File([blob], "logo", { type: blob.type }), 256)) ?? "";

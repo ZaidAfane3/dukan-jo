@@ -81,7 +81,6 @@ export const POPUP_TEMPLATE_RULES = {
     ],
     start: {
       theme: "mada",
-      image: "/themes/mada.jpg",
       badge: bi("A gift for you", "هدية لك"),
       use: bi("Use it on my store", "استخدمه في متجري"),
       preview: bi("Preview", "معاينة"),

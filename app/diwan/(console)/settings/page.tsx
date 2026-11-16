@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { LEGAL_PAGES, LIMITS, PAY_METHODS, type Bi, type PayMethod, type PlatformSettings, type SettingKey } from "@/components/diwan/platformSettings";
 import { THEME_CATALOG } from "@/components/diwan/themeCatalog";
 import { askConfirm } from "@/components/diwan/dialogs";
+import { PayLogo } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 
 /* Platform settings (owners): each setting has its own form and its own Save, checked again by the server, and every save
@@ -24,7 +25,6 @@ export default function SettingsPage() {
         {(d) => (
           <div className="grid gap-6 xl:grid-cols-2">
             <TemplateCard info={d.template} onChange={s.reload} />
-            <TrialDays e={d.settings.trial_days} />
             <Payments e={d.settings.payment_methods} />
             <DefaultThemes e={d.settings.default_themes} />
             <Seo e={d.settings.seo_defaults} />
@@ -88,27 +88,15 @@ const label = "mb-1 block text-sm font-medium";
 
 /* ---------------- the settings ---------------- */
 
-function TrialDays({ e }: { e: Entry<"trial_days"> }) {
-  const t = useT();
-  const s = useSaver("trial_days", e);
-  return (
-    <Section title={t("Free trial", "الفترة التجريبية")} sub={t("How many days a new store is free.", "عدد الأيام المجانية لكل متجر جديد.")} info={s.info} state={s.state} onSave={() => s.save()}>
-      <label htmlFor="set-trial" className={label}>{t("Days", "الأيام")}</label>
-      <input id="set-trial" type="number" min={0} max={LIMITS.maxTrial} step={1} className={`${field} max-w-[10rem]`} value={s.value} onChange={(x) => s.setValue(Math.round(Number(x.target.value)))} />
-    </Section>
-  );
-}
-
-const PAY_NAMES = { cod: ["Cash on delivery", "الدفع عند الاستلام"], cliq: ["CliQ", "كليك"], card: ["Card", "البطاقة"], paypal: ["PayPal", "باي بال"] } as const;
+const PAY_NAMES = { cod: ["Cash on delivery", "الدفع عند الاستلام"], cliq: ["CliQ", "كليك"], card: ["Card", "البطاقة"] } as const;
 
 /* How each way to pay is shown: its logo (cash has none, so a drawn note), and where Dukkan offers it. A store's checkout
-   (components/storefront/Cart.tsx) offers cash, CliQ and card; buying a theme (components/ThemeStore.tsx) offers card,
-   CliQ and PayPal. */
-const PAY_LOOK: Record<PayMethod, { logo: string | null; h: string; store: boolean; themes: boolean }> = {
-  cod: { logo: null, h: "", store: true, themes: false },
-  cliq: { logo: "/logos/cliq-tight.png", h: "h-7", store: true, themes: true },
-  card: { logo: "/logos/visa.png", h: "h-5", store: true, themes: true },
-  paypal: { logo: "/logos/paypal.png", h: "h-5", store: false, themes: true },
+   (components/storefront/Cart.tsx) offers cash, CliQ and card; buying a theme (components/ThemeStore.tsx) offers card
+   and CliQ. */
+const PAY_LOOK: Record<PayMethod, { store: boolean; themes: boolean }> = {
+  cod: { store: true, themes: false },
+  cliq: { store: true, themes: true },
+  card: { store: true, themes: true },
 };
 
 type PayUse = { orders: number; ordersTotal: number; stores: number; themes: number; themesTotal: number; buyers: number };
@@ -150,16 +138,7 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
           return (
             <div key={m} className={`rounded-2xl p-4 ring-1 transition ${on ? "bg-card ring-primary/40" : "bg-soft/60 ring-fg/10"}`}>
               <div className="flex items-center gap-3">
-                <span className={`grid h-11 w-16 shrink-0 place-items-center rounded-xl bg-white ring-1 ring-black/5 ${on ? "" : "opacity-50 grayscale"}`}>
-                  {look.logo ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={look.logo} alt="" className={`${look.h} w-auto max-w-[80%] object-contain`} />
-                  ) : (
-                    <svg viewBox="0 0 24 24" className="h-6 w-6 text-emerald-700" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.6" /><path d="M6 9.5v5M18 9.5v5" />
-                    </svg>
-                  )}
-                </span>
+                <PayLogo method={m} className="h-11 w-16 rounded-xl" dim={!on} />
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold">{name}</p>
                   <p className={`text-xs font-semibold ${on ? "text-emerald-700 dark:text-emerald-300" : "text-muted"}`}>{on ? t("On", "مفعّلة") : t("Off", "متوقفة")}</p>

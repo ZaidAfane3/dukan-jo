@@ -10,7 +10,6 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   const a = await currentAccount(req);
   if (!a) return answer({ result: "none" }, 401);
-  if (a.impersonation) return answer({ result: "view-only" }, 403);
   if (tooMany(req, "totp-disable", 10, 15)) return answer({ result: "slow-down" }, 429);
   const body = await readJson(req, 1_000);
   const password = typeof body?.password === "string" && body.password.length <= 128 ? body.password : "";

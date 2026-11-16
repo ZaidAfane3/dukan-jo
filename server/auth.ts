@@ -43,20 +43,20 @@ const tokenHash = (t: string) => createHash("sha256").update(t).digest("hex");
 const isHttps = (req: NextRequest) => (req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(":", "")) === "https";
 const cookieOptions = (req: NextRequest, maxAge: number) => ({ httpOnly: true, sameSite: "lax" as const, secure: isHttps(req), path: "/", maxAge });
 
-/* opts.minutes: a shorter session (waiting for a 2-step code, or a staff member's "log in as merchant");
-   opts.pendingTotp: the password was right, the code is still to come; opts.impersonationId: opened from Diwan */
+/* opts.minutes: a shorter session (waiting for a 2-step code); opts.pendingTotp: the password was right, the code is
+   still to come */
 export async function startSession(
   res: NextResponse,
   req: NextRequest,
   accountId: string,
-  opts: { minutes?: number; pendingTotp?: boolean; impersonationId?: string } = {},
+  opts: { minutes?: number; pendingTotp?: boolean } = {},
 ): Promise<void> {
   const token = randomBytes(32).toString("base64url");
   const pool = await db();
   const minutes = opts.minutes ?? DAYS * 1440;
   await pool.query(
-    `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp, impersonation_id) VALUES ($1, $2, now() + make_interval(mins => $3), $4, $5)`,
-    [tokenHash(token), accountId, minutes, !!opts.pendingTotp, opts.impersonationId ?? null],
+    `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(mins => $3), $4)`,
+    [tokenHash(token), accountId, minutes, !!opts.pendingTotp],
   );
   /* now and then, clear out the sessions that have run out */
   if (Math.random() < 0.05) pool.query(`DELETE FROM sessions WHERE expires_at < now()`).catch(() => {});
@@ -69,32 +69,29 @@ export async function endSession(res: NextResponse, req: NextRequest): Promise<v
   res.cookies.set(COOKIE, "", cookieOptions(req, 0));
 }
 
-/** A staff member's "log in as merchant" behind this session: who, until when, and whether changes are refused */
-export type Impersonation = { id: string; staffId: string; staffName: string; endsAt: string; viewOnly: boolean };
-/* suspended: only ever true in a support session (a merchant's own session of a suspended shop counts as none) */
-export type SessionAccount = PublicAccount & { id: string; totpOn: boolean; suspended: boolean; impersonation: Impersonation | null };
+/* suspended: never true any more, since a merchant's own session of a suspended shop counts as none (it was only true in
+   a staff member's "log in as merchant" session, removed on 2026-11-16). */
+export type SessionAccount = PublicAccount & { id: string; totpOn: boolean; suspended: boolean };
 
-/* The session behind the cookie, whatever its state. A support session that ended or ran out, or a merchant session of
-   a suspended shop, counts as none. */
+/* The session behind the cookie, whatever its state. A merchant session of a suspended shop counts as none, and so does
+   a session left from a staff member's "log in as merchant" (removed on 2026-11-16), so one of those can never act as
+   the merchant's own. */
 async function sessionRow(req: NextRequest) {
   const token = req.cookies.get(COOKIE)?.value;
   if (!token || token.length > 100) return null;
   const pool = await db();
   const { rows } = await pool.query(
-    `SELECT a.id, a.email, a.name, a.phone, a.totp_on, s.pending_totp, s.impersonation_id,
+    `SELECT a.id, a.email, a.name, a.phone, a.totp_on, s.pending_totp,
             s.expires_at < now() + make_interval(days => $2) AS stale,
-            COALESCE(sh.status = 'suspended', false) AS suspended,
-            i.ends_at, (i.ended_at IS NULL AND i.ends_at > now()) AS imp_live, i.view_only, i.staff_id, st.name AS staff_name
+            COALESCE(sh.status = 'suspended', false) AS suspended
        FROM sessions s JOIN accounts a ON a.id = s.account_id
        LEFT JOIN shops sh ON sh.account_id = a.id
-       LEFT JOIN impersonations i ON i.id = s.impersonation_id
-       LEFT JOIN staff st ON st.id = i.staff_id
-      WHERE s.token_hash = $1 AND s.expires_at > now()`,
+      WHERE s.token_hash = $1 AND s.expires_at > now() AND s.impersonation_id IS NULL`,
     [tokenHash(token), DAYS - 1],
   );
   const a = rows[0];
   if (!a) return null;
-  if (a.impersonation_id ? !a.imp_live : a.suspended) return null;
+  if (a.suspended) return null;
   return { a, token, pool };
 }
 
@@ -104,8 +101,8 @@ export async function currentAccount(req: NextRequest): Promise<SessionAccount |
   const r = await sessionRow(req);
   if (!r || r.a.pending_totp) return null;
   const { a, token, pool } = r;
-  /* used again: the session runs for another 60 days, and so does the cookie (see renewCookie). Never a support session. */
-  if (a.stale && !a.impersonation_id) pool.query(`UPDATE sessions SET expires_at = now() + make_interval(days => $2) WHERE token_hash = $1`, [tokenHash(token), DAYS]).catch(() => {});
+  /* used again: the session runs for another 60 days, and so does the cookie (see renewCookie) */
+  if (a.stale) pool.query(`UPDATE sessions SET expires_at = now() + make_interval(days => $2) WHERE token_hash = $1`, [tokenHash(token), DAYS]).catch(() => {});
   return {
     id: String(a.id),
     email: a.email,
@@ -113,9 +110,6 @@ export async function currentAccount(req: NextRequest): Promise<SessionAccount |
     phone: a.phone,
     totpOn: a.totp_on,
     suspended: a.suspended,
-    impersonation: a.impersonation_id
-      ? { id: String(a.impersonation_id), staffId: String(a.staff_id), staffName: a.staff_name ?? "", endsAt: new Date(a.ends_at).toISOString(), viewOnly: a.view_only }
-      : null,
   };
 }
 
@@ -129,8 +123,8 @@ export const suspendedReply = (reason: string | null, at: Date | string | null) 
 
 /** For a merchant whose store was suspended while they were signed in: the suspension behind this browser's session,
     or null. Suspending keeps the merchant's own sessions (they count as signed out, see sessionRow) so an open tab can
-    still be told why; reactivating deletes them, so the merchant signs in again. Never a support session or one still
-    waiting for its 2-step code. */
+    still be told why; reactivating deletes them, so the merchant signs in again. Never a session still waiting for its
+    2-step code (nor one left from the removed "log in as merchant"). */
 export async function sessionSuspension(req: NextRequest): Promise<ReturnType<typeof suspendedReply> | null> {
   const token = req.cookies.get(COOKIE)?.value;
   if (!token || token.length > 100) return null;
@@ -146,7 +140,7 @@ export async function sessionSuspension(req: NextRequest): Promise<ReturnType<ty
 /** The account whose password was right and whose session waits for the 2-step code, or null */
 export async function pendingAccount(req: NextRequest): Promise<{ id: string; email: string; name: string; phone: string; secret: string } | null> {
   const r = await sessionRow(req);
-  if (!r || !r.a.pending_totp || r.a.impersonation_id) return null;
+  if (!r || !r.a.pending_totp) return null;
   const { rows } = await r.pool.query(`SELECT totp_secret FROM accounts WHERE id = $1 AND totp_on`, [r.a.id]);
   if (!rows[0]?.totp_secret) return null;
   return { id: String(r.a.id), email: r.a.email, name: r.a.name, phone: r.a.phone, secret: rows[0].totp_secret };

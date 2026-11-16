@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { isJordanMobile, savedMobile, typedAnyPhone } from "./phone";
@@ -13,8 +13,11 @@ import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 import { typedMoney } from "./records";
 import { cleanMoney } from "./safe";
 import { ACCOUNT_LIMITS } from "./safeAccount";
+import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs } from "./partnerProofs";
 
-/* The delivery options a merchant chose in setup. Until now there was no place to change them. */
+/* The delivery options a merchant chose in setup. Until now there was no place to change them. With his own delivery
+   partner he can also add or remove the partner's proof here, the same files as in the setup's shipping step: they go
+   to Dukkan's team to check (components/partnerProofs.tsx). */
 
 const card = "rounded-2xl bg-card shadow-sm ring-1 ring-fg/10";
 const field =
@@ -50,6 +53,8 @@ export function Delivery() {
   /* Each mistake shows under its own field */
   const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string; fee?: string }>({});
   const [flash, setFlash] = useState(false);
+  const proof = usePartnerProofs([], s, lang);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${w.title}`;
@@ -100,6 +105,8 @@ export function Delivery() {
     }
     const base: SavedSetup = setup ?? { name: "", description: "", color: "#004956", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
     saveSetup({ ...base, pickup, shipping });
+    /* the proofs still waiting for a check follow the partner's new name */
+    if (shipping?.mode === "own") syncProofPartner(shipping.name, shipping.kind);
     setSetup({ ...base, pickup, shipping });
     setFlash(true);
     setTimeout(() => setFlash(false), 2000);
@@ -186,6 +193,31 @@ export function Delivery() {
                 <label htmlFor="d-fee" className="mb-2 block text-sm font-semibold">{w.fee}</label>
                 <input id="d-fee" dir="ltr" inputMode="decimal" aria-invalid={!!errors.fee} aria-describedby="d-fee-note" value={fee} onChange={(e) => { setFee(typedMoney(e.target.value, 3)); setErrors((x) => ({ ...x, fee: undefined })); }} placeholder="0" className={`${field} h-11 max-w-[12rem] text-start ${errors.fee ? bad : ""}`} />
                 <p id="d-fee-note" className={`mt-1.5 text-xs ${errors.fee ? "text-rose-600" : "text-muted"}`}>{errors.fee ?? w.feeHint}</p>
+              </div>
+              <div>
+                <p className="mb-1 text-sm font-semibold">{s.proofLabel}</p>
+                <p className="mb-3 text-xs text-muted">{s.proofHint}</p>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const picked = Array.from(e.target.files ?? []);
+                    e.target.value = "";
+                    void proof.add(picked, { name: cleanLine(name, ACCOUNT_LIMITS.shipName), kind });
+                  }}
+                  className="hidden"
+                />
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={proof.busy || proof.proofs.length >= MAX_PROOFS} className="grid h-16 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+                  <span>
+                    {proof.busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proof.proofs.length}/{MAX_PROOFS})</span>
+                  </span>
+                </button>
+                <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
+                {proof.error && <p role="alert" className="mt-1 text-xs text-rose-600">{proof.error}</p>}
+                <ProofRows proofs={proof.proofs} s={s} onRemove={(f) => void proof.remove(f)} />
+                <p className="mt-3 text-xs text-muted">{proof.sends ? s.serverNote : s.localNote}</p>
               </div>
             </div>
           )}

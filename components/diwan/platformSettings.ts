@@ -5,11 +5,12 @@ import { cleanLine, cleanLines, cleanMoney, visibleLength } from "../safe";
    settings page uses the types and the starting values. A clean function gives null when the value can't be used. */
 
 export type ShippingCompany = { name: string; phone: string; cities: string[] };
-export const PAY_METHODS = ["cod", "cliq", "card", "paypal"] as const;
+/* Dukkan takes no PayPal (removed 2026-11-16): a saved setting that still has it is read without it */
+export const PAY_METHODS = ["cod", "cliq", "card"] as const;
 export type PayMethod = (typeof PAY_METHODS)[number];
 export type PaymentMethods = Record<PayMethod, { on: boolean; note: string }>;
 /** The ways the theme checkout can take a merchant's payment (it has no cash): only the ones Diwan has on are offered */
-export const THEME_PAYS = ["card", "cliq", "paypal"] as const satisfies readonly PayMethod[];
+export const THEME_PAYS = ["card", "cliq"] as const satisfies readonly PayMethod[];
 export type ThemePay = (typeof THEME_PAYS)[number];
 export type SeoDefaults = { titleSuffix_en: string; titleSuffix_ar: string; description_en: string; description_ar: string };
 export type Bi = { en: string; ar: string };
@@ -23,7 +24,6 @@ export type LegalPage = (typeof LEGAL_PAGES)[number];
 export type StoreLegalTemplates = Record<LegalPage, LegalTemplate>;
 
 export type PlatformSettings = {
-  trial_days: number;
   shipping_companies: ShippingCompany[];
   payment_methods: PaymentMethods;
   default_themes: string[];
@@ -33,11 +33,12 @@ export type PlatformSettings = {
 };
 export type SettingKey = keyof PlatformSettings;
 
-/* Dukkan once sold domains, with a "domain_prices" setting; it no longer does (every store lives at dukkan.store/<its
-   link>), so that key is gone from here. A row still saved under it is never read, sent or shown. */
-export const SETTING_KEYS: SettingKey[] = ["trial_days", "shipping_companies", "payment_methods", "default_themes", "seo_defaults", "dukkan_ship", "store_legal_templates"];
-/* What any visitor's page may read (GET /api/platform/settings): prices, ways to pay and texts every store shows anyway. The
-   rest (the trial length) stays inside Diwan. */
+/* Dukkan once sold domains, with a "domain_prices" setting; it no longer does (every store lives at the site address/<its
+   link>), so that key is gone from here. The same goes for "trial_days": Dukkan has no plans and no free trial. A row
+   still saved under either is never read, sent or shown. */
+export const SETTING_KEYS: SettingKey[] = ["shipping_companies", "payment_methods", "default_themes", "seo_defaults", "dukkan_ship", "store_legal_templates"];
+/* What any visitor's page may read (GET /api/platform/settings): prices, ways to pay and texts every store shows anyway.
+   Today that is every setting; a setting only Diwan should see would be left out of this list. */
 export const PUBLIC_KEYS = ["payment_methods", "shipping_companies", "seo_defaults", "default_themes", "dukkan_ship", "store_legal_templates"] as const satisfies readonly SettingKey[];
 export type PublicKey = (typeof PUBLIC_KEYS)[number];
 export type PublicSettings = Pick<PlatformSettings, PublicKey>;
@@ -70,14 +71,12 @@ const LEGAL_DEFAULTS: StoreLegalTemplates = {
 /** Used while a setting has never been saved: what the pages did before Diwan could change it, so nothing moves until staff
     save something */
 export const SETTING_DEFAULTS: PlatformSettings = {
-  trial_days: 14,
   shipping_companies: [],
   payment_methods: {
-    /* the store checkout offered cash, CliQ and card, and the theme checkout card, CliQ and PayPal */
+    /* the store checkout offers cash, CliQ and card, and the theme checkout card and CliQ */
     cod: { on: true, note: "" },
     cliq: { on: true, note: "" },
     card: { on: true, note: "" },
-    paypal: { on: true, note: "" },
   },
   /* empty: the code's own free designs (Dukkan and Mada, components/themes.ts) */
   default_themes: [],
@@ -100,7 +99,7 @@ export const SETTING_DEFAULTS: PlatformSettings = {
 };
 
 export const LIMITS = {
-  companies: 30, cities: 40, city: 40, companyName: 60, phone: 20, note: 200, themes: 20, suffix: 60, description: 300, maxTrial: 365,
+  companies: 30, cities: 40, city: 40, companyName: 60, phone: 20, note: 200, themes: 20, suffix: 60, description: 300,
   shipPrice: 100, shipCities: 30, shipPolicy: 200, shipFeatures: 8, shipFeature: 80, legalTitle: 80, legalBody: 6000,
 };
 
@@ -134,9 +133,6 @@ export const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
     the catalog (it is browser code), so there a theme id is checked by its form, and the settings page offers only the catalog. */
 export function cleanSetting(key: SettingKey, v: unknown, themeIds?: string[]): PlatformSettings[SettingKey] | null {
   switch (key) {
-    case "trial_days":
-      return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= LIMITS.maxTrial ? v : null;
-
     case "shipping_companies": {
       if (!Array.isArray(v) || v.length > LIMITS.companies) return null;
       const out: ShippingCompany[] = [];
