@@ -2,7 +2,8 @@ import type { Lang } from "./content";
 import { demoSeed } from "./demoData";
 import { demoActive, isOwnCopy } from "./demoSandbox";
 import { merchantCall, onServer } from "./merchantApi";
-import { publicSettings, refreshPublicSettings } from "./platformPublic";
+import { FREE_THEME_IDS } from "./platformDefaults";
+import { refreshPublicSettings } from "./platformPublic";
 import { THEME_PRICES } from "./themePrices";
 import { loadSetup } from "./setup";
 import { atelierConfig } from "./storefront/atelierTheme";
@@ -70,6 +71,8 @@ export type ThemeInfo = {
   custom?: boolean;
   /* For a customized copy of a bought theme: the id of that theme */
   from?: string;
+  /* For a copy made with "Make a copy" in My themes: the name of the theme it was copied from */
+  copyOf?: string;
   /* The made-up store a theme is previewed with, when it is not the perfume store: its products and who it is */
   sampleProducts?: (lang: Lang) => StoreProduct[];
   /* The version of the theme's sample. A private copy (/saad/<theme>) made from an older version starts again from the new one. */
@@ -234,15 +237,10 @@ export const findTheme = (id: string | null | undefined): ThemeInfo | null => {
   return t ? withListing(t) : null;
 };
 
-/* The code's own free designs, used while Dukkan's staff have not picked any in Diwan */
-const CODE_FREE: ThemeInfo[] = [defaultTheme, madaTheme];
-
-/** The free designs every merchant has: always first in My themes, in this order, and never deleted. They are the default
-    themes Dukkan's staff pick in Diwan (platform settings, default_themes), or Dukkan and Mada while none are picked. A
-    theme of the theme store picked there is free too (the server charges nothing for it). */
+/** The free designs every merchant has: always first in My themes, in this order, and never deleted. They are set in the
+    code (components/platformDefaults.ts FREE_THEME_IDS: Dukkan and Mada), no longer in Diwan. */
 export function freeThemes(): ThemeInfo[] {
-  const picked = publicSettings().default_themes.map((id) => findTheme(id)).filter((t): t is ThemeInfo => !!t);
-  return picked.length ? picked : CODE_FREE;
+  return FREE_THEME_IDS.map((id) => findTheme(id)).filter((t): t is ThemeInfo => !!t);
 }
 export const isFreeTheme = (id: string | null | undefined) => freeThemes().some((t) => t.id === id);
 
@@ -263,20 +261,30 @@ const KEY = "seen-themes";
 
 export type OwnedTheme = { id: string; at: number; paid: number };
 /* A design the merchant saved as a theme */
-/* `from` is the bought theme a copy was made from: such a copy is never deleted, it can be reset to the original look */
-export type CustomTheme = { id: string; name: string; at: number; look: ThemeLook; from?: string };
+/* `from` is the theme (bought or free) a copy was made from. The one customized copy of a bought theme ("Customize") has no
+   `copyOf`: it is never deleted, it can be reset to the original look. A copy made with "Make a copy" has `copyOf` (the name
+   of the theme it was copied from, to show): it can be renamed and deleted like a design he saved, and deleting it never
+   touches the theme it came from. `from` is only ever the id of a theme he owns or a free one, so a copy of a bought theme is
+   no new purchase: the server still sees the bought theme (server/shops.ts themeOf), and ownsLook still asks seen-themes.owned. */
+export type CustomTheme = { id: string; name: string; at: number; look: ThemeLook; from?: string; copyOf?: string };
 /* names: the names he gave to Dukkan's and bought themes in My themes (his saved designs keep theirs in `custom`) */
 export type ThemeState = { owned: OwnedTheme[]; custom: CustomTheme[]; active: string; names?: Record<string, string> };
 
-/** How many designs a merchant can save (their pictures live in this browser, which has little room) */
+/** How many themes of his own a merchant can keep: designs he saved and copies he made, together (their looks live in this
+    browser and in one seen-themes value on the server, which both have little room). The one customized copy of each
+    bought theme does not count. */
 export const MAX_SAVED = 10;
+/** A theme he made himself (a saved design or a copy): it counts toward MAX_SAVED and can be deleted */
+export const isOwnMade = (c: CustomTheme) => !c.from || typeof c.copyOf === "string";
+/** The longest theme name */
+export const NAME_MAX = 40;
 
 export function loadThemeState(): ThemeState {
   try {
     const raw = localStorage.getItem(KEY);
     const s = raw ? (JSON.parse(raw) as Partial<ThemeState>) : {};
     /* A saved look is a design like any other: it is checked before it is shown or put on the store (see safeDesign.ts) */
-    const custom = (Array.isArray(s.custom) ? s.custom : []).filter((c) => c && typeof c.id === "string" && c.look && typeof c.look === "object").map((c) => ({ ...c, name: String(c.name ?? "").slice(0, 40), look: { ...c.look, ...sanitizeDesign(c.look) } as ThemeLook }))
+    const custom = (Array.isArray(s.custom) ? s.custom : []).filter((c) => c && typeof c.id === "string" && c.look && typeof c.look === "object").map((c) => ({ ...c, name: String(c.name ?? "").slice(0, NAME_MAX), copyOf: typeof c.copyOf === "string" ? c.copyOf.slice(0, NAME_MAX) : undefined, look: { ...c.look, ...sanitizeDesign(c.look) } as ThemeLook }))
       /* a copy of a theme that no longer exists (one removed from Dukkan) is kept as a design he saved himself: it can be deleted */
       .map(({ from, ...c }) => (from && findTheme(from) ? { ...c, from } : c));
     const names = Object.fromEntries(Object.entries(s.names && typeof s.names === "object" ? s.names : {}).filter(([, v]) => typeof v === "string" && v.trim()).map(([k, v]) => [k, v.trim().slice(0, 40)]));
@@ -497,17 +505,19 @@ export function applyTheme(t: ThemeInfo, lang: Lang): boolean {
 /** Keeps a design as a theme in My themes. `full` means the browser had no room (usually too many pictures). */
 export function saveDesignAsTheme(name: string, cfg: StorefrontConfig = loadConfig()): "ok" | "full" | "limit" {
   const s = loadThemeState();
-  /* Copies of bought themes do not count: only designs he saved himself */
-  if (s.custom.filter((c) => !c.from).length >= MAX_SAVED) return "limit";
-  const id = `mine-${Date.now().toString(36)}`;
+  /* The customized copies of bought themes do not count: only designs he saved himself and copies he made */
+  if (s.custom.filter(isOwnMade).length >= MAX_SAVED) return "limit";
+  const id = newId();
   const next: ThemeState = { ...s, custom: [...s.custom, { id, name: name.trim().slice(0, 40) || "My design", at: Date.now(), look: lookOf(cfg) }], active: s.active };
   return saveThemeState(next) ? "ok" : "full";
 }
 
-/** Deletes a design the merchant saved himself. A bought theme, and the customized copy of one, can never be deleted (they can be reset). */
+/** Deletes a design the merchant saved himself, or a copy he made. A bought theme, and the customized copy of one, can never be
+    deleted (they can be reset). Deleting a copy never touches the theme it was copied from. */
 export function deleteSavedTheme(id: string): ThemeState {
   const s = loadThemeState();
-  const next: ThemeState = { ...s, custom: s.custom.filter((c) => c.id !== id || !!c.from), active: s.active === id && !s.custom.find((c) => c.id === id)?.from ? "" : s.active };
+  const gone = s.custom.find((c) => c.id === id && isOwnMade(c));
+  const next: ThemeState = { ...s, custom: s.custom.filter((c) => c !== gone), active: gone && s.active === id ? "" : s.active };
   saveThemeState(next);
   return next;
 }
@@ -515,7 +525,7 @@ export function deleteSavedTheme(id: string): ThemeState {
 /** Renames a theme in My themes. An empty name gives a Dukkan or bought theme its own name back (a saved design keeps its old one). */
 export function renameTheme(id: string, name: string): ThemeState {
   const s = loadThemeState();
-  const v = name.trim().slice(0, 40);
+  const v = name.trim().slice(0, NAME_MAX);
   const mine = s.custom.some((c) => c.id === id);
   const names = { ...s.names };
   if (!mine) {
@@ -540,6 +550,7 @@ export function savedThemeInfo(c: CustomTheme): ThemeInfo {
     look: c.look,
     custom: true,
     from: c.from,
+    copyOf: c.copyOf,
     build: (_lang, _o) => composeDesign(loadConfig(), c.look),
   };
 }
@@ -548,9 +559,9 @@ export function savedThemeInfo(c: CustomTheme): ThemeInfo {
     designer can open on it. The bought theme itself is never changed. */
 export function customizeTheme(t: ThemeInfo, lang: Lang): "ok" | "full" {
   const s = loadThemeState();
-  const mine = s.custom.find((c) => c.from === t.id);
+  const mine = s.custom.find((c) => c.from === t.id && !isOwnMade(c));
   const look = mine ? mine.look : lookOf(t.build(lang, { samples: demoActive(), storeName: loadSetup()?.name }));
-  const id = mine ? mine.id : `mine-${Date.now().toString(36)}`;
+  const id = mine ? mine.id : newId();
   const custom = mine ? s.custom : [...s.custom, { id, name: `${t.name[lang]} ${lang === "ar" ? "(نسختي)" : "(my copy)"}`, at: Date.now(), look, from: t.id }];
   if (!saveConfig(composeDesign(loadConfig(), look))) return "full";
   return saveThemeState({ ...s, custom, active: id }) ? "ok" : "full";
@@ -565,4 +576,43 @@ export function resetCopy(id: string, lang: Lang): "ok" | "full" {
   const look = lookOf(original.build(lang, { samples: demoActive(), storeName: loadSetup()?.name }));
   if (s.active === id && !saveConfig(composeDesign(loadConfig(), look))) return "full";
   return saveThemeState({ ...s, custom: s.custom.map((x) => (x.id === id ? { ...x, look } : x)) }) ? "ok" : "full";
+}
+
+/* A new id for a theme of his own. "mine-" tells the server it is not a theme of the theme store (server/shops.ts themeOf). */
+const newId = () => `mine-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** The name of a copy: "<name> (copy)", or "(copy 2)", "(copy 3)"... when that name is taken. A copy of a copy is numbered
+    from the first one's name ("Lamma (copy)" gives "Lamma (copy 2)"), not "Lamma (copy) (copy)". */
+export function copyName(name: string, word: string, taken: string[]): string {
+  const base = name.replace(/\s*\((?:copy|نسخة)(?:\s+\d+)?\)\s*$/, "").trim() || name.trim();
+  const used = new Set(taken.map((x) => x.trim().toLowerCase()));
+  for (let n = 1; ; n++) {
+    const end = ` (${word}${n > 1 ? ` ${n}` : ""})`;
+    const v = `${base.slice(0, NAME_MAX - end.length).trim()}${end}`;
+    if (!used.has(v.toLowerCase())) return v;
+  }
+}
+
+/** "Make a copy" in My themes: a new theme of his own with the same design as `t` (a free design, a bought theme, its customized
+    copy, a design he saved or another copy), named `name`. It is not put on the store and `t` is not changed. A copy of a bought
+    or free theme keeps that theme as `from`, so it is no new purchase and its looks stay open to him (ownsLook). */
+export function copyTheme(t: ThemeInfo, name: string, sourceName: string, lang: Lang): { ok: true; id: string } | { ok: false; why: "limit" | "full" } {
+  const s = loadThemeState();
+  if (s.custom.filter(isOwnMade).length >= MAX_SAVED) return { ok: false, why: "limit" };
+  const src = s.custom.find((c) => c.id === t.id);
+  /* a theme of his own: its look as kept; a free or bought theme: its look as the theme builds it (as "Use" would put it on) */
+  const look = src ? (JSON.parse(JSON.stringify(src.look)) as ThemeLook) : lookOf(t.build(lang, { samples: demoActive(), storeName: loadSetup()?.name }));
+  const from = src ? src.from : findTheme(t.id) ? t.id : undefined;
+  const id = newId();
+  const copy: CustomTheme = { id, name: name.trim().slice(0, NAME_MAX) || sourceName, at: Date.now(), look, ...(from ? { from } : {}), copyOf: sourceName.slice(0, NAME_MAX) };
+  return saveThemeState({ ...s, custom: [...s.custom, copy] }) ? { ok: true, id } : { ok: false, why: "full" };
+}
+
+/** After the designer saves the store design: when the theme in use is one of his own (a copy, his customized copy of a bought
+    theme or a design he saved), it keeps the new look, so it is the same design when he comes back to it. Free and bought
+    themes are never changed (their look comes from Dukkan). */
+export function keepActiveLook(c: StorefrontConfig): void {
+  const s = loadThemeState();
+  if (!s.custom.some((x) => x.id === s.active)) return;
+  saveThemeState({ ...s, custom: s.custom.map((x) => (x.id === s.active ? { ...x, look: lookOf(c) } : x)) });
 }

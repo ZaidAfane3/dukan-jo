@@ -96,7 +96,12 @@ export const designFrom = (raw: unknown): StorefrontConfig => merge(sanitizeDesi
 export const loadTemplate = () => read(TEMPLATE_KEY);
 
 /* The template itself is kept on Dukkan's server (staff edit it from Diwan); this browser keeps a copy under TEMPLATE_KEY so a
-   design can be read at once. The copy is brought up to date once per page load (or right now, with force). */
+   design can be read at once. The copy is brought up to date once per page load (or right now, with force).
+   That copy is only a cache: a browser that never had it (a merchant on another device, cleared storage) or has an older
+   one would show, and then save, the wrong starting design. So when the server's template differs from the copy,
+   TEMPLATE_EVENT is sent on window and pages showing a store with no design of its own read it again; and the designer
+   waits for templateReady() before it opens such a store (see Designer.tsx). */
+export const TEMPLATE_EVENT = "dukkan-template-changed";
 let templateAsked: Promise<void> | null = null;
 export function refreshTemplate(force = false): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
@@ -105,12 +110,27 @@ export function refreshTemplate(force = false): Promise<void> {
     .then((r) => (r.ok ? r.json() : null))
     .then((j: { template?: unknown } | null) => {
       if (!j || !("template" in j)) return;
+      const before = rawTemplate();
       if (j.template && typeof j.template === "object") write(TEMPLATE_KEY, j.template as StorefrontConfig);
       else clearTemplate();
+      if (rawTemplate() !== before) window.dispatchEvent(new Event(TEMPLATE_EVENT));
     })
     .catch(() => {
       /* offline: the copy this browser has */
     }));
+}
+
+function rawTemplate(): string | null {
+  try {
+    return localStorage.getItem(TEMPLATE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves once this page load has the server's template (or after a few seconds without an answer: the copy is used) */
+export function templateReady(waitMs = 4000): Promise<void> {
+  return Promise.race([refreshTemplate(), new Promise<void>((r) => setTimeout(r, waitMs))]);
 }
 
 /** Saves the starter template on the server (Dukkan staff only: the route checks the Diwan session). False when it was not kept. */

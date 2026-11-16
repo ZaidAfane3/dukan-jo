@@ -72,8 +72,12 @@ function useTour() {
   return { on, lang, w: words[lang] };
 }
 
+/* The bar is near-black in both themes. It carries the .dash class (for the dashboard's font weights), and .dash sets the
+   text to the page's own colour, which is near-black in light mode and wins over the bar's text-white. So the label and the
+   end button say white themselves. */
+const label = "text-xs font-semibold text-white sm:text-sm";
 const create = "rounded-lg bg-brand-light px-3.5 py-1.5 text-xs font-bold text-brand-dark transition hover:bg-brand-pale";
-const end = "rounded-lg border border-white/30 px-3.5 py-1.5 text-xs font-semibold transition hover:bg-white/10";
+const end = "rounded-lg border border-white/50 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10";
 
 /* Switches the browser's storage to the tour's made-up copy (see demoSandbox.ts) before any page
    reads its data. It sits first in the layout. On pages without a dashboard header it also shows
@@ -101,7 +105,7 @@ export function DemoBoot() {
   if (!on) return <SaveNotice />;
   return (
     <div role="status" className={`demo-pill dash fixed ${inDesigner ? "bottom-20" : "bottom-4"} start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-brand-dark px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2`}>
-      <span className="text-xs font-semibold sm:text-sm">{w.label}</span>
+      <span className={label}>{w.label}</span>
       <div className="flex gap-2">
         <button type="button" onClick={() => endDemo("/signup")} className={create}>{w.create}</button>
         <button type="button" onClick={() => endDemo()} className={end}>{w.end}</button>
@@ -123,7 +127,7 @@ export function DemoStrip() {
   if (!on) return null;
   return (
     <div role="status" className="dash flex flex-wrap items-center justify-center gap-x-4 gap-y-2 bg-brand-dark px-5 py-2 text-white md:px-10">
-      <span className="text-xs font-semibold sm:text-sm">{w.label}</span>
+      <span className={label}>{w.label}</span>
       <div className="flex gap-2">
         <button type="button" onClick={() => endDemo("/signup")} className={create}>{w.create}</button>
         <button type="button" onClick={() => endDemo()} className={end}>{w.end}</button>

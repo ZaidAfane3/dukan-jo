@@ -5,7 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } f
 import { brandName } from "../content";
 import { refreshCatalog, useCatalog } from "../catalog";
 import { demoActive, setOwnCopy } from "../demoSandbox";
-import { adoptTheme, baseTheme, defaultTheme, findTheme, loadThemeState, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
+import { adoptTheme, baseTheme, defaultTheme, findTheme, keepActiveLook, loadThemeState, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
 import { PageEditor } from "./PageEditor";
 import { load as loadPages, savePages } from "../InfoPages";
@@ -14,7 +14,7 @@ import { oneSided, startingWords, textsNow, TRANSLATE_WORDS } from "./translatio
 import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
 import { StorefrontTheme } from "../storefront/StorefrontTheme";
 import { DesignerSkeleton } from "../StoreSkeletons";
-import { clearTemplate, dropServerTemplate, loadConfig, loadTemplate, refreshTemplate, saveConfig, saveTemplate, sendTemplate, sendThemeDesign, designFrom, storeIsLive } from "../storefront/storage";
+import { clearTemplate, dropServerTemplate, loadConfig, loadTemplate, refreshTemplate, saveConfig, saveTemplate, sendTemplate, sendThemeDesign, designFrom, storeIsLive, templateReady } from "../storefront/storage";
 import { defaultConfig, headingFamily, type PicEdit, type SectionMove } from "../storefront/config";
 import { Canvas } from "./Canvas";
 import { HEX, input } from "./controls";
@@ -146,7 +146,7 @@ function initial(): Draft {
   const wa = s?.whatsapp ? `+962 ${shownMobile(s.whatsapp)}` : "";
   return {
     config: wa && !config.footer.whatsapp?.trim() ? { ...config, footer: { ...config.footer, whatsapp: wa } } : config,
-    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#004956", phone: shownMobile(s?.phone || (s?.whatsapp === undefined ? accountPhone() : "")) },
+    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#e67726", phone: shownMobile(s?.phone || (s?.whatsapp === undefined ? accountPhone() : "")) },
   };
 }
 
@@ -283,6 +283,8 @@ export function Designer() {
   const [templateMode, setTemplateMode] = useState(false);
   /* the server did not keep the last save of the starter template */
   const [templateErr, setTemplateErr] = useState(false);
+  /* a store with no design of its own opens once this page has the server's starter template (see the effect below) */
+  const [templateFresh, setTemplateFresh] = useState(false);
   /* /design?catalog=<id>: staff edit the design of a theme made in Diwan (the theme store's list). It works like the
      starter template (templateMode), but it is saved to that theme on the server. */
   const [catalogTheme, setCatalogTheme] = useState<{ id: string; name: string } | null>(null);
@@ -331,6 +333,13 @@ export function Designer() {
     const catalog = catalogId && /^[a-z][a-z0-9-]{1,30}$/.test(catalogId) ? catalogId : null;
     const template = q.get("template") === "1" || !!catalog;
     const ro = template ? false : demoActive();
+    /* A store with no design of its own starts from the starter template, which this browser only has a copy of (maybe
+       none yet on this device, or an older one): it opens once the server's template is here, so the design he sees and
+       then saves is the one Dukkan's staff set (storage.ts templateReady). */
+    if (!template && !ro && !templateFresh && !storeIsLive()) {
+      void templateReady().then(() => setTemplateFresh(true));
+      return;
+    }
     setReadOnly(ro);
     const d = initial();
     /* a look of a theme he has not bought is never in his design (an older save, or one picked before they were hidden) */
@@ -386,7 +395,9 @@ export function Designer() {
       setDraft(d);
       setSaved(tryTheme ? baseline : JSON.stringify(d));
     }
-  }, []);
+    /* runs again once, when a store with no design of its own has the server's starter template */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateFresh]);
 
   /* Kept from one render to the next: the whole design is turned into text only when it changes */
   const savedText = useMemo(() => (saved ? designText(JSON.parse(saved)) : ""), [saved]);
@@ -630,7 +641,7 @@ export function Designer() {
   const emptyOk = useRef(false);
   /* the page's background and the store color, for the color boxes that warn when a text color vanishes on them */
   const pageBgNow = draft?.config.theme.background ?? "#ffffff";
-  const primaryNow = draft ? draft.config.theme.primary || (/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#004956") : "#004956";
+  const primaryNow = draft ? draft.config.theme.primary || (/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#e67726") : "#e67726";
   const pageLook = useMemo(() => ({ bg: pageBgNow, primary: primaryNow }), [pageBgNow, primaryNow]);
 
   if (!draft) return <DesignerSkeleton />;
@@ -858,6 +869,9 @@ export function Designer() {
       shipping: prev?.shipping ?? null,
     };
     saveSetup(next);
+    /* the theme in use, when it is one of his own (a copy or a design he saved), keeps what he just saved; a theme being tried
+       (?theme=) is not the one in use, so nothing of his is changed by it */
+    if (!trying) keepActiveLook(kept.config);
     keepDraft(null);
     if (kept !== draft) setDraft(kept);
     setSaved(JSON.stringify(kept));
@@ -1231,7 +1245,7 @@ export function Designer() {
           <TextColorNow.Provider value={legibleOn(draft.config.theme.text, draft.config.theme.background)}>
           <PageLookNow.Provider value={pageLook}>
           <UsingTheme.Provider value={trying?.id ?? usingTheme}>
-          <StoreColorNow.Provider value={/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#004956"}>
+          <StoreColorNow.Provider value={/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#e67726"}>
           <SampleProducts.Provider value={sampleChoice}>
           <OpenPage.Provider value={(id) => { setOpenedPage(id); setProductView(false); setCartView(false); setPanelOpen(true); }}>
           {/* --sf-heading: the store's titles font, so the font pickers' "like the titles" choice writes in it */}

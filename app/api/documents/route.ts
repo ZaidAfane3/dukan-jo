@@ -12,7 +12,9 @@ export const dynamic = "force-dynamic";
    server/documents.ts documentsRoute), 409 "too-many" or "too-big" (a limit is reached), 400 "invalid" (the file is
    not an image or PDF we accept, or a field is wrong). */
 
-const SELECT = `SELECT id, kind, name, partner, partner_kind, status, note, mime, bytes, data IS NOT NULL AS has_file, created_at FROM documents`;
+/* seq: this account's first, second... document of its kind (its title: "Proof of delivery #001") */
+const SELECT = `SELECT id, public_id, kind, name, partner, partner_kind, status, note, mime, bytes, data IS NOT NULL AS has_file, created_at,
+  rejection_seen, row_number() OVER (PARTITION BY account_id, kind ORDER BY created_at, id)::int AS seq FROM documents`;
 
 /** My documents, oldest first (the order they were added), at most what an account can keep */
 export const GET = documentsRoute(async (_req, me) => {
@@ -48,7 +50,7 @@ export const POST = documentsRoute(async (req, me) => {
     const ins = await c.query(
       `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting')
-       RETURNING id, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
+       RETURNING id, public_id, rejection_seen, 0 AS seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
       [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size],
     );
     return ins.rows[0] as Record<string, unknown>;

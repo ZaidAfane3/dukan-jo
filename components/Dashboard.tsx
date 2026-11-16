@@ -10,7 +10,6 @@ import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";
 import { cleanOrder, cleanProduct, money, parseList, typedMoney, type Order, type Product } from "./records";
 import { latestOrders, rangeSpan, salesFigures, salesSeries } from "./storeNumbers";
-import { StoreStatus } from "./StoreStatus";
 import { AnnouncementBanner } from "./AnnouncementBanner";
 import { useStoreVisits } from "./storeVisits";
 
@@ -253,9 +252,6 @@ export function Dashboard() {
             </a>
           </section>
         )}
-
-        {/* Open or paused (a maintenance page for visitors). Not in the tour, whose store is made up. */}
-        {!tour && <StoreStatus lang={lang} className={card} />}
 
         {/* Month summary */}
         <section className={card}>

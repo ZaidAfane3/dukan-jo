@@ -36,6 +36,8 @@ export const DIWAN_SCHEMA = `
     expires_at   TIMESTAMPTZ NOT NULL
   );
   CREATE INDEX IF NOT EXISTS staff_sessions_staff ON staff_sessions (staff_id);
+  /* when this sign-in last typed its password again for a change every new store gets (server/staffConfirm.ts) */
+  ALTER TABLE staff_sessions ADD COLUMN IF NOT EXISTS password_confirmed_at TIMESTAMPTZ;
 
   /* everything staff open or change. Only ever added to: a trigger refuses UPDATE and DELETE. */
   CREATE TABLE IF NOT EXISTS audit_log (
@@ -310,6 +312,15 @@ export const DIWAN_SCHEMA = `
      delivery partner a courier proof is for (the name sealed; kind 0 a shipping company, 1 a person), as the merchant
      named them when the file was sent. Rows from before have no file (data IS NULL). */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS data BYTEA;
+  /* A document's address in every link (its file, its review): a random code of 32 letters and digits, never the
+     counting number, so no one can find a document by trying the next number. Older rows get one here. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS public_id TEXT;
+  ALTER TABLE documents ALTER COLUMN public_id SET DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+  UPDATE documents SET public_id = replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') WHERE public_id IS NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS documents_public_id ON documents (public_id);
+  /* A rejected document is shown to its merchant once in a pop-up with the reason (components/DocumentRejected.tsx):
+     this is set when they close it, and cleared each time Diwan rejects it again. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS rejection_seen BOOLEAN NOT NULL DEFAULT false;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS mime TEXT;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS bytes INTEGER;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner TEXT NOT NULL DEFAULT '';

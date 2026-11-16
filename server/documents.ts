@@ -55,12 +55,13 @@ export const partnerKind = (v: unknown) => (v === 0 || v === 1 ? v : null);
 export const documentName = (v: unknown) => cleanFileName(typeof v === "string" ? v.replace(/\s+/g, " ") : "").trim() || "file";
 
 /** A document id from the URL, or null */
-export const documentId = (v: string | undefined) => (/^\d{1,18}$/.test(v ?? "") ? (v as string) : null);
+/** A document's address in links: its random public code (schema.ts documents.public_id), never its counting number */
+export const documentId = (v: string | undefined) => (/^[0-9a-f]{64}$/.test(v ?? "") ? (v as string) : null);
 
 /** What a merchant's page sees of one of their documents (never the file itself: that has its own route) */
 export function merchantDocument(r: Record<string, any>) {
   return {
-    id: String(r.id),
+    id: String(r.public_id),
     kind: r.kind as string,
     name: r.name as string,
     partner: (r.partner ?? "") as string,
@@ -71,6 +72,9 @@ export function merchantDocument(r: Record<string, any>) {
     bytes: (r.bytes ?? 0) as number,
     hasFile: !!r.has_file,
     createdAt: new Date(r.created_at).toISOString(),
+    seq: Number(r.seq) || 0,
+    /* a rejection the merchant has already read in its pop-up */
+    rejectionSeen: !!r.rejection_seen,
   };
 }
 

@@ -762,9 +762,9 @@ function FillPicker({ lang, value, fallback, onChange, label, list }: { lang: La
 /** The color the texts of the store have now (the theme's text color): shown in a color box that has not been changed yet */
 export const TextColorNow = createContext("#1c1a17");
 /* the store color, for the colors that follow it until he picks one (a perk box's border) */
-export const StoreColorNow = createContext("#004956");
+export const StoreColorNow = createContext("#e67726");
 /** The page's background and the store color the cover falls back to, so a color box can say when its color vanishes there */
-export const PageLookNow = createContext({ bg: "#ffffff", primary: "#004956" });
+export const PageLookNow = createContext({ bg: "#ffffff", primary: "#e67726" });
 
 /** The color of one text: a swatch that opens the color picker and shows the color it has now.
     `auto` is the color the preview draws when nothing is chosen (white on a banner); without it, the store's text color.
@@ -2371,7 +2371,7 @@ function SampleSwitch({ lang }: { lang: Lang }) {
    beside it, which keeps the text color) and the number on the basket. No color of his own: the store color, and the price
    stays in the text color, like the store does. */
 function DiscountSample({ lang, color, store, text }: { lang: Lang; color?: string; store: string; text?: string }) {
-  const fill = color || store || "#004956";
+  const fill = color || store || "#e67726";
   const ink = legibleOn(text || "#1c1a17", "#ffffff");
   const ar = lang === "ar";
   return (
@@ -2430,7 +2430,7 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
         </Part>
       </Blocked>
       <Part lang={lang} label={popT[lang].saleColor} hint={popT[lang].saleColorHint}>
-        <ColorPicker value={th.saleColor || (th.primary || draft.identity.color)} onChange={(saleColor) => set({ saleColor })} label={popT[lang].saleColor} bad={dc[lang].identity.hexBad} list={["#d9534f", "#e11d48", "#c0392b", "#e08a1e", "#161616", "#004956"]} />
+        <ColorPicker value={th.saleColor || (th.primary || draft.identity.color)} onChange={(saleColor) => set({ saleColor })} label={popT[lang].saleColor} bad={dc[lang].identity.hexBad} list={["#d9534f", "#e11d48", "#c0392b", "#e08a1e", "#161616", "#e67726"]} />
         <DiscountSample lang={lang} color={th.saleColor} store={th.primary || draft.identity.color} text={th.text} />
         {th.saleColor && (
           <button type="button" onClick={() => set({ saleColor: "" })} className="mt-3 text-sm font-semibold text-primary hover:underline">
@@ -2482,7 +2482,7 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
       </Blocked>
       <div>
       <Part lang={lang} label={t.titles}>
-        <ColorPicker value={th.titleColor || th.text} onChange={(titleColor) => set({ titleColor })} label={t.titles} bad={dc[lang].identity.hexBad} list={["#004956", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#e08a1e", "#7a3ea1", "#161616"]} />
+        <ColorPicker value={th.titleColor || th.text} onChange={(titleColor) => set({ titleColor })} label={t.titles} bad={dc[lang].identity.hexBad} list={["#e67726", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#e08a1e", "#7a3ea1", "#161616"]} />
         {th.titleColor && (
           <button type="button" onClick={() => set({ titleColor: "" })} className="mt-3 text-sm font-semibold text-primary hover:underline">
             {t.sameAsText}
@@ -2746,7 +2746,7 @@ function LogoChoice({ lang, draft, update }: { lang: Lang; draft: Draft; update:
   const pick = (on: boolean) => `${tile} ${on ? "border-primary bg-primary/10 ring-2 ring-primary/40" : "border-fg/15 hover:bg-soft"}`;
   /* the marks in the store's color, with white or dark on them (whichever reads), as the store shows them: white on a
      light color would barely show */
-  const color = HEXISH.test(draft.identity.color) ? draft.identity.color : "#004956";
+  const color = HEXISH.test(draft.identity.color) ? draft.identity.color : "#e67726";
   return (
     <div className="space-y-3" style={{ ["--sf-primary" as string]: color, ["--sf-on" as string]: onColor(color) }}>
       {/* with his own picture as the logo, the ready-made marks are hidden (removing the picture brings them back) */}
@@ -3074,8 +3074,8 @@ function HeroBackgrounds({ lang, id, settings, onChange }: { lang: Lang; id: str
   );
 }
 
-const draftColor = "#004956";
-const bgSwatches = ["#004956", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#e08a1e", "#7a3ea1", "#161616"];
+const draftColor = "#e67726";
+const bgSwatches = ["#e67726", "#004956", "#348d9c", "#1f7a4d", "#2f6fde", "#d9534f", "#7a3ea1", "#161616"];
 /* a new color slide takes the first color of the list that no other slide has yet (an empty color is the store color) */
 const nextColor = (list: HeroBg[]) => {
   const used = list.filter((b) => b.kind === "color").map((b) => (b.color || draftColor).toLowerCase());
@@ -3728,7 +3728,7 @@ function AnnouncementForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontCo
   const msgColors = (m: Msg, put: (patch: Partial<Msg>) => void) => (
     <>
       <Field label={t.color}>
-        <FillPicker lang={lang} value={m.color} fallback="#004956" onChange={(color) => put({ color })} label={t.color} />
+        <FillPicker lang={lang} value={m.color} fallback="#e67726" onChange={(color) => put({ color })} label={t.color} />
       </Field>
       <div>
         <div className="mb-2 flex items-center justify-between">
@@ -4035,7 +4035,7 @@ function FooterLookForm({ lang, cfg, setCfg, storeColor }: { lang: Lang; cfg: St
         <Part lang={lang} label={t.luxe.footerBg} preview={colorPreview(f.background)} icon={<span aria-hidden className="h-4 w-4 shrink-0 rounded-full ring-1 ring-black/15" style={{ background: drawn.bg }} />}>
           <div className="space-y-3">
             <Seg value={f.background ? "own" : "auto"} onChange={(k) => set({ background: k === "auto" ? "" : bgHex })} options={[{ key: "auto", label: pp.autoColor }, { key: "own", label: pp.pickColor }]} />
-            {f.background ? <FillPicker lang={lang} value={f.background} fallback={bgHex} onChange={(v) => set({ background: v })} label={t.luxe.footerBg} list={["#16120f", "#1c1a17", "#2b2118", "#004956", "#f4f1ea", "#ffffff"]} /> : autoRow(auto.bg)}
+            {f.background ? <FillPicker lang={lang} value={f.background} fallback={bgHex} onChange={(v) => set({ background: v })} label={t.luxe.footerBg} list={["#16120f", "#1c1a17", "#2b2118", "#e67726", "#f4f1ea", "#ffffff"]} /> : autoRow(auto.bg)}
           </div>
         </Part>
         <Part lang={lang} label={t.luxe.footerText} preview={colorPreview(f.text)} icon={<span aria-hidden className="h-4 w-4 shrink-0 rounded-full ring-1 ring-black/15" style={{ background: drawn.text }} />}>
@@ -4676,7 +4676,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
                 <Blocked when={!(x.panel === "light" || x.panel === "dark")} why={why(lang, `غير متاح لأن «${lx.bannerPanel}» هو «${lx.panelNone}».`, `Not available because “${lx.bannerPanel}” is “${lx.panelNone}”.`)}>
                   <div className="space-y-3">
                     <Part lang={lang} label={lx.bannerPanelColor}>
-                      <ColorPicker value={x.panelColor || (x.panel === "dark" ? "#12100d" : "#fff5f8")} onChange={(panelColor) => edit(i, { panelColor })} label={lx.bannerPanelColor} bad={dc[lang].identity.hexBad} list={["#fff5f8", "#ffffff", "#f4efe6", "#12100d", "#16120f", "#004956", "#b03a5b"]} />
+                      <ColorPicker value={x.panelColor || (x.panel === "dark" ? "#12100d" : "#fff5f8")} onChange={(panelColor) => edit(i, { panelColor })} label={lx.bannerPanelColor} bad={dc[lang].identity.hexBad} list={["#fff5f8", "#ffffff", "#f4efe6", "#12100d", "#16120f", "#e67726", "#b03a5b"]} />
                       {x.panelColor && (
                         <button type="button" onClick={() => edit(i, { panelColor: "" })} className="mt-2 text-sm font-semibold text-primary hover:underline">{lx.bannerPanelAuto}</button>
                       )}
@@ -4736,7 +4736,7 @@ function RibbonForm({ lang, s, onChange }: { lang: Lang; s: RibbonEl; onChange: 
       </ol>
       <AddLimited count={items.length} max={12} label={lx.ribbonAdd} words={limitWords[lang].words} onAdd={() => set({ items: [...items, { en: "", ar: "" }] })} />
       <Part lang={lang} label={lx.ribbonBg}>
-        <FillPicker lang={lang} value={s.settings.background} fallback="#16120f" onChange={(background) => set({ background })} label={lx.ribbonBg} list={["#16120f", "#1c1a17", "#2b2118", "#004956", "#ffffff"]} />
+        <FillPicker lang={lang} value={s.settings.background} fallback="#16120f" onChange={(background) => set({ background })} label={lx.ribbonBg} list={["#16120f", "#1c1a17", "#2b2118", "#e67726", "#ffffff"]} />
       </Part>
       <Part lang={lang} label={lx.ribbonText}>
         <ColorPicker value={s.settings.color} onChange={(color) => set({ color })} label={lx.ribbonText} bad={dc[lang].identity.hexBad} list={["#c9a46a", "#d9b776", "#e9e1d3", "#ffffff", "#1c1a17"]} />
@@ -4877,7 +4877,7 @@ function NewsletterForm({ lang, s, onChange, text }: { lang: Lang; s: NewsEl; on
       {text(st.placeholder, (placeholder) => set({ placeholder }), pp.nPlaceholder)}
       {text(st.thanks, (thanks) => set({ thanks }), pp.nThanks)}
       <Part lang={lang} label={pp.nBg}>
-        <FillPicker lang={lang} value={st.background} fallback="#2b1b47" onChange={(background) => set({ background })} label={pp.nBg} list={["#2b1b47", "#16120f", "#004956", "#1c1a17", "#ffffff"]} />
+        <FillPicker lang={lang} value={st.background} fallback="#2b1b47" onChange={(background) => set({ background })} label={pp.nBg} list={["#2b1b47", "#16120f", "#e67726", "#1c1a17", "#ffffff"]} />
       </Part>
       <Part lang={lang} label={pp.nAccentColor}>
         <ColorPicker value={st.accent} onChange={(accent) => set({ accent })} label={pp.nAccentColor} bad={dc[lang].identity.hexBad} list={["#ffe36e", "#ff8fb1", "#b9f3d0", "#c9b6ff", "#ffffff"]} />

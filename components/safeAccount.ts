@@ -77,7 +77,7 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
   return {
     name: cleanLine(s.name, ACCOUNT_LIMITS.storeName),
     description: cleanLines(s.description, ACCOUNT_LIMITS.description),
-    color: safeColor(s.color, "#004956"),
+    color: safeColor(s.color, "#e67726"),
     phone: savedPhone(s.phone),
     /* left out until the setup step was answered (then "" means no WhatsApp) */
     ...(typeof s.whatsapp === "string" ? { whatsapp: savedPhone(s.whatsapp) } : {}),

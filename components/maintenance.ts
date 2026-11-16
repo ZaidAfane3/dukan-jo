@@ -9,10 +9,10 @@ export type Maintenance = { on: boolean; message: { en: string; ar: string } };
 const KEY = "seen-maintenance";
 export const MAINTENANCE_MAX = 300;
 
-/** What the page says when he wrote nothing of his own */
+/** What the page says (always Dukkan's words: the merchant no longer writes his own) */
 export const maintenanceDefault = {
-  en: { title: "Back soon", message: "We're making some improvements to the store. We'll be back soon." },
-  ar: { title: "سنعود قريبًا", message: "نجري بعض التحسينات على المتجر، وسنعود قريبًا." },
+  en: { title: "This store is under maintenance", message: "We're making some improvements to the store. Please come back soon." },
+  ar: { title: "المتجر قيد الصيانة", message: "نجري بعض التحسينات على المتجر. يرجى العودة قريبًا." },
 };
 
 export function loadMaintenance(): Maintenance {

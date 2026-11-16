@@ -13,7 +13,7 @@ export const GET = staffRoute("tickets", async (req, staff, ctx) => {
   if (!number) return answer({ result: "none" }, 404);
   const pool = await db();
   const { rows } = await pool.query(
-    `SELECT t.*, COALESCE(NULLIF(s.name, ''), a.name) AS shop, a.name AS owner, a.email, a.phone, s.slug, s.status AS shop_status
+    `SELECT t.*, COALESCE(s.name, '') AS shop, a.name AS owner, a.email, a.phone, s.slug, s.status AS shop_status, s.phone AS store_phone
        FROM tickets t JOIN accounts a ON a.id = t.account_id LEFT JOIN shops s ON s.account_id = t.account_id
       WHERE t.number = $1`,
     [number],
@@ -45,7 +45,8 @@ export const GET = staffRoute("tickets", async (req, staff, ctx) => {
       where: t.where_text,
       created: t.created_at,
       updated: t.updated_at,
-      shop: { accountId: String(t.account_id), name: t.shop, owner: t.owner, email: t.email, phone: t.phone, slug: t.slug, status: t.shop_status },
+      /* the store's own name ("" while it has none); the contact details are for the page's Contact pop-up */
+      shop: { accountId: String(t.account_id), name: t.shop, owner: t.owner, email: t.email, phone: t.phone, storePhone: t.store_phone ?? "", slug: t.slug, status: t.shop_status },
       messages: msgs.rows.map((m) => ({
         id: String(m.id),
         author: m.author,

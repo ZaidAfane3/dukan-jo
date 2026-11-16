@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Almarai, Amiri, Aref_Ruqaa, Baloo_Bhaijaan_2, Cairo, Cormorant_Garamond, El_Messiri, IBM_Plex_Sans_Arabic, Lemonada, Noto_Kufi_Arabic, Readex_Pro, Tajawal } from "next/font/google";
 import { BuildTimeLogger } from "@/components/BuildTimeLogger";
 import { DemoBoot, DemoRemount } from "@/components/DemoBoot";
+import { FieldCheck } from "@/components/FieldCheck";
 import { PrefsProvider } from "@/components/Prefs";
 import { SkeletonOverlay } from "@/components/Skeleton";
 import "./globals.css";
@@ -56,6 +57,7 @@ export default function RootLayout({
           <BuildTimeLogger />
           <DemoBoot />
           <SkeletonOverlay />
+          <FieldCheck />
           <DemoRemount>{children}</DemoRemount>
         </PrefsProvider>
         <noscript>

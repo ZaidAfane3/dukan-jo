@@ -30,7 +30,7 @@ import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
 
 const TOTAL_TASKS = 6;
 const MAX_DESCRIPTION = 200;
-const SWATCHES = ["#004956", "#0b6b4a", "#8b2f35", "#e0806e", "#e0a94e", "#4caf8a", "#5b8dd6", "#e06070"];
+const SWATCHES = ["#e67726", "#004956", "#0b6b4a", "#8b2f35", "#e0a94e", "#4caf8a", "#5b8dd6", "#e06070"];
 
 type LogoFile = { url: string; name: string; size: string };
 
@@ -55,7 +55,7 @@ const EMPTY_STORE: Store = {
   description: "",
   logo: null,
   logoData: "",
-  color: "#004956",
+  color: "#e67726",
   phone: "",
   whatsapp: null,
   slug: "",
@@ -479,7 +479,7 @@ function IdentityStep({ store, onSave }: StepProps) {
               spellCheck={false}
               aria-label={c.hexLabel}
               aria-invalid={hexInvalid}
-              placeholder="#004956"
+              placeholder="#e67726"
               className={`${inputClass} h-11 pe-14 text-sm font-semibold uppercase ${hexInvalid ? "!border-rose-500 !ring-rose-500/25" : ""}`}
             />
             <label className="absolute end-3 top-1/2 h-6 w-6 -translate-y-1/2 cursor-pointer overflow-hidden rounded-full border border-fg/20 shadow-sm transition hover:scale-110" title={c.pickColor}>

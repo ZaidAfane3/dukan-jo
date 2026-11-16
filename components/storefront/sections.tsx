@@ -1899,7 +1899,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           );
           const shell = `relative isolate overflow-hidden rounded-[var(--sf-r)] ${sizeClass}`;
           /* no picture (or he removed his): the default Dukkan look, in the store's own color, whatever theme is on */
-          const plain = ctx.data.color || "#004956";
+          const plain = ctx.data.color || "#e67726";
           const bg = { background: b.image ? "#000" : `linear-gradient(135deg, ${plain}, color-mix(in srgb, ${plain} 60%, #6fe3cf))` };
           /* his own colors for the words, where they read on what the words sit on; one that vanishes there gives way to the usual color */
           const surface = bannerSurface(b, primary, ctx.data.color);

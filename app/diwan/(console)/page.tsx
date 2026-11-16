@@ -175,7 +175,8 @@ function PortalHome() {
 }
 
 /* The welcome: good morning or evening by the clock of whoever is looking, and today's date, framed by one arch, the
-   window of the diwan. In English the Arabic greeting sits above, in Ruq'ah. */
+   window of the diwan. It is a short, quiet strip: a soft warm tint with orange only for the name and the arch, so the
+   page's figures stay the first thing to read. In English the Arabic greeting sits on the far side, in Ruq'ah. */
 function Welcome({ line }: { line?: string }) {
   const t = useT();
   const { lang } = usePrefs();
@@ -188,28 +189,30 @@ function Welcome({ line }: { line?: string }) {
   const greetEn = morning ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : "Good evening";
   const greetAr = morning ? "صباح الخير" : "مساء الخير";
   const first = (staff?.name ?? "").split(/\s+/)[0];
-  const today = now ? now.toLocaleDateString(dateLocale(lang), { weekday: "long", day: "numeric", month: "long" }) : " ";
+  const today = now ? now.toLocaleDateString(dateLocale(lang), { weekday: "long", day: "numeric", month: "long" }) : " ";
   return (
-    <div className="relative mb-10 overflow-hidden rounded-2xl bg-bar text-white">
-      {/* the window: one tall arch on the far side, with its light */}
-      <ArchWindow className="pointer-events-none absolute bottom-0 -end-6 h-[118%] w-auto text-primary opacity-50 sm:end-14 sm:opacity-100" />
-      <div className="relative px-6 py-8 sm:max-w-[min(36rem,70%)] sm:px-10 sm:py-10">
-        <p className="text-[13px] font-medium text-white/60">{today}</p>
+    <div className="relative mb-8 overflow-hidden rounded-2xl bg-soft/60 ring-1 ring-primary/15 dark:bg-soft/50">
+      {/* the window: one small arch on the far side, faint */}
+      <ArchWindow className="pointer-events-none absolute bottom-0 end-4 h-[130%] w-auto text-primary opacity-30 sm:end-6" />
+      <div className="relative flex items-center gap-6 px-5 py-4 sm:px-7 sm:py-5">
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] font-medium text-muted">{today}</p>
+          <h1 className="mt-0.5 text-[20px] font-bold leading-snug tracking-tight sm:text-[22px]">
+            {lang === "ar" ? greetAr : greetEn}
+            {first && (
+              <span className="text-primary">
+                {lang === "ar" ? "، " : ", "}
+                {first}
+              </span>
+            )}
+          </h1>
+          <p className="mt-0.5 text-[13.5px] leading-relaxed text-fg/65">{line ?? t("Here is Dukkan today.", "هذه دكّان اليوم.")}</p>
+        </div>
         {lang === "en" && (
-          <p lang="ar" dir="rtl" className="mt-3 w-fit text-[26px] leading-none text-white/75" style={RUQAA}>
+          <p lang="ar" dir="rtl" className="relative hidden shrink-0 pe-28 text-[24px] leading-none text-primary/80 sm:block" style={RUQAA}>
             {greetAr}
           </p>
         )}
-        <h1 className="mt-2 text-[30px] font-extrabold leading-tight tracking-tight sm:text-[38px]">
-          {lang === "ar" ? greetAr : greetEn}
-          {first && (
-            <span className="text-white/60">
-              {lang === "ar" ? "، " : ", "}
-              {first}
-            </span>
-          )}
-        </h1>
-        <p className="mt-3 text-[15px] leading-relaxed text-white/70">{line ?? t("Here is Dukkan today.", "هذه دكّان اليوم.")}</p>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ShopAndOwner, ShopLink, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { useState } from "react";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { FilterBar } from "@/components/diwan/Filters";
@@ -16,6 +16,7 @@ type Row = {
   id: string;
   shopId: string;
   shopName: string;
+  ownerName: string;
   shopSlug: string | null;
   shopStatus: "active" | "suspended" | null;
   shopReports: number;
@@ -40,7 +41,15 @@ export default function ComplaintsPage() {
   const [reason, setReason] = useState("");
   const [from, setFrom] = useState("");
   const [adding, setAdding] = useState(false);
-  const s = useApi<Data>(`/api/diwan/complaints?${new URLSearchParams({ status, ...(reason ? { reason } : {}), ...(from ? { from } : {}) })}`);
+  /* one store's reports only, from its page's "See all" (?shop=); every status then */
+  const [shopParam, setShop] = useUrlParam("shop");
+  const shop = /^\d+$/.test(shopParam) ? shopParam : "";
+  const [shopStatusSet, setShopStatusSet] = useState(false);
+  if (shop && !shopStatusSet) {
+    setShopStatusSet(true);
+    setStatus("all");
+  }
+  const s = useApi<Data>(`/api/diwan/complaints?${new URLSearchParams({ status, ...(reason ? { reason } : {}), ...(from ? { from } : {}), ...(shop ? { shop } : {}) })}`);
 
   const statusName = (x: (typeof FILTERS)[number]) =>
     ({ open: t("To do", "للمتابعة"), new: t("New", "جديد"), checking: t("Checking", "قيد التحقق"), closed: t("Closed", "مغلق"), all: t("All", "الكل") })[x];
@@ -54,6 +63,7 @@ export default function ComplaintsPage() {
         sub={t("Reports about stores from customers and staff. Check each one; suspend a store from its store page.", "بلاغات عن المتاجر من العملاء والفريق. تحقّق من كل بلاغ، وأوقف المتجر من صفحته.")}
         actions={!adding && <Btn onClick={() => setAdding(true)}>{t("Add a report", "إضافة بلاغ")}</Btn>}
       />
+      <ShopOnly id={shop} name={s.data?.reports[0] ? s.data.reports[0].shopName || s.data.reports[0].ownerName : null} onClear={() => setShop("")} />
       {adding && <AddReport onDone={(added) => { setAdding(false); if (added) s.reload(); }} />}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -125,10 +135,10 @@ function ReportCard({ row, statusName, onDone }: { row: Row; statusName: (x: Sta
     <form onSubmit={save} className={card}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="font-bold">
-            <Link href={`/diwan/shops/${row.shopId}`} className="text-primary hover:underline">{row.shopName}</Link>
-            {row.shopSlug && <span dir="ltr" className="ms-2 text-xs font-normal text-muted">{storeAddress(row.shopSlug)}</span>}
-          </p>
+          <div className="font-bold">
+            <ShopAndOwner id={row.shopId} shop={row.shopName} owner={row.ownerName} />
+            {row.shopSlug && <span dir="ltr" className="block text-xs font-normal text-muted">{storeAddress(row.shopSlug)}</span>}
+          </div>
           <p className="mt-1 text-xs text-muted">
             {f.dateTime(row.createdAt)} · {row.from === "staff" ? t("Found by staff", "وجده الفريق") : t("From a customer", "من عميل")}
             {row.contact && <> · <span dir="ltr">{row.contact}</span></>}
@@ -161,9 +171,9 @@ function ReportCard({ row, statusName, onDone }: { row: Row; statusName: (x: Sta
       {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Btn type="submit" disabled={busy || !changed}>{busy ? t("Saving…", "جارٍ الحفظ…") : t("Save", "حفظ")}</Btn>
-        <Link href={`/diwan/shops/${row.shopId}`} className="text-sm font-semibold text-primary hover:underline">
+        <ShopLink id={row.shopId} className="text-sm font-semibold text-primary hover:underline">
           {t("Open the store (suspend it there)", "افتح المتجر (الإيقاف من هناك)")}
-        </Link>
+        </ShopLink>
       </div>
     </form>
   );

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { ShopAndOwner, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER } from "@/components/diwan/ticketWords";
 import type { TicketRow } from "@/components/diwan/TicketBits";
@@ -21,11 +23,21 @@ export default function TicketsPage() {
   const f = useFmt();
   const [filters, setFilters] = useState<Filters>({ status: "active", priority: "", assignee: "", q: "", sort: "updated" });
   const [q, setQ] = useState("");
+  const router = useRouter();
+  /* one store's tickets only, from its page's "See all" (?shop=); every status then, not only the open ones */
+  const [shopParam, setShop] = useUrlParam("shop");
+  const shop = /^\d+$/.test(shopParam) ? shopParam : "";
+  const [shopStatusSet, setShopStatusSet] = useState(false);
+  if (shop && !shopStatusSet) {
+    setShopStatusSet(true);
+    setFilters((x) => ({ ...x, status: "" }));
+  }
   const url = useMemo(() => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(filters)) if (v) p.set(k, v);
+    if (shop) p.set("shop", shop);
     return `/api/diwan/tickets?${p}`;
-  }, [filters]);
+  }, [filters, shop]);
   const s = useMore<Data>(url, (d, n) => (n * d.pageSize < d.total ? `page=${n + 1}` : null));
   const set = (k: keyof Filters, v: string) => setFilters((x) => ({ ...x, [k]: v }));
   const counts = s.data?.counts ?? {};
@@ -41,6 +53,8 @@ export default function TicketsPage() {
   return (
     <div>
       <PageHead title={t("Tickets", "التذاكر")} sub={t("Support requests from merchants. Replies go to the merchant's Support page and bell.", "طلبات الدعم من التجار. الردود تصل إلى صفحة الدعم وجرس الإشعارات عند التاجر.")} />
+
+      <ShopOnly id={shop} name={s.data?.rows[0] ? s.data.rows[0].shop || s.data.rows[0].owner : null} onClear={() => setShop("")} />
 
       <div role="tablist" className="mb-4 flex flex-wrap gap-2">
         {tabs.map((x) => (
@@ -104,19 +118,31 @@ export default function TicketsPage() {
         {(d) => (
           <>
             <DataTable
-              head={[t("Ticket", "التذكرة"), t("Store", "المتجر"), t("Status", "الحالة"), t("Priority", "الأولوية"), t("Assigned", "المسؤول"), t("Last activity", "آخر نشاط")]}
+              head={[t("Number", "الرقم"), t("Subject", "الموضوع"), t("Store", "المتجر"), t("Status", "الحالة"), t("Priority", "الأولوية"), t("Assigned", "المسؤول"), t("Last activity", "آخر نشاط")]}
               empty={d.rows.length === 0 && t("No tickets match.", "لا توجد تذاكر مطابقة.")}
             >
               {d.rows.map((r) => (
-                <tr key={r.number} className="hover:bg-soft/50">
-                  <td className={td}>
-                    <Link href={`/diwan/tickets/${r.number}`} className="font-semibold text-primary hover:underline">
-                      <span dir="ltr">#{r.number}</span> {r.subject}
+                /* the whole row opens the ticket; the number is its link, for the keyboard and for opening in a new tab */
+                <tr
+                  key={r.number}
+                  className="cursor-pointer transition-colors hover:bg-soft/50"
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("a, button")) return;
+                    router.push(`/diwan/tickets/${r.number}`);
+                  }}
+                >
+                  <td className={`${td} whitespace-nowrap`}>
+                    <Link href={`/diwan/tickets/${r.number}`} className="inline-flex rounded-lg bg-primary/10 px-2.5 py-1 font-mono text-[13px] font-bold text-primary ring-1 ring-primary/20 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                      <span dir="ltr">#{r.number}</span>
                     </Link>
+                  </td>
+                  <td className={td}>
+                    <p className="font-semibold">{r.subject}</p>
                     <p className="mt-0.5 line-clamp-1 max-w-md text-xs text-muted">{r.preview}</p>
                   </td>
                   <td className={td}>
-                    <Link href={`/diwan/shops/${r.accountId}`} className="font-medium hover:underline">{r.shop}</Link>
+                    <ShopAndOwner id={r.accountId} shop={r.shop} owner={r.owner} />
+                    {/* kept: the search finds a ticket by its merchant's full email */}
                     <p className="text-xs text-muted" dir="ltr">{r.email}</p>
                   </td>
                   <td className={td}><Badge tone={STATUS[r.status].tone}>{t(STATUS[r.status].en, STATUS[r.status].ar)}</Badge></td>

@@ -2,7 +2,8 @@ import type { Perm } from "./perms";
 
 /* Diwan's sidebar. Each page lives at app/diwan/(console)/<path>/page.tsx; a link shows only to staff whose role has
    its permission (the API routes check it again). Overview stands alone at the top; the rest is in sections that fold
-   (components/diwan/Shell.tsx), so the menu stays short: only the section of the page you are on is open. */
+   (components/diwan/Shell.tsx), so the menu stays short: the section of the page you are on opens by itself, and no more
+   than two are open at once. */
 export type NavGroup = "stores" | "support" | "merchants" | "themes" | "admin";
 export type NavItem = { href: string; en: string; ar: string; perm: Perm; group: NavGroup | null };
 
@@ -10,6 +11,7 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan", en: "Overview", ar: "نظرة عامة", perm: "shops.read", group: null },
   { href: "/diwan/shops", en: "Stores", ar: "المتاجر", perm: "shops.read", group: "stores" },
   { href: "/diwan/payments", en: "Payments", ar: "المدفوعات", perm: "billing", group: "stores" },
+  { href: "/diwan/ship", en: "Dukkan Ship", ar: "دكّان شب", perm: "settings", group: "stores" },
   { href: "/diwan/funnel", en: "Onboarding funnel", ar: "مراحل البدء", perm: "shops.read", group: "stores" },
   { href: "/diwan/tickets", en: "Tickets", ar: "التذاكر", perm: "tickets", group: "support" },
   { href: "/diwan/complaints", en: "Store reports", ar: "بلاغات المتاجر", perm: "complaints", group: "support" },

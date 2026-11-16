@@ -1,7 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { ContactButton } from "@/components/diwan/Contact";
+import { ShopAndOwner, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { FilterBar } from "@/components/diwan/Filters";
 
@@ -13,7 +15,7 @@ import { FilterBar } from "@/components/diwan/Filters";
 type Status = "waiting" | "approved" | "rejected";
 type Kind = "courier_proof" | "commercial_registration" | "other";
 type Row = {
-  id: string; shopId: string; shopName: string; shopSlug: string | null; shopEmail: string; kind: Kind; name: string;
+  id: string; shopId: string; shopName: string; ownerName: string; shopSlug: string | null; shopEmail: string; ownerPhone: string; storePhone: string; kind: Kind; seq: number; name: string;
   partner: string; partnerKind: 0 | 1 | null; hasFile: boolean; mime: string | null; bytes: number | null;
   status: Status; note: string; reviewer: string | null; createdAt: string;
 };
@@ -29,14 +31,27 @@ const FILTERS = ["waiting", "approved", "rejected", "all"] as const;
 
 export default function DocumentsPage() {
   const t = useT();
-  const [status, setStatus] = useState<(typeof FILTERS)[number]>("waiting");
+  /* a store page's links open this page on one store (?shop=) and on every status (?status=all), scrolled to one
+     document (#doc-<id>) */
+  const sp = useSearchParams();
+  const asked = sp?.get("status") ?? "";
+  const [status, setStatus] = useState<(typeof FILTERS)[number]>((FILTERS as readonly string[]).includes(asked) ? (asked as (typeof FILTERS)[number]) : "waiting");
   const [kind, setKind] = useState("");
-  const s = useApi<Data>(`/api/diwan/documents?${new URLSearchParams({ status, ...(kind ? { kind } : {}) })}`);
+  const [shopParam, setShop] = useUrlParam("shop");
+  const shop = /^\d+$/.test(shopParam) ? shopParam : "";
+  const s = useApi<Data>(`/api/diwan/documents?${new URLSearchParams({ status, ...(kind ? { kind } : {}), ...(shop ? { shop } : {}) })}`);
+  /* once the list is in, the document the link named comes into view */
+  const [jumped, setJumped] = useState(false);
+  useEffect(() => {
+    if (jumped || !s.data || typeof window === "undefined" || !window.location.hash.startsWith("#doc-")) return;
+    setJumped(true);
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: "center" });
+  }, [s.data, jumped]);
 
   const statusName = (x: (typeof FILTERS)[number]) =>
     ({ waiting: t("Waiting", "بانتظار المراجعة"), approved: t("Approved", "مقبول"), rejected: t("Rejected", "مرفوض"), all: t("All", "الكل") })[x];
   const kindName = (k: Kind) =>
-    ({ courier_proof: t("Courier proof", "إثبات شركة التوصيل"), commercial_registration: t("Commercial registration", "السجل التجاري"), other: t("Other", "أخرى") })[k];
+    ({ courier_proof: t("Proof of delivery", "إثبات التوصيل"), commercial_registration: t("Commercial registration", "السجل التجاري"), other: t("Other document", "مستند آخر") })[k];
   const count = (x: (typeof FILTERS)[number], c: Data["counts"] | undefined) =>
     !c ? null : x === "all" ? Object.values(c).reduce((a, b) => a + (b ?? 0), 0) : c[x] ?? 0;
 
@@ -46,6 +61,8 @@ export default function DocumentsPage() {
         title={t("Documents", "المستندات")}
         sub={t("Papers stores send for checking. Approve or reject each one; the merchant is told.", "الأوراق التي ترسلها المتاجر للمراجعة. اقبل كل مستند أو ارفضه، ويُبلَّغ التاجر.")}
       />
+
+      <ShopOnly id={shop} name={s.data?.documents[0] ? s.data.documents[0].shopName || s.data.documents[0].ownerName : null} onClear={() => setShop("")} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {FILTERS.map((x) => (
@@ -112,16 +129,19 @@ function DocCard({ row, statusName, kindName, onDone }: { row: Row; statusName: 
   };
 
   return (
-    <div className={card}>
+    <div id={`doc-${row.id}`} className={`${card} scroll-mt-24 target:ring-2 target:ring-primary`}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="break-words font-bold">{row.name}</p>
-          <p className="mt-1 text-sm">
-            <span className="text-muted">{t("Store:", "المتجر:")} </span>
-            <Link href={`/diwan/shops/${row.shopId}`} className="font-semibold text-primary hover:underline">{row.shopName}</Link>
-            {row.shopSlug && <span dir="ltr" className="ms-2 text-xs text-muted">/{row.shopSlug}</span>}
-            <span dir="ltr" className="ms-2 text-xs text-muted">{row.shopEmail}</span>
+          {/* what the document is for and its number among this store's documents of that kind, then the file's name */}
+          <p className="font-bold">
+            {kindName(row.kind)} <span dir="ltr" className="text-muted">#{String(row.seq).padStart(3, "0")}</span>
           </p>
+          <p className="mt-0.5 break-words text-xs text-muted"><bdi>{row.name}</bdi></p>
+          <div className="mt-1 flex flex-wrap items-start gap-x-2 text-sm">
+            <span className="text-muted">{t("Store:", "المتجر:")}</span>
+            <ShopAndOwner id={row.shopId} shop={row.shopName} owner={row.ownerName} />
+            {row.shopSlug && <span dir="ltr" className="text-xs text-muted">/{row.shopSlug}</span>}
+          </div>
           {row.kind === "courier_proof" && (
             <p className="mt-1 text-sm">
               <span className="text-muted">{t("Delivery partner:", "جهة التوصيل:")} </span>
@@ -152,9 +172,10 @@ function DocCard({ row, statusName, kindName, onDone }: { row: Row; statusName: 
             </a>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Badge tone={tone[row.status]}>{statusName(row.status)}</Badge>
-          <Badge>{kindName(row.kind)}</Badge>
+          {/* the merchant's email and mobile stay in the Contact pop-up, not printed on the card */}
+          <ContactButton info={{ owner: row.ownerName, email: row.shopEmail, phone: row.ownerPhone, storePhone: row.storePhone }} />
         </div>
       </div>
       {row.note && <p className="mt-3 whitespace-pre-line rounded-xl bg-soft px-3 py-2 text-sm">{row.note}</p>}

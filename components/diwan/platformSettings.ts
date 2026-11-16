@@ -4,7 +4,6 @@ import { cleanLine, cleanLines, cleanMoney, visibleLength } from "../safe";
    Plain TypeScript with no browser APIs: the settings route runs the same clean functions on every value it is sent, and the
    settings page uses the types and the starting values. A clean function gives null when the value can't be used. */
 
-export type ShippingCompany = { name: string; phone: string; cities: string[] };
 /* Dukkan takes no PayPal (removed 2026-11-16): a saved setting that still has it is read without it */
 export const PAY_METHODS = ["cod", "cliq", "card"] as const;
 export type PayMethod = (typeof PAY_METHODS)[number];
@@ -12,7 +11,6 @@ export type PaymentMethods = Record<PayMethod, { on: boolean; note: string }>;
 /** The ways the theme checkout can take a merchant's payment (it has no cash): only the ones Diwan has on are offered */
 export const THEME_PAYS = ["card", "cliq"] as const satisfies readonly PayMethod[];
 export type ThemePay = (typeof THEME_PAYS)[number];
-export type SeoDefaults = { titleSuffix_en: string; titleSuffix_ar: string; description_en: string; description_ar: string };
 export type Bi = { en: string; ar: string };
 /* Dukkan Ship, Dukkan's own delivery service: its flat price per order (also what a store's customer pays for delivery), the
    cities it picks up from, the short line under the price and the points listed beside it */
@@ -24,22 +22,21 @@ export type LegalPage = (typeof LEGAL_PAGES)[number];
 export type StoreLegalTemplates = Record<LegalPage, LegalTemplate>;
 
 export type PlatformSettings = {
-  shipping_companies: ShippingCompany[];
   payment_methods: PaymentMethods;
-  default_themes: string[];
-  seo_defaults: SeoDefaults;
   dukkan_ship: DukkanShip;
   store_legal_templates: StoreLegalTemplates;
 };
 export type SettingKey = keyof PlatformSettings;
 
 /* Dukkan once sold domains, with a "domain_prices" setting; it no longer does (every store lives at the site address/<its
-   link>), so that key is gone from here. The same goes for "trial_days": Dukkan has no plans and no free trial. A row
-   still saved under either is never read, sent or shown. */
-export const SETTING_KEYS: SettingKey[] = ["shipping_companies", "payment_methods", "default_themes", "seo_defaults", "dukkan_ship", "store_legal_templates"];
+   link>), so that key is gone from here. The same goes for "trial_days": Dukkan has no plans and no free trial.
+   Removed on 2026-11-16: "shipping_companies" (a list of couriers nothing outside this settings page ever read: a merchant
+   names his own delivery partner), and "default_themes" and "seo_defaults", which are now set in the code
+   (components/platformDefaults.ts). A row still saved under any of these keys is never read, sent or shown. */
+export const SETTING_KEYS: SettingKey[] = ["payment_methods", "dukkan_ship", "store_legal_templates"];
 /* What any visitor's page may read (GET /api/platform/settings): prices, ways to pay and texts every store shows anyway.
    Today that is every setting; a setting only Diwan should see would be left out of this list. */
-export const PUBLIC_KEYS = ["payment_methods", "shipping_companies", "seo_defaults", "default_themes", "dukkan_ship", "store_legal_templates"] as const satisfies readonly SettingKey[];
+export const PUBLIC_KEYS = ["payment_methods", "dukkan_ship", "store_legal_templates"] as const satisfies readonly SettingKey[];
 export type PublicKey = (typeof PUBLIC_KEYS)[number];
 export type PublicSettings = Pick<PlatformSettings, PublicKey>;
 
@@ -71,16 +68,12 @@ const LEGAL_DEFAULTS: StoreLegalTemplates = {
 /** Used while a setting has never been saved: what the pages did before Diwan could change it, so nothing moves until staff
     save something */
 export const SETTING_DEFAULTS: PlatformSettings = {
-  shipping_companies: [],
   payment_methods: {
     /* the store checkout offers cash, CliQ and card, and the theme checkout card and CliQ */
     cod: { on: true, note: "" },
     cliq: { on: true, note: "" },
     card: { on: true, note: "" },
   },
-  /* empty: the code's own free designs (Dukkan and Mada, components/themes.ts) */
-  default_themes: [],
-  seo_defaults: { titleSuffix_en: "", titleSuffix_ar: "", description_en: "", description_ar: "" },
   dukkan_ship: {
     price: 3,
     cities: [
@@ -99,7 +92,7 @@ export const SETTING_DEFAULTS: PlatformSettings = {
 };
 
 export const LIMITS = {
-  companies: 30, cities: 40, city: 40, companyName: 60, phone: 20, note: 200, themes: 20, suffix: 60, description: 300,
+  city: 40, note: 200,
   shipPrice: 100, shipCities: 30, shipPolicy: 200, shipFeatures: 8, shipFeature: 80, legalTitle: 80, legalBody: 6000,
 };
 
@@ -126,29 +119,9 @@ function biList(v: unknown, maxItems: number, max: number): Bi[] | null {
   return out;
 }
 
-/** A theme id as components/themes.ts writes them */
-export const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
-
-/** Checks one setting. `themeIds` is the theme catalog (components/themeCatalog.ts) when the caller has it; the server can't load
-    the catalog (it is browser code), so there a theme id is checked by its form, and the settings page offers only the catalog. */
-export function cleanSetting(key: SettingKey, v: unknown, themeIds?: string[]): PlatformSettings[SettingKey] | null {
+/** Checks one setting against its rules (null when the value can't be used) */
+export function cleanSetting(key: SettingKey, v: unknown): PlatformSettings[SettingKey] | null {
   switch (key) {
-    case "shipping_companies": {
-      if (!Array.isArray(v) || v.length > LIMITS.companies) return null;
-      const out: ShippingCompany[] = [];
-      for (const c of v) {
-        if (!isObj(c)) return null;
-        const name = cleanLine(c.name, LIMITS.companyName);
-        if (name.length < 2) return null;
-        const phone = cleanLine(c.phone ?? "", LIMITS.phone);
-        if (phone && !/^\+?[\d ]{6,20}$/.test(phone)) return null;
-        if (!Array.isArray(c.cities) || c.cities.length > LIMITS.cities) return null;
-        const cities = Array.from(new Set(c.cities.map((x) => cleanLine(x, LIMITS.city)).filter(Boolean)));
-        out.push({ name, phone, cities });
-      }
-      return out;
-    }
-
     case "payment_methods": {
       if (!isObj(v)) return null;
       const out = {} as PaymentMethods;
@@ -158,22 +131,6 @@ export function cleanSetting(key: SettingKey, v: unknown, themeIds?: string[]): 
         out[m] = { on: x.on, note: cleanLine(x.note ?? "", LIMITS.note) };
       }
       return out;
-    }
-
-    case "default_themes": {
-      if (!Array.isArray(v) || v.length > LIMITS.themes) return null;
-      if (!v.every((id) => typeof id === "string" && (themeIds ? themeIds.includes(id) : THEME_ID_RE.test(id)))) return null;
-      return Array.from(new Set(v as string[]));
-    }
-
-    case "seo_defaults": {
-      if (!isObj(v)) return null;
-      return {
-        titleSuffix_en: cleanLine(v.titleSuffix_en ?? "", LIMITS.suffix),
-        titleSuffix_ar: cleanLine(v.titleSuffix_ar ?? "", LIMITS.suffix),
-        description_en: cleanLine(v.description_en ?? "", LIMITS.description),
-        description_ar: cleanLine(v.description_ar ?? "", LIMITS.description),
-      };
     }
 
     case "dukkan_ship": {

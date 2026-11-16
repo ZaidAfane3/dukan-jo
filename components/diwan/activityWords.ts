@@ -77,6 +77,8 @@ const W: Record<string, [en: string, ar: string]> = {
   "settings.change": ["Changed platform settings", "عدّل إعدادات المنصة"],
   "settings.template": ["Changed the starter store", "عدّل المتجر المبدئي"],
   "settings.template_cleared": ["Cleared the starter store", "مسح المتجر المبدئي"],
+  "settings.legal_unlock": ["Unlocked the store legal pages", "فتح قفل الصفحات القانونية للمتاجر"],
+  "settings.legal_unlock_failed": ["Failed to unlock the store legal pages", "فشل في فتح قفل الصفحات القانونية للمتاجر"],
   "flag.add": ["Added a feature flag", "أضاف ميزة"],
   "flag.change": ["Changed a feature flag", "عدّل ميزة"],
   "flag.remove": ["Removed a feature flag", "أزال ميزة"],

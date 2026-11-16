@@ -152,6 +152,9 @@ export async function listTickets(sp: URLSearchParams, kinds: string[], staffId:
   if (assignee === "mine") where.push(`t.assignee_id = ${p(staffId)}`);
   else if (assignee === "unassigned") where.push(`t.assignee_id IS NULL`);
   else if (/^\d{1,15}$/.test(assignee)) where.push(`t.assignee_id = ${p(assignee)}`);
+  /* one store's tickets only (?shop=, from its page's "See all") */
+  const shop = sp.get("shop") ?? "";
+  if (/^\d{1,18}$/.test(shop)) where.push(`t.account_id = ${p(shop)}`);
   const q = (sp.get("q") ?? "").trim().slice(0, 100);
   if (q) {
     const num = /^#?\d{1,12}$/.test(q) ? Number(q.replace("#", "")) : null;
@@ -172,7 +175,7 @@ export async function listTickets(sp: URLSearchParams, kinds: string[], staffId:
   const total = await pool.query(`SELECT count(*)::int AS n ${base} WHERE ${where.join(" AND ")}`, params);
   const { rows } = await pool.query(
     `SELECT t.number, t.kind, t.category, t.subject, t.status, t.priority, t.assignee_id, st.name AS assignee_name, t.where_text,
-            t.account_id, COALESCE(NULLIF(s.name, ''), a.name) AS shop, a.email, t.created_at, t.updated_at,
+            t.account_id, COALESCE(s.name, '') AS shop, a.name AS owner, a.email, t.created_at, t.updated_at,
             (SELECT m.author FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author <> 'system' ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author,
             (SELECT m.body FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author = 'merchant' ORDER BY m.created_at, m.id LIMIT 1) AS first,
             (SELECT count(*)::int FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author <> 'system') AS messages,
@@ -198,7 +201,9 @@ export async function listTickets(sp: URLSearchParams, kinds: string[], staffId:
       assignee: r.assignee_id ? { id: String(r.assignee_id), name: r.assignee_name } : null,
       where: r.where_text,
       accountId: String(r.account_id),
+      /* the store's own name ("" while it has none) and its owner's, shown together by ShopAndOwner */
       shop: r.shop,
+      owner: r.owner,
       email: r.email,
       created: r.created_at,
       updated: r.updated_at,

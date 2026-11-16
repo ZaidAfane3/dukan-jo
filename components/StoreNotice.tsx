@@ -14,8 +14,8 @@ const notices = {
   },
 
   soon: {
-    en: { title: "This store is not open yet", body: "The store is still getting ready. Please come back soon." },
-    ar: { title: "هذا المتجر لم يُفتتح بعد", body: "ما زال المتجر يستعد للافتتاح. عد إليه قريبًا." },
+    en: { title: "This store is under maintenance", body: "We're getting the store ready for you. Please come back soon." },
+    ar: { title: "المتجر قيد الصيانة", body: "نجهّز المتجر لك. يرجى العودة قريبًا." },
   },
 };
 

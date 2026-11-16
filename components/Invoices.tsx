@@ -242,7 +242,7 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
   const [mark, setMark] = useState<{ logo: LogoConfig; color: string } | null>(null);
   useEffect(() => {
     const setup = loadSetup();
-    setMark({ logo: resolveLogo(loadConfig().identity.logo, setup?.logo ?? ""), color: setup?.color || "#004956" });
+    setMark({ logo: resolveLogo(loadConfig().identity.logo, setup?.logo ?? ""), color: setup?.color || "#e67726" });
   }, []);
   const money = (n: number) => `${n.toFixed(2)} ${w.cur}`;
   /* The sample order: tax is 16% of the products, then shipping is added on top */

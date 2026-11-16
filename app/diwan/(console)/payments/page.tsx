@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { METHODS, MethodBadge, methodText, PayLogo, Select, todayJo } from "@/components/diwan/shopBits";
+import { METHODS, MethodBadge, methodText, PayLogo, Select, ShopAndOwner, ShopOnly, todayJo, useUrlParam } from "@/components/diwan/shopBits";
 import { Btn, card, DataTable, downloadCsv, field, Loaded, LoadMore, PageHead, td, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { FilterBar } from "@/components/diwan/Filters";
 import type { Bi } from "@/components/storefront/config";
@@ -33,7 +32,20 @@ const tile = card.replace("p-5", "p-4");
 const tileOn = tile.replace("ring-1 ring-fg/[0.08]", "ring-2 ring-primary");
 
 type Use = { count: number; total: string; stores: number };
-type Data = { rows: Pay[]; count: number; total: string; page: number; pages: number; methods: (Use & { method: string })[]; all: Use };
+type Data = {
+  rows: Pay[]; count: number; total: string; page: number; pages: number; methods: (Use & { method: string })[]; all: Use;
+  /* how many of each kind match the other filters, for the tabs */
+  kinds: { payment: number; theme: number };
+  /* the store's name when the list is narrowed to one store */
+  shopName: string | null;
+};
+
+/* The page's tabs, kept in the address (?tab=) so a tab can be linked: everything, the payments staff marked as received
+   (a store's page, "Mark as paid"), and the themes merchants bought in the theme store. Dukkan has no plans, so these
+   two are everything stores pay it today. */
+const TABS = ["", "store", "themes"] as const;
+type Tab = (typeof TABS)[number];
+const KIND_OF: Record<Tab, string> = { "": "", store: "payment", themes: "theme" };
 
 /* A theme's name in the language shown: the theme store's own name for it, else the code theme's (components/themes.ts),
    else its code name */
@@ -49,12 +61,17 @@ const themeLabel = (t: (en: string, ar: string) => string, r: Pay) => {
 export default function PaymentsPage() {
   const t = useT();
   const f = useFmt();
-  const [kind, setKind] = useState("");
+  const [tabParam, setTab] = useUrlParam("tab");
+  const tab: Tab = (TABS as readonly string[]).includes(tabParam) ? (tabParam as Tab) : "";
+  const kind = KIND_OF[tab];
+  /* one store only, from its page's "See all" (?shop=) */
+  const [shopParam, setShop] = useUrlParam("shop");
+  const shop = /^\d+$/.test(shopParam) ? shopParam : "";
   const [method, setMethod] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [q, setQ] = useState("");
-  const params = new URLSearchParams({ ...(kind ? { kind } : {}), ...(method ? { method } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}), ...(q.trim() ? { q: q.trim() } : {}) });
+  const params = new URLSearchParams({ ...(kind ? { kind } : {}), ...(shop ? { shop } : {}), ...(method ? { method } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}), ...(q.trim() ? { q: q.trim() } : {}) });
   const s = useMore<Data>(`/api/diwan/payments?${params}`, (d, n) => (n < d.pages ? `page=${n + 1}` : null));
   const pickMethod = (m: string) => setMethod(m);
   const whatFor = (r: Pay) => (r.kind === "theme" ? t(`Theme: ${themeLabel(t, r)}`, `ثيم: ${themeLabel(t, r)}`) : t("Payment", "دفعة"));
@@ -123,6 +140,8 @@ export default function PaymentsPage() {
         </div>
       </FilterBar>
 
+      <ShopOnly id={shop} name={s.data?.shopName} onClear={() => setShop("")} />
+
       <Loaded s={s}>
         {(d) => (
           <div className="space-y-6">
@@ -163,54 +182,96 @@ export default function PaymentsPage() {
             </section>
 
             <section className="space-y-3">
+              {/* the tabs: everything, the payments staff marked, the themes bought */}
+              <div role="tablist" aria-label={t("Kind of payment", "نوع الدفعة")} className="flex flex-wrap gap-2 border-b border-fg/10">
+                {TABS.map((x) => {
+                  const on = tab === x;
+                  const n = x === "" ? d.kinds.payment + d.kinds.theme : x === "store" ? d.kinds.payment : d.kinds.theme;
+                  return (
+                    <button
+                      key={x || "all"}
+                      type="button"
+                      role="tab"
+                      aria-selected={on}
+                      onClick={() => setTab(x)}
+                      className={`-mb-px border-b-2 px-3 pb-2.5 pt-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                        on ? "border-primary text-fg" : "border-transparent text-muted hover:text-fg"
+                      }`}
+                    >
+                      {x === "" ? t("All", "الكل") : x === "store" ? t("Store payments", "دفعات المتاجر") : t("Theme purchases", "شراء الثيمات")}
+                      <span className="ms-1.5 text-xs tabular-nums opacity-70">{f.num(n)}</span>
+                    </button>
+                  );
+                })}
+              </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap gap-2">
-                  <Select
-                    label={t("Kind of payment", "نوع الدفعة")}
-                    value={kind}
-                    onChange={setKind}
-                    options={[
-                      { value: "", label: t("All", "الكل") },
-                      { value: "theme", label: t("Theme purchases", "شراء الثيمات") },
-                      { value: "payment", label: t("Marked payments", "دفعات مسجّلة") },
-                    ]}
-                  />
-                  <Select
-                    label={t("Method", "الطريقة")}
-                    value={method}
-                    onChange={pickMethod}
-                    options={[{ value: "", label: t("Every method", "كل الطرق") }, ...METHODS.map((m) => ({ value: m, label: methodText(t, m) }))]}
-                  />
-                </div>
+                <Select
+                  label={t("Method", "الطريقة")}
+                  value={method}
+                  onChange={pickMethod}
+                  options={[{ value: "", label: t("Every method", "كل الطرق") }, ...METHODS.map((m) => ({ value: m, label: methodText(t, m) }))]}
+                />
                 <p className="text-sm text-muted">
                   {t(`${f.num(d.count)} payments`, `${f.num(d.count)} دفعة`)} · {t("total", "المجموع")} <b className="text-fg">{f.jod(d.total)}</b>
                 </p>
               </div>
-              <DataTable
-                head={[t("Paid on", "تاريخ الدفع"), t("Store", "المتجر"), t("What for", "البيان"), t("Amount", "المبلغ"), t("Method", "الطريقة"), t("Reference", "المرجع"), t("Marked by", "سجّلها"), t("Note", "ملاحظة")]}
-                empty={!d.rows.length && (d.all.count ? t("No payments match.", "لا توجد مدفوعات مطابقة.") : t("No payments yet.", "لا توجد مدفوعات بعد."))}
-              >
-                {d.rows.map((r) => (
-                  <tr key={`${r.kind}-${r.id}`}>
-                    <td className={`${td} whitespace-nowrap`}>{f.date(r.paid_on)}</td>
-                    <td className={td}>
-                      <Link href={`/diwan/shops/${r.shop_id}`} className="font-semibold text-primary hover:underline">
-                        {r.shop || r.owner}
-                      </Link>
-                    </td>
-                    <td className={td}>{whatFor(r)}</td>
-                    <td className={`${td} whitespace-nowrap tabular-nums`}>{f.jod(r.amount)}</td>
-                    <td className={td}>
-                      <MethodBadge method={r.method} />
-                    </td>
-                    <td className={td} dir="ltr">
-                      {r.reference || "—"}
-                    </td>
-                    <td className={td}>{r.marked_by ?? "—"}</td>
-                    <td className={td}>{r.note || "—"}</td>
-                  </tr>
-                ))}
-              </DataTable>
+              {tab === "themes" ? (
+                /* a theme bought: which theme, by which store, for how much, and how it was paid at the theme store's checkout */
+                <DataTable
+                  head={[t("Bought on", "تاريخ الشراء"), t("Store", "المتجر"), t("Theme", "الثيم"), t("Price", "السعر"), t("Method", "الطريقة"), t("Paid through", "طريقة الدفع")]}
+                  empty={!d.rows.length && (d.kinds.theme ? t("No theme purchases match.", "لا توجد مشتريات ثيمات مطابقة.") : t("No themes bought yet.", "لم تُشترَ أي ثيمات بعد."))}
+                >
+                  {d.rows.map((r) => (
+                    <tr key={`${r.kind}-${r.id}`}>
+                      <td className={`${td} whitespace-nowrap`}>{f.date(r.paid_on)}</td>
+                      <td className={td}>
+                        <ShopAndOwner id={r.shop_id} shop={r.shop} owner={r.owner} />
+                      </td>
+                      <td className={`${td} font-medium`}>{themeLabel(t, r)}</td>
+                      <td className={`${td} whitespace-nowrap tabular-nums`}>{f.jod(r.amount)}</td>
+                      <td className={td}>
+                        <MethodBadge method={r.method} />
+                      </td>
+                      <td className={`${td} text-muted`}>
+                        {r.method ? t("The merchant, at the theme store's checkout", "التاجر، عند الدفع في متجر الثيمات") : t("Before the way to pay was recorded", "قبل تسجيل طريقة الدفع")}
+                      </td>
+                    </tr>
+                  ))}
+                </DataTable>
+              ) : (
+                <DataTable
+                  head={[
+                    t("Paid on", "تاريخ الدفع"),
+                    t("Store", "المتجر"),
+                    ...(tab === "" ? [t("What for", "البيان")] : []),
+                    t("Amount", "المبلغ"),
+                    t("Method", "الطريقة"),
+                    t("Reference", "المرجع"),
+                    t("Marked by", "سجّلها"),
+                    t("Note", "ملاحظة"),
+                  ]}
+                  empty={!d.rows.length && (d.all.count ? t("No payments match.", "لا توجد مدفوعات مطابقة.") : t("No payments yet.", "لا توجد مدفوعات بعد."))}
+                >
+                  {d.rows.map((r) => (
+                    <tr key={`${r.kind}-${r.id}`}>
+                      <td className={`${td} whitespace-nowrap`}>{f.date(r.paid_on)}</td>
+                      <td className={td}>
+                        <ShopAndOwner id={r.shop_id} shop={r.shop} owner={r.owner} />
+                      </td>
+                      {tab === "" && <td className={td}>{whatFor(r)}</td>}
+                      <td className={`${td} whitespace-nowrap tabular-nums`}>{f.jod(r.amount)}</td>
+                      <td className={td}>
+                        <MethodBadge method={r.method} />
+                      </td>
+                      <td className={td} dir="ltr">
+                        {r.reference || "—"}
+                      </td>
+                      <td className={td}>{r.marked_by ?? (r.kind === "theme" ? t("Theme store", "متجر الثيمات") : "—")}</td>
+                      <td className={td}>{r.note || "—"}</td>
+                    </tr>
+                  ))}
+                </DataTable>
+              )}
               <LoadMore s={s} total={d.count} />
             </section>
           </div>

@@ -202,7 +202,7 @@ function build(lang: Lang, sample: boolean, visitor: PublicStoreOpen | null = nu
   return {
     name: setup?.name?.trim() || (visitor ? "" : accountName()) || (lang === "ar" ? "متجرك" : "Your store"),
     description: setup?.description?.trim() || "",
-    color: setup?.color || "#004956",
+    color: setup?.color || "#e67726",
     /* the phone is optional once the contact step is answered (it has a WhatsApp then): empty stays empty */
     phone: (() => {
       const p = setup?.phone || (!visitor && setup?.whatsapp === undefined ? accountPhone() : "");
@@ -226,7 +226,7 @@ function build(lang: Lang, sample: boolean, visitor: PublicStoreOpen | null = nu
   };
 }
 
-const empty: StoreData = { name: "", description: "", color: "#004956", phone: "", whatsapp: "", slug: "", logo: "", products: [], categories: [], links: [], pages: [], pickup: false, ownFee: null, isDemo: true };
+const empty: StoreData = { name: "", description: "", color: "#e67726", phone: "", whatsapp: "", slug: "", logo: "", products: [], categories: [], links: [], pages: [], pickup: false, ownFee: null, isDemo: true };
 
 export function useStoreData(lang: Lang, sample = false): StoreData {
   const [data, setData] = useState<StoreData>(empty);
