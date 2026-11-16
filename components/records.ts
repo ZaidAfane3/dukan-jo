@@ -370,6 +370,18 @@ export function checkCoupon(code: unknown, coupons: Coupon[], subtotal: number, 
   return { ok: true, coupon: c, discount: Math.round(Math.min(subtotal, Math.max(0, off)) * 1000) / 1000, freeDelivery: c.kind === "shipping" };
 }
 
+/** The saved coupons after an order used one: that code counts one more use (its limit is checked against this).
+    Every other part of each coupon is kept exactly as saved. Used by the merchant's preview (Cart.tsx) and the server
+    (server/storeOrders.ts). */
+export function countCouponUse(list: unknown[], code: string): unknown[] {
+  const typed = code.toUpperCase();
+  return list.map((c) => {
+    if (!c || typeof c !== "object" || Array.isArray(c)) return c;
+    const x = c as Record<string, unknown>;
+    return typeof x.code === "string" && x.code.toUpperCase() === typed ? { ...x, used: (typeof x.used === "number" && x.used >= 0 ? x.used : 0) + 1 } : x;
+  });
+}
+
 const KINDS: readonly CouponKind[] = ["percent", "fixed", "shipping"];
 
 export function cleanCoupon(x: Record<string, unknown>): Coupon | null {

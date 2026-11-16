@@ -12,6 +12,8 @@ import { cleanLine, visibleLength } from "./safe";
 import { CITIES, KNOWN_CITIES, ORDER_LIMITS, inLang, isCity, type Fulfil } from "./safeOrder";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion } from "./orderDeletions";
+import { serverMode } from "./notifications";
+import { onlineRev, pullOnlineKeys } from "./serverSync";
 
 
 /* Kept in this browser so orders are still there when he comes back. */
@@ -23,6 +25,25 @@ const field =
 const bad = "!border-rose-500 focus:!ring-rose-500/25";
 /* Changing to these statuses is asked first */
 const ASK_FIRST: StatusKey[] = ["cancelled", "refunded"];
+
+/* An order on the list: one kept in this browser (added by hand, or from his own store preview), or one a customer
+   placed on his public store, kept on the server (serverId: its id there; payment "test": no payment is taken yet).
+   Both look the same; the server's carry a "Test order, not paid" mark and their status changes go to the server. */
+type Row = Order & { serverId?: string; payment?: "test" | "unpaid" };
+const keyOf = (x: Row) => (x.serverId ? `s:${x.serverId}` : `l:${x.id}`);
+
+/* The server's answer, checked like the orders read from storage (cleanOrder) */
+function serverRows(list: unknown): Row[] {
+  if (!Array.isArray(list)) return [];
+  const out: Row[] = [];
+  for (const x of list) {
+    if (!x || typeof x !== "object") continue;
+    const r = x as Record<string, unknown>;
+    const o = cleanOrder(r);
+    if (o && typeof r.serverId === "string" && /^\d+$/.test(r.serverId)) out.push({ ...o, channel: 1, serverId: r.serverId, payment: r.payment === "unpaid" ? "unpaid" : "test" });
+  }
+  return out;
+}
 
 /* What is saved is checked again when it is read: storage can hold old, broken or hand-changed orders */
 function loadOrders(): Order[] {
@@ -42,7 +63,12 @@ export function Orders() {
   const [ready, setReady] = useState(false);
   const [filter, setFilter] = useState<StatusKey | "all">("all");
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  /* the orders customers placed on his public store (never in the tour), and whether a status change of one failed */
+  const [serverOrders, setServerOrders] = useState<Row[]>([]);
+  const [serverReady, setServerReady] = useState(false);
+  const [statusErr, setStatusErr] = useState(false);
+  const all = useMemo<Row[]>(() => [...orders, ...serverOrders], [orders, serverOrders]);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   /* why the order is deleted: required, and sent to Dukkan with the deletion */
@@ -76,13 +102,51 @@ export function Orders() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  /* A search result links here with ?open=ID. */
+  /* The orders from his public store: fetched when the page opens, every minute while it is in view and when he comes
+     back to it. Signed in only, never in the tour (serverMode). */
   useEffect(() => {
-    if (!ready) return;
+    if (!serverMode()) {
+      setServerReady(true);
+      return;
+    }
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/orders", { credentials: "same-origin", cache: "no-store" });
+        if (!r.ok || stop) return;
+        const j = (await r.json()) as { orders?: unknown; rev?: unknown };
+        if (stop) return;
+        setServerOrders(serverRows(j.orders));
+        /* those orders took stock on the server: this browser's copy of the products is brought up to date */
+        const mine = onlineRev();
+        if (typeof j.rev === "number" && (mine === null || j.rev > mine)) void pullOnlineKeys();
+      } catch {
+        /* offline: the list keeps what it has */
+      } finally {
+        if (!stop) setServerReady(true);
+      }
+    };
+    void load();
+    const inView = () => document.visibilityState === "visible" && void load();
+    const timer = setInterval(inView, 60_000);
+    document.addEventListener("visibilitychange", inView);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", inView);
+    };
+  }, []);
+
+  /* A search result or a notification links here with ?open=ID (once both lists are in) */
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!ready || !serverReady || opened.current) return;
+    opened.current = true;
     const id = Number(new URLSearchParams(window.location.search).get("open"));
-    if (id && orders.some((x) => x.id === id)) setSelected(id);
+    const hit = id ? serverOrders.find((x) => x.id === id) ?? orders.find((x) => x.id === id) : undefined;
+    if (hit) setSelected(keyOf(hit));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+  }, [ready, serverReady]);
 
   useEffect(() => {
     if (!ready) return;
@@ -104,6 +168,7 @@ export function Orders() {
   useEffect(() => {
     setConfirmDelete(false);
     setAskStatus(null);
+    setStatusErr(false);
   }, [selected]);
 
   useEffect(() => {
@@ -118,22 +183,22 @@ export function Orders() {
 
   const counts = useMemo(() => {
     const c = Object.fromEntries(STATUS_KEYS.map((k) => [k, 0])) as Record<StatusKey, number>;
-    orders.forEach((x) => (c[x.status] += 1));
+    all.forEach((x) => (c[x.status] += 1));
     return c;
-  }, [orders]);
+  }, [all]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/^#/, "");
     /* a phone is found however it is typed: 079…, 79… or +962 79… */
     const digitsOf = (v: string) => latin(v).replace(/\D/g, "").replace(/^(00962|962|0)/, "");
     const qd = digitsOf(q);
-    return orders
+    return all
       .filter((x) => (filter === "all" ? true : x.status === filter))
       .filter((x) => !q || String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q) || !!x.email?.includes(q) || (qd.length >= 3 && digitsOf(x.phone).includes(qd)))
       .sort((a, b) => b.created - a.created);
-  }, [orders, filter, query]);
+  }, [all, filter, query]);
 
-  const current = orders.find((x) => x.id === selected) ?? null;
+  const current = all.find((x) => keyOf(x) === selected) ?? null;
   const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const dateOf = (t: number, time = false) => {
     const day = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" }).format(new Date(t));
@@ -161,9 +226,10 @@ export function Orders() {
       return;
     }
 
-    const id = 1001 + orders.reduce((m, x) => Math.max(m, x.id - 1000), 0);
+    /* after every number in use, his store's orders too */
+    const id = 1001 + all.reduce((m, x) => Math.max(m, x.id - 1000), 0);
     setOrders((list) => [{ id, customer: cleanLine(name, ORDER_MAX.customer), phone: savedMobile(phone), total: amount, status, channel: 0, source, fulfil, ...(fulfil === "delivery" ? { city, address: cleanLine(address, ORDER_LIMITS.address) } : {}), created: Date.now() }, ...list]);
-    setSelected(id);
+    setSelected(`l:${id}`);
     setName("");
     setPhone("");
     setTotal("");
@@ -175,13 +241,29 @@ export function Orders() {
     setCreating(false);
   };
 
-  const setOrderStatus = (id: number, s: StatusKey) => setOrders((list) => list.map((x) => (x.id === id ? { ...x, status: s } : x)));
+  const setOrderStatus = (row: Row, s: StatusKey) => {
+    const serverId = row.serverId;
+    if (!serverId) return setOrders((list) => list.map((x) => (x.id === row.id ? { ...x, status: s } : x)));
+    /* an order from his public store: shown at once, saved on the server, and put back if the server did not take it */
+    const was = row.status;
+    const put = (st: StatusKey) => setServerOrders((list) => list.map((x) => (x.serverId === serverId ? { ...x, status: st } : x)));
+    put(s);
+    setStatusErr(false);
+    fetch(`/api/orders/${serverId}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: s }) })
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+      })
+      .catch(() => {
+        put(was);
+        setStatusErr(true);
+      });
+  };
   /* Cancelling or refunding is asked first, other statuses change right away */
-  const pickStatus = (id: number, s: StatusKey) => {
+  const pickStatus = (row: Row, s: StatusKey) => {
     if (ASK_FIRST.includes(s)) setAskStatus(s);
     else {
       setAskStatus(null);
-      setOrderStatus(id, s);
+      setOrderStatus(row, s);
     }
   };
   /* Deleting needs a reason; the reason is kept with the deletion (orderDeletions.ts) */
@@ -196,7 +278,7 @@ export function Orders() {
   const reasonOk = deleteReasonOk(reason);
 
   const statusList: { key: StatusKey | "all"; label: string; count: number; dot?: string }[] = [
-    { key: "all", label: o.all, count: orders.length },
+    { key: "all", label: o.all, count: all.length },
     ...STATUS_KEYS.map((k) => ({ key: k, label: o.statuses[k], count: counts[k], dot: STATUS_DOT[k] })),
   ];
 
@@ -246,9 +328,9 @@ export function Orders() {
           <section className={`${card} overflow-hidden`}>
             {shown.length === 0 ? (
               <div className="px-5 py-14 text-center">
-                <p className="font-bold">{orders.length === 0 ? o.listEmpty : o.noMatch}</p>
-                {orders.length === 0 && <p className="mx-auto mt-1 max-w-xs text-sm text-muted">{o.listEmptyHint}</p>}
-                {orders.length === 0 && (
+                <p className="font-bold">{all.length === 0 ? o.listEmpty : o.noMatch}</p>
+                {all.length === 0 && <p className="mx-auto mt-1 max-w-xs text-sm text-muted">{o.listEmptyHint}</p>}
+                {all.length === 0 && (
                   <button type="button" onClick={() => setCreating(true)} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">
                     {o.newOrder}
                   </button>
@@ -257,12 +339,12 @@ export function Orders() {
             ) : (
               <ul className="divide-y divide-fg/10">
                 {shown.map((x) => (
-                  <li key={x.id}>
+                  <li key={keyOf(x)}>
                     <button
                       type="button"
-                      onClick={() => setSelected(x.id)}
-                      aria-current={selected === x.id}
-                      className={`w-full px-5 py-4 text-start transition-colors ${selected === x.id ? "bg-black/[0.07] dark:bg-white/[0.1]" : "hover:bg-fg/[0.05]"}`}
+                      onClick={() => setSelected(keyOf(x))}
+                      aria-current={selected === keyOf(x)}
+                      className={`w-full px-5 py-4 text-start transition-colors ${selected === keyOf(x) ? "bg-black/[0.07] dark:bg-white/[0.1]" : "hover:bg-fg/[0.05]"}`}
                     >
                       <span className="flex items-center justify-between gap-3">
                         <span className="truncate font-semibold">{x.customer}</span>
@@ -275,8 +357,11 @@ export function Orders() {
                         </span>
                         <span>{dateOf(x.created)}</span>
                       </span>
-                      <span dir="ltr" className="mt-1 block text-start text-sm font-bold">
-                        {fmt(x.total)} <small className="font-semibold opacity-70">{o.currency}</small>
+                      <span className="mt-1 flex items-center justify-between gap-3">
+                        <span dir="ltr" className="text-sm font-bold">
+                          {fmt(x.total)} <small className="font-semibold opacity-70">{o.currency}</small>
+                        </span>
+                        {x.payment === "test" && <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-400">{o.testOrder}</span>}
                       </span>
                     </button>
                   </li>
@@ -317,6 +402,14 @@ export function Orders() {
                   ))}
                 </dl>
 
+                {/* what the customer wrote for the store at checkout */}
+                {current.note && (
+                  <div className="mt-6 rounded-xl bg-soft/70 px-4 py-3">
+                    <p className="text-xs text-muted">{o.note}</p>
+                    <p dir="auto" className="mt-1 whitespace-pre-line text-sm">{current.note}</p>
+                  </div>
+                )}
+
                 {current.items && current.items.length > 0 && (
                   <div className="mt-6">
                     <h3 className="text-sm font-bold">{o.items}</h3>
@@ -353,8 +446,10 @@ export function Orders() {
                 <div className="mt-6 flex items-center justify-between gap-4 rounded-xl bg-soft/70 px-4 py-4">
                   <div>
                     {/* A cancelled order was never paid, a refunded one was paid back */}
-                    <p className="text-sm font-bold">{current.status === "pending" ? o.unpaid : current.status === "cancelled" ? o.cancelledPay : current.status === "refunded" ? o.refundedPay : o.paid}</p>
-                    {current.status === "pending" && <p className="mt-0.5 text-xs text-muted">{o.paymentHint}</p>}
+                    {/* an order from his public store: no payment is taken yet, whatever its status */}
+                    <p className="text-sm font-bold">{current.payment === "test" ? o.testOrder : current.status === "pending" ? o.unpaid : current.status === "cancelled" ? o.cancelledPay : current.status === "refunded" ? o.refundedPay : o.paid}</p>
+                    {current.payment === "test" ? <p className="mt-0.5 text-xs text-muted">{o.testOrderHint}</p> : current.status === "pending" && <p className="mt-0.5 text-xs text-muted">{o.paymentHint}</p>}
+                    {current.payment === "test" && current.pay && <p className="mt-0.5 text-xs text-muted">{o.payWith}: {o.payNames[current.pay]}</p>}
                   </div>
                   <p dir="ltr" className="text-xl font-extrabold">
                     {fmt(current.total)} <small className="text-xs font-bold opacity-70">{o.currency}</small>
@@ -363,7 +458,7 @@ export function Orders() {
 
                 <div className="mt-6 max-w-xs">
                   <label htmlFor="o-status" className="mb-2 block text-sm font-semibold">{o.changeStatus}</label>
-                  <select id="o-status" value={askStatus ?? current.status} onChange={(e) => pickStatus(current.id, e.target.value as StatusKey)} className={`${field} h-11`}>
+                  <select id="o-status" value={askStatus ?? current.status} onChange={(e) => pickStatus(current, e.target.value as StatusKey)} className={`${field} h-11`}>
                     {STATUS_KEYS.map((k) => <option key={k} value={k}>{o.statuses[k]}</option>)}
                   </select>
                 </div>
@@ -373,7 +468,7 @@ export function Orders() {
                     <button
                       type="button"
                       onClick={() => {
-                        setOrderStatus(current.id, askStatus);
+                        setOrderStatus(current, askStatus);
                         setAskStatus(null);
                       }}
                       className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
@@ -384,9 +479,14 @@ export function Orders() {
                   </div>
                 )}
 
-                <div className="mt-8 border-t border-fg/10 pt-5">
-                  <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-500/50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{o.delete}</button>
-                </div>
+                {statusErr && <p role="alert" className="mt-3 text-sm text-rose-600">{o.statusFailed}</p>}
+
+                {/* an order from his public store stays on the server: it is cancelled, not deleted */}
+                {!current.serverId && (
+                  <div className="mt-8 border-t border-fg/10 pt-5">
+                    <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-500/50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{o.delete}</button>
+                  </div>
+                )}
               </div>
             )}
           </section>

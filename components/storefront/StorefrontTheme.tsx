@@ -756,8 +756,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} />
         </div>
       )}
-      {/* on the public store orders can't be placed yet (they would stay in the visitor's browser): the cart says ordering opens soon */}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} ordersOff={!!visitor} />}
+      {/* on the public store the order goes to Dukkan's server for the merchant (a test order: no payment yet), in his preview it is saved in his browser */}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
       <main>
         {shownProduct ? (
           <>

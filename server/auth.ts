@@ -183,7 +183,12 @@ export function sameOrigin(req: NextRequest): boolean {
 const tries = new Map<string, { n: number; until: number }>();
 export function tooMany(req: NextRequest, what: string, max: number, minutes: number): boolean {
   const ip = req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
-  const key = `${what}:${ip}`;
+  return tooManyFor(`${what}:${ip}`, max, minutes);
+}
+
+/** The same limit for anything else than a visitor, such as one store for all its visitors together: at most `max`
+    tries for this key in `minutes` */
+export function tooManyFor(key: string, max: number, minutes: number): boolean {
   const now = Date.now();
   if (tries.size > 10_000) tries.forEach((v, k) => v.until < now && tries.delete(k));
   const t = tries.get(key);

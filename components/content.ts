@@ -371,6 +371,8 @@ export type Content = {
       shopSuspended: string; shopReactivated: string;
       paymentReceived: string; methods: { bank: string; cliq: string; cash: string; card: string };
       supportViewed: string;
+      /* a customer placed an order on the public store (a test order: nothing was paid) */
+      orderPlaced: string;
       statusWords: Record<string, string>;
       sep: string;
       announcement: string;
@@ -953,6 +955,7 @@ export const content: Record<Lang, Content> = {
         paymentReceived: "Dukkan received your payment of {amount} JOD by {method}",
         methods: { bank: "bank transfer", cliq: "CliQ", cash: "cash", card: "card" },
         supportViewed: "Dukkan support opened your store to help you",
+        orderPlaced: "New test order #{number} from {name}: {total} JOD, not paid",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
@@ -1530,6 +1533,7 @@ export const content: Record<Lang, Content> = {
         paymentReceived: "استلم دكّان دفعتك بقيمة {amount} د.أ عبر {method}",
         methods: { bank: "تحويل بنكي", cliq: "كليك", cash: "نقدًا", card: "بطاقة" },
         supportViewed: "فتح فريق دعم دكّان متجرك لمساعدتك",
+        orderPlaced: "طلب تجريبي جديد رقم {number} من {name}: {total} د.أ، غير مدفوع",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
         announcement: "من دكّان",

@@ -235,3 +235,33 @@ export function visitorEmail(s: unknown): string {
   if (!t || t.length > ORDER_LIMITS.email) return "";
   return /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(t) && !/\.\.|^\.|\.@|@-|-\./.test(t) ? t.toLowerCase() : "";
 }
+
+/* ============================== stock taken by an order ============================== */
+
+/** The saved products after an order took what it bought: each size bought leaves its own stock (and a product in
+    sizes has all its sizes again as its stock), a product with a stock leaves what was bought, and a product with no
+    limit stays as it is. Every other part of each product is kept exactly as saved. The merchant's preview (Cart.tsx)
+    and the server (server/storeOrders.ts) both take stock with this. */
+export function takeStock(list: unknown[], items: { id?: unknown; qty: number; size?: string }[]): unknown[] {
+  return list.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+    const p = raw as Record<string, unknown>;
+    const id = productId(p.id);
+    const mine = items.filter((x) => id !== null && productId(x.id) === id);
+    if (!mine.length) return p;
+    const sizes = productSizes(p);
+    if (sizes.length) {
+      const left = sizes.map((z) => ({ ...z, quantity: Math.max(0, z.quantity - mine.filter((x) => x.size === z.name).reduce((n, x) => n + x.qty, 0)) }));
+      /* the saved sizes keep anything else they carry; only their stock changes */
+      const saved = Array.isArray(p.sizes) ? p.sizes : [];
+      const sizesOut = saved.map((z) => {
+        if (!z || typeof z !== "object") return z;
+        const hit = left.find((l) => l.name === sizeName((z as { name?: unknown }).name));
+        return hit ? { ...(z as Record<string, unknown>), quantity: hit.quantity } : z;
+      });
+      return { ...p, sizes: sizesOut, quantity: left.reduce((n, z) => n + z.quantity, 0) };
+    }
+    if (isUnlimited(p)) return p;
+    return { ...p, quantity: Math.max(0, stock(p.quantity) - mine.reduce((n, x) => n + x.qty, 0)) };
+  });
+}

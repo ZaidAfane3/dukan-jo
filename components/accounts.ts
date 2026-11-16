@@ -1,5 +1,5 @@
 import { accountData, demoActive, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
-import { dropSaves, flushSaves, resendOldPictures, savesPending } from "./serverSync";
+import { dropSaves, flushSaves, resendOldPictures, savesPending, setOnlineRev } from "./serverSync";
 import { asSuspension, forgetSuspension, rememberSuspension, SUSPENDED_PATH } from "./suspended";
 
 /* The merchants' accounts. They live on the server (app/api/auth, the passwords hashed with scrypt, in a session cookie
@@ -10,7 +10,7 @@ import { asSuspension, forgetSuspension, rememberSuspension, SUSPENDED_PATH } fr
    The pages only call createAccount, logIn and logOut, and syncOnOpen runs on every page. */
 
 export type PublicAccount = { email: string; name: string; phone: string };
-type Reply = { result?: string; account?: PublicAccount; data?: Record<string, string>; reason?: string; since?: string | null };
+type Reply = { result?: string; account?: PublicAccount; data?: Record<string, string>; rev?: number; reason?: string; since?: string | null };
 
 /* Kept for this tab, as the sign-up form does, so setup and settings can show the account's name, email and number */
 function rememberProfile(a: PublicAccount) {
@@ -52,6 +52,8 @@ async function loadStore(): Promise<boolean> {
   const r = await call("/api/store", "GET");
   if (r?.status !== 200 || !r.reply.data) return false;
   replaceAccountData(r.reply.data);
+  /* the products and coupons just taken include the store's orders up to this one (serverSync.ts) */
+  setOnlineRev(r.reply.rev);
   markSynced();
   return true;
 }
@@ -67,6 +69,7 @@ export async function createAccount(a: { email: string; name: string; phone: str
   signInAs(r.reply.account.email);
   /* a new account starts with an empty store, even if this browser kept something under the same email before */
   replaceAccountData({});
+  setOnlineRev(0);
   markSynced();
   askTwoStep();
   return "ok";
@@ -196,6 +199,8 @@ export async function syncOnOpen() {
   const local = accountData();
   const server = r.reply.data;
   const same = Object.keys(local).length === Object.keys(server).length && Object.entries(server).every(([k, v]) => local[k] === v);
+  /* either way this browser now holds the server's copy, and so the store orders it includes (serverSync.ts) */
+  setOnlineRev(r.reply.rev);
   if (same) return pictures();
   replaceAccountData(server);
   window.location.reload();

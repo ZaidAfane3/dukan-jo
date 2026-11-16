@@ -23,6 +23,8 @@ type Shop = {
   suspended_at: string | null;
   product_count: number;
   order_count: number;
+  /* orders customers placed on its public page (test orders while payment is not open) */
+  storefront_orders: number;
   total_sales: string;
   first_product_at: string | null;
   published_at: string | null;
@@ -179,6 +181,7 @@ export default function ShopPage({ params }: { params: { id: string } }) {
                 <Line k={t("Status", "الحالة")} v={<StatusBadge status={sh.status} />} />
                 <Line k={t("Products", "المنتجات")} v={f.num(sh.product_count)} />
                 <Line k={t("Orders", "الطلبات")} v={f.num(sh.order_count)} />
+                <Line k={t("Orders from its store page", "طلبات من صفحة المتجر")} v={f.num(sh.storefront_orders ?? 0)} />
                 <Line k={t("Total sales", "إجمالي المبيعات")} v={f.jod(sh.total_sales)} />
                 <Line k={t("First product", "أول منتج")} v={f.date(sh.first_product_at)} />
                 <Line k={t("First order", "أول طلب")} v={f.date(sh.first_order_at)} />

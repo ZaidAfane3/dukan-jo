@@ -198,6 +198,41 @@ export const DIWAN_SCHEMA = `
     UNIQUE (account_id, order_id)
   );
 
+  /* ---------- orders placed by customers on a store's public page (app/[slug]) ----------
+     server/storeOrders.ts writes them. number counts per shop and goes on from the shop's own orders (it is what the
+     customer and the merchant see). The customer's details are sealed (server/crypto.ts); items are the products as
+     priced by the server (id, name, qty, price, size, image). No payment is taken yet: payment_status is 'test'.
+     stock_taken: the order took its products out of the shop's saved stock, so a merchant's save made before he saw
+     the order gets it taken again (server/storeOrders.ts mergeOnlineSales). */
+  CREATE TABLE IF NOT EXISTS store_orders (
+    id               BIGSERIAL PRIMARY KEY,
+    account_id       BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    number           INTEGER NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status           TEXT NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'review', 'processing', 'shipping', 'delivered', 'cancelled', 'refunded')),
+    items            JSONB NOT NULL DEFAULT '[]',
+    subtotal         NUMERIC(12, 3) NOT NULL,
+    discount         NUMERIC(12, 3) NOT NULL DEFAULT 0,
+    delivery_fee     NUMERIC(12, 3) NOT NULL DEFAULT 0,
+    total            NUMERIC(12, 3) NOT NULL,
+    coupon           TEXT,
+    fulfil           TEXT NOT NULL DEFAULT 'delivery' CHECK (fulfil IN ('delivery', 'pickup')),
+    customer_name    TEXT NOT NULL,
+    customer_phone   TEXT,
+    customer_email   TEXT,
+    city             TEXT,
+    address          TEXT,
+    notes            TEXT,
+    payment_method   TEXT NOT NULL CHECK (payment_method IN ('cliq', 'cash', 'card')),
+    payment_status   TEXT NOT NULL DEFAULT 'test' CHECK (payment_status IN ('unpaid', 'test')),
+    source           TEXT NOT NULL DEFAULT 'storefront' CHECK (source IN ('storefront')),
+    stock_taken      BOOLEAN NOT NULL DEFAULT true,
+    UNIQUE (account_id, number)
+  );
+  CREATE INDEX IF NOT EXISTS store_orders_account ON store_orders (account_id, id DESC);
+
   /* ---------- domains ----------
      Kept only for the rows already saved: Dukkan no longer sells domains or connects a store's own domain (every store
      lives at the site address/<its link>), so nothing adds to this table or shows it any more. */

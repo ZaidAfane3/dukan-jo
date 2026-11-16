@@ -163,15 +163,30 @@ export function accountData(): Record<string, string> {
 
 /** Replaces one key of the account's data in this browser without sending it (the server already has this value: its
     pictures were moved into files, see serverSync.ts). Only while the browser still holds `expected`: a newer change the
-    page made since is kept, and is sent with its own save. */
-export function replaceAccountValue(key: string, value: string, expected: string) {
-  if (!account || !orig) return;
+    page made since is kept, and is sent with its own save. True when the browser holds `value` now. */
+export function replaceAccountValue(key: string, value: string, expected: string): boolean {
+  if (!account || !orig) return false;
   const k = `acct:${account}:${key}`;
   try {
     const ls = window.localStorage;
-    if (orig.get.call(ls, k) === expected) orig.set.call(ls, k, value);
+    const now = orig.get.call(ls, k);
+    if (now === value) return true;
+    if (now !== expected) return false;
+    orig.set.call(ls, k, value);
+    return true;
   } catch {
     /* storage blocked */
+    return false;
+  }
+}
+
+/** One key of the signed-in account's data as this browser holds it (null when it has none) */
+export function accountValue(key: string): string | null {
+  if (!account || !orig) return null;
+  try {
+    return orig.get.call(window.localStorage, `acct:${account}:${key}`);
+  } catch {
+    return null;
   }
 }
 

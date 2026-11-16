@@ -20,6 +20,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
               s.pickup_city, s.pickup_address, s.status AS shop_status, s.suspend_reason, s.suspended_at, s.product_count, s.order_count,
               s.total_sales, s.first_product_at, s.published_at, s.first_order_at, s.last_seen_at, s.created_at,
               a.name AS owner, a.email, a.phone, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
+              /* how many orders customers placed on its public page: a count only, never the orders (they are the shop's) */
+              (SELECT count(*)::int FROM store_orders o WHERE o.account_id = s.account_id) AS storefront_orders,
               (${STATUS_SQL}) AS status
          FROM shops s JOIN accounts a ON a.id = s.account_id WHERE s.account_id = $1`),
     q(`SELECT pay.id, pay.amount, pay.method, pay.reference, pay.paid_on::text AS paid_on, pay.note, st.name AS marked_by, pay.created_at

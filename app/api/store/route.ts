@@ -6,6 +6,7 @@ import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { movePicturesOut } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
+import { mergeOnlineSales, ONLINE_KEYS, onlineRev, shopLock, type OnlineKey } from "@/server/storeOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,13 @@ export const dynamic = "force-dynamic";
    from before, or a picture the browser could not send on its own) has each picture kept as a file first
    (server/media.ts) and replaced by its address. The answer then gives those keys as saved ("rewritten"), so the browser
    keeps the smaller copy too. The size limits below are checked after that, so they only count the merchant's words and
-   numbers. Too big after that: 413 "too-big" with the key, and nothing is written. */
+   numbers. Too big after that: 413 "too-big" with the key, and nothing is written.
+
+   Store orders: customers' orders on the public store take stock out of the saved products (and count coupon uses)
+   on the server (server/storeOrders.ts). Each answer carries "revs": for the products and the coupons, the newest store
+   order the saved copy includes. The browser sends back, with a save of those keys, the one its own copy was made from
+   ("revs" in the body); orders placed since are taken again from what it sends (mergeOnlineSales), and the kept value
+   comes back in "rewritten" so the browser keeps it too. A save without it (an older page) is kept as it is. */
 
 const MAX_KEY = 200;
 const MAX_VALUE = 3_000_000;
@@ -33,15 +40,23 @@ const MAX_TOTAL = 20_000_000;
 /* the keys the browser shares between accounts are never stored per account */
 const okKey = (k: string) => k.length > 0 && k.length <= MAX_KEY && !k.startsWith("dukkan-") && !k.startsWith("saad-") && !k.startsWith("acct:");
 
-/** All of the account's saved data, as { key: value } */
+/** All of the account's saved data, as { key: value }, or only the keys asked for (?keys=a,b). "rev": the newest store
+    order the saved products and coupons include, read in the same query so it always matches them. */
 export const GET = guarded(async (req: NextRequest) => {
   const a = await currentAccount(req);
   if (!a) return answer({ result: "none" }, 401);
   touchShop(a.id);
-  const { rows } = await (await db()).query(`SELECT key, value FROM store_data WHERE account_id = $1`, [a.id]);
+  const only = (req.nextUrl.searchParams.get("keys") ?? "").split(",").filter((k) => k && okKey(k)).slice(0, 20);
+  const pool = await db();
+  const { rows } = await pool.query(
+    `SELECT key, value, (SELECT COALESCE(MAX(id), 0) FROM store_orders WHERE account_id = $1) AS rev
+       FROM store_data WHERE account_id = $1${only.length ? " AND key = ANY($2::text[])" : ""}`,
+    only.length ? [a.id, only] : [a.id],
+  );
   const data: Record<string, string> = {};
   for (const r of rows) data[r.key] = r.value;
-  return answer({ result: "ok", data });
+  const rev = rows.length ? Number(rows[0].rev) : await onlineRev(pool, a.id);
+  return answer({ result: "ok", data, rev });
 });
 
 /** Saves changes: { set: { key: value }, remove: [key] }. Answers { result: "ok", rewritten?: { key: value } } */
@@ -57,6 +72,13 @@ export const PUT = guarded(async (req: NextRequest) => {
   if (set.length + remove.length > 500) return answer({ result: "invalid" }, 400);
   for (const [k, v] of set) if (!okKey(k) || typeof v !== "string") return answer({ result: "invalid" }, 400);
   for (const k of remove) if (typeof k !== "string" || !okKey(k)) return answer({ result: "invalid" }, 400);
+  /* the newest store order the browser's copy of the products and coupons was made from (see above) */
+  const bases = body.revs && typeof body.revs === "object" && !Array.isArray(body.revs) ? (body.revs as Record<string, unknown>) : {};
+  const baseOf = (k: string) => {
+    const n = bases[k];
+    return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
+  };
+  const online = set.filter(([k]) => (ONLINE_KEYS as readonly string[]).includes(k));
 
   /* pictures still inside the data become files, before anything is measured */
   const rewritten: Record<string, string> = {};
@@ -87,9 +109,25 @@ export const PUT = guarded(async (req: NextRequest) => {
     }
   }
 
+  const revs: Record<string, number> = {};
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
+    /* a save of the products or coupons waits for an order being placed on the store, and takes again what orders
+       placed since the browser's copy sold */
+    if (online.length) {
+      await shopLock(client, a.id);
+      for (const entry of online) {
+        const base = baseOf(entry[0]);
+        if (base === null) continue;
+        const m = await mergeOnlineSales(client, a.id, entry[0] as OnlineKey, entry[1] as string, base);
+        revs[entry[0]] = m.rev;
+        if (m.value !== entry[1]) {
+          entry[1] = m.value;
+          rewritten[entry[0]] = m.value;
+        }
+      }
+    }
     if (remove.length) await client.query(`DELETE FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, remove]);
     for (const [k, v] of set) {
       await client.query(
@@ -116,5 +154,5 @@ export const PUT = guarded(async (req: NextRequest) => {
     await syncShop(a.id).catch((e) => console.error("[shops] sync", a.id, e));
   }
   touchShop(a.id);
-  return answer(Object.keys(rewritten).length ? { result: "ok", rewritten } : { result: "ok" });
+  return answer({ result: "ok", ...(Object.keys(rewritten).length ? { rewritten } : {}), ...(Object.keys(revs).length ? { revs } : {}) });
 });
