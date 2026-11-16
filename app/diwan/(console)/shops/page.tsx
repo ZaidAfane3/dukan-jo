@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Select, StatusBadge, statusOptions, statusText, storeLink } from "@/components/diwan/shopBits";
+import { Select, StatusBadge, statusOptions, statusText, storeLink, storeLinkHref } from "@/components/diwan/shopBits";
 import { Btn, DataTable, downloadCsv, field, Loaded, PageHead, td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { FilterBar } from "@/components/diwan/Filters";
 
@@ -197,7 +197,7 @@ export default function ShopsPage() {
                     {r.slug ? (
                       /* every store lives at Dukkan's address followed by its link name: it opens in a new tab */
                       <a
-                        href={`https://${storeLink(r.slug)}`}
+                        href={storeLinkHref(r.slug)}
                         target="_blank"
                         rel="noopener noreferrer"
                         dir="ltr"

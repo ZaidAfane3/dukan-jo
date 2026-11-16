@@ -55,6 +55,7 @@ const words = {
     payCard: "Card",
     cardNote: "Prototype: no card details are asked and nothing is charged.",
     noPay: "This store can't take orders right now: no way to pay is open. Please try again later.",
+    ordersSoon: "Ordering from this store opens soon. Until then you can browse its products and contact the store.",
     place: "Place the order",
     errName: "Enter your name.",
     errCity: "Choose your city.",
@@ -117,6 +118,7 @@ const words = {
     payCard: "بطاقة",
     cardNote: "نسخة تجريبية: لا تُطلب بيانات البطاقة ولا يُخصم أي مبلغ.",
     noPay: "لا يستقبل هذا المتجر طلبات الآن: لا توجد طريقة دفع متاحة. حاول مرة أخرى لاحقًا.",
+    ordersSoon: "سيُتاح الطلب من هذا المتجر قريبًا. حتى ذلك الحين يمكنك تصفح منتجاته والتواصل مع المتجر.",
     place: "تأكيد الطلب",
     errName: "اكتب اسمك.",
     errCity: "اختر مدينتك.",
@@ -215,8 +217,10 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
 }
 
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
+/* `ordersOff`: the public store (app/[slug]), where an order can't reach the merchant yet (it would only be kept in the
+   visitor's browser): the basket works, and in place of the checkout it says ordering opens soon (no coupon box either) */
 /* `ownFee`: the merchant delivers with his own courier and charges this per order; null means Dukkan Ship's price */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, ownFee = null, look = "drawer", contained = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | null; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean }) {
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, priceLanguage, onCleared, pickup = false, ownFee = null, look = "drawer", contained = false, ordersOff = false }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | null; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; ordersOff?: boolean }) {
   const w = words[lang];
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", city: "", address: "", note: "" });
@@ -285,7 +289,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
   };
 
   const place = () => {
-    if (placing.current) return;
+    if (placing.current || ordersOff) return;
     const checked = checkCheckout({ ...form, pay, fulfil }, { pickup, pays, cities });
     const bad = new Set<CheckoutField>(checked.ok ? [] : checked.errors);
     const next: typeof errors = {};
@@ -427,7 +431,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
       <p className={s.totalRow}><span>{w.total}</span><span dir="auto">{amount(total)}</span></p>
     </div>
   );
-  const cta = (
+  const cta = ordersOff ? (
+    <p role="status" className="rounded-[var(--sf-ri,10px)] bg-sf-text/[0.06] px-3 py-3 text-center text-sm font-semibold leading-relaxed">{w.ordersSoon}</p>
+  ) : (
     <button type="button" onClick={next} className={s.cta} style={s.ctaStyle}>
       <span>{step === "cart" ? w.checkout : `${w.place} · ${amount(total)}`}</span>
       <span aria-hidden>{icons.arrow}</span>
@@ -436,7 +442,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
 
   /* A code refused now, or a code taken earlier that no longer fits the basket */
   const couponMsg = couponErr ? w.refused[couponErr] : cp && !cp.ok ? w.refused[cp.why] : "";
-  const couponBox = (
+  const couponBox = ordersOff ? null : (
     <div>
       {cp?.ok ? (
         <div className={`flex items-center justify-between gap-2 px-3 py-2 text-xs font-bold ${s.couponOn}`}>
@@ -639,7 +645,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd, pr
                   </ul>
                 )}
                 {freeLine && <div className="mt-3">{freeLine}</div>}
-                <div className="mt-3">{couponBox}</div>
+                {couponBox && <div className="mt-3">{couponBox}</div>}
                 <div className="mt-3">{sums}</div>
                 <div className="mt-4">{cta}</div>
               </aside>

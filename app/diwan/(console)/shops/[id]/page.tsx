@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { actionWords } from "@/components/diwan/activityWords";
-import { MARK_METHODS, MethodBadge, methodText, Select, StatusBadge, storeLink, todayJo } from "@/components/diwan/shopBits";
+import { MARK_METHODS, MethodBadge, methodText, Select, StatusBadge, storeLink, storeLinkHref, todayJo } from "@/components/diwan/shopBits";
 import { area, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
 
 type Shop = {
@@ -138,7 +138,7 @@ export default function ShopPage({ params }: { params: { id: string } }) {
                   k={t("Store link", "رابط المتجر")}
                   v={
                     sh.slug ? (
-                      <a href={`https://${storeLink(sh.slug)}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                      <a href={storeLinkHref(sh.slug)} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                         {storeLink(sh.slug)}
                       </a>
                     ) : (

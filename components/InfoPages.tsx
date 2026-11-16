@@ -132,6 +132,12 @@ export function load(): InfoPage[] {
   } catch {
     /* fall through to the defaults */
   }
+  return starterPages();
+}
+
+/** The pages a store has before it saved any of its own (the return policy, the terms and the privacy policy). The
+    public store (app/[slug]) shows these too for a store that never saved its pages. */
+export function starterPages(): InfoPage[] {
   const now = Date.now();
   return defaults().map((d, i) => ({ ...d, id: i + 1, created: now - i * 1000 }));
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge, type Tone, useT } from "./ui";
-import { storeAddress } from "../siteAddress";
+import { storeAddress, storeUrl } from "../siteAddress";
 
 /* Small pieces the shop pages share (Overview, Shops, a shop, Payments). */
 
@@ -87,6 +87,8 @@ export function MethodBadge({ method }: { method: string | null }) {
 
 /** The store link as people see it */
 export const storeLink = (slug: string | null | undefined) => (slug ? storeAddress(slug) : "");
+/** The link that opens a shop's store for its visitors (app/[slug]); "" when it has no store link yet */
+export const storeLinkHref = (slug: string | null | undefined) => (slug ? storeUrl(slug) : "");
 
 /** Today in Jordan, yyyy-mm-dd */
 export const todayJo = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Amman" }).format(new Date());

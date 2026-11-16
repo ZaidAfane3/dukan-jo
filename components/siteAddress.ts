@@ -8,3 +8,7 @@ export const STORE_PREFIX = `${SITE_HOST}/`;
 
 /** A store's address as people see it, without https:// */
 export const storeAddress = (slug: string) => `${STORE_PREFIX}${slug}`;
+
+/** A store's address as a link that opens it (app/[slug] serves every store there): https, except a copy running on
+    this computer (NEXT_PUBLIC_SITE_HOST set to localhost or 127.0.0.1), which has no certificate */
+export const storeUrl = (slug: string) => `${/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(SITE_HOST) ? "http" : "https"}://${storeAddress(slug)}`;

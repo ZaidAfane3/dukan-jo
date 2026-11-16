@@ -27,6 +27,8 @@ export type Ctx = {
   shop?: string;
   design?: Design;
   owner?: boolean;
+  /* the public store (app/[slug]): a visitor's browser, where nothing is kept for the merchant yet (no sign-ups, no orders) */
+  visitor?: boolean;
   query: string;
   interactive: boolean;
   /* The basket: how many of each product, and a way to change it */
@@ -2584,6 +2586,8 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
   const [email, setEmail] = useState("");
   const [bad, setBad] = useState(false);
   const [done, setDone] = useState(false);
+  /* the public store keeps no sign-ups yet (there is nowhere on the server for them): a valid email gets "opens soon" */
+  const [soon, setSoon] = useState(false);
   /* The pop-up after subscribing (when the merchant chose it): in the designer pressing the button shows it, to see and adjust it */
   const [pop, setPop] = useState(false);
   /* while one of the pop-up's settings is open in the designer, the pop-up shows, so he sees what he changes */
@@ -2641,7 +2645,13 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
               if (!ctx.interactive) return;
               const clean = visitorEmail(email);
               setBad(!clean);
+              setSoon(false);
               if (!clean) return;
+              /* never kept in the visitor's own browser storage, where the merchant would never see it */
+              if (ctx.visitor) {
+                setSoon(true);
+                return;
+              }
               saveSubscriber(clean);
               if (s.after === "popup") {
                 setPop(true);
@@ -2675,6 +2685,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
               <Say>{pick(s.button)}</Say>
             </button>
             {bad && <p role="alert" className="w-full text-xs font-semibold">{l === "ar" ? "اكتب بريدًا إلكترونيًا صحيحًا، مثل name@example.com" : "Enter a valid email, like name@example.com"}</p>}
+            {soon && <p role="status" className="w-full text-xs font-semibold">{l === "ar" ? "الاشتراك في هذا المتجر سيُتاح قريبًا. شكرًا لاهتمامك." : "Signing up to this store opens soon. Thank you for your interest."}</p>}
           </form>
         )}
       </div>

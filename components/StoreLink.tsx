@@ -9,7 +9,7 @@ import { isNewSlug, isSlug, reservedForNew, SLUG_RULE, typedSlug } from "./safe"
 import { reservedSlugError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { merchantCall, onServer } from "./merchantApi";
-import { STORE_PREFIX } from "./siteAddress";
+import { STORE_PREFIX, storeUrl } from "./siteAddress";
 
 /* The store link: every store lives at Dukkan's address followed by its own link name (components/siteAddress.ts, e.g. dukkan-demo.afaneh.dev/olive). Dukkan
    does not sell domains or connect a merchant's own domain, so this page is only about that link: see it, copy it,
@@ -35,6 +35,7 @@ const copy = {
     noSlug: "You haven't chosen a store link yet. Finish setting up your store to pick one.",
     setup: "Choose link",
     shareTitle: "My store",
+    open: "Open my store",
   },
   ar: {
     title: "رابط المتجر",
@@ -52,6 +53,7 @@ const copy = {
     noSlug: "لم تختر رابط متجرك بعد. أكمل إعداد متجرك لاختياره.",
     setup: "اختيار الرابط",
     shareTitle: "متجري",
+    open: "افتح متجري",
   },
 };
 
@@ -66,6 +68,8 @@ export function StoreLink() {
   const [draft, setDraft] = useState("");
   const [slugError, setSlugError] = useState("");
   const [flash, setFlash] = useState("");
+  /* his store is kept on Dukkan's server (signed in, not the tour), so its address shows it to anyone */
+  const [live, setLive] = useState(false);
 
   useEffect(() => {
     document.title = `${brandName(lang)} | ${c.title}`;
@@ -73,6 +77,7 @@ export function StoreLink() {
 
   useEffect(() => {
     setSlug(loadSetup()?.slug ?? "");
+    setLive(onServer());
     setReady(true);
   }, []);
 
@@ -191,6 +196,12 @@ export function StoreLink() {
               <div className="flex items-center gap-4 text-sm font-semibold text-primary">
                 <button type="button" onClick={copyUrl} className="hover:underline">{flash === c.copied ? c.copied : c.copy}</button>
                 <button type="button" onClick={share} className="hover:underline">{c.share}</button>
+                {/* the store as his visitors see it, at its address (app/[slug]) */}
+                {live && (
+                  <a href={storeUrl(slug)} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-primary px-4 py-2 text-white transition hover:opacity-90">
+                    {c.open}
+                  </a>
+                )}
               </div>
             </div>
           )}
