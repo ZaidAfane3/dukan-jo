@@ -123,8 +123,10 @@ export function Orders() {
       return;
     }
     let stop = false;
-    /* the store orders this page already holds: a check finds where the new ones meet them */
+    /* the store orders this page already holds: a check finds where the new ones meet them. "loaded" is set once the
+       first list came in, even an empty one: from then on every check goes back as far as it must */
     const known = new Set<string>();
+    let loaded = false;
     const load = async () => {
       try {
         let url = "/api/orders";
@@ -138,12 +140,13 @@ export function Orders() {
           if (stop) return;
           if (page === 0) j = got;
           const rows = serverRows(got.orders);
-          const first = known.size === 0;
+          const first = !loaded;
           const meets = rows.some((x) => !!x.serverId && known.has(x.serverId));
           rows.forEach((x) => x.serverId && known.add(x.serverId));
           setServerOrders((list) => upsert(list, rows));
           /* where the older pages start: taken from the first answer only (the pages loaded after go on from their own) */
           if (first) setCursor((c) => (c === undefined ? (typeof got.next === "string" ? got.next : null) : c));
+          loaded = true;
           if (first || meets || typeof got.next !== "string") break;
           url = `/api/orders?before=${encodeURIComponent(got.next)}`;
         }
