@@ -209,7 +209,7 @@ export function Delivery() {
                   }}
                   className="hidden"
                 />
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={proof.busy || proof.proofs.length >= MAX_PROOFS} className="grid h-16 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={proof.busy || !proof.ready || proof.proofs.length >= MAX_PROOFS} className="grid h-16 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
                   <span>
                     {proof.busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proof.proofs.length}/{MAX_PROOFS})</span>
                   </span>

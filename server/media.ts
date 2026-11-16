@@ -209,6 +209,13 @@ export async function sweepUnusedMedia(pool: Pool, accountId: string, days = 7):
   const { rows } = await pool.query(`SELECT value FROM store_data WHERE account_id = $1`, [accountId]);
   const used = new Set<string>();
   for (const r of rows) if (typeof r.value === "string" && r.value.includes("/media/")) mediaIdsIn(r.value).forEach((id) => used.add(id));
+  /* a staff member signed in as a merchant uploads the pictures of the theme store's designs and the starter design
+     under that merchant's account, but saves them outside it: whatever the platform's designs and settings use stays */
+  const platform = await pool.query(
+    `SELECT design::text AS v FROM catalog_themes WHERE design::text LIKE '%/media/%'
+     UNION ALL SELECT value::text FROM platform_settings WHERE value::text LIKE '%/media/%'`,
+  );
+  for (const r of platform.rows) mediaIdsIn(String(r.v)).forEach((id) => used.add(id));
   const gone = await pool.query(
     `DELETE FROM media WHERE account_id = $1 AND created_at < now() - make_interval(days => $2::int) AND NOT (id = ANY($3::text[])) RETURNING id, backend`,
     [accountId, days, Array.from(used)],

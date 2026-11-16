@@ -1142,7 +1142,7 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [name, setName] = useState(own?.name ?? "");
   const [phone, setPhone] = useState(shownMobile(own?.phone ?? ""));
   /* the proofs go to Dukkan's server as soon as they are picked (components/partnerProofs.tsx) */
-  const { proofs, error, busy, sends: proofsSent, add: addProofs, remove: removeProof, keep: keepProofs } = usePartnerProofs(own?.proofs ?? [], s, lang);
+  const { proofs, error, busy, ready: proofsReady, sends: proofsSent, add: addProofs, remove: removeProof, keep: keepProofs } = usePartnerProofs(own?.proofs ?? [], s, lang);
   const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -1379,7 +1379,7 @@ function ShippingStep({ store, onSave }: StepProps) {
         <div>
           <Label title={s.proofLabel} hint={s.proofHint} optional={c.optional} />
           <input ref={fileInput} type="file" multiple accept="image/*,application/pdf" onChange={onFiles} className="hidden" />
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || proofs.length >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !proofsReady || proofs.length >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
             <span>
               {busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofs.length}/{MAX_PROOFS})</span>
             </span>

@@ -98,11 +98,12 @@ const WAIT_OVER = 7_000_000;
 
 type Reply = { status: number; result: string; rewritten?: Record<string, string> } | null;
 
-async function put(set: Record<string, string>, remove: string[], quick: boolean): Promise<Reply> {
+async function put(set: Record<string, string>, remove: string[]): Promise<Reply> {
   const body = JSON.stringify({ set, remove });
   try {
-    /* keepalive lets the request finish after the tab closes, but only for small bodies */
-    const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: quick && body.length < 60_000, credentials: "same-origin" });
+    /* keepalive lets the request finish if the tab closes while it is on its way (its keys have already left the
+       waiting list, so nothing would send them again); browsers allow it only for small bodies */
+    const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60_000, credentials: "same-origin" });
     const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown };
     const rewritten = j.rewritten && typeof j.rewritten === "object" ? (j.rewritten as Record<string, string>) : undefined;
     return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten };
@@ -202,7 +203,7 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
     const asks: [string[], Record<string, string>, string[]][] = Object.keys(set).map((k) => [[k], { [k]: set[k] }, []]);
     if (remove.length) asks.push([remove, {}, remove]);
     const run = async ([keys, s, r]: (typeof asks)[number]) => {
-      if (outcome(await put(s, r, quick), s) === "retry") keys.forEach((k) => again.add(k));
+      if (outcome(await put(s, r), s) === "retry") keys.forEach((k) => again.add(k));
     };
     /* closing: all at once, there may be no time to wait; otherwise in order */
     if (quick) await Promise.all(asks.map(run));
@@ -211,7 +212,7 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
 
   if (size > SPLIT && batch.size > 1) await oneByOne();
   else {
-    const r = await put(set, remove, quick);
+    const r = await put(set, remove);
     /* refused for its size or form with several keys in it: each key on its own, so only the one at fault is refused */
     if (r && (r.status === 400 || r.status === 413) && batch.size > 1) await oneByOne();
     else if (outcome(r, set) === "retry") batch.forEach((_, k) => again.add(k));

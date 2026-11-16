@@ -61,6 +61,11 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
   const [proofs, setProofs] = useState<ProofFile[]>(initial);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* signed in, files can be added only once the server's list is here: it replaces the whole list when it comes */
+  const [ready, setReady] = useState(true);
+  /* the list as it is now, for counting while files are being added (the state seen by add() would be stale) */
+  const current = useRef(proofs);
+  current.current = proofs;
   /* worked out after the page is drawn: whether the merchant is signed in is only known in the browser */
   const [sends, setSends] = useState(false);
   /* pictures kept only in this browser: let go of them when the page closes, unless the page kept them (keep()) */
@@ -76,9 +81,12 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
   useEffect(() => {
     if (!onServer()) return;
     setSends(true);
+    setReady(false);
     let live = true;
     merchantCall("/api/documents", "GET").then((r) => {
-      if (!live || !r || r.status !== 200 || !Array.isArray(r.data.documents)) return;
+      if (!live) return;
+      setReady(true);
+      if (!r || r.status !== 200 || !Array.isArray(r.data.documents)) return;
       setProofs((r.data.documents as ServerDoc[]).filter((d) => d.kind === "courier_proof").map(fromServer));
     });
     return () => {
@@ -88,11 +96,11 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
 
   /** Checks and adds the picked files: images or PDF only (read from their bytes), 5 MB each, 5 in all */
   const add = async (picked: File[], partner: { name: string; kind: number }) => {
+    if (!ready) return;
     let message = "";
-    let list = proofs;
     setBusy(true);
     for (const file of picked) {
-      if (list.length >= MAX_PROOFS) {
+      if (current.current.length >= MAX_PROOFS) {
         message = s.proofMax;
         break;
       }
@@ -117,16 +125,20 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
           if (r && r.data.result === "too-many") break;
           continue;
         }
-        list = [...list, fromServer(r.data.document as ServerDoc)];
+        const added = fromServer(r.data.document as ServerDoc);
+        /* added to the list as it is now, so a file removed meanwhile stays removed */
+        current.current = [...current.current, added];
+        setProofs((now) => [...now, added]);
       } else {
         let url: string | null = null;
         if (check.kind !== "pdf") {
           url = URL.createObjectURL(file);
           created.current.push(url);
         }
-        list = [...list, { id: `${file.name}-${file.size}-${Date.now()}-${list.length}`, name: cleanFileName(file.name), size: formatSize(file.size), url }];
+        const added = { id: `${file.name}-${file.size}-${Date.now()}-${current.current.length}`, name: cleanFileName(file.name), size: formatSize(file.size), url };
+        current.current = [...current.current, added];
+        setProofs((now) => [...now, added]);
       }
-      setProofs(list);
     }
     setBusy(false);
     setError(message);
@@ -152,7 +164,7 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
     kept.current = new Set(proofs.flatMap((f) => (f.url?.startsWith("blob:") ? [f.url] : [])));
   };
 
-  return { proofs, error, busy, sends, add, remove, keep };
+  return { proofs, error, busy, ready, sends, add, remove, keep };
 }
 
 /** Tells the server who the partner is now (after the merchant saved a new name or kind), so the proofs still waiting

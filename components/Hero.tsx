@@ -157,7 +157,8 @@ export function Hero() {
     return () => clearInterval(id);
   }, [pv.names.length]);
   return (
-    <section className="relative overflow-hidden bg-soft">
+    /* The tint fades into the page colour at the bottom, so scrolling down has no hard line where the next section starts */
+    <section className="relative overflow-hidden bg-gradient-to-b from-soft from-70% to-page">
       <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 pb-20 pt-16 lg:grid-cols-2 lg:pt-24">
         <div>
           <motion.h1
