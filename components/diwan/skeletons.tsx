@@ -20,7 +20,6 @@ export const PagesSkeleton = () => <SkelList n={4} lines={2} side />;
 export const PopupsSkeleton = () => <SkelList n={3} lines={2} side />;
 export const DocumentsSkeleton = () => <SkelList n={4} lines={2} side />;
 export const ComplaintsSkeleton = () => <SkelList n={3} lines={3} side />;
-export const FlagsSkeleton = () => <SkelList n={3} lines={1} side />;
 export const FeedbackSkeleton = () => <SkelCards n={6} lines={3} />;
 export const ThemesSkeleton = () => (
   <div className="space-y-4">

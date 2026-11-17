@@ -5,7 +5,7 @@ import { usePrefs } from "../Prefs";
 import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, shopTarget, type LogoConfig, type StorefrontConfig } from "./config";
 import { copy, currency, icons, LogoMark, money, moneyIn, onColor, picFill, priceLang, priceOf, readableOn, resolveLogo, drawerHeading } from "./parts";
 import { patterns } from "./patterns";
-import { basketKey, emptyForCustomers, linkProps, ProductPage, renderSection, SearchResults, type Ctx, type Design } from "./sections";
+import { basketKey, emptyForCustomers, linkProps, ProductPage, renderSection, SearchResults, surfaceInk, type Ctx, type Design } from "./sections";
 import { storePays, usePublicSettings } from "../platformPublic";
 import { SEARCH_MAX, searchCopy, searchIndex, searchProducts } from "./search";
 import { useMediaUrl } from "./mediaStore";
@@ -583,6 +583,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* the search bar opened from its icon (declared before the buttons that use it) */
   const [searchOpen, setSearchOpen] = useState(false);
   const iconBtn = "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white ring-1 ring-black/[0.08] transition hover:ring-black/25";
+  /* the white buttons and boxes of the header and the menu: their icons and words in the page's colors worked out again
+     for white (the page text's rule), so the light text of a dark page never sits on white */
+  const onWhite = surfaceInk(ctx, "#ffffff");
   /* the search as an icon beside the basket (it opens its field right beside it), or as a full bar: his choice, and with
      none an icon when the name is in the middle. On a phone there is no room for a bar in the row: always the icon */
   const searchIcon = compact || (config.nav.searchLook ?? (centered ? "icon" : "bar")) === "icon";
@@ -651,7 +654,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
 
   const search = h.showSearch && (
-    <label className="relative block min-w-[11rem] flex-1">
+    <label className="relative block min-w-[11rem] flex-1" style={onWhite}>
       <span className="pointer-events-none absolute start-4 top-1/2 -translate-y-1/2 text-sf-text/45">{icons.search}</span>
       <input
         value={query}
@@ -668,7 +671,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
 
   const menuBtn = h.showMenu && (
-    <button type="button" onClick={(e) => { /* only opens the menu: in the designer it must not also pick the header and leave the settings he is in */ e.stopPropagation(); setMenu(true); }} aria-label={c.menu} data-spot="menu" className={iconBtn}>
+    <button type="button" onClick={(e) => { /* only opens the menu: in the designer it must not also pick the header and leave the settings he is in */ e.stopPropagation(); setMenu(true); }} aria-label={c.menu} data-spot="menu" className={iconBtn} style={onWhite}>
       {icons.menu}
     </button>
   );
@@ -682,12 +685,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const actions = (
     <div className={`flex shrink-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>
               {searchIcon && searchPop(
-                <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={iconBtn}>
+                <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={iconBtn} style={onWhite}>
                   {icons.search}
                 </button>
               )}
               {h.showCart && (
-                <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-white ps-3 pe-3 text-sm font-bold ring-1 ring-black/[0.08] transition hover:ring-black/25">
+                <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-white ps-3 pe-3 text-sm font-bold ring-1 ring-black/[0.08] transition hover:ring-black/25" style={onWhite}>
                   <span className="relative">
                     {icons.bag}
                     {cart.count > 0 && (
@@ -801,7 +804,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     </label>
   );
   const pillNav = (
-    <nav aria-label={c.pages} className="flex items-center gap-1 border-2 border-[var(--sf-text)] bg-white p-1 text-sm font-bold" style={{ borderRadius: "var(--sf-pill)" }}>
+    <nav aria-label={c.pages} className="flex items-center gap-1 border-2 border-[var(--sf-text)] bg-white p-1 text-sm font-bold" style={{ ...onWhite, borderRadius: "var(--sf-pill)" }}>
       {navLinks.map((l, i) => (
         <a
           key={i}
@@ -818,7 +821,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* The other buttons of the header follow their switches in the pill header too: menu, search, account, language */
   const pillIcon = "relative grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[var(--sf-text)] bg-white transition hover:-translate-y-0.5";
   const pillMenu = h.showMenu && (
-    <button type="button" onClick={(e) => { e.stopPropagation(); setMenu(true); }} aria-label={c.menu} data-spot="menu" className={pillIcon}>
+    <button type="button" onClick={(e) => { e.stopPropagation(); setMenu(true); }} aria-label={c.menu} data-spot="menu" className={pillIcon} style={onWhite}>
       {icons.menu}
     </button>
   );
@@ -826,7 +829,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const searchAlways = !compact && config.nav.style !== "button" && config.nav.searchLook === "bar";
   /* the pill header's always-open search: a white pill with a thick line, like its buttons */
   const pillBar = (
-    <label className={`flex h-11 shrink-0 items-center gap-2 border-2 border-[var(--sf-text)] bg-white px-4 ${searchWidthMid}`} style={{ borderRadius: "var(--sf-pill)" }}>
+    <label className={`flex h-11 shrink-0 items-center gap-2 border-2 border-[var(--sf-text)] bg-white px-4 ${searchWidthMid}`} style={{ ...onWhite, borderRadius: "var(--sf-pill)" }}>
       <span className="shrink-0 text-sf-text/60">{icons.search}</span>
       <input value={query} onChange={(e) => typeQuery(e.target.value)} onKeyDown={searchKeys} maxLength={SEARCH_MAX} enterKeyHint="search" placeholder={config.texts.search[lang] || c.search} aria-label={config.texts.search[lang] || c.search} className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-sf-text/50" />
       {clearX("-me-2")}
@@ -836,16 +839,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     <>
       {h.showSearch && searchAlways && pillBar}
       {h.showSearch && !searchAlways && (
-        <button type="button" data-search-zone onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={`${pillIcon} ${searchOpen ? "!bg-[var(--sf-text)] !text-[var(--sf-bg)]" : ""}`}>
+        <button type="button" data-search-zone onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={`${pillIcon} ${searchOpen ? "!bg-[var(--sf-text)] !text-[var(--sf-bg)]" : ""}`} style={searchOpen ? undefined : onWhite}>
           {icons.search}
         </button>
       )}
     </>
   );
   const pillCart = h.showCart && (
-    <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className="relative grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[var(--sf-text)]" style={{ background: config.nav.cartColor || "#b9f3d0" }}>
+    <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className="relative grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[var(--sf-text)]" style={{ background: config.nav.cartColor || "#b9f3d0", ...surfaceInk(ctx, config.nav.cartColor || "#b9f3d0") }}>
       {icons.bag}
-      {cart.count > 0 && <span className="absolute -start-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full border-2 border-[var(--sf-text)] px-1 text-[10px] font-extrabold text-[var(--sf-text)]" style={config.theme.saleColor ? { background: "var(--sf-sale)", color: "var(--sf-onsale)" } : { background: "#ff8fb1" }}>{cart.count}</span>}
+      {cart.count > 0 && <span className="absolute -start-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full border-2 border-[var(--sf-text)] px-1 text-[10px] font-extrabold text-[var(--sf-text)]" style={config.theme.saleColor ? { background: "var(--sf-sale)", color: "var(--sf-onsale)" } : { background: "#ff8fb1", ...surfaceInk(ctx, "#ff8fb1") }}>{cart.count}</span>}
     </button>
   );
   const plain = "relative grid h-11 w-11 shrink-0 place-items-center rounded-full text-[var(--sf-text)] transition hover:bg-black/[0.05]";
@@ -1057,11 +1060,11 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       {design && showCart && (
         /* the cart drawn inside the preview where he is looking, filled with the first products when nothing was added */
         <div className={`absolute inset-x-0 z-[60] ${cartAt ? "" : "top-0 h-[min(100%,880px)]"}`} style={cartAt ? { top: cartAt.top, height: cartAt.height } : undefined}>
-          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} look={config.cart?.style} />
+          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} />
         </div>
       )}
       {/* on the public store the order goes to Dukkan's server for the merchant (a test order: no payment yet), in his preview it is saved in his browser */}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
       <main>
         {shownProduct ? (
           <>
@@ -1077,7 +1080,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <>
             <section className={`${compact ? "px-4 pt-8" : "px-8 pt-12"} ${shownPage.sections.length || design ? "pb-2" : compact ? "min-h-[420px] pb-10" : "min-h-[640px] pb-16"}`}>
               <div className="mx-auto max-w-3xl">
-                <button type="button" onClick={closePage} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--sf-accent)] hover:underline">
+                <button type="button" onClick={closePage} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--sf-accenttext,var(--sf-accent))] hover:underline">
                   <span className="rotate-180">{icons.arrow}</span>
                   {lang === "ar" ? "العودة إلى المتجر" : "Back to the store"}
                 </button>
@@ -1123,7 +1126,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <nav className={`relative z-10 flex h-full w-80 max-w-[85%] flex-col gap-6 overflow-y-auto p-6 shadow-2xl ${config.theme.titleStyle === "pop" ? (nameEnd ? "border-s-2 border-[var(--sf-text)]" : "border-e-2 border-[var(--sf-text)]") : ""}`} style={{ background: "var(--sf-bg)", color: "var(--sf-text)" }}>
             <div className="flex items-center justify-between">
               {config.nav.style === "pill" ? pillBrand : brand}
-              <button type="button" onClick={() => setMenu(false)} aria-label={c.close} className={config.theme.titleStyle === "pop" ? "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[var(--sf-text)] bg-white transition hover:-translate-y-0.5" : iconBtn}>
+              <button type="button" onClick={() => setMenu(false)} aria-label={c.close} style={onWhite} className={config.theme.titleStyle === "pop" ? "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[var(--sf-text)] bg-white transition hover:-translate-y-0.5" : iconBtn}>
                 {icons.close}
               </button>
             </div>
@@ -1156,11 +1159,11 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
               const heading = it.title?.[lang]?.trim() || drawerHeading(it.kind, lang);
               return (
                 <div key={it.kind}>
-                  <p className={config.theme.titleStyle === "pop" ? "mb-3 text-lg font-extrabold" : "mb-2 text-xs font-bold uppercase tracking-wide text-sf-text/50"} style={config.theme.titleStyle === "pop" ? { color: "var(--sf-accent)", fontFamily: "var(--sf-heading)" } : undefined}><bdi>{heading}</bdi></p>
+                  <p className={config.theme.titleStyle === "pop" ? "mb-3 text-lg font-extrabold" : "mb-2 text-xs font-bold uppercase tracking-wide text-sf-text/50"} style={config.theme.titleStyle === "pop" ? { color: "var(--sf-accenttext, var(--sf-accent))", fontFamily: "var(--sf-heading)" } : undefined}><bdi>{heading}</bdi></p>
                   <ul className={config.theme.titleStyle === "pop" ? "space-y-2" : "space-y-1"}>
                     {shown.map((r) => (
                       <li key={r.key}>
-                        <button type="button" onClick={r.on} className={config.theme.titleStyle === "pop" ? "w-full rounded-full border-2 border-[var(--sf-text)] bg-white px-5 py-2.5 text-start text-base font-bold transition duration-200 hover:-translate-y-0.5 hover:scale-[1.02]" : "w-full rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition duration-200 hover:bg-black/[0.05] hover:ps-4"} style={linkColor(r.color, drawerLinkOn) ? { color: r.color } : undefined}>
+                        <button type="button" onClick={r.on} className={config.theme.titleStyle === "pop" ? "w-full rounded-full border-2 border-[var(--sf-text)] bg-white px-5 py-2.5 text-start text-base font-bold transition duration-200 hover:-translate-y-0.5 hover:scale-[1.02]" : "w-full rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition duration-200 hover:bg-black/[0.05] hover:ps-4"} style={{ ...(config.theme.titleStyle === "pop" ? onWhite : {}), ...(linkColor(r.color, drawerLinkOn) ? { color: r.color } : {}) }}>
                           <bdi>{r.title}</bdi>
                         </button>
                       </li>

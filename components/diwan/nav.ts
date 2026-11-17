@@ -26,7 +26,6 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan/marketplace", en: "Developers", ar: "المطورون", perm: "marketplace", group: "themes" },
   { href: "/diwan/staff", en: "Staff", ar: "الفريق", perm: "staff", group: "admin" },
   { href: "/diwan/settings", en: "Platform settings", ar: "إعدادات المنصة", perm: "settings", group: "admin" },
-  { href: "/diwan/flags", en: "Feature flags", ar: "تفعيل الميزات", perm: "flags", group: "admin" },
   { href: "/diwan/activity", en: "Activity log", ar: "سجل النشاط", perm: "audit.read", group: "admin" },
 ];
 

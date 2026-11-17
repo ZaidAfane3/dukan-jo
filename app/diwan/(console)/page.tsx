@@ -158,7 +158,6 @@ function PortalHome() {
     "/diwan/popups": { en: "Pop-ups merchants see once in their dashboard.", ar: "نوافذ يراها التجار مرة واحدة في لوحة التحكم." },
     "/diwan/announcements": { en: "Notices in the merchants' bell and banner.", ar: "إشعارات في جرس التجار وشريط الإعلانات." },
     "/diwan/marketplace": { en: "Outside developers and the work they send.", ar: "المطورون الخارجيون وما يرسلونه من أعمال." },
-    "/diwan/flags": { en: "Turn features on or off, for everyone or some stores.", ar: "شغّل الميزات أو أوقفها للجميع أو لبعض المتاجر." },
     "/diwan/activity": { en: "Who changed what, and when.", ar: "من غيّر ماذا، ومتى." },
   };
   const list = staff ? DIWAN_NAV.filter((i) => i.href !== "/diwan" && can(staff, i.perm)) : [];

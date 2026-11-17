@@ -161,6 +161,10 @@ export const PUT = guarded(async (req: NextRequest) => {
     if (online.length) await shopLock(client, a.id);
     const asked = set.map(([k]) => k).filter((k) => k in base);
     if (asked.length) {
+      /* one save of the account's lists at a time: a lock that exists before any list does, so a second device that
+         also had no copy on the server ("") waits for the first and then finds its row, and gets "stale" to merge with
+         it, instead of writing over it (a row lock alone can't hold a row that isn't there yet) */
+      await client.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [a.id]);
       const { rows } = await client.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[]) FOR UPDATE`, [a.id, asked]);
       const now = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
       for (const k of asked) {

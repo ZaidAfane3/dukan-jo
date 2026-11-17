@@ -26,6 +26,9 @@ export type SavedSetup = {
      has no fee of his: the price Dukkan's staff set in Diwan is charged */
   /* `cities`: with his own courier, the cities he delivers to (English names of safeOrder KNOWN_CITIES); left out: all */
   shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; city: string; address: string; fee?: number; cities?: string[] } | null;
+  /* The ways to pay he takes (safeOrder savedPays/orderPays). Left out: a store from before he could choose, every way
+     Dukkan has on. A new store starts with [] (no orders until he turns one on). */
+  pays?: ("cliq" | "cash" | "card")[];
 };
 
 const KEY = "seen-setup";

@@ -110,18 +110,20 @@ export async function syncShop(accountId: string | number, q?: Q): Promise<void>
     k.first_at,
     k.theme_id,
     k.first_product,
+    /* the ways to pay he chose, for Diwan's store page (null: never chosen, every way Dukkan has on) */
+    setup?.pays ? setup.pays.join(",") : null,
   ];
   const sql = `
     INSERT INTO shops (account_id, name, slug, phone, color, setup_done, published, paused, ship_mode, pickup_city, pickup_address,
-                       product_count, order_count, total_sales, published_at, first_product_at, first_order_at, theme_id, updated_at)
+                       product_count, order_count, total_sales, published_at, first_product_at, first_order_at, theme_id, store_pays, updated_at)
     VALUES ($1, $2, $3::text, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
             CASE WHEN $7 THEN now() END, COALESCE($17::timestamptz, CASE WHEN $12 > 0 THEN now() END),
-            COALESCE($15::timestamptz, CASE WHEN $13 > 0 THEN now() END), $16, now())
+            COALESCE($15::timestamptz, CASE WHEN $13 > 0 THEN now() END), $16, $18::text, now())
     ON CONFLICT (account_id) DO UPDATE SET
       name = EXCLUDED.name, slug = EXCLUDED.slug, phone = EXCLUDED.phone, color = EXCLUDED.color, setup_done = EXCLUDED.setup_done,
       published = EXCLUDED.published, paused = EXCLUDED.paused, ship_mode = EXCLUDED.ship_mode, pickup_city = EXCLUDED.pickup_city,
       pickup_address = EXCLUDED.pickup_address, product_count = EXCLUDED.product_count, order_count = EXCLUDED.order_count,
-      total_sales = EXCLUDED.total_sales, theme_id = EXCLUDED.theme_id,
+      total_sales = EXCLUDED.total_sales, theme_id = EXCLUDED.theme_id, store_pays = EXCLUDED.store_pays,
       published_at = COALESCE(shops.published_at, EXCLUDED.published_at),
       /* the oldest of: what was kept, the oldest saved time, and now when this is the first time it has any (LEAST skips
          nulls); a row that already counted some with no date stays without one */

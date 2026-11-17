@@ -226,11 +226,11 @@ function DocCard({ row, statusName, kindName, onDone, onGone }: {
       {/* a removed document has no file left to check: it stays only as a record */}
       {row.removedAt ? null : next ? (
         <form onSubmit={save} className="mt-4 space-y-3 border-t border-fg/10 pt-4">
-          <label htmlFor={`doc-${row.id}`} className="block text-sm font-medium">
+          <label htmlFor={`doc-note-${row.id}`} className="block text-sm font-medium">
             {next === "rejected" ? t("Why it is rejected (the merchant sees this)", "سبب الرفض (يراه التاجر)") : t("Note for the merchant (optional)", "ملاحظة للتاجر (اختيارية)")}
           </label>
           {/* dir="auto": a note written in Arabic runs right to left from its first letter */}
-          <textarea id={`doc-${row.id}`} className={area} rows={2} maxLength={500} dir="auto" value={note} onChange={(e) => setNote(e.target.value)} />
+          <textarea id={`doc-note-${row.id}`} className={area} rows={2} maxLength={500} dir="auto" value={note} onChange={(e) => setNote(e.target.value)} />
           {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
           <div className="flex flex-wrap gap-2">
             <Btn type="submit" kind={next === "rejected" ? "danger" : "primary"} disabled={busy}>

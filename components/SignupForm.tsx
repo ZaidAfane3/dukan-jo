@@ -262,6 +262,8 @@ export function SignupForm() {
               logo: prev?.logo,
               product: prev?.product ?? null,
               shipping: prev?.shipping ?? null,
+              /* a new store takes no way to pay until he turns one on (setup or Delivery options); an older one keeps its choice */
+              pays: prev ? prev.pays : [],
             });
           }
         }

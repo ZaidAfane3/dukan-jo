@@ -6,9 +6,9 @@ import { DashboardBar } from "./DashboardBar";
 import { isJordanMobile, savedMobile, typedAnyPhone } from "./phone";
 import { cleanLine, isPickupAddress, visibleLength } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
-import { inLang, KNOWN_CITIES, ownCities, savedCities } from "./safeOrder";
+import { inLang, KNOWN_CITIES, orderPays, ownCities, PAYMENTS, savedCities, type Payment } from "./safeOrder";
 import { usePrefs } from "./Prefs";
-import { shipCityShown, shipServes, shipWords, usePublicSettings, useSettingsChecked } from "./platformPublic";
+import { shipCityShown, shipServes, shipWords, STORE_PAYS, storePays, usePublicSettings, useSettingsChecked } from "./platformPublic";
 import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 import { typedMoney } from "./records";
 import { cleanMoney } from "./safe";
@@ -29,8 +29,8 @@ const field =
 const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const words = {
-  en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "You have not chosen a delivery option yet.", fee: "Delivery fee per order (JOD)", feeHint: "What customers pay for delivery at checkout. Write 0 if delivery is free.", feeEmpty: "Enter the delivery fee. Write 0 if delivery is free.", feeBad: "Enter an amount from 0 to {max} JOD, with up to 3 decimals." },
-  ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لم تختر خيار توصيل بعد.", fee: "رسوم التوصيل لكل طلب (د.أ)", feeHint: "ما يدفعه العميل للتوصيل عند إتمام الطلب. اكتب 0 إن كان التوصيل مجانيًا.", feeEmpty: "اكتب رسوم التوصيل. اكتب 0 إن كان التوصيل مجانيًا.", feeBad: "اكتب مبلغًا من 0 إلى {max} د.أ، بثلاث خانات عشرية على الأكثر." },
+  en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "Customers can't order delivery until you choose how you deliver.", fee: "Delivery fee per order (JOD)", feeHint: "What customers pay for delivery at checkout. Write 0 if delivery is free.", feeEmpty: "Enter the delivery fee. Write 0 if delivery is free.", feeBad: "Enter an amount from 0 to {max} JOD, with up to 3 decimals." },
+  ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل.", fee: "رسوم التوصيل لكل طلب (د.أ)", feeHint: "ما يدفعه العميل للتوصيل عند إتمام الطلب. اكتب 0 إن كان التوصيل مجانيًا.", feeEmpty: "اكتب رسوم التوصيل. اكتب 0 إن كان التوصيل مجانيًا.", feeBad: "اكتب مبلغًا من 0 إلى {max} د.أ، بثلاث خانات عشرية على الأكثر." },
 };
 
 
@@ -170,7 +170,8 @@ export function Delivery() {
       target?.focus({ preventScroll: true });
       return;
     }
-    const base: SavedSetup = setup ?? { name: "", description: "", color: "#e67726", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
+    /* the setup as saved now (the ways to pay may have been saved below since the page opened) */
+    const base: SavedSetup = loadSetup() ?? setup ?? { name: "", description: "", color: "#e67726", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
     const before = savedOf(loadSetup());
     saveSetup({ ...base, pickup, shipping });
     /* the proofs still waiting for a check follow the partner's new name */
@@ -335,8 +336,110 @@ export function Delivery() {
             <span aria-live="polite" className="text-sm font-semibold text-primary">{flash ? w.saved : ""}</span>
           </div>
         </form>
+        {ready && <PaysCard />}
       </main>
     </div>
+  );
+}
+
+/* The ways to pay a store takes: one switch per way, the ones Dukkan has off greyed (Diwan decides those) */
+export const payWords = {
+  en: {
+    title: "Ways to pay",
+    sub: "Choose how customers can pay you at checkout.",
+    names: { cliq: "CliQ", cash: "Cash on delivery", card: "Card" } as Record<Payment, string>,
+    unavailable: "Not available on Dukkan right now",
+    none: "Customers can't place orders until you turn on at least one way to pay.",
+    save: "Save",
+    saved: "Saved",
+    undo: "Ways to pay saved",
+  },
+  ar: {
+    title: "طرق الدفع",
+    sub: "اختر كيف يدفع لك العملاء عند إتمام الطلب.",
+    names: { cliq: "كليك CliQ", cash: "الدفع عند الاستلام", card: "بطاقة" } as Record<Payment, string>,
+    unavailable: "غير متاح على دكّان حاليًا",
+    none: "لا يستطيع العملاء إتمام الطلب حتى تفعّل طريقة دفع واحدة على الأقل.",
+    save: "حفظ",
+    saved: "تم الحفظ",
+    undo: "حُفظت طرق الدفع",
+  },
+};
+
+/** The ways to pay he takes, one switch each (safeOrder orderPays: the checkout and the server offer only the ones Dukkan
+    has on that he turned on). A way Dukkan has off is greyed and can't be turned on. The setup's shipping step shows the
+    same switches. `id` goes on the first switch, where a mistake brings the cursor. */
+export function PaysPicker({ lang, id, value, onChange, error }: { lang: Lang; id: string; value: Payment[]; onChange: (v: Payment[]) => void; error?: string }) {
+  const t = payWords[lang];
+  const on = storePays(usePublicSettings());
+  return (
+    <fieldset aria-describedby={`${id}-note`}>
+      <legend className="mb-1 text-sm font-semibold">{t.title}<RequiredMark /></legend>
+      <p id={`${id}-note`} className={`mb-3 text-xs ${error ? "text-rose-600" : "text-muted"}`}>{error ?? t.sub}</p>
+      <div className={`divide-y divide-fg/10 rounded-xl border ${error ? "border-rose-500" : "border-fg/15"}`}>
+        {STORE_PAYS.map((p, i) => {
+          const avail = on.includes(p);
+          const checked = avail && value.includes(p);
+          return (
+            <label key={p} className={`flex items-center justify-between gap-4 px-4 py-3 ${avail ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}>
+              <span>
+                <span className="block text-sm font-semibold">{t.names[p]}</span>
+                {!avail && <span className="mt-0.5 block text-xs text-muted">{t.unavailable}</span>}
+              </span>
+              <input id={i === 0 ? id : undefined} type="checkbox" role="switch" checked={checked} disabled={!avail} onChange={(e) => onChange(PAYMENTS.filter((x) => (x === p ? e.target.checked : value.includes(x))))} className="peer sr-only" />
+              <span aria-hidden dir="ltr" className="relative h-6 w-11 shrink-0 rounded-full bg-fg/20 transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 peer-checked:[&>span]:left-[22px]">
+                <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all" />
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+/* The Delivery options page's "Ways to pay" card: saved in his setup (`pays`), with an Undo like the delivery save. A
+   store that never chose shows the ways it takes today (every way Dukkan has on) */
+function PaysCard() {
+  const { lang } = usePrefs();
+  const t = payWords[lang];
+  const platform = usePublicSettings();
+  const savedPays = () => loadSetup()?.pays;
+  const [pays, setPays] = useState<Payment[]>(() => savedPays() ?? storePays(platform));
+  const [flash, setFlash] = useState(false);
+  const live = orderPays(storePays(platform), pays);
+  const save = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cur = loadSetup();
+    const base: SavedSetup = cur ?? { name: "", description: "", color: "#e67726", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
+    const before = { pays: cur?.pays };
+    saveSetup({ ...base, pays });
+    const after = { pays: loadSetup()?.pays };
+    const undo = valueUndo({
+      before,
+      after,
+      now: () => ({ pays: loadSetup()?.pays }),
+      put: (v) => {
+        const now = loadSetup() ?? base;
+        const rest: SavedSetup = { ...now };
+        delete rest.pays;
+        saveSetup(v.pays ? { ...rest, pays: v.pays } : rest);
+        setPays(loadSetup()?.pays ?? storePays(platform));
+      },
+    });
+    if (undo) offerUndo({ scope: "delivery", label: (l) => payWords[l].undo, undo });
+    setFlash(true);
+    setTimeout(() => setFlash(false), 2000);
+  };
+  return (
+    <form onSubmit={save} noValidate className={`${card} max-w-2xl space-y-4 p-5 sm:p-7`}>
+      <PaysPicker lang={lang} id="d-pays" value={pays} onChange={setPays} />
+      {live.length === 0 && <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{t.none}</p>}
+      <div className="flex items-center gap-3">
+        <button type="submit" className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{t.save}</button>
+        <span aria-live="polite" className="text-sm font-semibold text-primary">{flash ? t.saved : ""}</span>
+      </div>
+    </form>
   );
 }
 

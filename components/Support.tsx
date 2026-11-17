@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { brandName, content, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { pushNotification, serverMode } from "./notifications";
@@ -14,6 +15,9 @@ import {
   type MerchantStatus, type Sent, type ServerTicket, type Thread,
 } from "./ticketsApi";
 import { usePageTitle } from "./pageTitle";
+import { pageText, useMerchant } from "./FromDukkan";
+import type { MerchantPage } from "./dukkanPages";
+import { replyWithin, usePublicSettings } from "./platformPublic";
 
 /* Support tickets. Signed in (and not in the tour), tickets go to Dukkan (app/api/tickets): the list comes from the
    server, a ticket opens as a conversation with Dukkan's replies, and the merchant answers there. In the tour or signed
@@ -43,6 +47,15 @@ function loadTickets(): Ticket[] {
     return [];
   }
 }
+
+/* The help articles block: Dukkan's published pages for merchants (the From Dukkan pages, /from-dukkan) */
+const helpWords = {
+  en: { title: "Help articles", search: "Search help articles", searchPh: "Search by title", none: "No article matches this search." },
+  ar: { title: "مقالات المساعدة", search: "ابحث في مقالات المساعدة", searchPh: "ابحث بالعنوان", none: "لا توجد مقالة تطابق هذا البحث." },
+};
+
+const clockIcon = <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>;
+const searchIcon = <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>;
 
 const xIcon = <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>;
 const picIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 21" /></svg>;
@@ -74,6 +87,8 @@ export function Support() {
   const [openNo, setOpenNo] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
+  /* how soon Dukkan usually answers: set in Diwan (platform setting support_reply_hours) */
+  const replyHours = usePublicSettings().support_reply_hours;
 
   usePageTitle(`${brandName(lang)} | ${s.title}`);
 
@@ -212,7 +227,10 @@ export function Support() {
       <main data-lang-fade className="mx-auto max-w-[1720px] space-y-6 px-5 py-8 md:px-10">
         <section className={card}>
           <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-extrabold">{s.title}</h1><button type="button" onClick={() => { setFormError(""); setCreating(true); }} className="shrink-0 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-onink transition hover:bg-deep"> + {s.newTicket} </button></div>
-          {server !== null && <p className="mt-1 text-xs text-muted">{server ? sv.note : s.note}</p>}
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-soft px-3 py-1 text-xs font-semibold text-fg">{clockIcon}{replyWithin(replyHours, lang)}</p>
+          {server !== null && <p className="mt-2 text-xs text-muted">{server ? sv.note : s.note}</p>}
+
+          <HelpArticles />
 
           {kinded && (
             <div role="radiogroup" aria-label={s.filterLabel} className="mt-4 flex flex-wrap items-center gap-2">
@@ -405,6 +423,67 @@ export function Support() {
         />
       )}
     </div>
+  );
+}
+
+/* ====================================================================
+   Help articles: Dukkan's published pages (signed in only), searched by title
+   ==================================================================== */
+
+function HelpArticles() {
+  const { lang } = usePrefs();
+  const w = helpWords[lang];
+  const [q, setQ] = useState("");
+  /* the same list as /from-dukkan (app/api/dukkan-pages); signed out, in the tour, failed or empty: no block */
+  const st = useMerchant("/api/dukkan-pages", (d) => (Array.isArray(d.pages) ? (d.pages as MerchantPage[]) : []), 0);
+  const pages = st.kind === "ok" ? st.data : null;
+  const shown = useMemo(() => {
+    if (!pages) return [];
+    const needle = q.trim().toLowerCase();
+    if (!needle) return pages;
+    /* the title in either language, so a merchant reading Arabic still finds a page by its English name */
+    return pages.filter((p) => `${p.titleEn} ${p.titleAr}`.toLowerCase().includes(needle));
+  }, [pages, q]);
+
+  if (st.kind === "loading")
+    return (
+      <div className="mt-5 border-t border-fg/10 pt-5" aria-busy="true">
+        <div className="h-4 w-32 animate-pulse rounded-full bg-fg/10 motion-reduce:animate-none" />
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-soft ring-1 ring-fg/10 motion-reduce:animate-none" />)}
+        </div>
+      </div>
+    );
+  if (!pages?.length) return null;
+
+  return (
+    <section aria-labelledby="help-articles" className="mt-5 border-t border-fg/10 pt-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="help-articles" className="text-base font-bold">{w.title}</h2>
+        <label className="relative block w-full sm:w-72">
+          <span className="sr-only">{w.search}</span>
+          <span className="pointer-events-none absolute inset-y-0 start-3 grid place-items-center text-muted">{searchIcon}</span>
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={w.searchPh} dir="auto" maxLength={80} className={`${field} h-10 ps-9`} />
+        </label>
+      </div>
+      {shown.length ? (
+        <ul className="mt-3 grid max-h-[26rem] gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
+          {shown.map((p) => {
+            const x = pageText(p, lang);
+            return (
+              <li key={p.slug} className="min-w-0">
+                <Link href={`/from-dukkan/${p.slug}`} className="block h-full rounded-xl bg-soft/50 px-4 py-3 ring-1 ring-fg/10 transition hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                  <p dir="auto" className="break-words text-sm font-semibold">{x.title}</p>
+                  {x.summary && <p dir="auto" className="mt-0.5 line-clamp-2 break-words text-xs text-muted">{x.summary}</p>}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="mt-3 rounded-xl bg-soft/50 px-4 py-6 text-center text-sm text-muted">{w.none}</p>
+      )}
+    </section>
   );
 }
 

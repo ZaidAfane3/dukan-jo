@@ -152,11 +152,12 @@ export function Orders() {
   const [fulfil, setFulfil] = useState<Fulfil>("delivery");
   const [city, setCity] = useState("");
   /* the cities this store delivers to, the same list its checkout and the server take (safeOrder deliveryCities):
-     Dukkan Ship's from Diwan, or the ones he chose for his own courier. Read when the form opens */
+     Dukkan Ship's from Diwan, or the ones he chose for his own courier. No delivery choice yet: every city (he types
+     his own order, so nothing stops him). Read when the form opens */
   const platform = usePublicSettings();
   const cityList = useMemo(() => {
     const ship = creating ? loadSetup()?.shipping : null;
-    return deliveryCities(ship?.mode, shipCityLists(platform), ship?.cities);
+    return ship ? deliveryCities(ship.mode, shipCityLists(platform), ship.cities) : KNOWN_CITIES;
   }, [creating, platform]);
   const [address, setAddress] = useState("");
   const [errors, setErrors] = useState<{ name?: string; phone?: string; city?: string; address?: string; total?: string }>({});

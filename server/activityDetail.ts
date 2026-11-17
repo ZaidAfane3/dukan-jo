@@ -9,8 +9,8 @@ type Pool = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] 
 
 export type Change = { field: string; from: string | null; to: string | null };
 /* the document a review was about: its kind, its number among its store's documents of that kind, and whether the
-   merchant has removed it since */
-export type DocumentFacts = { kind: string; seq: number | null; removed: boolean };
+   merchant has removed it since; publicId is its address, as its card on the Documents page is named (#doc-<publicId>) */
+export type DocumentFacts = { kind: string; seq: number | null; removed: boolean; publicId?: string };
 export type Detail = {
   changes?: Change[]; title?: string; amount?: string; method?: string; member?: string; count?: number; changedFields?: string[];
   /* a document review: the status it left (said even when only the note changed) and the document, when it is still known */
@@ -170,13 +170,13 @@ export async function describeActivity(pool: Pool, rows: any[]): Promise<Activit
       : { rows: [] },
     ids.length ? pool.query(`SELECT id, name FROM staff WHERE id = ANY($1::bigint[])`, [ids]) : { rows: [] },
     /* the documents' names are a help, not the line itself: if they can't be read the lines keep their plain words */
-    docIds.length ? pool.query(`SELECT id, kind, seq, removed_at FROM documents WHERE id = ANY($1::bigint[])`, [docIds]).catch(() => ({ rows: [] as any[] })) : { rows: [] },
+    docIds.length ? pool.query(`SELECT id, kind, seq, removed_at, public_id FROM documents WHERE id = ANY($1::bigint[])`, [docIds]).catch(() => ({ rows: [] as any[] })) : { rows: [] },
   ]);
   const shopName = new Map(shops.rows.map((s) => [String(s.id), s.name as string]));
   const staffNames = new Map(people.rows.map((p) => [String(p.id), p.name as string]));
   /* a line about a document deleted before documents were kept (old lines) finds nothing here and keeps its old words */
   const documents = new Map<string, DocumentFacts>(
-    docs.rows.map((d) => [String(d.id), { kind: String(d.kind), seq: d.seq == null ? null : Number(d.seq), removed: d.removed_at != null }]),
+    docs.rows.map((d) => [String(d.id), { kind: String(d.kind), seq: d.seq == null ? null : Number(d.seq), removed: d.removed_at != null, ...(d.public_id ? { publicId: String(d.public_id) } : {}) }]),
   );
   return rows.map((r) => {
     const meta = obj(r.meta);

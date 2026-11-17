@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { LEGAL_PAGES, LIMITS, okSupportEmail, okSupportNumber, PAY_METHODS, type Bi, type PayMethod, type PlatformSettings, type SettingKey, type SupportContact } from "@/components/diwan/platformSettings";
-import { supportLinks } from "@/components/platformPublic";
+import { replyWithin, supportLinks } from "@/components/platformPublic";
+import { latin } from "@/components/digits";
 import { askConfirm, Dialog } from "@/components/diwan/dialogs";
 import { PayLogo } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
@@ -37,7 +38,11 @@ export default function SettingsPage() {
               <Payments e={d.settings.payment_methods} />
             </div>
             <TemplateCard info={d.template} onChange={s.reload} />
-            <Support e={d.settings.support_contact} />
+            {/* how merchants reach support and how soon it answers, one above the other */}
+            <div className="grid items-start gap-6">
+              <Support e={d.settings.support_contact} />
+              <ReplyTime e={d.settings.support_reply_hours} />
+            </div>
             <div className="xl:col-span-2">
               <LegalTemplates e={d.settings.store_legal_templates} legal={d.legal} />
             </div>
@@ -300,6 +305,52 @@ function Support({ e }: { e: Entry<"support_contact"> }) {
         ) : (
           <p className="mt-1 text-sm">{t("No way to reach support: only “To sort this out, contact Dukkan's support team.”", "لا توجد طريقة للتواصل مع الدعم: تظهر فقط عبارة «لحلّ الأمر تواصل مع فريق دعم دكّان.»")}</p>
         )}
+      </div>
+    </Section>
+  );
+}
+
+/* How soon Dukkan's support usually answers a ticket, in hours: the merchant Support page says "We usually reply within N
+   hours." (components/platformPublic.ts replyWithin, previewed here with the same words). The server refuses anything
+   but a whole number from 1 to 168. */
+function ReplyTime({ e }: { e: Entry<"support_reply_hours"> }) {
+  const t = useT();
+  const s = useSaver("support_reply_hours", e);
+  /* the box keeps what is typed (even half written); the saved value changes only on Save */
+  const [text, setText] = useState(String(e.value));
+  useEffect(() => setText(String(s.value)), [s.value]);
+  const typed = latin(text).trim();
+  const n = /^\d{1,3}$/.test(typed) ? Number(typed) : NaN;
+  const ok = Number.isInteger(n) && n >= LIMITS.replyHoursMin && n <= LIMITS.replyHoursMax;
+  return (
+    <Section
+      title={t("Support reply time", "مدة الرد على الدعم")}
+      sub={t("How soon Dukkan's team usually answers a ticket. Merchants see it at the top of their Support page.", "المدة التي يرد خلالها فريق دكّان عادةً على التذكرة. يراها التاجر أعلى صفحة الدعم.")}
+      info={s.info}
+      state={s.state}
+      /* a value that fails the rules is still sent (NaN goes as null), so the server refuses it and the card says so */
+      onSave={() => void s.save(ok ? n : NaN)}
+    >
+      <div>
+        <label htmlFor="support-reply-hours" className="mb-1 block text-xs font-semibold text-muted">{t("Hours", "الساعات")}</label>
+        <input
+          id="support-reply-hours"
+          dir="ltr"
+          type="text"
+          inputMode="numeric"
+          maxLength={3}
+          className={`${field} w-32`}
+          value={text}
+          aria-invalid={!ok}
+          aria-describedby={ok ? undefined : "support-reply-hours-bad"}
+          onChange={(x) => setText(x.target.value)}
+        />
+        {!ok && <p id="support-reply-hours-bad" className="mt-1 text-xs text-red-600 dark:text-red-400">{t("A whole number of hours from 1 to 168 (one week).", "عدد ساعات صحيح من 1 إلى 168 (أسبوع).")}</p>}
+      </div>
+      <div className="rounded-xl bg-soft/70 p-3">
+        <p className="text-xs font-semibold text-muted">{t("Merchants see", "يرى التاجر")}</p>
+        <p className="mt-1 text-sm" dir="ltr">{replyWithin(ok ? n : s.value, "en")}</p>
+        <p className="mt-0.5 text-sm" dir="rtl">{replyWithin(ok ? n : s.value, "ar")}</p>
       </div>
     </Section>
   );

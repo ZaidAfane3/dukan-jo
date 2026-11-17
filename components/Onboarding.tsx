@@ -4,14 +4,14 @@ import { QTY_DIGITS, StockChoice, stockNeedsAnswer, stockOverMax } from "./Stock
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
-import { inLang, KNOWN_CITIES, ownCities, savedCities } from "./safeOrder";
+import { inLang, KNOWN_CITIES, orderPays, ownCities, savedCities, type Payment } from "./safeOrder";
 import { FlagJO } from "./Flag";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { shipCityShown, shipServes, shipWords, storePays, usePublicSettings, useSettingsChecked, type StorePay } from "./platformPublic";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { ShareMenu } from "./ShareMenu";
-import { CityGone, OwnCities } from "./Delivery";
+import { CityGone, OwnCities, PaysPicker, payWords } from "./Delivery";
 import { pushNotification } from "./notifications";
 import { SeenShipLogo, SeenShipMark } from "./SeenShip";
 import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
@@ -56,6 +56,9 @@ type Store = {
      cities his courier delivers to (English names, see safeOrder ownCities) */
   shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string; fee?: number; cities?: string[] } | null;
   pickup: boolean;
+  /* the ways to pay he takes, asked in the shipping step (undefined: an older store that never chose, every way Dukkan
+     has on; a new store starts with none) */
+  pays?: Payment[];
 };
 
 const EMPTY_STORE: Store = {
@@ -70,6 +73,7 @@ const EMPTY_STORE: Store = {
   product: null,
   shipping: null,
   pickup: false,
+  pays: [],
 };
 
 type StepProps = { store: Store; onSave: (patch: Partial<Store>) => void };
@@ -1235,6 +1239,9 @@ function ShippingStep({ store, onSave }: StepProps) {
   const saved = store.shipping;
   const [mode, setMode] = useState<"own" | "seen" | null>(saved?.mode ?? null);
   const [pickup, setPickup] = useState(store.pickup);
+  /* the ways to pay he takes: at least one Dukkan has on, so customers can place orders (safeOrder orderPays) */
+  const [pays, setPays] = useState<Payment[]>(store.pays ?? storePays(platform));
+  const paysMissing = () => storePays(platform).length > 0 && orderPays(storePays(platform), pays).length === 0;
 
   /* Dukkan Ship: only needs a pickup place */
   const [city, setCity] = useState(inLang(saved?.city ?? "", { en: content.en.onboarding.shipping.allCities, ar: content.ar.onboarding.shipping.allCities }, lang));
@@ -1252,7 +1259,7 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [cities, setCities] = useState<string[]>(own ? ownCities(own.cities).en : KNOWN_CITIES.en);
   /* the proofs go to Dukkan's server as soon as they are picked (components/partnerProofs.tsx) */
   const { proofs, error, busy, ready: proofsReady, sends: proofsSent, add: addProofs, remove: removeProof, keep: keepProofs } = usePartnerProofs(own?.proofs ?? [], s, lang);
-  const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string; fee?: string; cities?: string }>({});
+  const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string; fee?: string; cities?: string; pays?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
 
   /* Images and PDFs only, up to 5 files of 5 MB, checked from their bytes. Each one is sent with the partner as typed
@@ -1277,6 +1284,8 @@ function ShippingStep({ store, onSave }: StepProps) {
       </span>
     </label>
   );
+
+  const paysBox = <PaysPicker lang={lang} id="ob-ship-pays" value={pays} onChange={(v) => { setPays(v); setErrors((x) => ({ ...x, pays: undefined })); }} error={errors.pays} />;
 
   /* ---------- Step 1: choose how orders are delivered ---------- */
   if (mode === null) {
@@ -1322,12 +1331,13 @@ function ShippingStep({ store, onSave }: StepProps) {
       /* a city Dukkan Ship no longer serves is never saved again: he chooses one it serves */
       if (city === "" || !shipServes(platform, city)) next.city = s.errCity;
       if (!isPickupAddress(address)) next.address = s.errAddress;
-      if (next.city || next.address) {
+      if (paysMissing()) next.pays = payWords[lang].none;
+      if (next.city || next.address || next.pays) {
         setErrors(next);
-        focusFirst([next.city && "ob-ship-city", next.address && "ob-ship-address"].filter(Boolean) as string[]);
+        focusFirst([next.pays && "ob-ship-pays", next.city && "ob-ship-city", next.address && "ob-ship-address"].filter(Boolean) as string[]);
         return;
       }
-      onSave({ pickup, shipping: { mode: "seen", kind: 0, name: s.seenName, phone: "", proofs: [], city, address: cleanLine(address, ACCOUNT_LIMITS.address) } });
+      onSave({ pickup, pays, shipping: { mode: "seen", kind: 0, name: s.seenName, phone: "", proofs: [], city, address: cleanLine(address, ACCOUNT_LIMITS.address) } });
     };
     return (
       <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
@@ -1337,6 +1347,7 @@ function ShippingStep({ store, onSave }: StepProps) {
             <RequiredNote text={c.requiredNote} show={!!error || Object.values(errors).some(Boolean)} />
           </div>
           {pickupBox}
+          {paysBox}
 
           <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
             <SeenShipLogo />
@@ -1431,15 +1442,16 @@ function ShippingStep({ store, onSave }: StepProps) {
     if (fee.trim() === "") next.fee = feeWords[lang].empty;
     else if (amount === "") next.fee = feeWords[lang].bad.replace("{max}", String(ACCOUNT_LIMITS.shipFee));
     if (!savedCities(cities).length) next.cities = lang === "ar" ? "اختر مدينة واحدة على الأقل توصّل إليها." : "Choose at least one city you deliver to.";
+    if (paysMissing()) next.pays = payWords[lang].none;
     setErrors(next);
-    const wrong = (["name", "phone", "fee", "cities"] as const).filter((k) => next[k]);
+    const wrong = (["pays", "name", "phone", "fee", "cities"] as const).filter((k) => next[k]);
     if (wrong.length) {
       focusFirst(wrong.map((k) => `ob-ship-${k}`));
       return;
     }
     keepProofs();
     syncProofPartner(cleanLine(name, ACCOUNT_LIMITS.shipName), kind);
-    onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "", fee: Number(amount) || 0, cities: savedCities(cities) } });
+    onSave({ pickup, pays, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "", fee: Number(amount) || 0, cities: savedCities(cities) } });
   };
 
   return (
@@ -1450,6 +1462,7 @@ function ShippingStep({ store, onSave }: StepProps) {
           <RequiredNote text={c.requiredNote} show={Object.values(errors).some(Boolean)} />
         </div>
         {pickupBox}
+        {paysBox}
 
         <div>
           <Label title={s.label} hint={s.hint} />
@@ -1592,10 +1605,11 @@ const liveWords = {
 
 /** Every task is done and the store's design is saved, so customers can see it: its address, open it, copy or share the
     link, and how customers can pay (the ways Dukkan's staff turned on in Diwan; merchants do not choose them) */
-function LiveMoment({ slug, name }: { slug: string; name: string }) {
+/* `chosen`: the ways to pay he turned on (undefined: an older store, every way Dukkan has on); the moment lists the ones customers can use */
+function LiveMoment({ slug, name, chosen }: { slug: string; name: string; chosen?: Payment[] }) {
   const { lang } = usePrefs();
   const t = liveWords[lang];
-  const pays = storePays(usePublicSettings());
+  const pays = orderPays(storePays(usePublicSettings()), chosen);
   const [copied, setCopied] = useState(false);
   /* signed in, the store is at its own address; otherwise it opens as customers would see it (as the profile menu does) */
   const [href, setHref] = useState("/store");
@@ -1664,6 +1678,8 @@ export function Onboarding() {
         logoData: s.logo ?? "",
         logo: s.logo ? { url: s.logo, name: "logo", size: "" } : null,
         shipping: s.shipping ? { ...s.shipping, mode: s.shipping.mode ?? "own", city: s.shipping.city ?? "", address: s.shipping.address ?? "", proofs: [] } : null,
+        /* none saved: an older store, every way Dukkan has on */
+        pays: s.pays,
       }));
       setDone(s.done);
       /* Someone who has already started sees their task list, not the first step. */
@@ -1685,6 +1701,7 @@ export function Onboarding() {
       pickup: store.pickup,
       logo: store.logoData,
       product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.description ? { description: store.product.description } : {}), ...(store.product.image && (store.product.image.startsWith("data:") || isMediaUrl(store.product.image)) ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
+      ...(store.pays ? { pays: store.pays } : {}),
       shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address, ...(store.shipping.fee !== undefined ? { fee: store.shipping.fee } : {}), ...(store.shipping.cities ? { cities: store.shipping.cities } : {}) } : null,
     });
   }, [restored, store, done]);
@@ -1741,7 +1758,7 @@ export function Onboarding() {
         <LaunchPath done={done} labels={taskTitles} />
 
         {/* every task done: the store is live, said once here before the list (the home page says it too) */}
-        {view === null && doneCount >= TOTAL_TASKS && store.slug && <LiveMoment slug={store.slug} name={store.name} />}
+        {view === null && doneCount >= TOTAL_TASKS && store.slug && <LiveMoment slug={store.slug} name={store.name} chosen={store.pays} />}
         {view === null ? (
           <ul className="mt-8 space-y-3">
             {c.tasks.map((task, i) => (

@@ -896,6 +896,8 @@ export function Designer() {
       logo: prev?.logo,
       product: prev?.product ?? null,
       shipping: prev?.shipping ?? null,
+      /* the ways to pay he chose stay as they were */
+      ...(prev?.pays ? { pays: prev.pays } : {}),
     };
     saveSetup(next);
     /* the theme in use, when it is one of his own (a copy or a design he saved), keeps what he just saved; a theme being tried

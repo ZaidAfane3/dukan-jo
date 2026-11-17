@@ -218,7 +218,7 @@ export type Order = {
   id: number;
   customer: string;
   phone: string;
-  /* Orders from the store may give an email instead of a phone (the receipt goes there) */
+  /* The customer's email: every store order now has a phone and an email; older ones may have only one of them */
   email?: string;
   total: number;
   status: StatusKey;

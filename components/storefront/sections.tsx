@@ -10,7 +10,7 @@ import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, ty
 import { centsFor, copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { productCount, searchCopy } from "./search";
-import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn } from "./footerColors";
+import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
 import { onShowSlide } from "./slideSignal";
 import { useSpots } from "./spotSignal";
 import { initialOf, isBlank } from "../safe";
@@ -248,7 +248,7 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
     }
     return (
       <div className="mb-10 text-center">
-        <p aria-hidden className="mb-4 text-[15px] tracking-[0.6em] text-[var(--sf-primary)]">◆ ◆ ◆</p>
+        <p aria-hidden className="mb-4 text-[15px] tracking-[0.6em] text-[var(--sf-primarytext,var(--sf-primary))]">◆ ◆ ◆</p>
         {h2}
         {right && <div className="mt-4 flex justify-center">{right}</div>}
       </div>
@@ -283,7 +283,31 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
 /* ---------------- Product card ---------------- */
 
 /* The page text where it reads on `on` (the card or the page), else a soft dark or light */
-const inkFor = (ctx: Ctx, on: string) => legibleOn(ctx.config.theme.text || "#1c1a17", on);
+const inkFor = (ctx: Pick<Ctx, "config">, on: string) => legibleOn(ctx.config.theme.text || "#1c1a17", on);
+/* The store's title color, and an accent (his accent, or the store color, or `color`), on `on` with the same rule */
+const titleFor = (ctx: Pick<Ctx, "config">, on: string) => legibleOn(ctx.config.theme.titleColor || ctx.config.theme.text || "#1c1a17", on, inkFor(ctx, on));
+const accentFor = (ctx: Pick<Ctx, "config" | "data">, on: string, color?: string) =>
+  legibleOn(color || ctx.config.theme.accent || ctx.config.theme.primary || ctx.data.color || "#e67726", on, inkFor(ctx, on));
+
+/** The words of a box that has a background of its own (a white card, a cover panel, a sticker, a color card, a chip):
+    the page's text, title and accent colors worked out again for that background with the page text's rule (legibleOn),
+    set as the box's own --sf-text / --sf-title / --sf-accenttext / --sf-primarytext / --sf-saletext, so everything inside
+    that writes in the store's colors reads there (light words of a dark page never land on a white card). A background
+    that is not a plain color or gradient (a picture) changes nothing. */
+export const surfaceInk = (ctx: Pick<Ctx, "config" | "data">, bg: string | undefined): React.CSSProperties => {
+  if (!bg || !stopsOf(bg).length) return {};
+  const t = ctx.config.theme;
+  const text = inkFor(ctx, bg);
+  const primary = t.primary || ctx.data.color || "#e67726";
+  return {
+    color: text,
+    ["--sf-text" as string]: text,
+    ["--sf-title" as string]: titleFor(ctx, bg),
+    ["--sf-accenttext" as string]: accentFor(ctx, bg),
+    ["--sf-primarytext" as string]: legibleOn(primary, bg, text),
+    ["--sf-saletext" as string]: legibleOn(t.saleColor || primary, bg, text),
+  };
+};
 
 /* His price color (product grid options), with the page text's rule: kept wherever it reads 3:1 on what it sits on
    (`on`), otherwise the text color that reads there, so a white price on a white card never vanishes. The designer's
@@ -362,6 +386,8 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
         if (ctx.openProduct && !(e.target as HTMLElement).closest("button")) ctx.openProduct(p.id);
       }}
       className={`group relative overflow-hidden transition duration-300 hover:-translate-y-1 ${look} ${ctx.design || ctx.openProduct ? "cursor-pointer" : ""}`}
+      /* its words in colors that read on the card (white), or on what is behind a flat card */
+      style={surfaceInk(ctx, cardOn)}
     >
       <div
         className="relative overflow-hidden"
@@ -425,7 +451,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
         {plus && (
           inBasket > 0 && !out ? (
             <div className="absolute bottom-2 end-1.5">
-              <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-full border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]">
+              <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-full border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]" style={surfaceInk(ctx, "#ffffff")}>
               <button type="button" onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket - 1)} aria-label={`${ctx.lang === "ar" ? "إنقاص" : "Remove one"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10">&minus;</button>
               <span aria-live="polite" className="min-w-[1.25rem] text-center tabular-nums">{inBasket}</span>
               <button type="button" disabled={inBasket >= p.quantity} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
@@ -446,7 +472,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
           )
         )}
         {withAdd && !plus && (inBasket > 0 && !out ? (
-          <div dir="ltr" className="mt-3 flex h-11 w-full items-center justify-between overflow-hidden rounded-[min(var(--sf-r),12px)] border-2 border-[var(--sf-text)] bg-white text-[var(--sf-text)]">
+          <div dir="ltr" className="mt-3 flex h-11 w-full items-center justify-between overflow-hidden rounded-[min(var(--sf-r),12px)] border-2 border-[var(--sf-text)] bg-white text-[var(--sf-text)]" style={surfaceInk(ctx, "#ffffff")}>
             <button
               type="button"
               onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket - 1)}
@@ -1403,7 +1429,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           <div className={`flex flex-col gap-5 ${ctx.compact ? "items-center text-center" : "items-start"}`}>
             {eyebrow && (
               <Pick ctx={ctx} id={id} field="eyebrow">
-                <span className="inline-block rounded-full border-2 px-3.5 py-1 text-xs font-bold" style={{ background: stickerC, borderColor: ink, color: colorOn("eyebrow", stickerC) || ink }}><Say>{eyebrow}</Say></span>
+                <span className="inline-block rounded-full border-2 px-3.5 py-1 text-xs font-bold" style={{ background: stickerC, borderColor: ink, color: colorOn("eyebrow", stickerC) || inkFor(ctx, stickerC) }}><Say>{eyebrow}</Say></span>
               </Pick>
             )}
             <Pick ctx={ctx} id={id} field="title" block>
@@ -1412,7 +1438,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
                 {words.map((w, i) => (
                   <Fragment key={i}>
                     {i > 0 && " "}
-                    <span style={accentWords.includes(w) && (!pc.accent || readsOn(pc.accent, pageBg)) ? { color: accentC } : undefined}>{w}</span>
+                    <span style={accentWords.includes(w) && readsOn(accentC, pageBg) ? { color: accentC } : undefined}>{w}</span>
                   </Fragment>
                 ))}
               </FitTitle>
@@ -1426,7 +1452,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
               </Pick>
               {button2 && (
                 <Pick ctx={ctx} id={id} field="button2">
-                  <HeroBtn ctx={ctx} link={s.link2} style={{ fontSize: sz("button", 16), background: "#ffffff", borderColor: ink, color: ink, borderRadius: "var(--sf-pill)" }} className={btn}><Say>{button2}</Say></HeroBtn>
+                  <HeroBtn ctx={ctx} link={s.link2} style={{ fontSize: sz("button", 16), background: "#ffffff", borderColor: ink, color: inkFor(ctx, "#ffffff"), borderRadius: "var(--sf-pill)" }} className={btn}><Say>{button2}</Say></HeroBtn>
                 </Pick>
               )}
             </div>
@@ -1447,7 +1473,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
               )}
             </div>
             {sticker && (
-              <div onClick={open("sticker")} className={`absolute left-[3%] top-[3%] grid w-[21%] place-items-center rounded-full border-2 text-center font-extrabold leading-tight ${ctx.design ? "cursor-pointer" : ""}`} style={{ aspectRatio: "1", background: stickerC, borderColor: ink, color: ink, transform: "rotate(-10deg)", whiteSpace: "pre-line", fontSize: ctx.compact ? 12 : 18 }}>
+              <div onClick={open("sticker")} className={`absolute left-[3%] top-[3%] grid w-[21%] place-items-center rounded-full border-2 text-center font-extrabold leading-tight ${ctx.design ? "cursor-pointer" : ""}`} style={{ aspectRatio: "1", background: stickerC, borderColor: ink, color: inkFor(ctx, stickerC), transform: "rotate(-10deg)", whiteSpace: "pre-line", fontSize: ctx.compact ? 12 : 18 }}>
                 <Say>{sticker}</Say>
               </div>
             )}
@@ -1465,6 +1491,12 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
     const pick = (b?: { en: string; ar: string }) => b?.[l] || b?.[other] || "";
     const pc = s.popColors ?? {};
     const gold = pc.accent || "var(--sf-primary)";
+    /* the accent as a color, and as words on the page: kept where it reads there, else the page text's rule picks one */
+    const goldHex = pc.accent || primary;
+    const goldInk = legibleOn(goldHex, pageBg, pageInk);
+    /* the price tag's color and its words (the page's background color, where that reads on the tag) */
+    const tagBg = pc.sticker || "#f2eee6";
+    const tagInk = legibleOn(pageBg, tagBg, inkFor(ctx, tagBg));
     const kicker = pick(s.eyebrow);
     const label = pick(s.size);
     const accentWords = pick(s.accentWord).split(/\s+/).filter(Boolean);
@@ -1477,7 +1509,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           <div className={`flex flex-col gap-6 ${ctx.compact ? "items-center text-center" : "items-start"}`}>
             {kicker && (
               <Pick ctx={ctx} id={id} field="eyebrow">
-                <p dir="auto" style={{ ...latinItalic, fontSize: sz("eyebrow", 22), color: colorOn("eyebrow", pageBg) || "var(--sf-accent)" , ...tx(s.styles?.eyebrow) }}>{kicker}</p>
+                <p dir="auto" style={{ ...latinItalic, fontSize: sz("eyebrow", 22), color: colorOn("eyebrow", pageBg) || accentFor(ctx, pageBg) , ...tx(s.styles?.eyebrow) }}>{kicker}</p>
               </Pick>
             )}
             <Pick ctx={ctx} id={id} field="title" block>
@@ -1487,7 +1519,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
                     {line.split(/\s+/).filter(Boolean).map((w, j) => (
                       <Fragment key={j}>
                         {j > 0 && " "}
-                        <span style={accentWords.includes(w) && (!pc.accent || readsOn(pc.accent, pageBg)) ? { color: gold } : undefined}>{w}</span>
+                        <span style={accentWords.includes(w) && readsOn(goldHex, pageBg) ? { color: gold } : undefined}>{w}</span>
                       </Fragment>
                     ))}
                   </span>
@@ -1499,11 +1531,11 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
             </Pick>
             <div className={`flex flex-wrap items-center gap-4 ${ctx.compact ? "justify-center" : ""}`}>
               <Pick ctx={ctx} id={id} field="button">
-                {button1 && <HeroBtn ctx={ctx} link={link1} className={btn} style={{ fontSize: sz("button", 15), background: gold, color: colorOn("button", pc.accent || primary) || "var(--sf-bg)" }}><Say>{button1}</Say></HeroBtn>}
+                {button1 && <HeroBtn ctx={ctx} link={link1} className={btn} style={{ fontSize: sz("button", 15), background: gold, color: colorOn("button", goldHex) || legibleOn(pageBg, goldHex, onColor(goldHex)) }}><Say>{button1}</Say></HeroBtn>}
               </Pick>
               {button2 && (
                 <Pick ctx={ctx} id={id} field="button2">
-                  <HeroBtn ctx={ctx} link={s.link2} className={btn} style={{ fontSize: sz("button", 15), border: `1px solid ${gold}`, color: gold }}><Say>{button2}</Say></HeroBtn>
+                  <HeroBtn ctx={ctx} link={s.link2} className={btn} style={{ fontSize: sz("button", 15), border: `1px solid ${gold}`, color: goldInk }}><Say>{button2}</Say></HeroBtn>
                 </Pick>
               )}
             </div>
@@ -1520,8 +1552,8 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
                 )}
               </div>
               {(label || s.price) && (
-                <div onClick={open("price")} className={`absolute bottom-[4%] start-[-6%] px-5 py-3.5 ${ctx.design ? "cursor-pointer" : ""}`} style={{ background: pc.sticker || "#f2eee6", color: "var(--sf-bg)" }}>
-                  {label && <p className="text-xs" style={{ color: "color-mix(in srgb, var(--sf-bg) 60%, #f2eee6)" }}><Say>{label}</Say></p>}
+                <div onClick={open("price")} className={`absolute bottom-[4%] start-[-6%] px-5 py-3.5 ${ctx.design ? "cursor-pointer" : ""}`} style={{ background: tagBg, color: tagInk }}>
+                  {label && <p className="text-xs" style={{ color: dimOn(tagInk, tagBg, 60) }}><Say>{label}</Say></p>}
                   {s.price && <p className="font-bold" style={{ fontFamily: "var(--sf-heading)", fontSize: sz("price", 20) }}><WrittenPrice text={s.price} ctx={ctx} /></p>}
                 </div>
               )}
@@ -1550,7 +1582,9 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
       <section className={full ? "" : ctx.compact ? "px-4 pt-4" : "px-8 pt-6"}>
         <div
           className={`grid overflow-hidden ${full ? "" : "rounded-[var(--sf-r)]"} ${ctx.compact ? "" : photoFirst ? "md:grid-cols-[1.15fr_1fr]" : "md:grid-cols-[1fr_1.15fr]"}`}
-          style={{ background: panel, color: light ? "var(--sf-text)" : "#ffffff" }}
+          /* the words take the page's colors where they read on the panel, else the page text's rule picks them (a light
+             panel on a dark page gets dark words) */
+          style={{ background: panel, color: light ? "var(--sf-text)" : "#ffffff", ...surfaceInk(ctx, panel) }}
         >
           <div className={`relative overflow-hidden ${ctx.compact ? "aspect-[4/3]" : full ? "min-h-[720px]" : "min-h-[26rem]"} ${photoFirst ? "" : "md:order-2"}`}>
             {s.photo ? (
@@ -1565,7 +1599,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           <div className={`flex flex-col justify-center ${ctx.compact ? "items-center gap-4 px-6 py-10 text-center" : full ? "gap-7 px-16 py-20" : "gap-5 px-12 py-12"}`}>
             {eyebrow && (
               <Pick ctx={ctx} id={id} field="eyebrow" block>
-                <p className="font-bold leading-[1.2]" style={{ ...head, fontSize: sz("eyebrow", 34), color: colorOn("eyebrow", panel) || (light ? "var(--sf-accent)" : "currentColor") , ...tx(s.styles?.eyebrow) }}><Say>{eyebrow}</Say></p>
+                <p className="font-bold leading-[1.2]" style={{ ...head, fontSize: sz("eyebrow", 34), color: colorOn("eyebrow", panel) || (light ? "var(--sf-accenttext, var(--sf-accent))" : "currentColor") , ...tx(s.styles?.eyebrow) }}><Say>{eyebrow}</Say></p>
               </Pick>
             )}
             <Pick ctx={ctx} id={id} field="title" block>
@@ -1808,9 +1842,13 @@ function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["setti
   const ic = { truck: icons.truck, shield: icons.shield, returns: icons.returns, gift: icons.gift, clock: icons.clock, chat: icons.chat };
   /* his background (the words turn white on a dark one) and border; the box shadow takes the place of the faint ring */
   const bw = s.border === "none" ? 0 : s.border === "thick" ? 2 : s.border === "thin" ? 1 : undefined;
+  /* the words of a perk: the page's colors worked out again for its card (his color, or white), as page text is */
+  const perkBg = s.cardBg || "#ffffff";
+  const perkInk = stopsOf(perkBg).length ? inkFor(ctx, perkBg) : onColor(fillColors(perkBg)[0] ?? perkBg);
   const box: React.CSSProperties = {
     background: s.cardBg || undefined,
-    color: s.cardBg ? onColor(fillColors(s.cardBg)[0] ?? s.cardBg) : undefined,
+    ...surfaceInk(ctx, perkBg),
+    color: perkInk,
     /* a border he picked shows: a soft shade of the store color until he gives it a color */
     boxShadow: bw !== undefined || s.borderColor ? `0 0 0 ${bw ?? 1}px ${s.borderColor || (s.border ? "color-mix(in srgb, var(--sf-primary) 40%, transparent)" : "rgba(0,0,0,0.06)")}` : undefined,
   };
@@ -1834,7 +1872,8 @@ function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["setti
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-bold">{p.title[ctx.lang] || p.title[ctx.lang === "ar" ? "en" : "ar"]}</span>
-              <span className={`block text-xs ${s.cardBg ? "opacity-70" : "text-sf-text/55"}`}>{p.desc[ctx.lang] || p.desc[ctx.lang === "ar" ? "en" : "ar"]}</span>
+              {/* quieter than the title, but never under 4.5:1 on the card */}
+              <span className="block text-xs" style={{ color: dimOn(perkInk, perkBg, 65) }}>{p.desc[ctx.lang] || p.desc[ctx.lang === "ar" ? "en" : "ar"]}</span>
             </span>
           </div>
         ))}
@@ -1863,7 +1902,8 @@ function Collection({ s, ctx }: { s: Extract<SectionConfig, { type: "collection"
   );
   /* A band of its own color across the whole width: its text, titles and buttons take the band's text color */
   if (s.background) {
-    const ink = s.color || onColor(s.background);
+    /* his words color where it reads on the band, else the page text's rule picks one */
+    const ink = legibleOn(s.color || onColor(s.background), s.background, onColor(s.background));
     return (
       <section className={ctx.compact ? "my-10 px-4 py-12" : "my-16 px-8 py-24"} style={{ background: s.background, color: ink, ["--sf-text" as string]: ink, ["--sf-title" as string]: ink, ["--sf-primary" as string]: ink, ["--sf-on" as string]: s.background }}>
         {inner}
@@ -1994,6 +2034,9 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const dgo = ctx.design && pageOf(b.link ?? "") !== null ? (e: React.MouseEvent) => { if (e.ctrlKey || e.metaKey) ctx.design?.openPage?.(pageOf(b.link)!); } : undefined;
           const rich = b.panel === "light" || b.panel === "dark";
           const accent = b.accent || "var(--sf-accent)";
+          /* the store's accent as words on a frosted panel: kept where it reads on the panel, else the page text's rule */
+          const richBg = b.panel === "light" || b.panel === "dark" ? hex(b.panelColor) || (b.panel === "dark" ? "#12100d" : "#fff5f8") : "";
+          const accentWords = b.accent || !richBg ? accent : accentFor(ctx, richBg);
           const sizeClass = tall ? (ctx.compact ? "h-[420px]" : "h-[600px]") : ctx.compact ? "aspect-[4/3]" : ratio;
           const photo = b.image && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -2010,15 +2053,18 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const onBtn = (c?: string) => (c && !readsOn("#ffffff", c) ? onColor(c) : "#ffffff");
 
           if (b.variant === "card") {
-            /* A card of one color: the small line, the title and a dark button, with the picture in an arch or tilted */
-            const ink = "var(--sf-text)";
+            /* A card of one color: the small line, the title and a dark button, with the picture in an arch or tilted. Its
+               words (and lines) are the page's text color where that reads on the card, else the page text's rule picks
+               one: the light words of a dark page never land on a pastel card. */
+            const cardBg = b.bg || primary;
+            const ink = stopsOf(cardBg).length ? inkFor(ctx, cardBg) : "var(--sf-text)";
             const dark = b.accent || ink;
             const shape = b.shape ?? "arch";
             const arrow = ctx.lang === "ar" ? "\u2190" : "\u2192";
-            const pillStyle = { background: dark, color: onBtn(b.accent) };
+            const pillStyle = { background: dark, color: b.accent ? onBtn(b.accent) : hex(ink) ? onColor(ink) : "#ffffff" };
             const pill = "mt-5 inline-flex w-fit items-center rounded-full px-5 py-2 text-sm font-bold transition hover:-translate-y-0.5";
             return (
-              <div key={n} className={`relative flex items-center justify-between gap-4 overflow-hidden ${ctx.compact ? "min-h-[220px] p-5" : "min-h-[300px] p-8"}`} style={{ background: b.bg || primary, border: `2px solid ${ink}`, borderRadius: "var(--sf-r2)", gridColumn: cardMode && !ctx.compact && list.length % 2 === 1 && n === list.length - 1 ? "1 / -1" : undefined }}>
+              <div key={n} className={`relative flex items-center justify-between gap-4 overflow-hidden ${ctx.compact ? "min-h-[220px] p-5" : "min-h-[300px] p-8"}`} style={{ background: cardBg, color: ink, ...surfaceInk(ctx, cardBg), border: `2px solid ${ink}`, borderRadius: "var(--sf-r2)", gridColumn: cardMode && !ctx.compact && list.length % 2 === 1 && n === list.length - 1 ? "1 / -1" : undefined }}>
                 {(() => {
                   const pics = [b.image, ...(b.images ?? [])].filter((x, k) => (k === 0 ? true : !!x));
                   /* Three or more pictures on a wide screen: some at the left end, the text in the middle, the rest at the right end */
@@ -2101,7 +2147,8 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
             const panelStyle = customPanel ? { background: `color-mix(in srgb, ${b.panelColor} 72%, transparent)`, color: onColor(b.panelColor!) === "#ffffff" ? "#f4efe6" : "#2a1f16" } : undefined;
             const btn = `mt-5 inline-flex w-fit items-center rounded-full px-6 py-2.5 text-sm font-semibold transition hover:-translate-y-0.5 ${b.buttonStyle === "outline" ? "border" : "text-white"}`;
             /* an outline button in his color where it reads on the panel (else the panel's words color); a filled one keeps readable words */
-            const btnStyle = b.buttonStyle === "outline" ? (b.accent && !ownC(b.accent) ? { color: "inherit", borderColor: "currentColor" } : { color: accent, borderColor: accent }) : { background: accent, color: onBtn(b.accent) };
+            const accentHex = hex(b.accent) || hex(ctx.config.theme.accent || primary);
+            const btnStyle = b.buttonStyle === "outline" ? (b.accent && !ownC(b.accent) ? { color: "inherit", borderColor: "currentColor" } : { color: accentWords, borderColor: accentWords }) : { background: accent, color: b.accent ? onBtn(b.accent) : accentHex ? onColor(accentHex) : "#ffffff" };
             return (
               <div key={n} className={shell} style={bg}>
                 {photo}
@@ -2109,7 +2156,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
                   className={`absolute max-w-[min(80%,24rem)] rounded-[22px] px-8 py-7 backdrop-blur-[8px] ${corner[b.position ?? "top-start"]} ${customPanel ? "" : dark ? "bg-[rgba(18,14,11,.55)] text-[#e9dfcf]" : "bg-[rgba(255,245,248,.72)] text-[#5a3a34]"}`}
                   style={panelStyle}
                 >
-                  {eyebrow && <p className="text-xs tracking-wide" style={{ fontFamily: small, color: ownC(b.eyebrowColor) || (b.accent && !ownC(b.accent) ? "inherit" : accent), fontSize: b.textSize ? Math.round(b.textSize * 0.8) : b.textFont && b.textFont !== "default" ? 20 : undefined , ...tx(b.styles?.eyebrow) }}><Say>{eyebrow}</Say></p>}
+                  {eyebrow && <p className="text-xs tracking-wide" style={{ fontFamily: small, color: ownC(b.eyebrowColor) || (b.accent && !ownC(b.accent) ? "inherit" : accentWords), fontSize: b.textSize ? Math.round(b.textSize * 0.8) : b.textFont && b.textFont !== "default" ? 20 : undefined , ...tx(b.styles?.eyebrow) }}><Say>{eyebrow}</Say></p>}
                   {title && (
                     <h3 className="mt-1 leading-tight" style={{ fontFamily: family, fontWeight: 700, color: ownC(b.titleColor) || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) , ...tx(b.styles?.title) }}>
                       <Say>{title}</Say>
@@ -2287,7 +2334,8 @@ function Reviews({ s, ctx }: { s: Extract<SectionConfig, { type: "reviews" }>["s
     /* In right-to-left pages scrolling goes the other way */
     el.scrollBy({ left: dir * (ctx.lang === "ar" ? -1 : 1) * el.clientWidth * 0.8, behavior: "smooth" });
   };
-  const arrow = "grid h-10 w-10 place-items-center rounded-full bg-white shadow-md ring-1 ring-black/[0.06] transition hover:scale-105";
+  /* a white button: its arrow is dark, whatever the page's text color */
+  const arrow = "grid h-10 w-10 place-items-center rounded-full bg-white text-[#12262b] shadow-md ring-1 ring-black/[0.06] transition hover:scale-105";
   return (
     <section className={section(ctx.compact)}>
       <Heading
@@ -2306,8 +2354,8 @@ function Reviews({ s, ctx }: { s: Extract<SectionConfig, { type: "reviews" }>["s
       />
       <div ref={rail} className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {shown.map((r, i) => (
-          <figure key={i} dir={/[؀-ۿ]/.test(r.text) ? "rtl" : "ltr"} className={`relative shrink-0 snap-start ${card} p-6 ${ctx.compact ? "w-[85%]" : "w-[calc((100%-2rem)/3)]"}`}>
-            <svg aria-hidden viewBox="0 0 32 32" className="h-9 w-9 fill-current opacity-30" style={{ color: "var(--sf-primary)" }}>
+          <figure key={i} dir={/[؀-ۿ]/.test(r.text) ? "rtl" : "ltr"} className={`relative shrink-0 snap-start ${card} p-6 ${ctx.compact ? "w-[85%]" : "w-[calc((100%-2rem)/3)]"}`} style={surfaceInk(ctx, "#ffffff")}>
+            <svg aria-hidden viewBox="0 0 32 32" className="h-9 w-9 fill-current opacity-30" style={{ color: "var(--sf-primarytext, var(--sf-primary))" }}>
               <path d="M10 8C6 9.500 4 13 4 17v7h9v-9H8c0-3 1.500-5 4-6L10 8Zm14 0c-4 1.500-6 5-6 9v7h9v-9h-5c0-3 1.500-5 4-6L24 8Z" />
             </svg>
             <blockquote className="mt-3 text-sm leading-relaxed text-sf-text/80"><Say>{r.text}</Say></blockquote>
@@ -2365,10 +2413,10 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
           )}
           {trust.length > 0 && (
             <Pick ctx={ctx} id={id} field="trust">
-              <ul className={`mt-2 flex flex-wrap items-center justify-center text-sm ${ctx.compact ? "gap-x-4 gap-y-2" : "gap-x-12 gap-y-3"}`} style={{ color: "var(--sf-accent)" }}>
+              <ul className={`mt-2 flex flex-wrap items-center justify-center text-sm ${ctx.compact ? "gap-x-4 gap-y-2" : "gap-x-12 gap-y-3"}`} style={{ color: "var(--sf-accenttext, var(--sf-accent))" }}>
                 {trust.map((x, i) => (
                   <Fragment key={i}>
-                    {i > 0 && <li aria-hidden className="text-[10px] text-[var(--sf-primary)]">◆</li>}
+                    {i > 0 && <li aria-hidden className="text-[10px] text-[var(--sf-primarytext,var(--sf-primary))]">◆</li>}
                     <li><Say>{x}</Say></li>
                   </Fragment>
                 ))}
@@ -2587,7 +2635,8 @@ function Ribbon({ s, ctx }: { s: Extract<SectionConfig, { type: "ribbon" }>["set
     );
   }
   return (
-    <section style={{ background: s.background, color: s.color }}>
+    /* his words color where it reads on the band (or on the page, with no band color), else the page text's rule picks one */
+    <section style={{ background: s.background, color: legibleOn(s.color || (s.background ? onColor(fillColors(s.background)[0] ?? s.background) : ctx.config.theme.text || "#1c1a17"), s.background || ctx.config.theme.background, inkFor(ctx, s.background || ctx.config.theme.background)) }}>
       <div className={`flex flex-wrap items-center justify-center gap-x-6 gap-y-2 tracking-[0.06em] ${ctx.compact ? "px-4 py-3 text-[15px]" : "px-8 py-5 text-[18px]"}`} style={{ fontFamily: "var(--sf-heading)" }}>
         {words.map((w, i) => (
           <Fragment key={i}>
@@ -2702,7 +2751,8 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
               setOff({ x: 0, y: 0 });
             }}
             className={`border-2 border-[var(--sf-text)] font-bold text-[var(--sf-text)] ${dragI === i ? "" : "transition hover:-translate-y-0.5"} ${size} ${canDrag ? "touch-none select-none cursor-grab active:cursor-grabbing" : ""}`}
-            style={{ borderRadius: "var(--sf-pill)", background: x.color, transform: dragI === i ? `translate(${off.x}px, ${off.y}px) rotate(${tilt[i % tilt.length]}deg) scale(1.06)` : `rotate(${tilt[i % tilt.length]}deg)`, zIndex: dragI === i ? 30 : undefined, boxShadow: dragI === i ? "0 10px 24px rgba(0,0,0,0.25)" : undefined, position: dragI === i ? "relative" : undefined }}
+            /* the chip's words (and border) in the page text color where it reads on the chip's color, else the rule picks one */
+            style={{ borderRadius: "var(--sf-pill)", background: x.color, ...surfaceInk(ctx, x.color || ctx.config.theme.background), ...(stopsOf(x.color || ctx.config.theme.background).length ? { borderColor: inkFor(ctx, x.color || ctx.config.theme.background) } : {}), transform: dragI === i ? `translate(${off.x}px, ${off.y}px) rotate(${tilt[i % tilt.length]}deg) scale(1.06)` : `rotate(${tilt[i % tilt.length]}deg)`, zIndex: dragI === i ? 30 : undefined, boxShadow: dragI === i ? "0 10px 24px rgba(0,0,0,0.25)" : undefined, position: dragI === i ? "relative" : undefined }}
           >
             <Say>{x.label[ctx.lang] || x.label[other]}</Say>
           </a>
@@ -2757,7 +2807,11 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
   const accent = pick(s.accentWord);
   /* The accent word is shown in the accent color wherever it appears in the title */
   const at = accent ? title.indexOf(accent) : -1;
-  const on = onColor(s.background || "#2b1b47") === "#ffffff" ? "#ffffff" : "#1c1a17";
+  /* its words: white or dark for his band color; with no band color they sit on the page, in the page's text color */
+  const nlBg = s.background || ctx.config.theme.background;
+  const on = s.background ? (onColor(fillColors(s.background)[0] ?? s.background) === "#ffffff" ? "#ffffff" : "#1c1a17") : inkFor(ctx, nlBg);
+  /* his accent where it reads on the band (or the page), else the words' color */
+  const accentInk = s.accent ? legibleOn(s.accent, nlBg, on) : undefined;
   /* the text on a button: white on a dark button color, dark otherwise (and when the color is not one we can read) */
   const textOn = (fill?: string) => (fill && /#[0-9a-f]{6}/i.test(fill) && onColor(fill) === "#ffffff" ? "#ffffff" : "#1c1a17");
   return (
@@ -2770,7 +2824,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
                 {at >= 0 ? (
                   <>
                     {title.slice(0, at)}
-                    <span style={{ color: s.accent }}>{accent}</span>
+                    <span style={{ color: accentInk }}>{accent}</span>
                     {title.slice(at + accent.length)}
                   </>
                 ) : (
@@ -2784,7 +2838,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
           </Pick>
         </div>
         {done ? (
-          <p className="font-bold" style={{ color: s.accent }}><Say>{pick(s.thanks)}</Say></p>
+          <p className="font-bold" style={{ color: accentInk }}><Say>{pick(s.thanks)}</Say></p>
         ) : (
           <form
             noValidate

@@ -16,8 +16,8 @@ import { useFmt, useStaff, useT } from "./ui";
 
 export type Change = { field: string; from: string | null; to: string | null };
 /* the document a review was about: its kind, its number among its store's documents of that kind, and whether the
-   merchant has removed it since */
-export type DocumentFacts = { kind: string; seq: number | null; removed: boolean };
+   merchant has removed it since; publicId is its address, as its card on the Documents page is named (#doc-<publicId>) */
+export type DocumentFacts = { kind: string; seq: number | null; removed: boolean; publicId?: string };
 export type Detail = {
   changes?: Change[]; title?: string; amount?: string; method?: string; member?: string; count?: number; changedFields?: string[];
   /* a document review: the status it left (said even when only the note changed) and the document, when it is still known */
@@ -129,7 +129,7 @@ function TicketRef({ n }: { n: string }) {
 
 /** A document by its kind and number ("Proof of delivery #002", as its card says), a link to the store's documents
     for staff who may open them, and a word when the merchant has removed it since */
-function DocumentRef({ doc, id, shopId }: { doc: DocumentFacts; id: string | null; shopId: string | null }) {
+function DocumentRef({ doc, shopId }: { doc: DocumentFacts; shopId: string | null }) {
   const t = useT();
   const staff = useStaff();
   const label = (
@@ -143,8 +143,8 @@ function DocumentRef({ doc, id, shopId }: { doc: DocumentFacts; id: string | nul
       )}
     </>
   );
-  /* every status, so an approved or rejected one shows too; the page scrolls to the card (#doc-<id>) */
-  const href = `/diwan/documents?${shopId ? `shop=${shopId}&` : ""}status=all${id && /^\d+$/.test(id) ? `#doc-${id}` : ""}`;
+  /* every status, so an approved or rejected one shows too; the page scrolls to the card (#doc-<publicId>) */
+  const href = `/diwan/documents?${shopId ? `shop=${shopId}&` : ""}status=all${doc.publicId && /^[A-Za-z0-9]+$/.test(doc.publicId) ? `#doc-${doc.publicId}` : ""}`;
   return (
     <>
       {staff && can(staff, "documents") ? (
@@ -232,7 +232,7 @@ export function ActivityText({ row }: { row: ActivityRow }) {
     return (
       <>
         {verb}
-        <DocumentRef doc={d.document} id={row.targetId} shopId={row.shop?.id ?? null} />
+        <DocumentRef doc={d.document} shopId={row.shop?.id ?? null} />
         {status && <span className="block text-[13px] font-normal text-muted">{changeWords(t, row.action, status, false)}</span>}
       </>
     );

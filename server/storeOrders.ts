@@ -4,7 +4,7 @@ import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as rec
 import { safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import {
-  checkCheckout, deliveryCities, mergeSoldOnline, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, takeStock, toFils, money,
+  checkCheckout, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, takeStock, toFils, money,
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
 import { plainDeep, plainText, seal } from "./crypto";
@@ -115,10 +115,14 @@ const couponTerms = (c: Coupon): Coupon => ({ id: "x", type: c.type, name: "", c
 /* a checkout's own key: letters, digits and dashes (a random UUID in the cart) */
 const ATTEMPT = /^[A-Za-z0-9-]{16,64}$/;
 
+/** The store's delivery cities (null: no home delivery), pickup and ways to pay now, sent with a refusal so the cart can offer them */
+export type StoreChoices = { cities: { en: readonly string[]; ar: readonly string[] } | null; pickup: boolean; pays: Payment[] };
+
 export type PlaceResult =
   | { status: 404; body: { result: "none" } }
   | { status: 409; body: { result: "closed" } }
-  | { status: 400; body: { result: "invalid"; fields: (CheckoutField | "lines")[] } }
+  | { status: 400; body: { result: "invalid"; fields: (CheckoutField | "lines")[]; choices?: StoreChoices } }
+  | { status: 409; body: { result: "no-delivery"; pickup: boolean; choices: StoreChoices } }
   | { status: 409; body: { result: "changed"; items: PricedLine[]; total?: number; terms: Terms } }
   | { status: 409; body: { result: "coupon"; why: CouponRefusal } }
   | { status: 200; body: { result: "ok"; order: PlacedOrder } };
@@ -180,15 +184,22 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const saved = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[]) FOR UPDATE`, [id, keys]);
     const data = new Map<string, string>(saved.rows.map((r: { key: string; value: string }) => [r.key, r.value]));
 
-    /* the customer's details, checked with the same rules as the cart: a Jordan mobile (an email only for pickup not
-       paid in cash), a city the store delivers to (deliveryCities), pickup only when the store offers it, and a way to
-       pay that is on */
+    /* the customer's details, checked with the same rules as the cart: a Jordan mobile and an email, a city the store
+       delivers to (storeDelivery), pickup only when the store offers it, and a way to pay that Dukkan has on and he
+       chose (orderPays) */
     const setup = cleanSetup(parse(data.get("seen-setup")));
     const ship = settings.dukkan_ship;
-    const cities = deliveryCities(setup?.shipping?.mode, { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) }, setup?.shipping?.cities);
-    const pays = storePaysFrom(settings.payment_methods as unknown as Record<string, { on: boolean }>);
-    const checked = checkCheckout(customer, { pickup: setup?.pickup === true, pays, cities });
-    if (!checked.ok) return { status: 400, body: { result: "invalid", fields: checked.errors } };
+    /* no delivery choice yet: home delivery is not offered (pickup only, when he offers it) */
+    const offer = storeDelivery(setup?.shipping?.mode, { price: ship.price, cities: { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) } }, setup?.shipping ?? {});
+    const pickup = setup?.pickup === true;
+    const pays = orderPays(storePaysFrom(settings.payment_methods as unknown as Record<string, { on: boolean }>), setup?.pays);
+    /* the store's choices as they are now, sent with a refusal: he may have changed his cities, delivery, pickup or ways
+       to pay while the customer had the page open, so the cart offers these instead and the next try can go through
+       (cities null: no home delivery) */
+    const choices = { cities: offer ? offer.cities : null, pickup, pays };
+    if (!offer && !(pickup && customer.fulfil === "pickup")) return { status: 409, body: { result: "no-delivery", pickup, choices } };
+    const checked = checkCheckout(customer, { pickup, delivery: !!offer, pays, cities: offer?.cities });
+    if (!checked.ok) return { status: 400, body: { result: "invalid", fields: checked.errors, ...(checked.errors.some((f) => f === "city" || f === "pay" || f === "fulfil") ? { choices } : {}) } };
 
     /* delivery: free above the store's free delivery amount, for pickup and with a free delivery coupon; otherwise the
        merchant's own fee (his own courier) or Dukkan Ship's price from Diwan */
@@ -197,7 +208,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const freeDelivery = { on: isObj(fd) && fd.on === true, min: fdMin !== null && fdMin > 0 ? fdMin : 25 };
     /* his own courier with no fee ever set (setup leaves it out): no fee is charged and the checkout says the store
        confirms it, never "Free"; a fee he set (0 included) is charged as set */
-    const fee = setup?.shipping?.mode === "own" ? (setup.shipping.fee === undefined ? null : toFils(setup.shipping.fee)) : toFils(ship.price);
+    const fee = offer ? offer.fee : 0;
     const terms: Terms = { fee, freeDelivery };
 
     /* every price and the stock from the shop's saved products, never from the customer's browser */

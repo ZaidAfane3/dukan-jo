@@ -32,6 +32,9 @@ export type PlatformSettings = {
   dukkan_ship: DukkanShip;
   store_legal_templates: StoreLegalTemplates;
   support_contact: SupportContact;
+  /* how soon Dukkan's support team usually answers a ticket, in whole hours (1 to 168, a week): the merchant Support
+     page says "We usually reply within N hours." */
+  support_reply_hours: number;
 };
 export type SettingKey = keyof PlatformSettings;
 
@@ -40,11 +43,11 @@ export type SettingKey = keyof PlatformSettings;
    Removed on 2026-11-16: "shipping_companies" (a list of couriers nothing outside this settings page ever read: a merchant
    names his own delivery partner), and "default_themes" and "seo_defaults", which are now set in the code
    (components/platformDefaults.ts). A row still saved under any of these keys is never read, sent or shown. */
-export const SETTING_KEYS: SettingKey[] = ["payment_methods", "dukkan_ship", "store_legal_templates", "support_contact"];
+export const SETTING_KEYS: SettingKey[] = ["payment_methods", "dukkan_ship", "store_legal_templates", "support_contact", "support_reply_hours"];
 /* What any visitor's page may read (GET /api/platform/settings): prices, ways to pay and texts every store shows anyway.
    Today that is every setting; a setting only Diwan should see would be left out of this list. Dukkan's support contact is
    public on purpose: a suspended merchant reads it without being signed in. */
-export const PUBLIC_KEYS = ["payment_methods", "dukkan_ship", "store_legal_templates", "support_contact"] as const satisfies readonly SettingKey[];
+export const PUBLIC_KEYS = ["payment_methods", "dukkan_ship", "store_legal_templates", "support_contact", "support_reply_hours"] as const satisfies readonly SettingKey[];
 export type PublicKey = (typeof PUBLIC_KEYS)[number];
 export type PublicSettings = Pick<PlatformSettings, PublicKey>;
 
@@ -99,12 +102,14 @@ export const SETTING_DEFAULTS: PlatformSettings = {
   store_legal_templates: LEGAL_DEFAULTS,
   /* the email the website gave before; no phone or WhatsApp until staff write a real one (the old +962 6 000 0000 was a placeholder) */
   support_contact: { phone: "", whatsapp: "", email: "hello@dukkan.store" },
+  support_reply_hours: 24,
 };
 
 export const LIMITS = {
   city: 40, note: 200,
   shipPrice: 100, shipCities: 30, shipPolicy: 200, shipFeatures: 8, shipFeature: 80, legalTitle: 80, legalBody: 6000,
   supportNumber: 20, supportEmail: 120,
+  replyHoursMin: 1, replyHoursMax: 168,
 };
 
 /** A support phone or WhatsApp number as staff write it: empty, or 8 to 15 digits with only spaces, dashes, brackets and
@@ -203,6 +208,12 @@ export function cleanSetting(key: SettingKey, v: unknown): PlatformSettings[Sett
       if (phone === null || whatsapp === null || email === null) return null;
       if (!okSupportNumber(phone) || !okSupportNumber(whatsapp) || !okSupportEmail(email)) return null;
       return { phone, whatsapp, email: email ? cleanEmail(email) : "" };
+    }
+
+    case "support_reply_hours": {
+      /* a whole number of hours, 1 to 168 (written in Arabic digits too); anything else is refused, never rounded */
+      const n = typeof v === "number" ? v : typeof v === "string" && /^\s*\d{1,3}\s*$/.test(latin(v)) ? Number(latin(v)) : NaN;
+      return Number.isInteger(n) && n >= LIMITS.replyHoursMin && n <= LIMITS.replyHoursMax ? n : null;
     }
   }
   return null;

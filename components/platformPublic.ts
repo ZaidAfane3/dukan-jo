@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { arCount } from "./undo";
 import { cleanSetting, PUBLIC_KEYS, SETTING_DEFAULTS, THEME_PAYS, type Bi, type PayMethod, type PublicSettings, type ThemePay } from "./diwan/platformSettings";
 
 export { THEME_PAYS, type ThemePay };
@@ -173,4 +174,12 @@ export function supportLinks(s: Pick<PublicSettings, "support_contact">) {
   const c = s.support_contact;
   const tel = c.phone.replace(/[^\d+]/g, "");
   return { phone: c.phone, tel: tel ? `tel:${tel}` : "", whatsapp: waLink(c.whatsapp), email: c.email, mailto: c.email ? `mailto:${c.email}` : "" };
+}
+
+/** How soon Dukkan's support usually answers (platform setting support_reply_hours), as the merchant Support page says it:
+    "We usually reply within 24 hours." / «نردّ عادةً خلال 24 ساعة.» (1 «ساعة واحدة», 2 «ساعتين», 3–10 «ساعات»). Diwan's
+    settings page previews it with the same words. */
+export function replyWithin(hours: number, lang: "en" | "ar"): string {
+  if (lang === "ar") return `نردّ عادةً خلال ${arCount(hours, { one: "ساعة واحدة", two: "ساعتين", few: "ساعات", many: "ساعة" })}.`;
+  return `We usually reply within ${hours} ${hours === 1 ? "hour" : "hours"}.`;
 }

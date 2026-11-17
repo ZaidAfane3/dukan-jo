@@ -10,7 +10,7 @@ import { jordanMobile, savedMobile, typedPhone } from "./phone";
 import { cleanDate, cleanLine, cleanLines, cleanMoney, emailOf, isSlug, safeColor, safeImage, safeStoredImage } from "./safe";
 import type { SavedSetup } from "./setup";
 import { PRODUCT_MAX } from "./records";
-import { savedCities } from "./safeOrder";
+import { savedCities, savedPays } from "./safeOrder";
 
 /** The longest each field may be. The form fields use the same numbers. */
 export const ACCOUNT_LIMITS = {
@@ -116,6 +116,8 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
           ...(sh.mode !== "seen" && savedCities(sh.cities).length ? { cities: savedCities(sh.cities) } : {}),
         }
       : null,
+    /* the ways to pay he chose: known ways only; left out (an older store) means every way Dukkan has on */
+    ...(savedPays(s.pays) ? { pays: savedPays(s.pays) } : {}),
   };
 }
 

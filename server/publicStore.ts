@@ -112,6 +112,7 @@ export async function shapePublicStore(
     logo,
     pickup: setup?.pickup === true,
     shipping: setup?.shipping ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}), ...(setup.shipping.cities ? { cities: setup.shipping.cities } : {}) } : null,
+    ...(setup?.pays ? { pays: setup.pays } : {}),
   };
 
   const rawPages = data.has("seen-pages") ? sanitizePages(parse(data.get("seen-pages"))) : undefined;

@@ -70,7 +70,7 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     allowed ? { rows: await q(`${rowsSql} LIMIT ${FEW}`), count: Number((await q(countSql))[0]?.n ?? 0) } : null;
   const billing = can(staff, "billing");
   const [shop, payments, themes, tickets, documents, reports, deletions, activityRaw] = await Promise.all([
-    q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode,
+    q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode, s.store_pays,
               s.pickup_city, s.pickup_address, s.status AS shop_status, s.suspend_reason, s.suspended_at, s.product_count, s.order_count,
               s.total_sales, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
               /* the oldest order: the one the merchant's saved orders give, or an older one customers placed on its page */

@@ -40,11 +40,13 @@ export const POST = documentsRoute(async (req, me) => {
   const saved = await inTransaction(async (c) => {
     /* one upload at a time per account, so two sent together can't both slip under a limit */
     await c.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [me.id]);
-    /* the limits count only what the merchant still keeps; the next number counts removed ones too, so it is never reused */
+    /* the counts are of what the merchant still keeps; the bytes also count a removed file whose bytes are still stored
+       (the few minutes it can be restored in, until purgeRemovedFiles clears data and file_key), so removing and sending
+       again can't store more than the limit; the next number counts removed ones too, so it is never reused */
     const { rows } = await c.query(
       `SELECT count(*) FILTER (WHERE removed_at IS NULL)::int AS all_n,
               count(*) FILTER (WHERE kind = $2 AND removed_at IS NULL)::int AS kind_n,
-              COALESCE(sum(bytes) FILTER (WHERE removed_at IS NULL), 0)::bigint AS used,
+              COALESCE(sum(bytes) FILTER (WHERE removed_at IS NULL OR data IS NOT NULL OR file_key IS NOT NULL), 0)::bigint AS used,
               COALESCE(max(seq) FILTER (WHERE kind = $2), 0)::int + 1 AS next_seq
          FROM documents WHERE account_id = $1`,
       [me.id, kind],

@@ -23,9 +23,10 @@ export const fromDukkanWords = {
   },
 };
 
-type State<T> = { kind: "loading" } | { kind: "out" } | { kind: "failed" } | { kind: "missing" } | { kind: "ok"; data: T };
+export type State<T> = { kind: "loading" } | { kind: "out" } | { kind: "failed" } | { kind: "missing" } | { kind: "ok"; data: T };
 
-function useMerchant<T>(path: string, pick: (d: Record<string, any>) => T, again: number): State<T> {
+/** Loads one of the merchant routes (signed in only): also used by the Support page's help articles */
+export function useMerchant<T>(path: string, pick: (d: Record<string, any>) => T, again: number): State<T> {
   const [s, setS] = useState<State<T>>({ kind: "loading" });
   useEffect(() => {
     if (!onServer()) return setS({ kind: "out" });
@@ -69,7 +70,8 @@ function Note({ text, retry }: { text: string; retry?: () => void }) {
   );
 }
 
-const pick = (p: MerchantPage, lang: "en" | "ar") => ({
+/** A page's title, summary and text in the page's language (the other language when that one is empty) */
+export const pageText = (p: MerchantPage, lang: "en" | "ar") => ({
   title: lang === "ar" ? p.titleAr || p.titleEn : p.titleEn || p.titleAr,
   summary: lang === "ar" ? p.summaryAr || p.summaryEn : p.summaryEn || p.summaryAr,
   body: lang === "ar" ? p.bodyAr || p.bodyEn || "" : p.bodyEn || p.bodyAr || "",
@@ -81,7 +83,7 @@ const dateOf = (v: string | null, lang: "en" | "ar") => (v ? new Date(v).toLocal
     links nowhere (href null). */
 export function PageListCard({ page: p, lang, href = `/from-dukkan/${p.slug}` }: { page: MerchantPage; lang: "en" | "ar"; href?: string | null }) {
   const w = fromDukkanWords[lang];
-  const x = pick(p, lang);
+  const x = pageText(p, lang);
   const cls = "block rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 transition hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
   const inner = (
     <>
@@ -99,7 +101,7 @@ export function PageListCard({ page: p, lang, href = `/from-dukkan/${p.slug}` }:
 
 /** One of Dukkan's pages, opened. Also drawn by Diwan's preview. */
 export function PageArticle({ page, lang }: { page: MerchantPage; lang: "en" | "ar" }) {
-  const x = pick(page, lang);
+  const x = pageText(page, lang);
   return (
     <article className="min-w-0 rounded-2xl bg-card p-6 shadow-sm ring-1 ring-fg/10 [overflow-wrap:anywhere] md:p-8">
       <p className="text-xs text-muted">{dateOf(page.publishedAt, lang)}</p>

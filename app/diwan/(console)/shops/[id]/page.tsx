@@ -23,6 +23,8 @@ type Shop = {
   published: boolean;
   paused: boolean;
   ship_mode: string;
+  /* the ways to pay the merchant chose ("cliq,cash", "" none yet); null: never chosen, every way Dukkan has on */
+  store_pays?: string | null;
   pickup_city: string;
   pickup_address: string;
   shop_status: string;
@@ -262,6 +264,10 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 {d.theme && <ThemeLine theme={d.theme} link={!!d.can.themes} />}
                 <Line k={t("Paused for maintenance", "متوقف للصيانة")} v={sh.paused ? t("Yes", "نعم") : t("No", "لا")} />
                 <Line k={t("Dukkan Ship", "شحن دكّان")} v={sh.ship_mode === "seen" ? t("Yes", "نعم") : sh.ship_mode === "own" ? t("Own delivery", "توصيل خاص") : "—"} />
+                <Line
+                  k={t("Ways to pay", "طرق الدفع")}
+                  v={sh.store_pays == null ? t("All Dukkan has on (not chosen)", "كل ما يتيحه دكّان (لم يختر)") : sh.store_pays === "" ? t("None yet", "لا شيء بعد") : sh.store_pays.split(",").map((p) => (p === "cliq" ? t("CliQ", "كليك") : p === "cash" ? t("Cash on delivery", "الدفع عند الاستلام") : t("Card", "بطاقة"))).join(" · ")}
+                />
                 {sh.ship_mode === "seen" && (
                   <>
                     <Line k={t("Pickup city", "مدينة الاستلام")} v={sh.pickup_city || "—"} />

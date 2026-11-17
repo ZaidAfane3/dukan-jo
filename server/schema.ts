@@ -454,6 +454,7 @@ export const DIWAN_SCHEMA = `
      2026-11-16: the website's copy lives in code (components/siteContent.ts). The row is left in place rather than
      deleted, but nothing reads or writes it any more. */
 
+  /* unused since flags were removed; kept so existing data isn't dropped */
   CREATE TABLE IF NOT EXISTS feature_flags (
     key         TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -525,6 +526,8 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE store_data ADD COLUMN IF NOT EXISTS plain_len INT;
   /* the theme the store's design is built on (seen-themes: the active one, or the theme a saved copy came from) */
   ALTER TABLE shops ADD COLUMN IF NOT EXISTS theme_id TEXT NOT NULL DEFAULT 'dukkan';
+  /* the ways to pay the merchant chose ("cliq,cash"; "" none yet); NULL: an older store that never chose (every way Dukkan has on) */
+  ALTER TABLE shops ADD COLUMN IF NOT EXISTS store_pays TEXT;
 
   /* The theme store's list, run from Diwan (components/themeListing.ts). A "code" theme's look is in the code and its
      empty words fall back to the code's; a "design" theme is all here (design: the whole store design, as JSON). The
