@@ -47,14 +47,14 @@ export const typedPhone = (value: string) => latin(value).replace(/[^\d\s]/g, ""
 
 /** The message shown when the number is not a Jordan mobile. */
 export const phoneError = {
-  en: "Enter a valid Jordan mobile number, e.g. 0791234567",
-  ar: "أدخل رقم موبايل أردني صحيح، مثل 0791234567",
+  en: "Enter a valid mobile number, e.g. 0791234567",
+  ar: "أدخل رقم جوال صحيح، مثل 0791234567",
 };
 
 /** The message shown when a number is not a Jordan mobile or landline. */
 export const numberError = {
-  en: "Enter a Jordan number: a mobile like 079 123 4567 or a landline like 06 123 4567.",
-  ar: "أدخل رقمًا أردنيًا: موبايل مثل 079 123 4567 أو أرضي مثل 06 123 4567.",
+  en: "Enter a valid number: a mobile like 079 123 4567 or a landline like 06 123 4567.",
+  ar: "أدخل رقمًا صحيحًا: جوال مثل 079 123 4567 أو أرضي مثل 06 123 4567.",
 };
 
 /** The message shown when letters or symbols were typed in a number field (they are not kept). */

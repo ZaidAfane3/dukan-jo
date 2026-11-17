@@ -40,6 +40,11 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE staff_sessions ADD COLUMN IF NOT EXISTS password_confirmed_at TIMESTAMPTZ;
 
   /* everything staff open or change. Only ever added to: a trigger refuses UPDATE and DELETE. */
+  /* the newest 2-step code each staff member and each merchant signed in with (its 30-second step): a code is accepted
+     once (server/staff.ts useTotpCode) */
+  ALTER TABLE staff ADD COLUMN IF NOT EXISTS totp_last_step BIGINT;
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_last_step BIGINT;
+
   CREATE TABLE IF NOT EXISTS audit_log (
     id          BIGSERIAL PRIMARY KEY,
     at          TIMESTAMPTZ NOT NULL DEFAULT now(),

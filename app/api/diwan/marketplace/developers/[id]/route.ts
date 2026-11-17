@@ -3,6 +3,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { cleanDeveloper } from "../../shape";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +16,9 @@ export const PATCH = staffRoute("marketplace", async (req: NextRequest, me, { pa
   const before = await pool.query(`SELECT name, email, company, status, share_pct::float AS "sharePct" FROM developers WHERE id = $1`, [id]);
   if (!before.rows[0]) return answer({ result: "missing" }, 404);
   try {
-    await pool.query(`UPDATE developers SET name = $2, email = $3, company = $4, status = $5, share_pct = $6 WHERE id = $1`, [
+    await pool.query(`UPDATE developers SET name = $2, email = $3, company = $4, status = $5, share_pct = $6 WHERE id = $1`, plainParams([
       id, d.name, d.email, d.company, d.status, d.sharePct,
-    ]);
+    ]));
   } catch (e) {
     if ((e as { code?: string }).code === "23505") return answer({ result: "taken" }, 409);
     throw e;

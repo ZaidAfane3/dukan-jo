@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { answer, finishPendingSession, guarded, noteLogin, pendingAccount, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { touchShop } from "@/server/shops";
-import { totpOk } from "@/server/staff";
+import { useTotpCode } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +21,9 @@ const noteWrong = (id: string) => {
 };
 
 /* The second step of signing in, for accounts with 2-step codes on: { code } from the authenticator app, after the
-   password (/api/auth/login answered "code"). Answers "ok" with the account, "wrong", "expired" (no session waiting:
-   sign in again) or "slow-down" (too many tries). */
+   password (/api/auth/login answered "code"). A code works once: the same code again, even inside its 90 seconds, is
+   "wrong". Answers "ok" with the account, "wrong", "expired" (no session waiting: sign in again) or "slow-down" (too
+   many tries). */
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   if (tooMany(req, "totp", 20, 15)) return answer({ result: "slow-down" }, 429);
@@ -31,7 +32,7 @@ export const POST = guarded(async (req: NextRequest) => {
   const a = await pendingAccount(req);
   if (!a) return answer({ result: "expired" }, 401);
   if (blocked(a.id)) return answer({ result: "slow-down" }, 429);
-  if (!totpOk(a.secret, code)) {
+  if (!(await useTotpCode("accounts", a.id, a.secret, code))) {
     noteWrong(a.id);
     return answer({ result: "wrong" }, 401);
   }

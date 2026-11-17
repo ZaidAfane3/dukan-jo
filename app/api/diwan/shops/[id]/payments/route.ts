@@ -1,5 +1,5 @@
 import { answer } from "@/server/auth";
-import { seal } from "@/server/crypto";
+import { plainText, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { notify } from "@/server/notify";
 import { body, dayOf, jodOf, notFound, shopId, textOf } from "@/server/shopActions";
@@ -25,7 +25,7 @@ export const POST = staffRoute("billing", async (req, staff, ctx) => {
 
   const { rows } = await (await db()).query(
     `INSERT INTO payments (account_id, amount, method, reference, paid_on, marked_by, note) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    [id, amount, method, reference, paidOn, staff.id, seal(note)],
+    [id, amount, method, plainText(reference), paidOn, staff.id, seal(note)],
   );
   await audit(req, staff.id, "shop.payment", { type: "shop", id }, note || null, { payment: String(rows[0].id), amount, method });
   await notify(id, "paymentReceived", { amount, method });

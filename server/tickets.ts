@@ -20,7 +20,14 @@ export const merchantStatus = (s: string): MerchantStatus =>
 
 /** A ticket number from the URL (1001 or #1001), or null */
 export function ticketNumber(v: string | undefined): number | null {
-  const m = /^#?(\d{1,12})$/.exec(decodeURIComponent(v ?? ""));
+  let text = v ?? "";
+  try {
+    text = decodeURIComponent(text);
+  } catch {
+    /* a stray "%" in the address: not a ticket number */
+    return null;
+  }
+  const m = /^#?(\d{1,12})$/.exec(text);
   return m ? Number(m[1]) : null;
 }
 
@@ -126,7 +133,7 @@ export function merchantRoute(fn: (req: NextRequest, me: Merchant, ctx: { params
 }
 
 /** A LIKE pattern that matches the text as typed (its % and _ are not wildcards) */
-export const likeOf = (s: string) => `%${s.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+export const likeOf = (s: string) => `%${s.replace(/[\u0000-\u001f\u007f]/g, "").replace(/[\\%_]/g, (c) => "\\" + c)}%`;
 
 /* ---------------- Diwan's lists ---------------- */
 

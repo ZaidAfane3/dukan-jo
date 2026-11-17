@@ -3,6 +3,7 @@ import { db } from "@/server/db";
 import { AUDIENCE_HAS, cleanAnnouncement } from "@/server/announce";
 import { audit, staffRoute } from "@/server/staff";
 import { inTransaction } from "@/server/tickets";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,7 @@ export const POST = staffRoute("announce", async (req, staff) => {
     const { rows } = await c.query(
       `INSERT INTO announcements (title_en, title_ar, body_en, body_ar, audience, banner, starts_at, ends_at, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-      [a.titleEn, a.titleAr, a.bodyEn, a.bodyAr, JSON.stringify(a.audience), a.banner, a.startsAt, a.endsAt, staff.id],
+      plainParams([a.titleEn, a.titleAr, a.bodyEn, a.bodyAr, JSON.stringify(a.audience), a.banner, a.startsAt, a.endsAt, staff.id]),
     );
     await c.query(`INSERT INTO notifications (account_id, announcement_id, kind) VALUES (NULL, $1, 'announcement')`, [rows[0].id]);
     return String(rows[0].id);

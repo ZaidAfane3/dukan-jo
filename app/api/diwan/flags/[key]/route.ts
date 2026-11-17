@@ -3,6 +3,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { cleanFlag, FLAG_KEY } from "../shape";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const PUT = staffRoute("flags", async (req: NextRequest, me, { params }) 
   if (!before.rows[0]) return answer({ result: "missing" }, 404);
   await pool.query(
     `UPDATE feature_flags SET name = $2, description = $3, mode = $4, account_ids = $5::bigint[], updated_by = $6, updated_at = now() WHERE key = $1`,
-    [key, f.name, f.description, f.mode, f.accountIds, me.id],
+    plainParams([key, f.name, f.description, f.mode, f.accountIds, me.id]),
   );
   const b = before.rows[0];
   await audit(req, me.id, "flag.change", { type: "flag", id: key }, null, {

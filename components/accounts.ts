@@ -75,17 +75,18 @@ export async function createAccount(a: { email: string; name: string; phone: str
   return "ok";
 }
 
-/** Signs in with an email (or mobile) and password, and brings back that account's store. "none": no account;
-    "wrong": the password does not match; "suspended": Dukkan suspended the store (its reason and date are kept for
-    the /suspended page); "code": the account has 2-step codes on, so logInCode must follow; "error": the server could
-    not be reached. */
-export async function logIn(id: string, password: string): Promise<"ok" | "none" | "wrong" | "suspended" | "code" | "error"> {
+/** Signs in with an email (or mobile) and password, and brings back that account's store. "wrong": no such account,
+    or the password does not match (the server gives one answer for both, so nobody can test which emails have an
+    account); "slow-down": too many wrong tries, wait 15 minutes; "suspended": Dukkan suspended the store (its reason
+    and date are kept for the /suspended page); "code": the account has 2-step codes on, so logInCode must follow;
+    "error": the server could not be reached. */
+export async function logIn(id: string, password: string): Promise<"ok" | "wrong" | "slow-down" | "suspended" | "code" | "error"> {
   forgetSuspension();
   const r = await call("/api/auth/login", "POST", { id, password });
   const result = r?.reply.result;
   const suspension = asSuspension(r?.reply);
   if (suspension) rememberSuspension(suspension);
-  if (result === "none" || result === "wrong" || result === "suspended" || result === "code") return result;
+  if (result === "wrong" || result === "slow-down" || result === "suspended" || result === "code") return result;
   if (result !== "ok" || !r?.reply.account) return "error";
   await signedIn(r.reply.account);
   askTwoStep();

@@ -4,6 +4,7 @@ import { answer, readJson } from "@/server/auth";
 import { readListings } from "@/server/catalog";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,7 @@ export const PATCH = staffRoute("marketplace", async (req: NextRequest, me, { pa
     `UPDATE catalog_themes SET ${sql}, updated_by = $${keys.length + 2}, updated_at = now()
        ${set.status === "live" ? ", released_at = COALESCE(released_at, now())" : ""}
      WHERE id = $1`,
-    [params.id, ...values, me.id],
+    plainParams([params.id, ...values, me.id]),
   );
   const before = Object.fromEntries(keys.map((k) => [k, (cur as Record<string, unknown>)[k] ?? null]));
   await audit(req, me.id, set.status ? "theme.status" : "theme.edit", { type: "theme", id: params.id }, null, { before, after: set });

@@ -63,8 +63,8 @@ export type Content = {
     errTaken: string;
     errPhoneTaken: string;
     errServer: string;
-    errNoAccount: string;
     errWrongPassword: string;
+    errTooMany: string;
     terms: { before: string; terms: string; and: string; privacy: string };
     side: { kicker: string; heading: string; panelTitle: string; steps: string[]; caption: string };
   };
@@ -522,8 +522,8 @@ export const content: Record<Lang, Content> = {
       errTaken: "This email already has an account. Log in instead.",
       errPhoneTaken: "This mobile number already has an account. Log in instead.",
       errServer: "We couldn't reach Dukkan right now. Check your connection and try again.",
-      errNoAccount: "No account with this email or number. Create one first.",
-      errWrongPassword: "The password is not right. Try again.",
+      errWrongPassword: "The email, number or password is not right. Try again.",
+      errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
       terms: {
         before: "By creating an account, you agree to Dukkan's ",
         terms: "Terms of Service",
@@ -627,7 +627,7 @@ export const content: Record<Lang, Content> = {
         namePhs: ["Enter the company name", "Enter the person's name"],
         phoneLabel: "Their phone number",
         phoneHint: "The number we can reach them on.",
-        phoneInvalid: "Enter a valid Jordan mobile number, e.g. 0791234567",
+        phoneInvalid: "Enter a valid mobile number, e.g. 0791234567",
         proofLabel: "Proof for this partner",
         proofHint: "Add any documents that show who they are, such as a commercial registration, ID, a contract or delivery receipts.",
         proofAdd: "Upload your documents",
@@ -675,7 +675,7 @@ export const content: Record<Lang, Content> = {
         hint: "Add the number you want to receive your customers' inquiries on.",
         phoneLabel: "Phone number",
         phonePh: "7X XXX XXXX",
-        invalid: "Enter a valid Jordan mobile number, e.g. 0791234567",
+        invalid: "Enter a valid mobile number, e.g. 0791234567",
         previewHint: "Your number appears in your store footer",
         contact: "Contact us",
         useSame: "Use the same number registered in your account",
@@ -686,7 +686,7 @@ export const content: Record<Lang, Content> = {
         waEmpty: "Leave it empty if you don't use WhatsApp, and add a phone number for calls.",
         waHint: "Customers message you on it from the WhatsApp button in your store footer and on product pages.",
         waOther: "WhatsApp number",
-        waInvalid: "Enter a valid Jordan mobile number for WhatsApp, e.g. 0791234567",
+        waInvalid: "Enter a valid mobile number for WhatsApp, e.g. 0791234567",
         callLabel: "Phone number for calls",
         callHint: "If you want customers to call you. It shows beside WhatsApp in your store footer.",
         callSame: "Same number as WhatsApp",
@@ -1102,8 +1102,8 @@ export const content: Record<Lang, Content> = {
       errTaken: "يوجد حساب بهذا البريد. سجّل الدخول بدلًا من ذلك.",
       errPhoneTaken: "يوجد حساب بهذا الرقم. سجّل الدخول بدلًا من ذلك.",
       errServer: "تعذّر الاتصال بدكان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
-      errNoAccount: "لا يوجد حساب بهذا البريد أو الرقم. أنشئ حسابًا أولًا.",
-      errWrongPassword: "كلمة المرور غير صحيحة. حاول مرة أخرى.",
+      errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
+      errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
       terms: {
         before: "بإنشائك حسابًا، فإنك توافق على ",
         terms: "شروط الاستخدام",
@@ -1207,7 +1207,7 @@ export const content: Record<Lang, Content> = {
         namePhs: ["أدخل اسم الشركة", "أدخل اسم الشخص"],
         phoneLabel: "رقم هاتفه",
         phoneHint: "الرقم الذي يمكننا التواصل معه عليه.",
-        phoneInvalid: "أدخل رقم موبايل أردني صحيح، مثل 0791234567",
+        phoneInvalid: "أدخل رقم جوال صحيح، مثل 0791234567",
         proofLabel: "إثباتات هذه الجهة",
         proofHint: "أضف أي مستندات تثبت هويتهم، مثل السجل التجاري أو الهوية أو عقد التعاون أو إيصالات التسليم.",
         proofAdd: "ارفع مستنداتك",
@@ -1253,7 +1253,7 @@ export const content: Record<Lang, Content> = {
         hint: "أضف الرقم الذي تود استخدامه لتلقّي استفسارات عملائك.",
         phoneLabel: "رقم الجوال",
         phonePh: "7X XXX XXXX",
-        invalid: "أدخل رقم موبايل أردني صحيح، مثل 0791234567",
+        invalid: "أدخل رقم جوال صحيح، مثل 0791234567",
         previewHint: "سيظهر رقمك في تذييل متجرك",
         contact: "تواصل معنا",
         useSame: "استخدام نفس الرقم المسجَّل في حسابك",
@@ -1264,7 +1264,7 @@ export const content: Record<Lang, Content> = {
         waEmpty: "اتركه فارغًا إن كنت لا تستخدم واتساب، وأضف رقمًا للاتصال.",
         waHint: "يراسلك العملاء عليه من زر واتساب في تذييل متجرك وصفحات المنتجات.",
         waOther: "رقم واتساب",
-        waInvalid: "أدخل رقم موبايل أردني صحيح لواتساب، مثل 0791234567",
+        waInvalid: "أدخل رقم جوال صحيح لواتساب، مثل 0791234567",
         callLabel: "رقم للاتصال",
         callHint: "إن أردت أن يتصل بك العملاء هاتفيًا. يظهر بجانب واتساب في تذييل متجرك.",
         callSame: "نفس رقم واتساب",

@@ -189,8 +189,9 @@ export function SignupForm() {
       /* the password was right but Dukkan suspended the store: a page of its own says why (logIn kept the reason) */
       if (r === "suspended") return router.push(SUSPENDED_PATH);
       if (r !== "ok") {
-        setErrors(r === "none" ? { loginId: c.errNoAccount } : r === "wrong" ? { password: c.errWrongPassword } : { password: c.errServer });
-        document.getElementById(r === "none" ? "s-loginId" : "s-password")?.focus();
+        /* one message for a wrong email, mobile or password: the server does not say which it was */
+        setErrors({ password: r === "wrong" ? c.errWrongPassword : r === "slow-down" ? c.errTooMany : c.errServer });
+        document.getElementById("s-password")?.focus();
         return;
       }
       /* his store is ready: the dashboard, or the setup if it is not finished */

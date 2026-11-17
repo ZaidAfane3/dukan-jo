@@ -3,6 +3,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { cleanDeveloper } from "../shape";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export const POST = staffRoute("marketplace", async (req: NextRequest, me) => {
   try {
     const { rows } = await (await db()).query(
       `INSERT INTO developers (name, email, company, status, share_pct) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [d.name, d.email, d.company, d.status, d.sharePct],
+      plainParams([d.name, d.email, d.company, d.status, d.sharePct]),
     );
     id = String(rows[0].id);
   } catch (e) {

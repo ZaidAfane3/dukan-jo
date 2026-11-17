@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { STAFF_2FA_REQUIRED, staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { db } from "@/server/db";
-import { audit, currentStaff, totpOk, verifyStaffSession } from "@/server/staff";
+import { audit, currentStaff, useTotpCode, verifyStaffSession } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +37,8 @@ export const POST = guarded(async (req: NextRequest) => {
     newHash = await hashPassword(pw as string);
   }
 
-  if (!noCode && !totpOk(row.totp_secret, code)) {
+  /* a code works once: the same one again, even inside its 90 seconds, counts as wrong */
+  if (!noCode && !(await useTotpCode("staff", s.id, row.totp_secret, code))) {
     await audit(req, s.id, "staff.code_failed", { type: "staff", id: s.id });
     return answer({ result: "wrong" }, 401);
   }

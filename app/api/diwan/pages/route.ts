@@ -4,6 +4,7 @@ import { AUDIENCE_HAS, PAGE_SINCE } from "@/server/announce";
 import { db } from "@/server/db";
 import { cleanPage } from "@/server/dukkanPages";
 import { audit, staffRoute } from "@/server/staff";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export const POST = staffRoute("announce", async (req: NextRequest, me) => {
     `INSERT INTO dukkan_pages (slug, title_en, title_ar, summary_en, summary_ar, body_en, body_ar, in_menu, sort, audience, created_by, updated_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
      ON CONFLICT (slug) DO NOTHING RETURNING id`,
-    [p.slug, p.titleEn, p.titleAr, p.summaryEn ?? "", p.summaryAr ?? "", p.bodyEn ?? "", p.bodyAr ?? "", p.inMenu ?? false, p.sort ?? 100, JSON.stringify(p.audience ?? { all: true }), me.id],
+    plainParams([p.slug, p.titleEn, p.titleAr, p.summaryEn ?? "", p.summaryAr ?? "", p.bodyEn ?? "", p.bodyAr ?? "", p.inMenu ?? false, p.sort ?? 100, JSON.stringify(p.audience ?? { all: true }), me.id]),
   );
   if (!rows[0]) return answer({ result: "taken", field: "slug" }, 409);
   const id = String(rows[0].id);

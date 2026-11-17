@@ -3,6 +3,7 @@ import { sanitizeDesign } from "@/components/safeDesign";
 import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
   await (await db()).query(
     `INSERT INTO platform_settings (key, value, updated_by, updated_at) VALUES ('starter_template', $1, $2, now())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-    [text, me.id],
+    plainParams([text, me.id]),
   );
   await audit(req, me.id, "settings.template", { type: "setting", id: "starter_template" }, null, { bytes: text.length, sections: config.sections.length });
   return answer({ result: "ok" });

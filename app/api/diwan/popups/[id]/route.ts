@@ -3,6 +3,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { cleanPopup } from "@/server/popups";
 import { audit, staffRoute } from "@/server/staff";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export const PATCH = staffRoute("announce", async (req, me, { params }) => {
             button_en = $10, button_ar = $11, button_link = $12, audience = $13, starts_at = $14, ends_at = $15, priority = $16,
             updated_by = $17, updated_at = now()
       WHERE id = $1`,
-    [params.id, p.template, JSON.stringify(p.slots), p.placement, c.titleEn, c.titleAr, c.bodyEn, c.bodyAr, c.image, c.buttonEn, c.buttonAr, c.buttonLink, JSON.stringify(p.audience), p.startsAt, p.endsAt, p.priority, me.id],
+    plainParams([params.id, p.template, JSON.stringify(p.slots), p.placement, c.titleEn, c.titleAr, c.bodyEn, c.bodyAr, c.image, c.buttonEn, c.buttonAr, c.buttonLink, JSON.stringify(p.audience), p.startsAt, p.endsAt, p.priority, me.id]),
   );
   await audit(req, me.id, "popup.edit", { type: "popup", id: params.id }, null, { title: c.titleEn, template: p.template, placement: p.placement, audience: p.audience, status: cur.status });
   return answer({ result: "ok" });

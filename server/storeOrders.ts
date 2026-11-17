@@ -7,7 +7,7 @@ import {
   checkCheckout, mergeSoldOnline, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, takeStock, toFils, money,
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
-import { seal } from "./crypto";
+import { plainDeep, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { notify } from "./notify";
 import { readSettings } from "./settings";
@@ -233,7 +233,8 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
                                  customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17)`,
       [
-        id, number, JSON.stringify(items), priced.subtotal, discount, delivery, total, couponUsed, v.fulfil,
+        /* the lines (product names, sizes) and the coupon code are the shop's own words, kept unsealed: made safe first */
+        id, number, JSON.stringify(plainDeep(items)), priced.subtotal, discount, delivery, total, plainText(couponUsed), v.fulfil,
         /* the customer's details are private: sealed, and opened again only for the shop's own owner (GET /api/orders) */
         seal(v.customer), v.phone ? seal(v.phone) : null, v.email ? seal(v.email) : null,
         v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt,

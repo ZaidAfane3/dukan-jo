@@ -38,10 +38,11 @@ export const savedPhone = (v: unknown) => (typeof v === "string" ? savedMobile(v
 
 /* ---------------- accounts ---------------- */
 
-/** What to tell him when passwordProblem (safe.ts) finds a password too long or only spaces. */
+/** What to tell him when passwordProblem (safe.ts) finds a password too long, only spaces or easy to guess. */
 export const passwordError = {
   long: { en: "Use 128 characters or fewer", ar: "استخدم 128 حرفًا أو أقل" },
   blank: { en: "The password can't be only spaces", ar: "لا يمكن أن تكون كلمة المرور مسافات فقط" },
+  common: { en: "This password is too easy to guess. Mix letters and numbers, and avoid common words.", ar: "كلمة المرور هذه سهلة التخمين. اجمع بين الحروف والأرقام وتجنّب الكلمات الشائعة." },
 };
 
 /* ---------------- profile (the settings page) ---------------- */

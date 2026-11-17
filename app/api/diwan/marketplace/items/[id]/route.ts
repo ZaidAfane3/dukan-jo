@@ -4,6 +4,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { cleanItemFields, NEXT, type ItemStatus } from "../../shape";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export const PATCH = staffRoute("marketplace", async (req: NextRequest, me, { pa
     /* only moves on when nobody moved it meanwhile */
     const { rowCount } = await pool.query(
       `UPDATE marketplace_items SET status = $2, note = $3, reviewed_by = $4, updated_at = now() WHERE id = $1 AND status = $5`,
-      [id, to, note, me.id, was.status],
+      plainParams([id, to, note, me.id, was.status]),
     );
     if (!rowCount) return answer({ result: "step" }, 409);
     await audit(req, me.id, "marketplace.item_status", { type: "marketplace_item", id }, note || null, { before: was.status, after: to });
@@ -42,7 +43,7 @@ export const PATCH = staffRoute("marketplace", async (req: NextRequest, me, { pa
   if (f.developerId && !(await pool.query(`SELECT 1 FROM developers WHERE id = $1`, [f.developerId])).rowCount) return answer({ result: "invalid" }, 400);
   await pool.query(
     `UPDATE marketplace_items SET name = $2, description = $3, price = $4, version = $5, developer_id = $6, updated_at = now() WHERE id = $1`,
-    [id, f.name, f.description, f.price, f.version, f.developerId],
+    plainParams([id, f.name, f.description, f.price, f.version, f.developerId]),
   );
   await audit(req, me.id, "marketplace.item_change", { type: "marketplace_item", id }, null, {
     before: { name: was.name, description: was.description, price: was.price, version: was.version, developerId: was.developerId },

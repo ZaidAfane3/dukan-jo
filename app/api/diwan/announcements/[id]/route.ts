@@ -2,6 +2,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { cleanAnnouncement } from "@/server/announce";
 import { audit, staffRoute } from "@/server/staff";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export const PUT = staffRoute("announce", async (req, staff, ctx) => {
   const { rowCount } = await (await db()).query(
     `UPDATE announcements SET title_en = $2, title_ar = $3, body_en = $4, body_ar = $5, audience = $6, banner = $7, starts_at = $8, ends_at = $9
       WHERE id = $1`,
-    [id, a.titleEn, a.titleAr, a.bodyEn, a.bodyAr, JSON.stringify(a.audience), a.banner, a.startsAt, a.endsAt],
+    plainParams([id, a.titleEn, a.titleAr, a.bodyEn, a.bodyAr, JSON.stringify(a.audience), a.banner, a.startsAt, a.endsAt]),
   );
   if (!rowCount) return answer({ result: "none" }, 404);
   await audit(req, staff.id, "announcement.edit", { type: "announcement", id }, null, { title: a.titleEn, audience: a.audience, banner: a.banner });
