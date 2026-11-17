@@ -55,7 +55,8 @@ const copy = {
     searchPh: "Search for a page",
     sort: "Sort",
     sorts: ["Newest first", "Title"],
-    types: ["General", "Return policy", "Terms and privacy"],
+    /* the third is the type of both the terms and the privacy page, so it names either */
+    types: ["General", "Return policy", "Legal: terms or privacy"],
     published: "Published",
     draft: "Draft",
     visit: "View page",
@@ -94,7 +95,7 @@ const copy = {
     searchPh: "ابحث عن صفحة",
     sort: "ترتيب",
     sorts: ["الأحدث أولًا", "العنوان"],
-    types: ["عامة", "سياسة الاستبدال والاسترجاع", "الأحكام والخصوصية"],
+    types: ["عامة", "سياسة الاستبدال والاسترجاع", "قانونية: الأحكام أو الخصوصية"],
     published: "منشور",
     draft: "مسودة",
     visit: "زيارة الصفحة",
@@ -451,7 +452,8 @@ export function InfoPages() {
                           {p.published ? c.published : c.draft}
                         </span>
                       </span>
-                      <span className="mt-1.5 block text-xs text-muted">{c.types[p.type]}</span>
+                      {/* the type under the title, unless it only says the title again (the return policy) */}
+                      {c.types[p.type].trim() !== t(p.title).trim() && <span className="mt-1.5 block text-xs text-muted">{c.types[p.type]}</span>}
                     </button>
                   </li>
                 ))}

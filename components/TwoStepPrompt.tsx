@@ -3,10 +3,11 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TWO_STEP_ASK, TWO_STEP_NEW } from "./accounts";
 import { brandName } from "./content";
+import { DashSkeleton } from "./DashSkeleton";
 import { isStaffPage } from "./diwan/nav";
 import { popupSlot, popupSlotChanged, watchStarted } from "./MerchantPopup";
 import { signedInAs } from "./demoSandbox";
@@ -33,7 +34,12 @@ import { loadSetup } from "./setup";
    - never during or right after signing up: not until the store setup (the 6 tasks of /onboarding) is finished, or the
      account is 3 days old with the setup still unfinished (OLD_ENOUGH, from the first time this browser saw it), and
      not in a new account's first minutes (FIRST_WAIT). Until then the ask is kept for a later page of this sign-in.
-   The page is checked again on every move inside the app and right before it shows. Signed in on Dukkan's server only. */
+   The page is checked again on every move inside the app and right before it shows. Signed in on Dukkan's server only.
+
+   While the server is asked (right after signing in, nothing known yet), the page shows the dashboard's loading look over
+   it, decided before the page is painted: the dashboard never shows first only to be swapped for this page seconds later.
+   The answer comes (the code is on: the dashboard; off: this page) or LATE passes (the dashboard; asked on the next
+   page). */
 
 const words = {
   en: {
@@ -150,6 +156,8 @@ export function TwoStepPrompt() {
   /* drawn into the page only on a page that may ask (so the portal is not there on every page) */
   const [ready, setReady] = useState(false);
   const [show, setShow] = useState(false);
+  /* the server is being asked whether the code is on: the loading look covers the page until the answer (or LATE) */
+  const [waiting, setWaiting] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const yes = useRef<HTMLAnchorElement>(null);
   /* whether this one holds the tab's pop-up place (read when the page goes away, after the state may have moved on) */
@@ -161,7 +169,8 @@ export function TwoStepPrompt() {
     here.current = pathname;
   }, [pathname]);
 
-  useEffect(() => {
+  /* a layout effect: whether the page waits for the answer is known before it is painted */
+  useLayoutEffect(() => {
     const path = pathname || window.location.pathname;
     if (!onServer() || isStaffPage(path, window.location.search)) return;
     /* the account's first-seen time starts counting on its first page here (setup included) */
@@ -183,6 +192,8 @@ export function TwoStepPrompt() {
     let gone = false;
     let decided = false;
     const opened = Date.now();
+    /* the end of the loading look when the answer is late */
+    let late = 0;
 
     /* anything the merchant starts on this page before the answer is in (MerchantPopup.tsx: the same rule for every
        pop-up) */
@@ -199,6 +210,7 @@ export function TwoStepPrompt() {
     const offNow = () => {
       if (decided) return;
       decided = true;
+      setWaiting(false);
       const busy = watch.busy();
       unwatch();
       /* checked again right before it shows: the app may have moved to a page it never shows on meanwhile */
@@ -219,9 +231,14 @@ export function TwoStepPrompt() {
         giveBack();
       });
     } else {
+      /* nothing known yet: the loading look until the answer, never the dashboard first */
+      setWaiting(true);
+      late = window.setTimeout(() => setWaiting(false), LATE);
       void merchantCall("/api/auth/totp/setup", "GET").then((r) => {
+        window.clearTimeout(late);
         if (gone) return;
         if (r?.status === 200 && r.data.on === false) return offNow();
+        setWaiting(false);
         unwatch();
         /* on already (or signed out): nothing to ask in this tab; the server unreachable: asked again on the next page */
         if (r && r.status < 500) forget();
@@ -230,12 +247,14 @@ export function TwoStepPrompt() {
     }
     return () => {
       gone = true;
+      window.clearTimeout(late);
       unwatch();
       /* leaving the page frees the tab for the next one (the others on the next page ask for it themselves); not answered
          yet, it is asked on that page (the mark stays) */
       if (h.on) popupSlot.open = false;
       h.on = false;
       setShow(false);
+      setWaiting(false);
     };
   }, [pathname]);
 
@@ -287,6 +306,13 @@ export function TwoStepPrompt() {
   if (!ready) return null;
   const move = { duration: reduce ? 0 : 0.3, ease };
   return createPortal(
+    <>
+    {/* the answer is not in yet: the page's loading look over it (the dashboard's, as the page itself shows it first) */}
+    {waiting && !show && (
+      <div data-two-step-wait className="fixed inset-0 z-[110] overflow-hidden bg-page">
+        <DashSkeleton variant={pathname === "/dashboard" ? "home" : "form"} />
+      </div>
+    )}
     <AnimatePresence>
       {show && (
         <motion.div
@@ -357,7 +383,8 @@ export function TwoStepPrompt() {
           </motion.main>
         </motion.div>
       )}
-    </AnimatePresence>,
+    </AnimatePresence>
+    </>,
     document.body,
   );
 }

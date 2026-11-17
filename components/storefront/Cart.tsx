@@ -9,7 +9,7 @@ import { jordanMobile } from "../phone";
 import { checkCheckout, orderPays, ORDER_LIMITS, savedPays, storeDelivery, storeFulfils, type Payment, priceCart, productSizes, sellableStock, takeStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type CouponRefusal } from "../records";
 import type { CartStyle } from "./config";
-import { currency, hasFils, icons, moneyIn, priceOf, ProductImage } from "./parts";
+import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
 
 /* The customer's basket: what is in it, the free delivery progress and a few suggestions, then the checkout (who, where,
@@ -32,6 +32,9 @@ const words = {
     subtotal: "Subtotal",
     delivery: "Delivery",
     free: "Free",
+    /* pickup chosen (or the only way): the delivery line says so, never "Free" */
+    pickupLine: "Pickup from the store",
+    pickupOnly: "Pickup only",
     /* his own courier and no fee set yet: the store tells the customer the fee, the total has none */
     deliveryFee: "Delivery fee",
     feeByStore: "Confirmed by the store",
@@ -127,6 +130,8 @@ const words = {
     subtotal: "المجموع",
     delivery: "التوصيل",
     free: "مجاني",
+    pickupLine: "استلام من المتجر",
+    pickupOnly: "استلام من المتجر فقط",
     deliveryFee: "رسوم التوصيل",
     feeByStore: "يؤكدها المتجر",
     totalBeforeDelivery: "الإجمالي قبل التوصيل",
@@ -370,10 +375,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const [coupon, setCoupon] = useState("");
   const [couponErr, setCouponErr] = useState<CouponRefusal | null>(null);
 
-  /* every amount of the panel the same way: when any of them has fils, all of them show two decimals (18.50 next to 22.00);
-     a basket of whole prices shows them whole (22), as the product cards do. The receipt of a placed order counts its own
-     amounts (doneCents). */
-  const amount = (n: number, cents = panelCents) => `${moneyIn(n, priceLanguage, cents)} ${currency(priceLanguage)}`;
+  /* each amount on its own, as on the product cards (parts.tsx money): a whole one whole ("22"), any other with two
+     decimals ("18.50"), whatever the amounts next to it */
+  const amount = (n: number) => `${moneyIn(n, priceLanguage)} ${currency(priceLanguage)}`;
   const subtotal = lines.reduce((s, l) => s + l.qty * priceAt(l.p), 0);
   const freeNow = fd.on && subtotal >= fd.min;
   /* the coupons: the merchant's own as saved in his browser, or on the public store only the one the server accepted */
@@ -567,11 +571,6 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   };
 
   const suggestions = suggestFor(products, lines.map((l) => l.p), 3);
-  /* the amounts of the basket and the details: its lines and its sums. An earlier order's receipt never counts (it made a
-     basket of whole prices show 22.00 after an order with 18.50 in it); a suggestion is a product's own price, shown like
-     its card (whole: 22) */
-  const panelCents = [subtotal, discount, delivery, total, ...lines.flatMap((l) => [priceAt(l.p), l.qty * priceAt(l.p)])].some(hasFils);
-  const doneCents = placed ? [placed.subtotal, placed.discount, placed.delivery, placed.total, ...placed.items.flatMap((it) => [it.price, it.qty * it.price])].some(hasFils) : false;
   const field = (bad?: string) => { const k = skins[look] ?? skins.drawer; return `${k.field} ${bad ? k.fieldBad : k.fieldOk}`; };
   const set = (k: keyof typeof form, v: string) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -657,7 +656,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const blocked = cantOrder && step === "details";
   const heading: CSSProperties = { fontFamily: "var(--sf-heading)" };
 
-  const freeLine = fd.on && lines.length > 0 && (
+  /* free delivery is only promised when the order can be delivered and is not picked up */
+  const freeLine = fd.on && canDeliver && fulfil === "delivery" && lines.length > 0 && (
     <div className={s.free}>
       <p className="flex items-center gap-2">
         {look !== "editorial" && <span aria-hidden className="shrink-0">{truck}</span>}
@@ -718,7 +718,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
               )}
             </div>
             <p dir="auto" className={`${s.sName} ltr:text-left rtl:text-right`}>{p.name}</p>
-            <p className={s.sPrice} dir="auto">{amount(priceOf(p), false)}</p>
+            <p className={s.sPrice} dir="auto">{amount(priceOf(p))}</p>
             {!iconRemove && <button type="button" onClick={() => setQty(p, 1)} className={s.sAdd}>+ {w.add}</button>}
           </div>
         ))}
@@ -730,7 +730,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     <div className={s.sums}>
       <p className="flex justify-between gap-3"><span className="opacity-70">{w.subtotal}</span><span dir="auto">{amount(subtotal)}</span></p>
       {cp?.ok && discount > 0 && <p className="flex justify-between gap-3 text-emerald-700 dark:text-emerald-500"><span>{w.discount} <span dir="ltr" className="font-bold">{cp.coupon.code}</span></span><span dir="auto">−{amount(discount)}</span></p>}
-      {feeOpen ? (
+      {/* no way to get the order: no delivery line (never a false "Free"); picked up: it says so */}
+      {noDelivery ? null : fulfil === "pickup" ? (
+        <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span>{canDeliver ? w.pickupLine : w.pickupOnly}</span></p>
+      ) : feeOpen ? (
         <p className="flex justify-between gap-3"><span className="opacity-70">{w.deliveryFee}</span><span>{w.feeByStore}</span></p>
       ) : (
         <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span dir="auto">{delivery === 0 ? w.free : amount(delivery)}</span></p>
@@ -899,23 +902,23 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
             {placed.items.map((it) => (
               <li key={`${it.id}|${it.size ?? ""}`} className="flex justify-between gap-3">
                 <span className="min-w-0"><bdi>{it.name}</bdi>{it.size && <span className="opacity-60"> – <bdi>{it.size}</bdi></span>} <span dir="ltr" className="opacity-60">×{it.qty}</span></span>
-                <span dir="auto" className="shrink-0">{amount(it.qty * it.price, doneCents)}</span>
+                <span dir="auto" className="shrink-0">{amount(it.qty * it.price)}</span>
               </li>
             ))}
           </ul>
           {/* the subtotal, the coupon and the delivery, so the lines add up to the total */}
           <div className="mt-3 space-y-1.5 border-t border-sf-text/10 pt-3 text-sm">
-            <p className="flex justify-between gap-3"><span className="opacity-70">{w.subtotal}</span><span dir="auto">{amount(placed.subtotal, doneCents)}</span></p>
+            <p className="flex justify-between gap-3"><span className="opacity-70">{w.subtotal}</span><span dir="auto">{amount(placed.subtotal)}</span></p>
             {placed.discount > 0 && (
-              <p className="flex justify-between gap-3 text-emerald-700 dark:text-emerald-500"><span>{w.discount}{placed.coupon && <> <span dir="ltr" className="font-bold">{placed.coupon}</span></>}</span><span dir="auto">−{amount(placed.discount, doneCents)}</span></p>
+              <p className="flex justify-between gap-3 text-emerald-700 dark:text-emerald-500"><span>{w.discount}{placed.coupon && <> <span dir="ltr" className="font-bold">{placed.coupon}</span></>}</span><span dir="auto">−{amount(placed.discount)}</span></p>
             )}
             {placed.fulfil === "delivery" && (placed.feeOpen ? (
               <p className="flex justify-between gap-3"><span className="opacity-70">{w.deliveryFee}</span><span>{w.feeByStore}</span></p>
             ) : (
-              <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span dir="auto">{placed.delivery === 0 ? w.free : amount(placed.delivery, doneCents)}</span></p>
+              <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span dir="auto">{placed.delivery === 0 ? w.free : amount(placed.delivery)}</span></p>
             ))}
           </div>
-          <p className="mt-3 flex justify-between gap-3 border-t border-sf-text/10 pt-3 text-sm font-bold"><span>{placed.feeOpen ? w.totalBeforeDelivery : w.total}</span><span dir="auto">{amount(placed.total, doneCents)}</span></p>
+          <p className="mt-3 flex justify-between gap-3 border-t border-sf-text/10 pt-3 text-sm font-bold"><span>{placed.feeOpen ? w.totalBeforeDelivery : w.total}</span><span dir="auto">{amount(placed.total)}</span></p>
         </div>
         <button type="button" onClick={onClose} className={`${s.cta} mx-auto mt-5 !w-auto px-7`} style={s.ctaStyle}>{w.done}</button>
       </div>

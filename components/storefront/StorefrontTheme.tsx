@@ -5,8 +5,8 @@ import { usePrefs } from "../Prefs";
 import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, shopTarget, type LogoConfig, type StorefrontConfig } from "./config";
 import { copy, currency, icons, LogoMark, money, moneyIn, onColor, picFill, priceLang, priceOf, readableOn, resolveLogo, drawerHeading } from "./parts";
 import { patterns } from "./patterns";
-import { basketKey, emptyForCustomers, linkProps, ProductPage, renderSection, SearchResults, surfaceInk, type Ctx, type Design } from "./sections";
-import { storePays, usePublicSettings } from "../platformPublic";
+import { basketKey, emptyForCustomers, linkProps, ProductPage, renderSection, SearchResults, sellsOf, surfaceInk, type Ctx, type Design } from "./sections";
+import { usePublicSettings } from "../platformPublic";
 import { SEARCH_MAX, searchCopy, searchIndex, searchProducts } from "./search";
 import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
@@ -499,9 +499,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const look = useMemo(() => ({ theme: config.theme, texts: config.texts, cards: config.cards }), [config.theme, config.texts, config.cards]);
   const goods = useMemo(() => ({ products: data.products, categories: data.categories, color: data.color, isDemo: data.isDemo }), [data.products, data.categories, data.color, data.isDemo]);
   const shop = shopTarget(config);
+  /* what the store offers now (the ways to pay and home delivery, as its checkout works them out): the promises of its
+     parts follow it (sellsOf) */
+  const platform = usePublicSettings();
+  const sellsNow = sellsOf(platform, data);
+  const sellsKey = `${sellsNow.pays.join()}|${sellsNow.delivers}`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sells = useMemo(() => sellsNow, [sellsKey]);
   const ctx: Ctx = useMemo(
-    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS }),
-    [lang, compact, goods, look, shop, design, owner, visitor, interactive, qty, setQty, openPageS, openProductS, showSectionS],
+    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS, sells }),
+    [lang, compact, goods, look, shop, design, owner, visitor, interactive, qty, setQty, openPageS, openProductS, showSectionS, sells],
   );
 
   /* his text and title colors, unless they vanish on his background (the same color, or too close): then automatic ones that read */
@@ -725,8 +732,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
      link list says on such a link what it is missing. The preview draws an empty part as a dashed place, so there it asks
      whether the part would show anything to customers (emptyForCustomers, the same conditions the parts check). */
   /* every navigation style has links: in the header row (links, pill) or in a bar under it (sidebar button) */
-  const livePays = storePays(usePublicSettings());
-  const hiddenPart = (to: string) => (design ? config.sections.some((s) => s.id === to && emptyForCustomers(s, data, lang, livePays)) : emptyParts.includes(to));
+  const hiddenPart = (to: string) => (design ? config.sections.some((s) => s.id === to && emptyForCustomers(s, data, lang, sells)) : emptyParts.includes(to));
   const navOwn = config.nav.links
     .map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to?.trim() || undefined, color: l.color as string | undefined, hole: false }))
     .filter((l) => !!l.name && !!l.to && !hiddenPart(l.to));
@@ -923,7 +929,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       )}
       {data.isDemo && design && <p className="px-4 py-2 text-center text-xs font-medium" style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)" }}>{c.sample}</p>}
 
-      <AnnouncementBar config={config} lang={lang} design={design} reduceMotion={reduceMotion} offer={freeDeliveryText(fd, lang, cart.total, priceLang(config.theme.prices, lang))} offerColor={primary} linkFor={(l) => linkProps(l, ctx)} spotted={spotted("announcement")} />
+      <AnnouncementBar config={config} lang={lang} design={design} reduceMotion={reduceMotion} offer={sells.delivers ? freeDeliveryText(fd, lang, cart.total, priceLang(config.theme.prices, lang)) : ""} offerColor={primary} linkFor={(l) => linkProps(l, ctx)} spotted={spotted("announcement")} />
 
       <header onClick={() => design?.select("header")} className={`group/sel z-20 ${pillHeader ? "" : config.theme.hairlines ? "border-b border-[color-mix(in_srgb,var(--sf-primary)_25%,transparent)] backdrop-blur-xl" : "border-b border-black/[0.06] backdrop-blur-xl"} ${h.sticky ? "sticky top-0" : "relative"} ${design ? "cursor-pointer" : ""}`} style={{ background: pillHeader ? "color-mix(in srgb, var(--sf-bg) 94%, transparent)" : "color-mix(in srgb, var(--sf-bg) 86%, transparent)" }}>
         {pillHeader ? (

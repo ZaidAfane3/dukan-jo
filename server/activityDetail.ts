@@ -13,6 +13,9 @@ export type Change = { field: string; from: string | null; to: string | null };
 export type DocumentFacts = { kind: string; seq: number | null; removed: boolean; publicId?: string };
 export type Detail = {
   changes?: Change[]; title?: string; amount?: string; method?: string; member?: string; count?: number; changedFields?: string[];
+  /* a Diwan page's title in both languages (the page picks the staff's, else the other): its title now, else the ones
+     the line kept; `title` is then left out */
+  titles?: { en: string; ar: string };
   /* a document review: the status it left (said even when only the note changed) and the document, when it is still known */
   status?: string; document?: DocumentFacts;
 };
@@ -121,6 +124,18 @@ function detailOf(action: string, meta: Record<string, unknown> | null, staffNam
   }
 }
 
+/** A page line's title in both languages, in place of the one-language `title`: the page's titles now (it may have been
+    renamed since: like a store, a page is named as it is called today), else the two the line kept (titleEn, titleAr),
+    else its old one-language title (English) or its address. A side with no words takes the other's. */
+function withPageTitles(d: Detail | null, meta: Record<string, unknown> | null, now: { en: string; ar: string } | undefined): Detail | null {
+  const en = now?.en || str(meta?.titleEn) || "";
+  const ar = now?.ar || str(meta?.titleAr) || "";
+  const old = d?.title ?? "";
+  if (!en && !ar && !old) return d;
+  const { title: _old, ...rest } = d ?? {};
+  return { ...rest, titles: { en: en || ar || old, ar: ar || en || old } };
+}
+
 /** A line's facts with the document it was about added, when that document is known */
 const withDocument = (d: Detail | null, doc: DocumentFacts | undefined): Detail | null => (doc ? { ...(d ?? {}), document: doc } : d);
 
@@ -163,7 +178,8 @@ export async function describeActivity(pool: Pool, rows: any[]): Promise<Activit
   }
   const ids = Array.from(staffIds).filter((x) => /^\d{1,18}$/.test(x));
   const docIds = Array.from(new Set(rows.filter((r) => r.target_type === "document" && r.target_id).map((r) => String(r.target_id)))).filter((x) => /^\d{1,18}$/.test(x));
-  const [shops, people, docs] = await Promise.all([
+  const pageIds = Array.from(new Set(rows.filter((r) => r.target_type === "page" && r.target_id).map((r) => String(r.target_id)))).filter((x) => /^\d{1,18}$/.test(x));
+  const [shops, people, docs, pages] = await Promise.all([
     shopIds.length
       ? /* its name, else its link, else its owner's name (a store not named yet) */
         pool.query(`SELECT a.id, COALESCE(NULLIF(s.name, ''), NULLIF(s.slug, ''), a.name) AS name FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = ANY($1::bigint[])`, [shopIds])
@@ -171,7 +187,10 @@ export async function describeActivity(pool: Pool, rows: any[]): Promise<Activit
     ids.length ? pool.query(`SELECT id, name FROM staff WHERE id = ANY($1::bigint[])`, [ids]) : { rows: [] },
     /* the documents' names are a help, not the line itself: if they can't be read the lines keep their plain words */
     docIds.length ? pool.query(`SELECT id, kind, seq, removed_at, public_id FROM documents WHERE id = ANY($1::bigint[])`, [docIds]).catch(() => ({ rows: [] as any[] })) : { rows: [] },
+    /* Diwan's own pages' titles now, in both languages (a deleted one keeps the titles its lines saved) */
+    pageIds.length ? pool.query(`SELECT id, title_en, title_ar FROM dukkan_pages WHERE id = ANY($1::bigint[])`, [pageIds]).catch(() => ({ rows: [] as any[] })) : { rows: [] },
   ]);
+  const pageTitles = new Map(pages.rows.map((p) => [String(p.id), { en: String(p.title_en ?? ""), ar: String(p.title_ar ?? "") }]));
   const shopName = new Map(shops.rows.map((s) => [String(s.id), s.name as string]));
   const staffNames = new Map(people.rows.map((p) => [String(p.id), p.name as string]));
   /* a line about a document deleted before documents were kept (old lines) finds nothing here and keeps its old words */
@@ -195,7 +214,11 @@ export async function describeActivity(pool: Pool, rows: any[]): Promise<Activit
       targetId: r.target_id,
       reason: r.reason,
       shop: sid && sname ? { id: sid, name: sname } : null,
-      detail: withDocument(detailOf(r.action, meta, staffNames, targetName), r.target_type === "document" && r.target_id ? documents.get(String(r.target_id)) : undefined),
+      detail: (() => {
+        const d = detailOf(r.action, meta, staffNames, targetName);
+        if (r.target_type === "page") return withPageTitles(d, meta, r.target_id ? pageTitles.get(String(r.target_id)) : undefined);
+        return withDocument(d, r.target_type === "document" && r.target_id ? documents.get(String(r.target_id)) : undefined);
+      })(),
     };
   });
 }

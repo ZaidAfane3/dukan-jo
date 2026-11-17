@@ -90,8 +90,13 @@ export function useFmt() {
     date: (v: string | number | null | undefined) => (v ? new Date(v).toLocaleDateString(loc, { day: "numeric", month: "short", year: "numeric" }) : "—"),
     dateTime: (v: string | number | null | undefined) =>
       v ? new Date(v).toLocaleString(loc, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—",
-    jod: (v: number | string | null | undefined) =>
-      `${Number(v ?? 0).toLocaleString(loc, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ${lang === "ar" ? "د.أ" : "JOD"}`,
+    /** An amount the way the store pages write one (components/storefront/parts.tsx money): each amount on its own, a
+        whole one without decimals ("22"), any other with at least two ("12.50", never "12.5"; fils kept: "4.125") */
+    jod: (v: number | string | null | undefined) => {
+      const n = Number(v ?? 0) || 0;
+      const whole = Math.round(n * 1000) % 1000 === 0;
+      return `${n.toLocaleString(loc, { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: whole ? 0 : 3 })} ${lang === "ar" ? "د.أ" : "JOD"}`;
+    },
     num: (v: number | string | null | undefined) => Number(v ?? 0).toLocaleString(loc),
     /** A counted noun in the page's language, the one way every Diwan count is written: English "1 store" / "2 stores";
         Arabic by its own forms, 1 «متجر واحد», 2 «متجران», 3–10 «3 متاجر», 11 and more «11 متجرًا», 0 «0 متاجر» (the

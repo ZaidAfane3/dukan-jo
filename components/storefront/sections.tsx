@@ -1,20 +1,21 @@
 "use client";
 
-import { UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
+import { orderPays, storeDelivery, UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
 import type { FreeDelivery } from "../freeDeliveryStore";
-import { cloneElement, createContext, Fragment, isValidElement, memo, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { cloneElement, createContext, Fragment, isValidElement, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
-import { centsFor, copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { productCount, searchCopy } from "./search";
 import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
 import { onShowSlide } from "./slideSignal";
 import { useSpots } from "./spotSignal";
 import { initialOf, isBlank } from "../safe";
-import { storePays, usePublicSettings, type StorePay } from "../platformPublic";
+import { shipCityLists, storePays, type StorePay } from "../platformPublic";
+import type { PublicSettings } from "../diwan/platformSettings";
 
 /* Set only inside the store designer: clicking a part of the store selects it for editing. */
 export type Design = { selected: string | null; select: (id: string, field?: string) => void; /* clicking a product's picture opens its picture editor */ selectProduct?: (p: StoreProduct) => void; /* sliding a section's words or a picture sideways (null: back to its place) */ moveBit?: (sectionId: string, key: string, at: SectionMove | null) => void; /* a picture moved, stretched or turned inside its frame (null: as it was) */ editPic?: (sectionId: string, key: string, at: PicEdit | null) => void; /* dragging a colored button in the page moves it to another place in its row */ reorderChips?: (sectionId: string, from: number, to: number) => void; /* a button that leads to a page of the store shows that page in the preview (null: back to the home page) */ openPage?: (id: number | null) => void; /* the preview with sample products (only offered while the store has none; never saved) */ sampleProducts?: (on: boolean) => void };
@@ -43,7 +44,20 @@ export type Ctx = {
   showSection?: (id: string) => void;
   /* Opens the page of a product */
   openProduct?: (id: number) => void;
+  /* what the store really offers now, for the promises its parts make (sellsOf) */
+  sells: Sells;
 };
+
+/** What the store really offers now, for the promises its pages make (the perks, the cover line, the ribbon, the free
+    delivery offer): the ways to pay its checkout takes (his choice among what Dukkan has on: safeOrder orderPays) and
+    whether it delivers to a door (safeOrder storeDelivery), worked out as the checkout does (Cart.tsx) */
+export type Sells = { pays: StorePay[]; delivers: boolean };
+export function sellsOf(platform: Pick<PublicSettings, "payment_methods" | "dukkan_ship">, d: Pick<StoreData, "shipMode" | "ownFee" | "ownCities" | "pays">): Sells {
+  return {
+    pays: orderPays(storePays(platform), d.pays),
+    delivers: storeDelivery(d.shipMode, { price: platform.dukkan_ship.price, cities: shipCityLists(platform) }, { fee: typeof d.ownFee === "number" ? d.ownFee : undefined, cities: d.ownCities }) !== null,
+  };
+}
 
 /* A small line in an elegant Latin italic (taglines such as "The Emerald Edit") */
 const latinItalic: React.CSSProperties = { fontFamily: "var(--font-elegant-latin), var(--font-elegant-ar), Georgia, serif", fontStyle: "italic", fontWeight: 400 };
@@ -348,7 +362,7 @@ function OldPrice({ p, ctx, size, on }: { p: StoreProduct; ctx: Ctx; size: numbe
       className="whitespace-nowrap font-medium tabular-nums"
       style={{ fontSize: px, color: dimOn(inkFor(ctx, on), on, 70), textDecorationThickness: px >= 20 ? 2 : 1.5, textDecorationColor: "color-mix(in srgb, currentColor 70%, transparent)" }}
     >
-      {moneyIn(p.price, pl, centsFor(p))} <span style={{ fontSize: "0.8em" }}>{currency(pl)}</span>
+      {moneyIn(p.price, pl)} <span style={{ fontSize: "0.8em" }}>{currency(pl)}</span>
     </s>
   );
 }
@@ -437,7 +451,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               <>
                 {/* the price and its currency stay together; the old price goes beside them, or under them when the card is narrow */}
                 <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
-                  <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang), centsFor(p))}</span>
+                  <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
                   <span className="text-[11px] font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
                 </span>
                 {k.showOldPrice && <OldPrice p={p} ctx={ctx} size={centered ? 16 : 14} on={cardOn} />}
@@ -734,7 +748,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   /* how many to add: chosen before adding; once it is in the basket the same buttons change the basket */
   const [pick, setPick] = useState(1);
   const [more, setMore] = useState(false);
-  const perkLine = usePerkLine();
+  const perkLine = perkLineWith(ctx.sells);
   useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
   useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
@@ -757,7 +771,8 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
     return t + (x ? n * priceOf(x) : 0);
   }, 0);
   const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
-  if (fd?.on) {
+  /* free delivery is only promised by a store that delivers to a door */
+  if (fd?.on && ctx.sells.delivers) {
     perks.push(
       basket >= fd.min
         ? { icon: icons.truck, t: w.freeHere, bar: 1 }
@@ -773,8 +788,8 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   for (const x of promises.slice(0, 4)) {
     const t = x.title[ctx.lang] || x.title[other];
     if (isBlank(t)) continue;
-    /* the payment promise follows the ways to pay that are on (see usePerkLine) */
-    const d = perkLine(x.desc, ctx.lang);
+    /* the payment and delivery promises follow what the store offers (see perkLineWith) */
+    const d = perkLine(x, ctx.lang);
     if (d === null) continue;
     // eslint-disable-next-line @next/next/no-img-element
     perks.push({ icon: x.icon === "image" && x.image ? <img src={x.image} alt="" className="h-5 w-5 object-contain" /> : perkIcon[x.icon as keyof typeof perkIcon] ?? icons.truck, t, d: d || undefined });
@@ -818,7 +833,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         className={`inline-flex items-baseline gap-1.5 ${pop ? "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-4 py-2 shadow-[3px_3px_0_var(--sf-text)]" : ""}`}
         style={{ ...priceInk(ctx, priceOn), ...(pop ? { background: tint("--sf-accent", 20) } : {}) }}
       >
-        <span className={s.price} style={{ ...saleTint(ctx, p, ctx.config.theme.background), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{moneyIn(now, pl, centsFor(p))}</span>
+        <span className={s.price} style={{ ...saleTint(ctx, p, ctx.config.theme.background), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{moneyIn(now, pl)}</span>
         <span className={`text-sm font-semibold ${pop ? "text-[var(--sf-text)]" : "opacity-70"}`}>{currency(pl)}</span>
       </span>
       <OldPrice p={p} ctx={ctx} size={s.old} on={ctx.config.theme.background} />
@@ -1338,7 +1353,13 @@ function FitTitle({ size, lines, className = "", style, children }: { size: numb
   );
 }
 
-function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "hero" }>["settings"]; ctx: Ctx }) {
+function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { type: "hero" }>["settings"]; ctx: Ctx }) {
+  /* the default cover line without its delivery promise, for a store that does not deliver (heroLine) */
+  const delivers = ctx.sells.delivers;
+  const s = useMemo(() => {
+    const subtitle = heroLine(given.subtitle, delivers);
+    return subtitle === given.subtitle ? given : { ...given, subtitle };
+  }, [given, delivers]);
   /* the products he picked for the cards, in his order. Never picked: the first ones. Picked and then all taken off: no cards
      (the designer shows a dashed place for them) */
   const chosen = Array.isArray(s.cardIds);
@@ -1808,9 +1829,12 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
 }
 
 /* The payment line the themes start a perk with ("Cards, CliQ or cash"...) promises ways to pay, so it is written from
-   the ways the checkout offers now (Dukkan turns them on and off in Diwan), the same live list. With none on, the perk
-   is not shown. A line the merchant wrote himself stays his own words. */
+   the ways the checkout offers now (his choice among the ways Dukkan has on in Diwan: sellsOf), the same live list. With
+   none on, the perk is not shown. A line the merchant wrote himself stays his own words. A perk promising delivery (the
+   truck, or a title about delivery) is not shown by a store that does not deliver to a door. */
 const STOCK_PAY_LINES = new Set(["cards, cliq or cash", "بطاقة أو كليك أو نقدًا", "or cash on delivery", "أو عند الاستلام"]);
+/* words that promise home delivery (the ribbon's "Fast delivery", a perk's "Free shipping") */
+const DELIVERY_WORDS = /توصيل|يوصل|نوصل|شحن مجاني|deliver|shipping/i;
 const payNames = { en: { card: "cards", cliq: "CliQ", cash: "cash" }, ar: { card: "بطاقة", cliq: "كليك", cash: "نقدًا" } };
 const payOnly = { en: { card: "By card", cliq: "By CliQ", cash: "Cash on delivery" }, ar: { card: "بالبطاقة", cliq: "عبر كليك", cash: "الدفع عند الاستلام" } };
 function payLine(pays: StorePay[], lang: Lang): string {
@@ -1821,20 +1845,35 @@ function payLine(pays: StorePay[], lang: Lang): string {
   const line = lang === "ar" ? names.join(" أو ") : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
-/** A perk's line as shown in `lang`: the live payment line in place of a stock one; null hides the perk (no way to pay) */
-const perkLineWith = (pays: StorePay[]) => (desc: Partial<Record<Lang, string>>, lang: Lang): string | null => {
-  const shown = desc[lang] || desc[lang === "ar" ? "en" : "ar"] || "";
+type PerkItem = { icon?: string; title?: Partial<Record<Lang, string>>; desc: Partial<Record<Lang, string>> };
+/** A perk's line as shown in `lang`: the live payment line in place of a stock one; null hides the perk (no way to pay,
+    or a delivery promise from a store that does not deliver) */
+const perkLineWith = (sells: Sells) => (p: PerkItem, lang: Lang): string | null => {
+  if (!sells.delivers && (p.icon === "truck" || DELIVERY_WORDS.test(`${p.title?.en ?? ""} ${p.title?.ar ?? ""}`))) return null;
+  const shown = p.desc[lang] || p.desc[lang === "ar" ? "en" : "ar"] || "";
   if (!STOCK_PAY_LINES.has(shown.trim().toLowerCase())) return shown;
-  return pays.length ? payLine(pays, lang) : null;
+  return sells.pays.length ? payLine(sells.pays, lang) : null;
 };
-function usePerkLine() {
-  return perkLineWith(storePays(usePublicSettings()));
-}
+/** The ribbon's words in `lang`: one promising delivery is left out by a store that does not deliver */
+const ribbonWords = (items: Partial<Record<Lang, string>>[], lang: Lang, sells: Sells): string[] => {
+  const other: Lang = lang === "ar" ? "en" : "ar";
+  return items.filter((x) => sells.delivers || !DELIVERY_WORDS.test(`${x.en ?? ""} ${x.ar ?? ""}`)).map((x) => x[lang] || x[other] || "").filter(Boolean);
+};
+/* The cover line the default design starts with promises delivery across Jordan; a store that does not deliver shows it
+   without that promise (a line the merchant wrote himself stays his own words) */
+const STOCK_HERO_LINES: Record<string, string> = {
+  "Fresh picks, fair prices and quick delivery across Jordan.": "Fresh picks and fair prices.",
+  "منتجات مختارة بعناية وأسعار عادلة وتوصيل سريع في كل أنحاء الأردن.": "منتجات مختارة بعناية وأسعار عادلة.",
+};
+const heroLine = (b: { en: string; ar: string }, delivers: boolean) =>
+  delivers || !(STOCK_HERO_LINES[b.en?.trim() ?? ""] || STOCK_HERO_LINES[b.ar?.trim() ?? ""])
+    ? b
+    : { en: STOCK_HERO_LINES[b.en?.trim() ?? ""] ?? b.en, ar: STOCK_HERO_LINES[b.ar?.trim() ?? ""] ?? b.ar };
 
 function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["settings"]; ctx: Ctx }) {
-  const perkLine = usePerkLine();
+  const perkLine = perkLineWith(ctx.sells);
   const items = (s.items ?? []).flatMap((p) => {
-    const d = perkLine(p.desc, ctx.lang);
+    const d = perkLine(p, ctx.lang);
     return d === null ? [] : [{ ...p, desc: { en: d, ar: d } }];
   });
   if (!items.length) return null;
@@ -2622,7 +2661,7 @@ export function SearchResults({ query, items, ctx, onClear }: { query: string; i
 
 function Ribbon({ s, ctx }: { s: Extract<SectionConfig, { type: "ribbon" }>["settings"]; ctx: Ctx }) {
   const other = ctx.lang === "ar" ? "en" : "ar";
-  const words = (s.items ?? []).map((x) => x[ctx.lang] || x[other]).filter(Boolean);
+  const words = ribbonWords(s.items ?? [], ctx.lang, ctx.sells);
   if (!words.length) {
     if (!ctx.design) return null;
     return (
@@ -3002,16 +3041,16 @@ function discountItems(s: Settings<"discounts">, data: PartData): StoreProduct[]
 /** Whether a part of the home page shows nothing to customers: hidden, or with nothing in it (no products to show, no
     reviews, no pictures, no words...), where the designer draws a dashed place instead. The same conditions each part
     checks before drawing itself; the header leaves out a link to such a part (in the designer's preview too, which
-    cannot tell it from what it draws) and the designer's link list says why. `pays`: the ways to pay that are on (a perk
-    about paying shows only with one). */
-export function emptyForCustomers(sec: SectionConfig, data: PartData, lang: Lang, pays: StorePay[]): boolean {
+    cannot tell it from what it draws) and the designer's link list says why. `sells`: what the store offers (sellsOf: a
+    perk about paying shows only with a way to pay on, one about delivery only when it delivers). */
+export function emptyForCustomers(sec: SectionConfig, data: PartData, lang: Lang, sells: Sells): boolean {
   if (!sec.visible) return true;
   const other: Lang = lang === "ar" ? "en" : "ar";
   const said = (x?: Partial<Record<Lang, string>>) => !!(x?.[lang] || x?.[other] || "").trim();
   switch (sec.type) {
     case "perks": {
-      const line = perkLineWith(pays);
-      return !(sec.settings.items ?? []).some((p) => line(p.desc, lang) !== null);
+      const line = perkLineWith(sells);
+      return !(sec.settings.items ?? []).some((p) => line(p, lang) !== null);
     }
     case "featured":
       return featuredItems(sec.settings, data).length === 0;
@@ -3030,7 +3069,7 @@ export function emptyForCustomers(sec: SectionConfig, data: PartData, lang: Lang
     case "text":
       return !said(sec.settings.title) && !said(sec.settings.body);
     case "ribbon":
-      return !(sec.settings.items ?? []).some((x) => !!(x[lang] || x[other]));
+      return ribbonWords(sec.settings.items ?? [], lang, sells).length === 0;
     case "chips":
       return !(sec.settings.items ?? []).some((x) => said(x.label) && !!x.link?.trim());
     default:

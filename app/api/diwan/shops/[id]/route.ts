@@ -2,7 +2,7 @@ import { answer } from "@/server/auth";
 import { aboutShopSql, describeActivity } from "@/server/activityDetail";
 import { db } from "@/server/db";
 import { notFound, shopId } from "@/server/shopActions";
-import { prepareShops, STATUS_SQL, syncShop } from "@/server/shops";
+import { ORDERS_SQL, prepareShops, SALES_SQL, STATUS_SQL, STORE_ORDERS_SQL, syncShop } from "@/server/shops";
 import { SHOWN_SQL } from "@/components/diwan/activityWords";
 import { can, staffRoute } from "@/server/staff";
 import { shopVisitors30 } from "@/server/storeVisits";
@@ -10,6 +10,9 @@ import { FREE_THEME_IDS } from "@/components/platformDefaults";
 import { CODE_THEME_IDS, type Bi } from "@/components/themeListing";
 import { themePrice } from "@/components/themePrices";
 import { enforcedPaidThemes } from "@/server/themeOwnership";
+import { sellPlatform } from "@/server/storeOrders";
+import { cleanSetup } from "@/components/safeAccount";
+import { readyToSell, type SellNeed } from "@/components/safeOrder";
 
 export const dynamic = "force-dynamic";
 
@@ -70,14 +73,17 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     allowed ? { rows: await q(`${rowsSql} LIMIT ${FEW}`), count: Number((await q(countSql))[0]?.n ?? 0) } : null;
   const billing = can(staff, "billing");
   const [shop, payments, themes, tickets, documents, reports, deletions, activityRaw] = await Promise.all([
-    q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode, s.store_pays,
-              s.pickup_city, s.pickup_address, s.status AS shop_status, s.suspend_reason, s.suspended_at, s.product_count, s.order_count,
-              s.total_sales, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
+    q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode, s.ship_name, s.pickup, s.store_pays,
+              s.pickup_city, s.pickup_address, s.status AS shop_status, s.suspend_reason, s.suspended_at, s.product_count,
+              /* its orders and sales as the merchant's Home shows them: its own and its store page's, without the card
+                 and CliQ test orders (server/shops.ts STORE_ORDERS_SQL) */
+              ${ORDERS_SQL} AS order_count, ${SALES_SQL} AS total_sales, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
               /* the oldest order: the one the merchant's saved orders give, or an older one customers placed on its page */
               LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at,
               a.name AS owner, a.email, a.phone, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
-              /* how many orders customers placed on its public page: a count only, never the orders (they are the shop's) */
-              (SELECT count(*)::int FROM store_orders o WHERE o.account_id = s.account_id) AS storefront_orders,
+              /* how many orders customers placed on its public page (in order_count too), and the card/CliQ test orders
+                 left out of both: counts only, never the orders (they are the shop's) */
+              so.n AS storefront_orders, so.test AS storefront_test,
               (${STATUS_SQL}) AS status,
               /* the theme in use (themeInUse above): its row in the theme store's list, the store's purchase of it, and for
                  one deleted from the list the name the activity log kept */
@@ -86,6 +92,7 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
               CASE WHEN ct.id IS NULL THEN (SELECT l.meta->'name' FROM audit_log l WHERE l.action = 'theme.delete' AND l.target_type = 'theme'
                                               AND l.target_id = s.theme_id ORDER BY l.at DESC LIMIT 1) END AS theme_deleted_name
          FROM shops s JOIN accounts a ON a.id = s.account_id
+         LEFT JOIN LATERAL ${STORE_ORDERS_SQL("s")} so ON true
          LEFT JOIN catalog_themes ct ON ct.id = s.theme_id
          LEFT JOIN theme_purchases tp ON tp.account_id = s.account_id AND tp.theme_id = s.theme_id
         WHERE s.account_id = $1`),
@@ -147,6 +154,19 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
   const activity = activityRaw && { rows: await describeActivity(pool, activityRaw.rows), count: activityRaw.count };
   /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
   const visitors30 = shop[0] ? await shopVisitors30(pool, id) : 0;
+  /* what the store still needs before it can sell (safeOrder readyToSell, the rule the merchant's pages and his saves
+     follow): only "pay" / "delivery" leave the server, never his setup */
+  let notReady: SellNeed[] = [];
+  if (shop[0]) {
+    const saved = await q(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`);
+    let setup = null;
+    try {
+      setup = saved[0] ? cleanSetup(JSON.parse(saved[0].value)) : null;
+    } catch {
+      setup = null;
+    }
+    notReady = readyToSell(setup, await sellPlatform()).missing;
+  }
   /* the theme columns leave the shop row: they go out as one "theme" */
   const { theme_id, theme_listed_name, theme_source, theme_list_price, theme_paid, theme_deleted_name, ...shopRow } = shop[0] ?? {};
   const inUse = shop[0] ? themeInUse({ theme_id, theme_listed_name, theme_source, theme_list_price, theme_paid, theme_deleted_name }) : null;
@@ -156,7 +176,7 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
   const paymentsTotal = billing ? ((await q(`SELECT COALESCE(sum(amount), 0)::numeric(14, 3) AS t FROM payments WHERE account_id = $1`))[0]?.t ?? "0") : null;
   return answer({
     result: "ok",
-    shop: shop[0] && { ...shopRow, visitors_30: visitors30 },
+    shop: shop[0] && { ...shopRow, visitors_30: visitors30, not_ready: notReady },
     theme,
     payments: payments && { ...payments, total: paymentsTotal },
     themes,

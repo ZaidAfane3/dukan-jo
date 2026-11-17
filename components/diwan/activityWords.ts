@@ -94,6 +94,29 @@ export const actionWords = (t: (en: string, ar: string) => string, action: strin
   return w ? t(w[0], w[1]) : action;
 };
 
+/* Each platform setting's name (the target of a "settings.change" line), in the same words as its card on Diwan's
+   Settings page (or its own page: Dukkan Ship). The keys no longer used stay here too, so their old lines still read
+   (components/diwan/platformSettings.ts says why each went). */
+const SETTING: Record<string, [en: string, ar: string]> = {
+  payment_methods: ["Payment methods", "طرق الدفع"],
+  dukkan_ship: ["Dukkan Ship", "شحن دكّان"],
+  store_legal_templates: ["Store legal pages", "الصفحات القانونية للمتاجر"],
+  support_contact: ["Support contact", "التواصل مع الدعم"],
+  support_reply_hours: ["Support reply time", "مدة الرد على الدعم"],
+  starter_template: ["Starter store", "المتجر المبدئي"],
+  domain_prices: ["Domain prices", "أسعار النطاقات"],
+  trial_days: ["Free trial days", "أيام التجربة المجانية"],
+  shipping_companies: ["Shipping companies", "شركات الشحن"],
+  default_themes: ["Default themes", "الثيمات الافتراضية"],
+  seo_defaults: ["Search engine defaults", "إعدادات محركات البحث الافتراضية"],
+};
+
+/** A platform setting's name in words (one without words reads as its key, with spaces) */
+export const settingWords = (t: (en: string, ar: string) => string, key: string) => {
+  const w = SETTING[key];
+  return w ? t(w[0], w[1]) : key.replace(/_/g, " ");
+};
+
 /* A document's kind, in the same words as the cards on Diwan's Documents page, so a log line and its card match */
 const DOCUMENT_KIND: Record<string, [en: string, ar: string]> = {
   courier_proof: ["Proof of delivery", "إثبات التوصيل"],

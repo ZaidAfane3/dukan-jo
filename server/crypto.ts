@@ -197,8 +197,8 @@ export const phoneKey = (phone: string) => (phone ? blind(`phone:${phone}`) : nu
    أ إ آ ٱ as ا, ى as ي, ة as ه, ؤ as و, ئ as ي. Equal words give equal fingerprints (that is what makes them findable),
    which can't be reversed without the key. */
 
-/** A name's words in the form they are compared in */
-export function nameWords(name: string): string[] {
+/** A name's words in the form they are compared in (each once, at most 12; `unique` false: all of them, in order) */
+export function nameWords(name: string, unique = true): string[] {
   const s = name
     .normalize("NFKC")
     .toLowerCase()
@@ -215,17 +215,37 @@ export function nameWords(name: string): string[] {
     if ((parts[i] === "al" || parts[i] === "el") && i + 1 < parts.length && /^\p{Script=Latin}/u.test(parts[i + 1])) words.push(`${parts[i]}-${parts[++i]}`);
     else words.push(parts[i]);
   }
-  return Array.from(new Set(words)).slice(0, 12);
+  return unique ? Array.from(new Set(words)).slice(0, 12) : words.slice(0, 24);
 }
 
 /** A name word without its "ال" (Arabic, a word longer than 3 letters) or "al-"/"el-" (Latin), so "عفانة" and
     "العفانة", "Afaneh" and "Al-Afaneh" are the same word to the search */
 export const bareWord = (w: string): string => (w.length > 3 && w.startsWith("ال") ? w.slice(2) : w.replace(/^(al|el)-(?=.)/, ""));
 
-/** Which form of the fingerprints accounts.name_keys holds: accounts with an older one are filled again (prepareShops) */
-export const NAME_KEYS_VERSION = 2;
-/** The fingerprints of a name's words, for accounts.name_keys: each word as written and without its "ال"/"al-" */
+/* The first word of a compound name, written with or without a space: "عبد الله" / "عبدالله", "أبو بكر" / "أبوبكر",
+   "Abdul Rahman" / "Abdulrahman" (in the compared form of nameWords) */
+const COMPOUND_FIRST = new Set(["عبد", "ابو", "abd", "abdul", "abdel", "abu", "abo"]);
+
+/** A name's words with each compound pair ("عبد" or "أبو" and the word after it) joined into one word: "عبد الله" →
+    "عبدالله". Read from the words in order (before nameWords drops repeats), so "عبد الله عبد الرحمن" gives both. */
+function joinedCompounds(name: string): string[] {
+  const parts = nameWords(name, false);
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++)
+    if (COMPOUND_FIRST.has(parts[i]) && i + 1 < parts.length) out.push(parts[i] + parts[++i].replace("-", ""));
+    else out.push(parts[i]);
+  return out;
+}
+
+/** Which form of the fingerprints accounts.name_keys holds: accounts with an older one are filled again (prepareShops).
+    3 adds the joined form of a compound name ("عبد الله" is also kept as "عبدالله") */
+export const NAME_KEYS_VERSION = 3;
+/** The fingerprints of a name's words, for accounts.name_keys: each word as written and without its "ال"/"al-", and
+    each compound pair joined into one word (so a search typed with or without the space finds it) */
 export const nameKeys = (name: string): string[] =>
-  Array.from(new Set(nameWords(name).flatMap((w) => [w, bareWord(w)]))).map((w) => blind(`name:${w}`));
-/** The fingerprints a search looks for: each typed word without its "ال"/"al-" (every name holds that form) */
-export const nameSearchKeys = (q: string): string[] => Array.from(new Set(nameWords(q).map(bareWord))).map((w) => blind(`name:${w}`));
+  Array.from(new Set([...nameWords(name), ...joinedCompounds(name)].flatMap((w) => [w, bareWord(w)])))
+    .slice(0, 30)
+    .map((w) => blind(`name:${w}`));
+/** The fingerprints a search looks for: each typed word without its "ال"/"al-" (every name holds that form), with a
+    compound pair joined first ("عبد الله" looks for "عبدالله", which every name holding it has, spaced or not) */
+export const nameSearchKeys = (q: string): string[] => Array.from(new Set(joinedCompounds(q).map(bareWord))).map((w) => blind(`name:${w}`));

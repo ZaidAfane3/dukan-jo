@@ -8,8 +8,7 @@ import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./Reports";
 import { demoActive } from "./demoSandbox";
 import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";
-import { orderPays, type Payment } from "./safeOrder";
-import { storePays, usePublicSettings } from "./platformPublic";
+import { SellNeeds, sellWords, storeLiveNow, useSellReady } from "./ReadyToSell";
 import { cleanOrder, money, parseList, typedMoney } from "./records";
 import { Skeleton } from "./Skeleton";
 import { latestOrders, ordersReport, rangeSpan, salesFigures, salesSeries } from "./storeNumbers";
@@ -158,11 +157,12 @@ export function Dashboard() {
   const [setupRead, setSetupRead] = useState(false);
   /* every task is done: his store's link and where "Open your store" goes, while the live card is still shown */
   const [liveCard, setLiveCard] = useState<{ slug: string; href: string } | null>(null);
-  /* what customers can't do yet: order delivery (no delivery choice: safeOrder storeDelivery) or place any order (no way
-     to pay he turned on that Dukkan has on: orderPays). `chosenPays` undefined: an older store, every way Dukkan has on */
+  /* what customers can't do yet: order delivery (no delivery choice: safeOrder storeDelivery, while pickup is on) */
   const [noShipping, setNoShipping] = useState(false);
-  const [chosenPays, setChosenPays] = useState<Payment[] | undefined>(undefined);
-  const noPays = orderPays(storePays(usePublicSettings()), chosenPays).length === 0;
+  /* whether the store can sell (safeOrder readyToSell: a way to pay that is on, and pickup or a valid delivery choice),
+     and whether customers can see it now (its design saved, not under maintenance) */
+  const sell = useSellReady();
+  const [liveNow, setLiveNow] = useState(false);
   const [goal, setGoal] = useState(0);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -183,7 +183,7 @@ export function Dashboard() {
   useEffect(() => {
     const s = loadSetup();
     setNoShipping(!s?.shipping);
-    setChosenPays(s?.pays);
+    setLiveNow(storeLiveNow());
     if (s) {
       setName(s.name);
       setDoneCount(s.done.filter(Boolean).length);
@@ -289,10 +289,10 @@ export function Dashboard() {
   const thisMonth = sample ? null : salesFigures(data.orders, data.products, rangeSpan(2, today));
   const netSales = thisMonth ? thisMonth.sales : sales.reduce((a, b) => a + b, 0);
   /* every real order placed this month, whatever its status (as Reports counts orders): a new order shows at once. Card
-     or CliQ test orders (storeNumbers.ts isTestOrder: nothing was charged) are not his orders' count: a small note says
-     how many there were */
+     or CliQ test orders (storeNumbers.ts isTestOrder: nothing was charged) are not his orders' count (ordersReport and the
+     chart leave them out): a small note says how many there were */
   const monthOrders = thisMonth ? ordersReport(data.orders, rangeSpan(2, today)) : null;
-  const orderTotal = monthOrders ? monthOrders.all - monthOrders.test : orders.reduce((a, b) => a + b, 0);
+  const orderTotal = monthOrders ? monthOrders.all : orders.reduce((a, b) => a + b, 0);
   const testOrders = monthOrders?.test ?? 0;
   const visits = sample ? Math.round(netSales * (6 + rnd() * 3)) + 1 + Math.floor(rnd() * 8) : 0;
   const peak = Math.max(...sales, 1);
@@ -350,25 +350,22 @@ export function Dashboard() {
         )}
 
         {/* What stops customers ordering, each with a link to fix it on Delivery options (the tour's store has both) */}
-        {!tour && setupRead && (noShipping || noPays) && (
-          <div className="space-y-2">
-            {noShipping && (
-              <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">
-                {lang === "ar" ? "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل." : "Customers can't order delivery until you choose how you deliver."}{" "}
-                <a href="/delivery" className="font-bold underline underline-offset-2">{lang === "ar" ? "خيارات التوصيل" : "Delivery options"}</a>
-              </p>
-            )}
-            {noPays && (
-              <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">
-                {lang === "ar" ? "لا يستطيع العملاء إتمام الطلب حتى تفعّل طريقة دفع واحدة على الأقل." : "Customers can't place orders until you turn on at least one way to pay."}{" "}
-                <a href="/delivery" className="font-bold underline underline-offset-2">{lang === "ar" ? "طرق الدفع" : "Ways to pay"}</a>
-              </p>
-            )}
-          </div>
+        {/* Not ready to sell: what is missing before the store can go live (the setup's own checklist), each a link to fix
+            it on Delivery options. A store already live stays live (it is never taken offline for it): the same list
+            then warns that customers can't complete an order, once Diwan's settings are in (a change there can cause it) */}
+        {!tour && setupRead && sell.read && !sell.ok && (!liveNow || sell.checked) && (
+          <SellNeeds lang={lang} missing={sell.missing} title={liveNow ? sellWords[lang].liveNotReady : undefined} />
+        )}
+        {/* ready to sell with pickup only: delivery is not offered until he chooses how he delivers */}
+        {!tour && setupRead && sell.ok && noShipping && (
+          <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">
+            {lang === "ar" ? "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل." : "Customers can't order delivery until you choose how you deliver."}{" "}
+            <a href="/delivery" className="font-bold underline underline-offset-2">{lang === "ar" ? "خيارات التوصيل" : "Delivery options"}</a>
+          </p>
         )}
 
         {/* Setup is done: the store is live. Open it or share its link (for a week, or until he hides it) */}
-        {!tour && liveCard && (
+        {!tour && liveCard && liveNow && sell.ok && (
           <section className={`${card} relative flex flex-wrap items-center justify-between gap-4 pe-12`}>
             <div className="flex min-w-0 flex-1 items-center gap-4">
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary text-white" aria-hidden>

@@ -251,12 +251,13 @@ function useThemeChoices() {
 
 function ThemeSelect({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
   const t = useT();
+  const f = useFmt();
   const themes = useThemeChoices();
   return (
     <select id={id} className={field} value={value} onChange={(e) => onChange(e.target.value)}>
       {!value && <option value="">{t("Choose a theme…", "اختر تصميمًا…")}</option>}
       {themes.map((th) => (
-        <option key={th.id} value={th.id}>{t(th.name.en, th.name.ar)} · {th.price > 0 ? t(`${th.price} JOD`, `${th.price} د.أ`) : t("free", "مجاني")}</option>
+        <option key={th.id} value={th.id}>{t(th.name.en, th.name.ar)} · {th.price > 0 ? f.jod(th.price) : t("free", "مجاني")}</option>
       ))}
     </select>
   );

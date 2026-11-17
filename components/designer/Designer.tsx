@@ -23,6 +23,7 @@ import { BugReport } from "./BugReport";
 import { legibleOn } from "../storefront/footerColors";
 import { OptionsPanel, PageLookNow, PreviewProducts, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus, type OptionsScreen } from "./panels";
 import { hasStoreContact, visibleLength } from "../safe";
+import { SellNeeds, useSellReady } from "../ReadyToSell";
 import type { Design } from "../storefront/sections";
 
 /* What can stop a save. The last four live in the footer's contact form. */
@@ -301,6 +302,8 @@ export function Designer() {
   /* whether customers can see the store yet (it opens with its first save) */
   const [isOpen, setIsOpen] = useState(false);
   useEffect(() => setIsOpen(storeIsLive()), []);
+  /* whether the store can sell (safeOrder readyToSell): the first save, which opens the store, waits until it can */
+  const sell = useSellReady();
   /* In the platform tour the designer can be opened and looked at, but nothing in it can be changed or uploaded */
   const [readOnly, setReadOnly] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -833,7 +836,11 @@ export function Designer() {
   const unbought = (): string => (trying ? (notBought(trying.id) ? trying.id : "") : unboughtBase(loadThemeState().active) ?? "");
   const tellNotBought = (id: string) => window.dispatchEvent(new CustomEvent(THEME_NOT_BOUGHT, { detail: id }));
 
+  /* the store has never been saved (its first save opens it to customers) and it can't sell yet: the save waits, and the
+     bar lists what is missing (the server holds it to the same rule: app/api/store PUT "not-ready") */
+  const notReadyToOpen = !templateMode && !readOnly && !isOpen && sell.read && !sell.ok;
   const save = (): boolean => {
+    if (notReadyToOpen) return false;
     const problem = firstProblem(draft);
     if (problem) {
       setShowErrors(true);
@@ -937,14 +944,14 @@ export function Designer() {
   /* The red frame and the red dot go away as soon as the field they point at is fixed */
   const problemNow = firstProblem(draft);
   /* leaving with the name or a contact number missing: the work is kept as a draft, and the store does not go live with it */
-  const asDraft = !!problemNow && !templateMode && !trying && (problemNow.id === "name" || problemNow.id === "whatsapp" || problemNow.id === "phone" || problemNow.id === "contact" || problemNow.id === "email");
+  const asDraft = (notReadyToOpen && !trying) || (!!problemNow && !templateMode && !trying && (problemNow.id === "name" || problemNow.id === "whatsapp" || problemNow.id === "phone" || problemNow.id === "contact" || problemNow.id === "email"));
   const attnNow = attn && problemNow?.id === attn.id ? attn : null;
   /* The save button turns green and says "Saved" for a moment after a save */
   const justSaved = !dirty && (flash === "saved" || flash === "savedExcept");
   /* A save here goes straight to the store customers visit (not the starter template, a private template or the fake demo), so the bar says so */
   const live = !templateMode && !readOnly;
   /* a store that was never saved can be saved as it is: that first save opens it to customers */
-  const canSave = dirty || (live && !isOpen);
+  const canSave = (dirty || (live && !isOpen)) && !notReadyToOpen;
   const saveLabel = justSaved ? (
     <span className="inline-flex items-center justify-center gap-1.5">
       {railIcons.check}
@@ -1274,6 +1281,12 @@ export function Designer() {
         </button>
       </div>
 
+      {/* the first save opens the store: until it can sell, the save waits and this says what is missing */}
+      {notReadyToOpen && (
+        <div className="shrink-0 border-b border-fg/10 bg-card px-3 py-2 sm:px-4">
+          <SellNeeds lang={lang} missing={sell.missing} className="!py-2" />
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* Icon rail */}
         <nav aria-label={t.title} className="flex shrink-0 items-center gap-2 border-b border-fg/10 bg-card p-2 lg:w-12 lg:flex-col lg:border-b-0 lg:border-e lg:py-3">
@@ -1419,7 +1432,7 @@ export function Designer() {
               <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
             </span>
             <h2 className="mt-4 text-lg font-bold">{t.modal.title}</h2>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted">{asDraft ? t.modal.draftBody : t.modal.body}</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted">{notReadyToOpen && !trying ? (lang === "ar" ? "متجرك غير جاهز للبيع بعد، لذلك ستُحفظ تغييراتك كمسودة. فعّل طريقة دفع واختر كيف يستلم العملاء طلباتهم، ثم عُد واحفظ لتنشر متجرك." : "Your store isn't ready to sell yet, so your changes will be kept as a draft. Turn on a way to pay and choose how customers get their orders, then come back and save to make your store live.") : asDraft ? t.modal.draftBody : t.modal.body}</p>
             <button type="button" onClick={() => { if (asDraft) { if (keepDraft(draft)) { setSaved(JSON.stringify(draft)); leave(); } else setExiting(false); return; } if (save()) leave(); else setExiting(false); }} className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-sm font-bold text-onink shadow-sm transition hover:bg-deep">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
               {asDraft ? t.modal.draftExit : t.modal.saveExit}

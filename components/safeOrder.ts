@@ -5,8 +5,8 @@
    these rules; once Dukkan has a backend, the server must run the same functions on its own catalog before
    it saves an order. No React and no browser APIs in this file, so the server can import it as it is. */
 
-import { jordanMobile } from "./phone";
-import { cleanParagraph, cleanText } from "./safe";
+import { isJordanMobile, jordanMobile } from "./phone";
+import { cleanParagraph, cleanText, visibleLength } from "./safe";
 
 export const ORDER_LIMITS = {
   name: 80,
@@ -106,6 +106,36 @@ export const savedPays = (v: unknown): Payment[] | undefined => (Array.isArray(v
     Dukkan's). None: the store can't take orders. */
 export const orderPays = (dukkanOn: readonly Payment[], chosen: readonly Payment[] | undefined): Payment[] =>
   PAYMENTS.filter((p) => dukkanOn.includes(p) && (chosen === undefined || chosen.includes(p)));
+
+/** What a store still needs before it can sell: "pay" (no way to pay is on: orderPays is empty) and "delivery" (no way
+    for customers to get their orders: pickup is off and there is no valid delivery choice). */
+export type SellNeed = "pay" | "delivery";
+
+/** The parts of a saved setup (setup.ts SavedSetup, safeAccount cleanSetup) that decide whether the store can sell */
+type SellSetup = {
+  pays?: readonly Payment[];
+  pickup?: boolean;
+  shipping?: { mode?: "own" | "seen" | null; name?: string; phone?: string; fee?: number; cities?: unknown } | null;
+} | null | undefined;
+
+/** Whether a store is ready to sell, the same on every page and on the server: at least one way to pay is on (his
+    choice of the ways Dukkan has on in Diwan, orderPays; no choice saved: every way Dukkan has on), and customers have
+    a way to get their orders: pickup on, or a delivery choice storeDelivery offers with at least one city (Dukkan Ship:
+    a city Ship serves in Diwan; his own courier: the courier's name and Jordan mobile as the Delivery page asks, and his
+    cities; the fee may be left for the store to confirm). A store that is not ready can't be made live (the designer's
+    first save, the profile menu's open switch, app/api/store PUT "not-ready"); a live one is never taken offline by it,
+    but he can't make a change that leaves it so. `platform`: what Diwan has on now (platformPublic storePays and
+    shipCityLists on the pages; server/storeOrders.ts sellPlatform on the server). */
+export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment[]; shipCities: { en: readonly string[]; ar: readonly string[] } }): { ok: boolean; missing: SellNeed[] } {
+  const missing: SellNeed[] = [];
+  if (orderPays(platform.pays, setup?.pays ? savedPays(setup.pays) : undefined).length === 0) missing.push("pay");
+  const ship = setup?.shipping;
+  const offer = storeDelivery(ship?.mode, { price: 0, cities: platform.shipCities }, { fee: ship?.fee, cities: ship?.cities });
+  const courierOk = ship?.mode !== "own" || (visibleLength(ship.name ?? "") >= 2 && isJordanMobile(ship.phone ?? ""));
+  const delivers = !!offer && offer.cities.en.length > 0 && courierOk;
+  if (setup?.pickup !== true && !delivers) missing.push("delivery");
+  return { ok: missing.length === 0, missing };
+}
 
 /* ============================== catalog ============================== */
 

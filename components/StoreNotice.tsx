@@ -116,8 +116,9 @@ export function MissingPage() {
             <a href="/" className={back ? "inline-flex min-h-[44px] items-center rounded-full px-5 text-sm font-bold text-fg/80 ring-1 ring-fg/15 transition hover:ring-fg/30" : "inline-flex min-h-[44px] items-center rounded-full bg-primary px-6 text-sm font-bold text-white shadow-sm transition hover:opacity-90"}>
               {missing.home[lang]}
             </a>
-            {/* to Dukkan's main page, where anyone can see what Dukkan is and start a store of their own */}
-            <a href="/" className="inline-block text-sm font-semibold text-primary hover:underline">{missing.create[lang]}</a>
+            {/* to Dukkan's main page, where anyone can see what Dukkan is and start a store of their own (never offered
+                to a store's customers, on a missing page inside a store that exists) */}
+            {!back && <a href="/" className="inline-block text-sm font-semibold text-primary hover:underline">{missing.create[lang]}</a>}
           </div>
         </div>
       </main>

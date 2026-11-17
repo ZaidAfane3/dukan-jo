@@ -34,6 +34,7 @@ const words = {
     /* a service, a file or a code is not counted in pieces */
     neutral: {
       limitedHint: "It can be ordered a set number of times",
+      unlimitedHint: "It can be ordered any number of times",
       quantity: "How many times can it be ordered?",
       big: (n: string) => `${Number(n).toLocaleString("en")} is a lot. Is this number right, or is there no limit?`,
       over: "The most you can enter is 9,999,999. If there is no limit, make it unlimited.",
@@ -52,7 +53,8 @@ const words = {
     over: "أكبر عدد يمكنك إدخاله 9,999,999 قطعة. إن كان المنتج لا ينفد فاجعله غير محدود.",
     neutral: {
       limitedHint: "يمكن طلبه عددًا معيّنًا من المرات",
-      quantity: "كم مرة يمكن طلبها؟",
+      unlimitedHint: "يمكن طلبه أي عدد من المرات",
+      quantity: "كم مرة يمكن طلبه؟",
       big: (n: string) => `${Number(n).toLocaleString("en")} عدد كبير. هل هذا الرقم صحيح، أم أنه بلا حد؟`,
       over: "أكبر عدد يمكنك إدخاله 9,999,999. إن لم يكن له حد فاجعله غير محدود.",
     },

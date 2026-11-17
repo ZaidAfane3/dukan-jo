@@ -23,6 +23,9 @@ type Shop = {
   published: boolean;
   paused: boolean;
   ship_mode: string;
+  /* its own courier's name (ship_mode "own"), and whether customers may pick up their orders */
+  ship_name?: string;
+  pickup?: boolean;
   /* the ways to pay the merchant chose ("cliq,cash", "" none yet); null: never chosen, every way Dukkan has on */
   store_pays?: string | null;
   pickup_city: string;
@@ -32,10 +35,15 @@ type Shop = {
   suspended_at: string | null;
   product_count: number;
   order_count: number;
-  /* orders customers placed on its public page (test orders while payment is not open) */
+  /* order_count and total_sales are the merchant's Home's numbers (his own orders and his store page's, no test orders) */
+  /* of order_count, the orders customers placed on its public page */
   storefront_orders: number;
+  /* card and CliQ orders placed on its page while payment is not open: test orders, in neither number */
+  storefront_test?: number;
   /* visitors of its store at its link over the last 30 days (each day's visitors added up) */
   visitors_30?: number;
+  /* what it still needs before it can sell (safeOrder readyToSell): no way to pay on, no way to get orders */
+  not_ready?: ("pay" | "delivery")[];
   total_sales: string;
   first_product_at: string | null;
   published_at: string | null;
@@ -147,6 +155,13 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                   <div className="min-w-0 flex-1">
                     <p className="text-[15px] font-bold">{line}</p>
                     {key === "suspended" && sh.suspend_reason && <p className="mt-0.5 break-words text-sm opacity-90">{sh.suspend_reason}</p>}
+                    {/* the store can't take an order: no way to pay is on, or customers have no way to get their orders */}
+                    {!!sh.not_ready?.length && (
+                      <p className="mt-0.5 text-sm font-semibold opacity-90">
+                        {t("Not ready to sell: ", "غير جاهز للبيع: ")}
+                        {sh.not_ready.map((m) => (m === "pay" ? t("no way to pay is on", "لا طريقة دفع مفعّلة") : t("no delivery or pickup", "لا توصيل ولا استلام"))).join(t(" · ", " · "))}
+                      </p>
+                    )}
                     {key === "suspended" && <p className="mt-1 text-xs opacity-75">{t("The merchant sees this reason when they try to sign in.", "يرى التاجر هذا السبب عند محاولة الدخول.")}</p>}
                     {updating && (
                       <p role="status" className="mt-1 text-xs opacity-75">
@@ -263,7 +278,22 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 {d.theme && <ThemeLine theme={d.theme} link={!!d.can.themes} />}
                 <Line k={t("Paused for maintenance", "متوقف للصيانة")} v={sh.paused ? t("Yes", "نعم") : t("No", "لا")} />
-                <Line k={t("Dukkan Ship", "شحن دكّان")} v={sh.ship_mode === "seen" ? t("Yes", "نعم") : sh.ship_mode === "own" ? t("Own delivery", "توصيل خاص") : "—"} />
+                {/* the way it delivers, as the merchant chose it: Dukkan Ship, its own courier (by name), pickup only, or none yet */}
+                <Line
+                  k={t("Delivery", "التوصيل")}
+                  v={(() => {
+                    const way =
+                      sh.ship_mode === "seen"
+                        ? t("Dukkan Ship", "شحن دكّان")
+                        : sh.ship_mode === "own"
+                          ? sh.ship_name
+                            ? t(`Own courier: ${sh.ship_name}`, `مندوب خاص: ${sh.ship_name}`)
+                            : t("Own courier", "مندوب خاص")
+                          : null;
+                    if (way) return sh.pickup ? `${way}${t(" · pickup too", " · والاستلام من المتجر")}` : way;
+                    return sh.pickup ? t("Pickup only", "استلام من المتجر فقط") : t("Not chosen yet", "لم يُختر بعد");
+                  })()}
+                />
                 <Line
                   k={t("Ways to pay", "طرق الدفع")}
                   v={sh.store_pays == null ? t("All Dukkan has on (not chosen)", "كل ما يتيحه دكّان (لم يختر)") : sh.store_pays === "" ? t("None yet", "لا شيء بعد") : sh.store_pays.split(",").map((p) => (p === "cliq" ? t("CliQ", "كليك") : p === "cash" ? t("Cash on delivery", "الدفع عند الاستلام") : t("Card", "بطاقة"))).join(" · ")}
@@ -279,7 +309,8 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 <Line k={t("Status", "الحالة")} v={<StatusBadge status={sh.status} />} />
                 <Line k={t("Products", "المنتجات")} v={f.num(sh.product_count)} />
                 <Line k={t("Orders", "الطلبات")} v={f.num(sh.order_count)} />
-                <Line k={t("Orders from its store page", "طلبات من صفحة المتجر")} v={f.num(sh.storefront_orders ?? 0)} />
+                <Line k={t("Of them, from its store page", "منها من صفحة المتجر")} v={f.num(sh.storefront_orders ?? 0)} />
+                {(sh.storefront_test ?? 0) > 0 && <Line k={t("Test orders not counted", "طلبات تجريبية غير محسوبة")} v={f.num(sh.storefront_test ?? 0)} />}
                 <Line k={t("Visitors, last 30 days", "الزوار، آخر 30 يومًا")} v={f.num(sh.visitors_30 ?? 0)} />
                 <Line k={t("Total sales", "إجمالي المبيعات")} v={f.jod(sh.total_sales)} />
                 {/* a date, or why there is none: none yet, or some counted without the date of the first being recorded */}
@@ -292,7 +323,10 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                   v={sh.first_order_at ? f.date(sh.first_order_at) : sh.order_count > 0 || (sh.storefront_orders ?? 0) > 0 ? t("Not recorded", "غير مسجّل") : t("No orders yet", "لا طلبات بعد")}
                 />
                 <p className="pt-2 text-xs text-muted">
-                  {t("Total sales leave out cancelled and refunded orders.", "إجمالي المبيعات لا يشمل الطلبات الملغاة والمستردة.")}
+                  {t(
+                    "The same numbers as the merchant's Home: card and CliQ test orders are not counted, and total sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
+                    "نفس أرقام الصفحة الرئيسية للتاجر: الطلبات التجريبية بالبطاقة وكليك غير محسوبة، وإجمالي المبيعات هو الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
+                  )}
                 </p>
               </Info>
             </div>

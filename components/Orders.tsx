@@ -21,6 +21,7 @@ import { dropUndos, listUndo, offerUndo } from "./undo";
 import { serverRows, type StoreOrderRow } from "./useStoreOrders";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
+import { Skeleton } from "./Skeleton";
 import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
 
 
@@ -561,7 +562,8 @@ export function Orders() {
                   >
                     {s.dot ? <span className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} /> : <span className="h-2 w-2 shrink-0" />}
                     <span className="flex-1 text-start">{s.label}</span>
-                    <span dir="ltr" className="text-xs">{s.count}</span>
+                    {/* the counts wait for the store's orders: never a count of the hand-added ones alone */}
+                    {serverState === "loading" ? <Skeleton className="h-3 w-5 !rounded" /> : <span dir="ltr" className="text-xs">{s.count}</span>}
                   </button>
                 </li>
               ))}
@@ -578,9 +580,20 @@ export function Orders() {
                 <button type="button" onClick={() => retryServer.current()} className="font-semibold underline">{o.retry}</button>
               </p>
             )}
-            {all.length === 0 && serverState === "failed" ? null : all.length === 0 && serverState === "loading" ? (
-              /* the store's orders are still on their way: never "No orders yet" before the server answered */
-              <p role="status" className="px-5 py-14 text-center text-sm text-muted">{o.loadingMore}</p>
+            {all.length === 0 && serverState === "failed" ? null : serverState === "loading" ? (
+              /* the store's orders are still on their way: the loading look, never "No orders yet" nor only the orders
+                 kept in this browser before the server answered */
+              <div role="status" aria-label={o.loadingMore} className="divide-y divide-fg/10">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex items-center gap-3 px-5 py-4">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-3 w-1/3" />
+                    </div>
+                    <Skeleton className="h-6 w-16" />
+                  </div>
+                ))}
+              </div>
             ) : shown.length === 0 ? (
               <div className="px-5 py-14 text-center">
                 <p className="font-bold">{all.length === 0 ? o.listEmpty : o.noMatch}</p>
@@ -725,6 +738,14 @@ export function Orders() {
                           </span>
                         </li>
                       ))}
+                      {/* the subtotal before the coupon and the delivery, as on the customer's receipt, so the lines add up
+                          to the total */}
+                      {(current.coupon || (current.delivery !== undefined && current.fulfil !== "pickup")) && (
+                        <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold">
+                          <span>{lang === "ar" ? "المجموع" : "Subtotal"}</span>
+                          <span dir="ltr" className="shrink-0 font-bold">{fmt(current.items.reduce((n, it) => n + it.qty * it.price, 0))} <small className="text-xs opacity-70">{o.currency}</small></span>
+                        </li>
+                      )}
                       {/* the coupon the customer used at checkout (the total is already after it) */}
                       {current.coupon && (
                         <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold text-emerald-700 dark:text-emerald-400">

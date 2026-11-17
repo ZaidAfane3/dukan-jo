@@ -36,7 +36,7 @@ export default function ShipPage() {
         title={t("Dukkan Ship", "شحن دكّان")}
         sub={
           s.data
-            ? `${t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكّان.")} ${f.count(s.data.stores, ["store delivers with it.", "stores deliver with it."], { one: "يوصّل بها متجر واحد.", two: "يوصّل بها متجران.", few: "متاجر توصّل بها.", many: "متجرًا يوصّل بها." })}`
+            ? `${t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكّان.")} ${s.data.stores === 0 ? t("No store delivers with it yet.", "لا يوصّل بها أي متجر بعد.") : f.count(s.data.stores, ["store delivers with it.", "stores deliver with it."], { one: "يوصّل بها متجر واحد.", two: "يوصّل بها متجران.", few: "متاجر توصّل بها.", many: "متجرًا يوصّل بها." })}`
             : t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكّان.")
         }
       />
@@ -51,7 +51,7 @@ export default function ShipPage() {
             {d.canSeeStores ? (
               <Stores total={d.stores} />
             ) : (
-              <p className={`${card} text-sm text-muted`}>{f.count(d.stores, ["store delivers with Dukkan Ship.", "stores deliver with Dukkan Ship."], { one: "يوصّل متجر واحد عبر شحن دكّان.", two: "يوصّل متجران عبر شحن دكّان.", few: "متاجر توصّل عبر شحن دكّان.", many: "متجرًا يوصّل عبر شحن دكّان." })}</p>
+              <p className={`${card} text-sm text-muted`}>{d.stores === 0 ? t("No store delivers with Dukkan Ship yet.", "لا يوصّل أي متجر عبر شحن دكّان بعد.") : f.count(d.stores, ["store delivers with Dukkan Ship.", "stores deliver with Dukkan Ship."], { one: "يوصّل متجر واحد عبر شحن دكّان.", two: "يوصّل متجران عبر شحن دكّان.", few: "متاجر توصّل عبر شحن دكّان.", many: "متجرًا يوصّل عبر شحن دكّان." })}</p>
             )}
           </div>
         )}
@@ -336,7 +336,8 @@ function Cities({ d, onSaved }: { d: Data; onSaved: () => void }) {
             {d.cityCounts && " "}
             {d.cityCounts && (
               <span className="ms-0.5 text-xs font-normal tabular-nums text-muted" title={t("Stores picking up from it", "متاجر يُستلم منها")}>
-                {`· ${f.count(d.cityCounts[i] ?? 0, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}`}
+                {/* none: the number alone («إربد · 0»), the chip's title says what it counts */}
+                {(d.cityCounts[i] ?? 0) === 0 ? `· ${f.num(0)}` : `· ${f.count(d.cityCounts[i] ?? 0, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}`}
               </span>
             )}
           </span>

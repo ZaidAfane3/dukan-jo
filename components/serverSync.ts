@@ -289,7 +289,7 @@ export function holdPictureSaves(): () => void {
 /** True while a picture is being cut (see holdPictureSaves) */
 export const pictureSavesHeld = () => holds > 0;
 
-/** Fired on window when the server refused a save for good; detail is its answer ("slug-taken", "suspended", "too-big",
+/** Fired on window when the server refused a save for good; detail is its answer ("slug-taken", "suspended", "not-ready", "too-big",
     "invalid", or "media-full" when the store's space for pictures is full) */
 export const SAVE_REFUSED = "dukkan-save-refused";
 const refused = (why: string) => window.dispatchEvent(new CustomEvent(SAVE_REFUSED, { detail: why }));
@@ -497,13 +497,22 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
        back (the store stays on the theme it had), unless the page changed the key again since, and the page says why
        (SaveNotice.tsx, with a way to the theme store) */
     let notBought = "";
+    let notReady = false;
     for (const [k, h] of Object.entries(r.refused ?? {})) {
+      /* not kept because the store is not ready to sell (app/api/store PUT "not-ready"): the server's copy comes back
+         here, and the page says why (SaveNotice.tsx) */
+      if (h && h.result === "not-ready" && typeof sent[k] === "string") {
+        notReady = true;
+        if (typeof h.value === "string" && replaceAccountValue(k, h.value, sent[k])) showAgain(k);
+        continue;
+      }
       if (!h || h.result !== "theme-not-bought" || typeof sent[k] !== "string") continue;
       notBought ||= typeof h.theme === "string" ? h.theme : "";
       const back = typeof h.value === "string" ? h.value : k === "seen-themes" ? themesWithoutActive(sent[k]) : null;
       if (back !== null && replaceAccountValue(k, back, sent[k])) showAgain(k);
     }
     if (notBought) window.dispatchEvent(new CustomEvent(THEME_NOT_BOUGHT, { detail: notBought }));
+    if (notReady) refused("not-ready");
     return "ok";
   }
   /* signed out (here, in another tab, or because Dukkan suspended the store): the tab stops saving and leaves; the

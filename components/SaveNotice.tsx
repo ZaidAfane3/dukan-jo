@@ -20,6 +20,7 @@ const words = {
     "signed-out": "You were signed out. Sign in again to keep working.",
     stale: "Couldn't save some changes. Reload to see the latest.",
     "theme-not-bought": "This theme isn't bought yet. Buy it from the Theme store to use it.",
+    "not-ready": "Not saved: your store isn't ready to sell. Turn on at least one way to pay and choose how customers get their orders on Delivery options.",
     close: "Close",
   },
   ar: {
@@ -31,6 +32,7 @@ const words = {
     "signed-out": "تم تسجيل خروجك. سجّل الدخول مجددًا لمتابعة العمل.",
     stale: "تعذّر حفظ بعض التعديلات. أعد تحميل الصفحة لترى أحدث نسخة.",
     "theme-not-bought": "لم تشترِ هذا الثيم بعد. اشترِه من متجر الثيمات لتستخدمه.",
+    "not-ready": "لم يُحفظ: متجرك غير جاهز للبيع. فعّل طريقة دفع واحدة على الأقل واختر كيف يستلم العملاء طلباتهم من خيارات التوصيل.",
     close: "إغلاق",
   },
 };

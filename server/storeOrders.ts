@@ -89,6 +89,16 @@ function storePaysFrom(methods: Record<string, { on: boolean }>): Payment[] {
   return (["cliq", "cash", "card"] as const).filter((p) => methods[p === "cash" ? "cod" : p]?.on);
 }
 
+/** What Diwan has on now that decides whether a store can sell (safeOrder readyToSell): the ways to pay and the cities
+    Dukkan Ship serves. Read by the store save (app/api/store PUT, "not-ready") and Diwan's store page. */
+export async function sellPlatform(): Promise<{ pays: Payment[]; shipCities: { en: string[]; ar: string[] } }> {
+  const s = await readSettings(["payment_methods", "dukkan_ship"] as const);
+  return {
+    pays: storePaysFrom(s.payment_methods as unknown as Record<string, { on: boolean }>),
+    shipCities: { en: s.dukkan_ship.cities.map((x) => x.en), ar: s.dukkan_ship.cities.map((x) => x.ar) },
+  };
+}
+
 export type PlacedOrder = {
   number: number;
   items: PricedLine[];

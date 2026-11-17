@@ -92,22 +92,16 @@ export const copy = {
 
 export const currency = (lang: Lang) => (lang === "ar" ? "د.أ" : "JOD");
 /** One way to write an amount everywhere in the store (cards, product page, cart, checkout, the order placed, search,
-    deals): a whole amount without decimals ("22"), any other with two ("18.50", never "18.5"). `cents`: two decimals
-    even when whole, for amounts shown side by side (a sale price and its old price, the lines of a total). */
+    deals): each amount on its own, a whole one without decimals ("22"), any other with two ("18.50", never "18.5"),
+    whatever the amounts shown next to it (a sale price and its old price, the lines of a total). */
 export const hasFils = (n: number) => Math.round(n * 100) % 100 !== 0;
-export const money = (n: number, cents = false) => {
-  const two = cents || hasFils(n);
-  return n.toLocaleString("en-US", { minimumFractionDigits: two ? 2 : 0, maximumFractionDigits: 2 });
-};
+export const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: hasFils(n) ? 2 : 0, maximumFractionDigits: 2 });
 /** The language the prices are shown in: the page's language, or the one the merchant chose for his prices */
 export const priceLang = (mode: "auto" | "ar" | "en" | undefined, lang: Lang): Lang => (mode === "ar" ? "ar" : mode === "en" ? "en" : lang);
 /** An amount for prices in `lang`. The digits are the Latin ones in both languages, as on every page of Dukkan (the
     merchant's pages too), so prices, counts, order numbers and quantities never mix two sets of digits; only the
     currency's word follows the language (currency()). */
-export const moneyIn = (n: number, _lang: Lang, cents = false) => money(n, cents);
-/** Whether a product on sale shows its prices with two decimals: when either of them has cents */
-export const centsFor = (p: { price: number | null; sale: number | null }) =>
-  p.sale !== null && p.price !== null && [p.price, p.sale].some(hasFils);
+export const moneyIn = (n: number, _lang: Lang) => money(n);
 export const priceOf = (p: StoreProduct) => unitPrice(p) ?? 0;
 
 const base = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };

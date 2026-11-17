@@ -30,8 +30,8 @@ const why = (lang: Lang, ar: string, en: string) => (lang === "ar" ? ar : en);
 import { DeleteAsk } from "./DeleteAsk";
 import { dc, sampleTexts } from "./copy";
 import { LinkPicker, LinkTargets, PictureMover, useStorePages } from "./PageLink";
-import { emptyForCustomers, readSubscribers } from "../storefront/sections";
-import { storePays, usePublicSettings } from "../platformPublic";
+import { emptyForCustomers, readSubscribers, sellsOf } from "../storefront/sections";
+import { usePublicSettings } from "../platformPublic";
 import { load as loadInfoPages } from "../InfoPages";
 import { bannerSurface, cardGround, dimOn, footerColors, footerNameSize, hex, inkOn, legibleOn, mix, readsOn } from "../storefront/footerColors";
 
@@ -3700,8 +3700,8 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
   const previewOf = useContext(PreviewProducts);
   const stored = useStoreData(lang, previewOf.sample);
   const partData = previewOf.products ? { products: previewOf.products, isDemo: false } : stored;
-  const pays = storePays(usePublicSettings());
-  const emptyPart = (to: string) => cfg.sections.some((x) => x.id === to && x.visible && emptyForCustomers(x, partData, lang, pays));
+  const sells = sellsOf(usePublicSettings(), stored);
+  const emptyPart = (to: string) => cfg.sections.some((x) => x.id === to && x.visible && emptyForCustomers(x, partData, lang, sells));
   /* the header link whose trash was pressed: it asks before it goes */
   const [asking, setAsking] = useState<number | null>(null);
   /* a link just added opens by itself, the others stay closed under their names */

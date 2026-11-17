@@ -136,7 +136,7 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
   /* how much each way to pay was used (app/api/diwan/payment-methods): orders in the stores and themes bought */
   const [days, setDays] = useState<(typeof PERIODS)[number][0]>("30");
   const stats = useApi<{ use: Record<PayMethod, PayUse> }>(`/api/diwan/payment-methods?days=${days}`);
-  const jod = (n: number) => `${f.num(n)} ${t("JOD", "د.أ")}`;
+  const jod = (n: number) => f.jod(n);
   const set = (m: PayMethod, part: Partial<{ on: boolean; note: Bi }>) => s.setValue({ ...s.value, [m]: { ...s.value[m], ...part } });
   /* a checkout with every way to pay switched off takes no orders: said before saving, not discovered by a merchant */
   const storeOff = PAY_METHODS.every((m) => !PAY_LOOK[m].store || !s.value[m].on);

@@ -1,7 +1,7 @@
 import { cleanSetting, SETTING_DEFAULTS, type DukkanShip } from "@/components/diwan/platformSettings";
 import { answer } from "@/server/auth";
 import { db } from "@/server/db";
-import { prepareShops, shopListSql, STATUS_SQL } from "@/server/shops";
+import { ORDERS_SQL, prepareShops, shopListSql, STATUS_SQL } from "@/server/shops";
 import { staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export const GET = staffRoute("shops.read", async (req) => {
   const pool = await db();
   const [rows, count, setting] = await Promise.all([
     pool.query(
-      `SELECT s.account_id AS id, s.name, s.slug, a.name AS owner, s.pickup_city AS city, (${STATUS_SQL}) AS status, s.published, s.order_count
+      `SELECT s.account_id AS id, s.name, s.slug, a.name AS owner, s.pickup_city AS city, (${STATUS_SQL}) AS status, s.published, ${ORDERS_SQL} AS order_count
        ${sql} ORDER BY s.created_at DESC, s.account_id DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`,
       params,
     ),

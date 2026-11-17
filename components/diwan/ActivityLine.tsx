@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { REASON_WORDS, type ReportReason } from "../storeReports";
-import { actionWords, documentKindWords, documentNumber } from "./activityWords";
+import { actionWords, documentKindWords, documentNumber, settingWords } from "./activityWords";
 import { can, roleName } from "./perms";
 import { methodText } from "./shopBits";
 import { PRIORITY, STATUS, type TPriority, type TStatus } from "./ticketWords";
@@ -20,6 +20,8 @@ export type Change = { field: string; from: string | null; to: string | null };
 export type DocumentFacts = { kind: string; seq: number | null; removed: boolean; publicId?: string };
 export type Detail = {
   changes?: Change[]; title?: string; amount?: string; method?: string; member?: string; count?: number; changedFields?: string[];
+  /* a Diwan page's title in both languages: the line shows the staff's language, else the other */
+  titles?: { en: string; ar: string };
   /* a document review: the status it left (said even when only the note changed) and the document, when it is still known */
   status?: string; document?: DocumentFacts;
 };
@@ -241,9 +243,11 @@ export function ActivityText({ row }: { row: ActivityRow }) {
   /* every other line: what was done, on what, then what changed */
   const bits: string[] = [];
   if (d.member) bits.push(d.member);
-  if (d.title) bits.push(`“${d.title}”`);
+  /* a page's title in the staff's language, else the other (server/activityDetail.ts withPageTitles) */
+  if (d.titles) bits.push(`“${t(d.titles.en || d.titles.ar, d.titles.ar || d.titles.en)}”`);
+  else if (d.title) bits.push(`“${d.title}”`);
   if (row.action === "shop.payment" && d.amount) bits.push(`${f.jod(d.amount)}${d.method ? `${t(", ", "، ")}${methodText(t, d.method)}` : ""}`);
-  if (row.action === "settings.change" && row.targetId) bits.push(row.targetId);
+  if (row.action === "settings.change" && row.targetId) bits.push(settingWords(t, row.targetId));
   const said = [
     ...changes.map((c) => changeWords(t, row.action, c, !(row.action === "document.review" || (row.action === "staff.role" && c.field === "role")))),
     ...(more ? [more] : []),

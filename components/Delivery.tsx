@@ -17,6 +17,7 @@ import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs } from "./par
 import { dropUndos, offerUndo, valueUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
+import { sellCheck, sellWords, storeLiveNow } from "./ReadyToSell";
 
 /* The delivery options a merchant chose in setup. Until now there was no place to change them. With his own delivery
    partner he can also add or remove the partner's proof here, the same files as in the setup's shipping step: they go
@@ -106,6 +107,8 @@ export function Delivery() {
   /* Each mistake shows under its own field */
   const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string; fee?: string; cities?: string }>({});
   const [flash, setFlash] = useState(false);
+  /* the save was stopped: it would leave his live store without a way for customers to get their orders */
+  const [liveBlock, setLiveBlock] = useState(false);
   const proof = usePartnerProofs([], s, lang);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -134,6 +137,11 @@ export function Delivery() {
     setReady(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  /* a link to the Ways to pay card (/delivery#ways-to-pay, from a "not ready to sell" list): the card shows once the setup
+     is read, so the page scrolls to it then */
+  useEffect(() => {
+    if (ready && window.location.hash === "#ways-to-pay") document.getElementById("ways-to-pay")?.scrollIntoView({ block: "start" });
+  }, [ready]);
   /* only this page can put the options back in its form: its undo goes when it closes */
   useEffect(() => () => dropUndos("delivery"), []);
 
@@ -172,6 +180,14 @@ export function Delivery() {
     }
     /* the setup as saved now (the ways to pay may have been saved below since the page opened) */
     const base: SavedSetup = loadSetup() ?? setup ?? { name: "", description: "", color: "#e67726", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
+    /* a live store keeps a way for customers to get their orders: a change that takes away the last one is not saved
+       (the server holds a save to the same rule: app/api/store PUT "not-ready"). A store already without one (Diwan
+       took Dukkan Ship's cities away) can still save. */
+    if (storeLiveNow() && sellCheck(platform, { ...base, pickup, shipping }).missing.includes("delivery") && !sellCheck(platform, base).missing.includes("delivery")) {
+      setLiveBlock(true);
+      return;
+    }
+    setLiveBlock(false);
     const before = savedOf(loadSetup());
     saveSetup({ ...base, pickup, shipping });
     /* the proofs still waiting for a check follow the partner's new name */
@@ -324,13 +340,14 @@ export function Delivery() {
           )}
 
           <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-fg/15 p-4 transition hover:border-primary/60">
-            <input type="checkbox" checked={pickup} onChange={(e) => setPickup(e.target.checked)} className="mt-1 h-5 w-5 accent-[rgb(var(--primary))]" />
+            <input type="checkbox" checked={pickup} onChange={(e) => { setPickup(e.target.checked); setLiveBlock(false); }} className="mt-1 h-5 w-5 accent-[rgb(var(--primary))]" />
             <span>
               <span className="block text-sm font-bold">{s.pickupLabel}</span>
               <span className="mt-0.5 block text-xs text-muted">{s.pickupHint}</span>
             </span>
           </label>
 
+          {liveBlock && <p role="alert" className="rounded-xl bg-rose-500/10 px-4 py-2.5 text-sm font-semibold text-rose-700 dark:text-rose-400">{sellWords[lang].liveDelivery}</p>}
           <div className="flex items-center gap-3">
             <button type="submit" className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{w.save}</button>
             <span aria-live="polite" className="text-sm font-semibold text-primary">{flash ? w.saved : ""}</span>
@@ -407,11 +424,20 @@ function PaysCard() {
   const savedPays = () => loadSetup()?.pays;
   const [pays, setPays] = useState<Payment[]>(() => savedPays() ?? storePays(platform));
   const [flash, setFlash] = useState(false);
+  /* the save was stopped: it would leave his live store without a way to pay */
+  const [liveBlock, setLiveBlock] = useState(false);
   const live = orderPays(storePays(platform), pays);
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     const cur = loadSetup();
     const base: SavedSetup = cur ?? { name: "", description: "", color: "#e67726", phone: "", slug: "", done: Array.from({ length: 6 }, () => false), product: null, shipping: null };
+    /* a live store keeps at least one way to pay that is on (the server holds a save to the same rule: app/api/store PUT
+       "not-ready"); one Diwan already left without any can still save */
+    if (storeLiveNow() && sellCheck(platform, { ...base, pays }).missing.includes("pay") && !sellCheck(platform, base).missing.includes("pay")) {
+      setLiveBlock(true);
+      return;
+    }
+    setLiveBlock(false);
     const before = { pays: cur?.pays };
     saveSetup({ ...base, pays });
     const after = { pays: loadSetup()?.pays };
@@ -432,9 +458,11 @@ function PaysCard() {
     setTimeout(() => setFlash(false), 2000);
   };
   return (
-    <form onSubmit={save} noValidate className={`${card} max-w-2xl space-y-4 p-5 sm:p-7`}>
-      <PaysPicker lang={lang} id="d-pays" value={pays} onChange={setPays} />
-      {live.length === 0 && <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{t.none}</p>}
+    <form id="ways-to-pay" onSubmit={save} noValidate className={`${card} max-w-2xl scroll-mt-24 space-y-4 p-5 sm:p-7`}>
+      <PaysPicker lang={lang} id="d-pays" value={pays} onChange={(v) => { setPays(v); setLiveBlock(false); }} />
+      {liveBlock ? (
+        <p role="alert" className="rounded-xl bg-rose-500/10 px-4 py-2.5 text-sm font-semibold text-rose-700 dark:text-rose-400">{sellWords[lang].livePay}</p>
+      ) : live.length === 0 && <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{t.none}</p>}
       <div className="flex items-center gap-3">
         <button type="submit" className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{t.save}</button>
         <span aria-live="polite" className="text-sm font-semibold text-primary">{flash ? t.saved : ""}</span>

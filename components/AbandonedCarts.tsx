@@ -8,7 +8,7 @@ import { pushNotification } from "./notifications";
 import { usePrefs } from "./Prefs";
 import { cleanOrder, parseList } from "./records";
 import { initialOf } from "./safe";
-import { AnimatedNumber, Money, mulberry32 } from "./Reports";
+import { AnimatedNumber, Money, mulberry32, pctDecimals } from "./Reports";
 import { usePageTitle } from "./pageTitle";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
@@ -158,7 +158,7 @@ export function AbandonedCarts() {
           <div className="mt-5 grid gap-4 md:grid-cols-3">
             {[
               { title: m.cards[0], node: <AnimatedNumber value={count} />, ico: <path d="M3 4h2l2.4 11h11l2-8H6.2M9 20a1 1 0 1 0 0 .01M17 20a1 1 0 1 0 0 .01" /> },
-              { title: m.cards[1], node: <span dir="ltr"><AnimatedNumber value={recovered} decimals={1} />%</span>, ico: <path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5" /> },
+              { title: m.cards[1], node: <span dir="ltr"><AnimatedNumber value={recovered} decimals={pctDecimals(recovered)} />%</span>, ico: <path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5" /> },
               { title: m.cards[2], node: <Money value={average} currency={cur} />, glyph: cur },
             ].map((c) => (
               <div key={c.title} className="flex items-center gap-4 rounded-xl border border-fg/10 p-4">

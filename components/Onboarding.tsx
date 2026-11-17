@@ -14,7 +14,7 @@ import { ShareMenu } from "./ShareMenu";
 import { CityGone, OwnCities, PaysPicker, payWords } from "./Delivery";
 import { pushNotification } from "./notifications";
 import { SeenShipLogo, SeenShipMark } from "./SeenShip";
-import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
+import { loadSetup, saveSetup, setupProductNow, syncSetupProduct } from "./setup";
 import { Tilt } from "./ui";
 import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, savedMobile, shownMobile, typedPhone } from "./phone";
@@ -26,6 +26,7 @@ import { keepPicture } from "./media";
 import { merchantCall, onServer } from "./merchantApi";
 import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
 import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
+import { SellNeeds, sellWords, storeLiveNow, useSellReady } from "./ReadyToSell";
 import { ProductPhoto } from "./storefront/NoPhoto";
 import { dropUndos, offerUndo } from "./undo";
 import { PRODUCT_MAX, typedMoney } from "./records";
@@ -925,7 +926,18 @@ function ProductStep({ store, onSave }: StepProps) {
   const c = content[lang].onboarding;
   const p = c.product;
 
-  const saved = store.product;
+  /* The step opens with the product as it is now in the product list (it may have sold some, or been changed on the
+     Products page), not the setup's older copy of it; saving writes back only what he changed here (syncSetupProduct).
+     The product was deleted since: the step makes a new one, starting from the setup's copy. */
+  const [saved] = useState(() => {
+    const copy = store.product;
+    if (!copy?.id) return copy;
+    const now = setupProductNow(copy.id);
+    if (now) return now;
+    const rest = { ...copy };
+    delete rest.id;
+    return rest;
+  });
   /* the same kinds, words and rules as the product form (Products.tsx): one list in productsContent.ts */
   const kw = kindWords[lang];
   const [kind, setKind] = useState<ProductKind>(saved?.kind ?? "standard");
@@ -1050,7 +1062,7 @@ function ProductStep({ store, onSave }: StepProps) {
       description: cleanLines(description, PRODUCT_MAX.description),
     };
     /* it becomes a real product, with its cropped picture, so the store shows it */
-    const id = syncSetupProduct(product, saved?.id) ?? saved?.id;
+    const id = syncSetupProduct(product, saved?.id, saved ?? undefined) ?? saved?.id;
     onSave({ product: { ...product, ...(id ? { id } : {}) } });
   };
 
@@ -1652,6 +1664,7 @@ function LiveMoment({ slug, name, chosen }: { slug: string; name: string; chosen
   const { lang } = usePrefs();
   const t = liveWords[lang];
   const pays = orderPays(storePays(usePublicSettings()), chosen);
+  const sell = useSellReady();
   const [copied, setCopied] = useState(false);
   /* signed in, the store is at its own address; otherwise it opens as customers would see it (as the profile menu does) */
   const [href, setHref] = useState("/store");
@@ -1667,6 +1680,9 @@ function LiveMoment({ slug, name, chosen }: { slug: string; name: string; chosen
     setTimeout(() => setCopied(false), 1600);
   };
   const ghost = "inline-flex h-11 items-center rounded-xl border border-primary/60 px-5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white";
+  /* not ready to sell (safeOrder readyToSell): no "your store is live" yet, but what is missing, each a link to fix it.
+     A store already live stays live: the list then says customers can't complete an order */
+  if (sell.read && !sell.ok) return <SellNeeds lang={lang} missing={sell.missing} title={storeLiveNow() ? sellWords[lang].liveNotReady : undefined} className="mt-8" />;
   return (
     <section className="mt-8 rounded-3xl border border-primary/40 bg-primary/5 p-6 text-center sm:p-8" aria-labelledby="ob-live-title">
       <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-primary text-white" aria-hidden>

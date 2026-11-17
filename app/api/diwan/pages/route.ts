@@ -45,7 +45,7 @@ export const POST = staffRoute("announce", async (req: NextRequest, me) => {
   );
   if (!rows[0]) return answer({ result: "taken", field: "slug" }, 409);
   const id = String(rows[0].id);
-  await audit(req, me.id, "page.create", { type: "page", id }, null, { slug: p.slug, title: p.titleEn });
+  await audit(req, me.id, "page.create", { type: "page", id }, null, { slug: p.slug, title: p.titleEn, titleEn: p.titleEn, titleAr: p.titleAr });
   /* the new row as the list shows it, so Diwan can put it in the list at once */
   return answer({ result: "ok", id, row: await onePage(id) });
 });

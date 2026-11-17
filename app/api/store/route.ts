@@ -6,7 +6,8 @@ import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { movePicturesOut } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
-import { mergeOnlineSales, ONLINE_KEYS, onlineRev, shopLock, type OnlineKey } from "@/server/storeOrders";
+import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, type OnlineKey } from "@/server/storeOrders";
+import { readyToSell, type SellNeed } from "@/components/safeOrder";
 import { cleanThemeState, themeOwner } from "@/server/themeOwnership";
 import { valueVersion } from "@/server/storeVersion";
 import { LIST_KEYS } from "@/components/listMerge";
@@ -20,7 +21,8 @@ export const dynamic = "force-dynamic";
 
    After a save that touches the setup, products, orders, design or pause, the shop's row for Diwan (server/shops.ts) is
    worked out again. Refused saves: 423 "suspended" (Dukkan suspended the store), 409 "slug-taken" (the setup's store
-   link belongs to another shop). A refused save changes nothing.
+   link belongs to another shop), 409 "not-ready" with `missing` (a save that would open a store not ready to sell, or
+   leave a live one without a way to pay or to get orders: safeOrder readyToSell). A refused save changes nothing.
 
    Pictures: a key that can hold pictures (components/mediaRules.ts PICTURE_KEYS) and still carries picture data (a page
    from before, or a picture the browser could not send on its own) has each picture kept as a file first
@@ -51,6 +53,22 @@ const MAX_TOTAL = 20_000_000;
    db.ts would open it on the way out). */
 const okKey = (k: string) =>
   k.length > 0 && k.length <= MAX_KEY && !/[\u0000-\u001f\u007f]/.test(k) && !k.startsWith("e1:") && !k.startsWith("dukkan-") && !k.startsWith("saad-") && !k.startsWith("acct:");
+
+/* the keys that decide whether the store is live and ready to sell (see PUT "not-ready") */
+const LIVE_KEYS = ["seen-setup", "seen-storefront", "seen-maintenance"];
+const parsed = (v: string | null): unknown => {
+  if (v === null) return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+};
+const setupIn = (v: string | null) => cleanSetup(parsed(v));
+const pausedIn = (v: string | null) => {
+  const m = parsed(v);
+  return !!m && typeof m === "object" && (m as { on?: unknown }).on === true;
+};
 
 /** All of the account's saved data, as { key: value }, or only the keys asked for (?keys=a,b). "rev": the newest store
     order the saved products and coupons include, read in the same query so it always matches them. */
@@ -114,7 +132,7 @@ export const PUT = guarded(async (req: NextRequest) => {
      use, or a copy or edit of it in use) is refused for that key, with the design saved with it: both stay as they are
      on the server and come back in "refused" (result "theme-not-bought", the theme), for the page to put back and say
      so. The rest of the save goes on. */
-  const refused: Record<string, { result: "theme-not-bought"; theme: string; value: string | null }> = {};
+  const refused: Record<string, { result: "theme-not-bought"; theme: string; value: string | null } | { result: "not-ready"; missing: SellNeed[]; value: string | null }> = {};
   const themeState = set.find(([k]) => k === "seen-themes");
   if (themeState) {
     const checked = cleanThemeState(themeState[1] as string, await themeOwner(await db(), a.id));
@@ -130,6 +148,42 @@ export const PUT = guarded(async (req: NextRequest) => {
     } else if (checked.value !== null) {
       themeState[1] = checked.value;
       rewritten[themeState[0]] = checked.value;
+    }
+  }
+  /* A store opens to customers with its first design save (seen-storefront) and again when he takes it off maintenance
+     (seen-maintenance): neither is kept while it is not ready to sell (safeOrder readyToSell: a way to pay that is on,
+     and pickup or a valid delivery choice). A live store is never taken offline for it, but a setup save that would
+     leave it missing something it had is not kept either (a store Diwan's change already left without a way to pay can
+     still save the rest of its setup). Only those keys are held back, with the server's copy, as for a theme not bought;
+     a save of nothing else is answered 409 "not-ready" with what is missing. */
+  const touchesLive = [...set.map(([k]) => k), ...(remove as string[])].some((k) => LIVE_KEYS.includes(k));
+  if (touchesLive) {
+    const { rows } = await (await db()).query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, LIVE_KEYS]);
+    const was = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
+    const after = (k: string): string | null => {
+      const s = set.find(([x]) => x === k);
+      return s ? (s[1] as string) : remove.includes(k) ? null : was.get(k) ?? null;
+    };
+    const before = (k: string) => was.get(k) ?? null;
+    const isLive = (get: (k: string) => string | null) => get("seen-storefront") !== null && !pausedIn(get("seen-maintenance"));
+    const platform = await sellPlatform();
+    const now = readyToSell(setupIn(after("seen-setup")), platform);
+    const then = readyToSell(setupIn(before("seen-setup")), platform);
+    let hold: string[] = [];
+    if (isLive(after) && !isLive(before) && !now.ok) hold = ["seen-storefront", "seen-maintenance"];
+    else if (isLive(after) && isLive(before) && now.missing.some((m) => !then.missing.includes(m))) hold = ["seen-setup"];
+    hold = hold.filter((k) => set.some(([s]) => s === k) || remove.includes(k));
+    if (hold.length) {
+      const missing = hold.includes("seen-setup") ? now.missing.filter((m) => !then.missing.includes(m)) : now.missing;
+      for (const k of hold) {
+        const i = set.findIndex(([s]) => s === k);
+        if (i >= 0) set.splice(i, 1);
+        const j = remove.indexOf(k);
+        if (j >= 0) remove.splice(j, 1);
+        delete rewritten[k];
+        refused[k] = { result: "not-ready", missing, value: was.get(k) ?? null };
+      }
+      if (!set.length && !remove.length) return answer({ result: "not-ready", missing }, 409);
     }
   }
   const tooLong = set.find(([, v]) => (v as string).length > MAX_VALUE);

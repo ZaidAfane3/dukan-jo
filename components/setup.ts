@@ -71,34 +71,73 @@ export function loadSetup(): SavedSetup | null {
   }
 }
 
-/** Puts the product made in setup into the product list (or updates the one it made before), through the same checks as a
-    product saved on the Products page, so it shows in Products and in the store with its picture. Returns its id. */
-export function syncSetupProduct(p: { kind: ProductKind; name: string; price: string; quantity?: number; image?: string | null; description?: string; sizes?: SizeStock[]; shipping?: boolean }, id?: number): number | null {
+/** The setup step's product, as the step fills its fields */
+export type SetupProduct = { kind: ProductKind; name: string; price: string; quantity?: number; image?: string | null; description?: string; sizes?: SizeStock[]; shipping?: boolean };
+
+const PRODUCTS_KEY = "seen-products";
+
+/** The product the setup made, as it is now in the product list (it may have sold, or been changed on the Products page
+    since), in the step's own shape; null when it is no longer there (deleted, or in the bin): the step then makes a new one */
+export function setupProductNow(id: number): (SetupProduct & { id: number }) | null {
   try {
-    const KEY_PRODUCTS = "seen-products";
-    const items = parseList(localStorage.getItem(KEY_PRODUCTS), cleanProduct);
+    const x = parseList(localStorage.getItem(PRODUCTS_KEY), cleanProduct).find((it) => it.id === id && !it.deletedAt);
+    if (!x) return null;
+    const kind = x.kind ?? "standard";
+    return {
+      id: x.id,
+      kind,
+      name: x.name,
+      price: x.price === null ? "" : String(x.price),
+      ...(kindHasSizes(kind) ? { sizes: x.sizes ?? [] } : x.unlimited ? {} : { quantity: x.quantity }),
+      ...(kindShips(kind) && !x.shipping ? { shipping: false } : {}),
+      image: x.images?.[0] ?? null,
+      description: x.description,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Puts the product made in setup into the product list (or updates the one it made before), through the same checks as a
+    product saved on the Products page, so it shows in Products and in the store with its picture. Returns its id.
+    `opened`: the product as the step showed it when it opened (setupProductNow). Updating, only what he changed in the
+    step is written: a field he left as it was keeps the product's own value, so stock sold since or a change made on the
+    Products page is never put back (the stock is written only when he edited it here, or changed the kind). */
+export function syncSetupProduct(p: SetupProduct, id?: number, opened?: SetupProduct): number | null {
+  try {
+    const items = parseList(localStorage.getItem(PRODUCTS_KEY), cleanProduct);
     const old = id ? items.find((x) => x.id === id && !x.deletedAt) : undefined;
+    const was = old ? opened : undefined;
+    const kindChanged = !was || was.kind !== p.kind;
+    const stockChanged = kindChanged || JSON.stringify(p.sizes ?? []) !== JSON.stringify(was?.sizes ?? []) || p.quantity !== was?.quantity;
+    const shipChanged = kindChanged || (p.shipping !== false) !== (was?.shipping !== false);
+    const stock = stockChanged || !old
+      ? {
+          /* the kind picked in setup, as on the Products page: clothing and shoes keep their sizes (their stock is the sizes',
+             cleanProduct adds them up). No quantity in setup means the stock has no limit (said with `unlimited`, never
+             with a made-up count) */
+          sizes: kindHasSizes(p.kind) ? (p.sizes ?? []) : [],
+          quantity: p.quantity ?? old?.quantity ?? 0,
+          unlimited: !kindHasSizes(p.kind) && p.quantity === undefined,
+        }
+      : {};
     const next = cleanProduct({
       ...(old ?? { created: Date.now(), shipping: true }),
       id: old?.id ?? nextProductId(items),
-      /* the kind picked in setup, as on the Products page: clothing and shoes keep their sizes (their stock is the sizes',
-         cleanProduct adds them up), a kind that is not shipped is never shipped. A size chart added on the Products page stays. */
-      kind: p.kind,
-      sizes: kindHasSizes(p.kind) ? (p.sizes ?? []) : [],
-      shipping: kindShips(p.kind) && p.shipping !== false,
-      name: p.name,
-      price: money(p.price),
+      /* a size chart added on the Products page stays; a kind that is not shipped is never shipped */
+      kind: kindChanged || !old ? p.kind : old.kind,
+      ...stock,
+      ...(shipChanged || !old ? { shipping: kindShips(p.kind) && p.shipping !== false } : {}),
+      ...(!was || p.name !== was.name ? { name: p.name } : {}),
+      ...(!was || money(p.price) !== money(was.price) ? { price: money(p.price) } : {}),
       /* the description written in setup; none given keeps the one the product has */
-      description: p.description ?? old?.description ?? "",
-      /* no quantity in setup means the stock has no limit (said with `unlimited`, never with a made-up count) */
-      quantity: p.quantity ?? old?.quantity ?? 0,
-      unlimited: p.quantity === undefined,
-      images: p.image ? [p.image, ...(old?.images ?? []).slice(1)] : (old?.images ?? []).slice(1),
+      ...(!was || p.description !== was.description ? { description: p.description ?? old?.description ?? "" } : {}),
+      ...(!was || (p.image ?? null) !== (was.image ?? null) ? { images: p.image ? [p.image, ...(old?.images ?? []).slice(1)] : (old?.images ?? []).slice(1) } : {}),
     });
     /* the same rules as the Products page: no product is made without a photo, a name or a price */
     if (!next || productProblems(next).length) return null;
     const list: Product[] = old ? items.map((x) => (x.id === old.id ? next : x)) : [...items, next];
-    localStorage.setItem(KEY_PRODUCTS, JSON.stringify(list));
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(list));
     return next.id;
   } catch {
     return null;

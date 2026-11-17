@@ -12,7 +12,7 @@ import { onServer } from "./merchantApi";
 import { loadSetup } from "./setup";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { useStoreVisits } from "./storeVisits";
-import { dropUndos, offerUndo, snapshot, storageUndo } from "./undo";
+import { arCount, dropUndos, offerUndo, snapshot, storageUndo } from "./undo";
 import { sourceNames, type VisitCounts, type VisitStats } from "./visitStats";
 import { STATUS_KEYS, ordersCopy } from "./ordersContent";
 import {
@@ -129,6 +129,11 @@ function MoreButton({ open, onClick, lang }: { open: boolean; onClick: () => voi
 }
 
 const SHORT_LIST = 4;
+
+/** Decimals for a percentage: one when it has a tenth, none when it is whole (0%, 25%, never 0.0% or 25.0%) */
+export const pctDecimals = (v: number) => (Number.isInteger(Math.round(v * 10) / 10) ? 0 : 1);
+/** A percentage as text, one decimal at most and no trailing .0 */
+const pctText = (v: number) => `${Math.round(v * 10) / 10}%`;
 
 export function AnimatedNumber({ value, decimals = 0 }: { value: number; decimals?: number }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -378,7 +383,7 @@ function GenericReport({
                 <div className="flex flex-1 flex-col justify-center">
                   <div className="flex items-center justify-between gap-3">
                     <Delta value={change(seed, slot, sample)} />
-                    <p className={`text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={d.value} decimals={1} />%</span></p>
+                    <p className={`text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={d.value} decimals={pctDecimals(d.value)} />%</span></p>
                   </div>
                   <div className="mt-4 h-3 overflow-hidden rounded-full bg-fg/10" role="progressbar" aria-valuenow={d.value} aria-valuemin={0} aria-valuemax={100}>
                     <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.min(d.value * 4, 100)}%` }} />
@@ -407,7 +412,7 @@ function GenericReport({
                             <span dir="auto" className="min-w-0 truncate ltr:text-left rtl:text-right">{name}</span>
                           </span>
                           <span dir="ltr" className="shrink-0 text-muted">
-                            {w.kind === "breakdown" ? (numbers[w.id] ? d.rows[i].toLocaleString("en-US") : `${((d.rows[i] / total) * 100).toFixed(1)}%`) : w.kind === "ratelist" ? `${d.rows[i]}%` : d.rows[i]}
+                            {w.kind === "breakdown" ? (numbers[w.id] ? d.rows[i].toLocaleString("en-US") : pctText((d.rows[i] / total) * 100)) : w.kind === "ratelist" ? `${d.rows[i]}%` : d.rows[i]}
                           </span>
                         </div>
                         <div className="mt-2 h-2 overflow-hidden rounded-full bg-fg/10">
@@ -445,7 +450,9 @@ const real = {
     cogsUnknown: (n: number) => `${n === 1 ? "1 sold item has" : `${n} sold items have`} no known cost (no cost on the product, or the product was deleted), so ${n === 1 ? "it is" : "they are"} left out.`,
     profitHigh: "Some sold items have no cost on their product, so the real profit is lower than this.",
     /* the profit counts only the products that have a cost price (storeNumbers.ts salesFigures) */
-    profitFrom: (n: number, m: number) => `Profit from ${n} of ${m} ${m === 1 ? "product" : "products"} with a cost price`,
+    profitFrom: (n: number, m: number) => `${n} of the ${m} products sold ${n === 1 ? "has" : "have"} a cost price: the profit is from ${n === 1 ? "it" : "those"} only`,
+    /* so net sales − costs − this = profit, and the cards add up */
+    costless: (amount: string) => `Not in the profit: ${amount} paid for products with no cost price`,
     addCosts: "Add cost prices to your products to see profit.",
     /* what counts as a sale (storeNumbers.ts saleState), the same rule as the home page */
     expected: "Orders waiting for delivery: {n} · expected {amount}",
@@ -457,7 +464,7 @@ const real = {
     shippingNone: "Not saved on these orders",
     shippingPaid: "Paid by customers; taken out of the profit",
     courierNote: "What you pay the courier isn't tracked yet: this is the profit on your products.",
-    orders: { title: "Orders", desc: "Every order placed in the period, whatever its status." },
+    orders: { title: "Orders", desc: "Every order placed in the period, whatever its status. Card or CliQ test orders (nothing was charged) are not counted, here or in any report." },
     average: { title: "Average order", desc: "What a delivered order brought in on average (the orders counted in net sales).", formula: ["Average order", "=", "Net sales", "÷", "Orders"] },
     cancel: { title: "Cancellation rate", desc: "The share of the period's orders that were cancelled.", formula: ["Cancellation rate", "=", "Cancelled orders", "÷", "All orders", "×", "100"] },
     cancelItems: ["Cancelled orders", "All orders"],
@@ -495,7 +502,9 @@ const real = {
     cartsNote: "لا يحفظ دكان السلات التي يتركها العملاء بعد، فلا يوجد ما يُعرض هنا.",
     cogsUnknown: (n: number) => `${n === 1 ? "قطعة مباعة واحدة تكلفتها" : `${n} من القطع المباعة تكلفتها`} غير معروفة (لا تكلفة على المنتج، أو حُذف المنتج)، فلم تُحسب.`,
     profitHigh: "بعض القطع المباعة لا تكلفة على منتجها، فالربح الحقيقي أقل من هذا.",
-    profitFrom: (n: number, m: number) => `الربح من المنتجات التي لها سعر تكلفة: ${n} من أصل ${m}`,
+    profitFrom: (n: number, m: number) =>
+      `${n === 1 ? "منتج واحد" : n === 2 ? "منتجان" : n} من أصل ${arCount(m, { one: "منتج واحد", two: "منتجين مباعين", few: "منتجات مباعة", many: "منتجًا مباعًا" })} ${n === 1 ? "له" : "لها"} سعر تكلفة، والربح ${n === 1 ? "منه" : "منها"} وحده${n === 1 ? "" : "ا"}`,
+    costless: (amount: string) => `لا يدخل في الربح: ${amount} دُفعت في منتجات بلا سعر تكلفة`,
     addCosts: "أضف سعر التكلفة لمنتجاتك لترى الربح.",
     expected: "طلبات بانتظار التوصيل: {n} · المتوقَّع {amount}",
     notCharged: "طلبات تجريبية بالبطاقة أو كليك لا تُحتسب (لم يُخصم أي مبلغ): {n}",
@@ -506,7 +515,7 @@ const real = {
     shippingNone: "غير محفوظة على هذه الطلبات",
     shippingPaid: "دفعها العملاء؛ تُطرح من الربح",
     courierNote: "ما تدفعه لشركة التوصيل لا يُتتبّع بعد: هذا هو الربح من منتجاتك.",
-    orders: { title: "الطلبات", desc: "كل الطلبات التي وصلت خلال الفترة، أيًّا كانت حالتها." },
+    orders: { title: "الطلبات", desc: "كل الطلبات التي وصلت خلال الفترة، أيًّا كانت حالتها. لا تُحتسب الطلبات التجريبية بالبطاقة أو كليك (لم يُخصم فيها أي مبلغ)، هنا ولا في أي تقرير." },
     average: { title: "متوسط الطلب", desc: "ما جلبه الطلب الواحد الذي تم توصيله في المتوسط (الطلبات المحسوبة في صافي المبيعات).", formula: ["متوسط الطلب", "=", "صافي المبيعات", "÷", "الطلبات"] },
     cancel: { title: "معدل الإلغاء", desc: "نسبة الطلبات الملغاة من طلبات الفترة.", formula: ["معدل الإلغاء", "=", "الطلبات الملغاة", "÷", "كل الطلبات", "×", "100"] },
     cancelItems: ["الطلبات الملغاة", "كل الطلبات"],
@@ -571,7 +580,7 @@ function Stat({ delta, tone = "text-primary", children, note }: { delta?: number
 function Rate({ value, tone, labels, a, b }: { value: number; tone: string; labels: string[]; a: number; b: number }) {
   return (
     <div className="flex flex-1 flex-col justify-center">
-      <p className={`text-end text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={value} decimals={1} />%</span></p>
+      <p className={`text-end text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={value} decimals={pctDecimals(value)} />%</span></p>
       <div className="mt-4 h-3 overflow-hidden rounded-full bg-fg/10" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100}>
         <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.min(value, 100)}%` }} />
       </div>
@@ -930,7 +939,7 @@ function RealReport({ section, data, span, prev, busy, refresh, signedIn }: { se
     const peak = Math.max(...o.byDay.map((d) => d.orders), 1);
     return (
       <div className={grid}>
-        {card("ro-all", w.orders, <Stat delta={percentChange(o.all, before.all)}><span dir="ltr"><AnimatedNumber value={o.all} /></span></Stat>)}
+        {card("ro-all", w.orders, <Stat delta={percentChange(o.all, before.all)} note={o.test ? w.notCharged.replace("{n}", String(o.test)) : undefined}><span dir="ltr"><AnimatedNumber value={o.all} /></span></Stat>)}
         {card("ro-avg", w.average, <Stat delta={percentChange(f.average, fBefore.average)}><Money value={f.average} currency={cur} /></Stat>)}
         {card("ro-cancel", w.cancel, <Rate value={o.cancelRate} tone="text-rose-500" labels={w.cancelItems} a={o.byStatus.cancelled} b={o.all} />)}
         {card("ro-status", w.byStatus, <Bars rows={STATUS_KEYS.map((k) => ({ label: st[k], value: o.byStatus[k] }))} />)}
@@ -1187,7 +1196,13 @@ export function Reports() {
     ].filter(Boolean);
     const p = realNow.products;
     Object.assign(cards[0], { info: rw.netSalesHelp, notes: salesNotes });
-    Object.assign(cards[2], { info: rw.profitHelp, notes: realNow.profit !== null && p.withCost < p.all ? [rw.profitFrom(p.withCost, p.all)] : [] });
+    /* what was paid for things with no cost price is in net sales but not in the profit: said with its amount, so net
+       sales − costs − it = profit */
+    const profitNotes =
+      realNow.profit === null
+        ? []
+        : [p.withCost < p.all ? rw.profitFrom(p.withCost, p.all) : "", realNow.costless > 0 ? rw.costless(money2(realNow.costless)) : ""].filter(Boolean);
+    Object.assign(cards[2], { info: rw.profitHelp, notes: profitNotes });
     const set = (i: number, value: number | null, delta: number | null, note?: string) => Object.assign(rows[i], { value, delta, note });
     set(0, realNow.gross, d(realNow.gross, realPrev.gross));
     set(1, realNow.discounts, d(realNow.discounts, realPrev.discounts));
@@ -1201,7 +1216,7 @@ export function Reports() {
     /* the courier's real cost is not recorded, so the profit always says what it leaves out */
     if (realNow.profit === null) Object.assign(rows[8], { value: null, delta: null, note: rw.addCosts, href: "/products", info: rw.profitHelp });
     else {
-      set(8, realNow.profit, d(realNow.profit, realPrev.profit), p.withCost < p.all ? `${rw.profitFrom(p.withCost, p.all)}. ${rw.courierNote}` : rw.courierNote);
+      set(8, realNow.profit, d(realNow.profit, realPrev.profit), [...profitNotes, rw.courierNote].join(". "));
       rows[8].info = rw.profitHelp;
     }
   }
@@ -1214,7 +1229,7 @@ export function Reports() {
   const abCards: { id: WidgetId; help: HelpKey; title: string; node: React.ReactNode; color: string; slot: number; badge?: boolean }[] = [
     { id: "ab1", help: "abandoned", title: r.abandoned.cards[0], node: <AnimatedNumber value={ab.count} />, color: "text-primary", slot: 21, badge: true },
     { id: "ab2", help: "lostRevenue", title: r.abandoned.cards[1], node: <Money value={ab.lost} currency={cur} />, color: "text-rose-500", slot: 22 },
-    { id: "ab3", help: "recovery", title: r.abandoned.cards[2], node: <span dir="ltr"><AnimatedNumber value={ab.rate} decimals={1} />%</span>, color: "text-emerald-600 dark:text-emerald-400", slot: 23 },
+    { id: "ab3", help: "recovery", title: r.abandoned.cards[2], node: <span dir="ltr"><AnimatedNumber value={ab.rate} decimals={pctDecimals(ab.rate)} />%</span>, color: "text-emerald-600 dark:text-emerald-400", slot: 23 },
   ];
 
   const abandonedView = (
@@ -1279,7 +1294,7 @@ export function Reports() {
           <div className={`mt-5 transition-opacity duration-300 ${busy.ab5 ? "opacity-40" : ""}`}>
             <div className="flex items-center justify-between gap-3">
               <Delta value={change(seed, 24, sample)} />
-              <p className="text-4xl font-bold text-emerald-600 dark:text-emerald-400"><span dir="ltr"><AnimatedNumber value={ab.rate} decimals={1} />%</span></p>
+              <p className="text-4xl font-bold text-emerald-600 dark:text-emerald-400"><span dir="ltr"><AnimatedNumber value={ab.rate} decimals={pctDecimals(ab.rate)} />%</span></p>
             </div>
             <div className="mt-4 h-3 overflow-hidden rounded-full bg-fg/10" role="progressbar" aria-valuenow={ab.rate} aria-valuemin={0} aria-valuemax={100}>
               <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.min(ab.rate * 4, 100)}%` }} />

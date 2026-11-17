@@ -729,7 +729,18 @@ export const DIWAN_SCHEMA = `
      prepareShops (server/shops.ts) before Diwan's lists read it. */
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_keys TEXT[];
   CREATE INDEX IF NOT EXISTS accounts_name_keys ON accounts USING GIN (name_keys);
-  /* the form of those fingerprints (server/crypto.ts NAME_KEYS_VERSION): 2 adds each word without its "ال"/"al-" */
+  /* the form of those fingerprints (server/crypto.ts NAME_KEYS_VERSION): 2 adds each word without its "ال"/"al-", 3 the
+     joined form of a compound name ("عبد الله" also as "عبدالله"). The partial index finds the rows still to fill. */
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_keys_v SMALLINT NOT NULL DEFAULT 0;
-  CREATE INDEX IF NOT EXISTS accounts_name_keys_old ON accounts (id) WHERE name_keys_v < 2;
+  DROP INDEX IF EXISTS accounts_name_keys_old;
+  CREATE INDEX IF NOT EXISTS accounts_name_keys_old3 ON accounts (id) WHERE name_keys_v < 3;
+
+  /* ---------- the rule a shops row's order_count and total_sales were counted by (server/shops.ts SHOP_COUNTS_VERSION) ----------
+     1: the merchant's own rule (no card/CliQ test orders; sales are the orders his Home calls sales). A row counted by
+     an older rule is counted again by prepareShops, in batches. */
+  ALTER TABLE shops ADD COLUMN IF NOT EXISTS counts_v SMALLINT NOT NULL DEFAULT 0;
+  /* the store's delivery way, for Diwan's store page (filled with counts_v 1): its own courier's name (ship_mode 'own';
+     a company or person the merchant works with, made safe like the store's name) and whether customers may pick up */
+  ALTER TABLE shops ADD COLUMN IF NOT EXISTS ship_name TEXT NOT NULL DEFAULT '';
+  ALTER TABLE shops ADD COLUMN IF NOT EXISTS pickup BOOLEAN NOT NULL DEFAULT false;
 `;

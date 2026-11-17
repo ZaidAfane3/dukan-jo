@@ -6,6 +6,7 @@ import type { Lang } from "./content";
 import { loadMaintenance, MAINTENANCE_KEY, maintenanceText, saveMaintenance, type Maintenance } from "./maintenance";
 import { saveNow } from "./serverSync";
 import { offerUndo } from "./undo";
+import { SELL_LINKS, sellWords, useSellReady } from "./ReadyToSell";
 
 const words = {
   en: {
@@ -86,10 +87,14 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
       window.removeEventListener(SHOWN, again);
     };
   }, []);
+  /* a paused store opens again only when it is ready to sell (safeOrder readyToSell; the server holds the switch to the
+     same rule: app/api/store PUT "not-ready"). Pausing is always allowed. */
+  const sell = useSellReady();
   if (!m) return null;
   const open = !m.on;
+  const cantOpen = !open && sell.read && !sell.ok;
   const flip = async () => {
-    if (disabled || saving || inFlight) return;
+    if (disabled || saving || inFlight || cantOpen) return;
     const next = { on: open, message: { en: "", ar: "" } };
     setM(next);
     setFailed(false);
@@ -107,7 +112,7 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
         undo: () => (inFlight || loadMaintenance().on !== next.on ? false : putStatus(!next.on)),
       });
   };
-  const off = disabled || saving;
+  const off = disabled || saving || cantOpen;
   return (
     <div className="px-5 py-3.5">
       <button
@@ -118,7 +123,7 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
         aria-busy={saving || undefined}
         title={disabled ? disabledTitle : undefined}
         onClick={() => void flip()}
-        className={`flex w-full items-center justify-between gap-3 text-start text-sm ${disabled ? "cursor-not-allowed opacity-40" : saving ? "cursor-wait" : ""}`}
+        className={`flex w-full items-center justify-between gap-3 text-start text-sm ${disabled ? "cursor-not-allowed opacity-40" : cantOpen ? "cursor-not-allowed" : saving ? "cursor-wait" : ""}`}
       >
         <span className="flex min-w-0 items-start gap-3">
           <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${open ? "bg-emerald-500" : "bg-amber-500"}`} />
@@ -135,6 +140,16 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
         <p role="alert" className="ms-5 mt-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
           {w.failed}
         </p>
+      )}
+      {cantOpen && !disabled && (
+        <div role="status" className="ms-5 mt-2 rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+          <p className="font-semibold">{sellWords[lang].notReady}</p>
+          <ul className="mt-1 list-disc space-y-0.5 ps-4">
+            {sell.missing.map((x) => (
+              <li key={x}><a href={SELL_LINKS[x]} onClick={onLink} className="font-bold underline underline-offset-2">{sellWords[lang][x]}</a></li>
+            ))}
+          </ul>
+        </div>
       )}
       {!open && !disabled && !saving && (
         <Link href="/store" target="_blank" onClick={onLink} className="ms-5 mt-1.5 inline-block text-xs font-semibold text-primary hover:underline">
