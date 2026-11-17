@@ -145,8 +145,8 @@ export const icons = {
 
 /** The picture of a product. Without a real photo (or when it fails to load) it is the one placeholder every page uses (NoPhoto):
     a soft wash in the product's color with a bag. */
-export function ProductImage({ p, className = "" }: { p: StoreProduct; className?: string }) {
-  return <ProductPhoto src={p.image} hue={p.hue ?? noPhotoHue(p.id)} alt={p.name} className={className} imgStyle={focusStyle(p.focus)} />;
+export function ProductImage({ p, className = "", flat = false }: { p: StoreProduct; className?: string; flat?: boolean }) {
+  return <ProductPhoto src={p.image} hue={p.hue ?? noPhotoHue(p.id)} flat={flat} alt={p.name} className={className} imgStyle={focusStyle(p.focus)} />;
 }
 
 /** The style that puts a picture where he dragged it inside its frame (nothing when he never moved it) */

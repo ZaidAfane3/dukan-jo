@@ -400,7 +400,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
           }
         }}
       >
-        <ProductImage p={p} className={`${ratio} w-full transition duration-500 group-hover:scale-[1.04]`} />
+        <ProductImage p={p} flat={pop} className={`${ratio} w-full transition duration-500 group-hover:scale-[1.04]`} />
         {k.showBadge &&
           (p.badge ? (
             <span className="absolute start-2.5 top-2.5 rounded-full bg-white px-3 py-1 text-[12px] font-semibold text-[#1c1a17] shadow-sm">{p.badge}</span>
@@ -672,7 +672,7 @@ function Gallery({ p, ctx, look }: { p: StoreProduct; ctx: Ctx; look: ProductPag
     <div role="group" aria-label={w.picture(i + 1, pics.length)} className={side ? "flex w-16 shrink-0 flex-col gap-2.5" : `mt-3 flex gap-2.5 overflow-x-auto pb-1 ${look === "luxe" ? "justify-center" : ""}`}>
       {pics.map((src, n) => (
         <button key={src + n} type="button" onClick={() => setAt(n)} aria-label={w.picture(n + 1, pics.length)} aria-pressed={n === i} className={`shrink-0 transition ${side ? "w-16" : "w-16 sm:w-[72px]"} ${s.thumb} ${n === i ? s.thumbOn : ""}`}>
-          <ProductImage p={{ ...pic(n), name: "" }} className={s.ratio} />
+          <ProductImage p={{ ...pic(n), name: "" }} flat={look === "pop"} className={s.ratio} />
         </button>
       ))}
     </div>
@@ -689,7 +689,7 @@ function Gallery({ p, ctx, look }: { p: StoreProduct; ctx: Ctx; look: ProductPag
         onMouseLeave={() => setOrigin(null)}
       >
         <div className={`transition-transform duration-300 motion-reduce:!transform-none ${origin ? "scale-[1.6]" : ""}`} style={origin ? { transformOrigin: origin } : undefined}>
-          <ProductImage p={pic(i)} className={`${s.ratio} w-full`} />
+          <ProductImage p={pic(i)} flat={look === "pop"} className={`${s.ratio} w-full`} />
         </div>
       </div>
       {many && (

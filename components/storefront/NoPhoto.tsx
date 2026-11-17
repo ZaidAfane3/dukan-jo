@@ -26,8 +26,21 @@ const hslHex = (h: number, s: number, l: number): string => {
   return `#${f(0)}${f(8)}${f(4)}`;
 };
 
-export function NoPhoto({ hue = 190, className = "", style, children }: { hue?: number; className?: string; style?: CSSProperties; children?: ReactNode }) {
+export function NoPhoto({ hue = 190, flat = false, className = "", style, children }: { hue?: number; flat?: boolean; className?: string; style?: CSSProperties; children?: ReactNode }) {
   const h = ((Math.round(hue) % 360) + 360) % 360;
+  /* flat (the playful stores): one soft color and a bigger, filled bag, no circles and no gradient */
+  if (flat) {
+    const ground = hslHex(h, 75, 86);
+    return (
+      <div className={`relative grid place-items-center overflow-hidden ${className}`} style={{ background: ground, ...style }}>
+        <svg viewBox="0 0 24 24" className="relative h-1/2 w-1/2" fill={hslHex(h, 70, 96)} stroke={legibleOn(hslHex(h, 40, 30), ground)} strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M5 8h14l-1 12H6L5 8Z" />
+          <path d="M9 8V6a3 3 0 0 1 6 0v2" fill="none" />
+        </svg>
+        {children}
+      </div>
+    );
+  }
   const from = hslHex(h, 70, 93);
   const to = hslHex(h, 55, 80);
   const ground = `linear-gradient(145deg, ${from}, ${to})`;
@@ -46,10 +59,10 @@ export function NoPhoto({ hue = 190, className = "", style, children }: { hue?: 
 }
 
 /** A product's photo over its placeholder: no photo (or one that fails to load) shows the placeholder, never an empty picture */
-export function ProductPhoto({ src, hue, alt = "", className = "", imgClassName = "", imgStyle }: { src?: string | null; hue?: number; alt?: string; className?: string; imgClassName?: string; imgStyle?: CSSProperties }) {
+export function ProductPhoto({ src, hue, flat, alt = "", className = "", imgClassName = "", imgStyle }: { src?: string | null; hue?: number; flat?: boolean; alt?: string; className?: string; imgClassName?: string; imgStyle?: CSSProperties }) {
   const url = typeof src === "string" ? src.trim() : "";
   return (
-    <NoPhoto hue={hue} className={className}>
+    <NoPhoto hue={hue} flat={flat} className={className}>
       {url && (
         // eslint-disable-next-line @next/next/no-img-element
         <img key={url} src={url} alt={alt} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className={`absolute inset-0 h-full w-full object-cover ${imgClassName}`} style={imgStyle} />
