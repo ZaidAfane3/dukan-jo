@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { content } from "./content";
 import { merchantCall, onServer } from "./merchantApi";
 import { checkImage, cleanFileName, imageRules, uploadProblemText } from "./safe";
+import { arCount, dropUndos, offerUndo } from "./undo";
 
 /* Proof for the merchant's own delivery partner (the setup's shipping step and the Delivery page). For a signed-in
    merchant every file is sent to Dukkan's server as soon as it is picked (app/api/documents), lands in Diwan's Documents
@@ -11,6 +12,18 @@ import { checkImage, cleanFileName, imageRules, uploadProblemText } from "./safe
    from the server too. In the platform tour, or signed out, nothing is sent: the files stay in this browser, as before. */
 
 export const MAX_PROOFS = 5;
+
+/* the undo note at the bottom (UndoToast.tsx) */
+const undoWords = {
+  en: {
+    added: (n: number, name: string) => (n === 1 ? `Proof added: ${name}` : `${n} proofs added`),
+    removed: (name: string) => `Proof removed: ${name}`,
+  },
+  ar: {
+    added: (n: number, name: string) => (n === 1 ? `أُضيف إثبات: ${name}` : `أُضيف ${arCount(n, { one: "إثبات", two: "إثباتان", few: "إثباتات", many: "إثباتًا" })}`),
+    removed: (name: string) => `أُزيل الإثبات: ${name}`,
+  },
+};
 
 export type ProofStatus = "waiting" | "approved" | "rejected";
 /* url: a picture to show (the server's file route, or a picture still only in this browser); null for a PDF */
@@ -74,8 +87,16 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
 
   useEffect(() => {
     const urls = created.current;
-    return () => urls.forEach((u) => !kept.current.has(u) && URL.revokeObjectURL(u));
+    return () => {
+      /* its undos need its list and its pictures: they go first */
+      dropUndos("proofs");
+      urls.forEach((u) => !kept.current.has(u) && URL.revokeObjectURL(u));
+    };
   }, []);
+  const putList = (list: ProofFile[]) => {
+    current.current = list;
+    setProofs(list);
+  };
 
   /* signed in: the list is what the server holds */
   useEffect(() => {
@@ -99,6 +120,7 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
     if (!ready) return;
     let message = "";
     setBusy(true);
+    const added: ProofFile[] = [];
     for (const file of picked) {
       if (current.current.length >= MAX_PROOFS) {
         message = s.proofMax;
@@ -125,28 +147,51 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
           if (r && r.data.result === "too-many") break;
           continue;
         }
-        const added = fromServer(r.data.document as ServerDoc);
+        const one = fromServer(r.data.document as ServerDoc);
+        added.push(one);
         /* added to the list as it is now, so a file removed meanwhile stays removed */
-        current.current = [...current.current, added];
-        setProofs((now) => [...now, added]);
+        current.current = [...current.current, one];
+        setProofs((now) => [...now, one]);
       } else {
         let url: string | null = null;
         if (check.kind !== "pdf") {
           url = URL.createObjectURL(file);
           created.current.push(url);
         }
-        const added = { id: `${file.name}-${file.size}-${Date.now()}-${current.current.length}`, name: cleanFileName(file.name), size: formatSize(file.size), url };
-        current.current = [...current.current, added];
-        setProofs((now) => [...now, added]);
+        const one = { id: `${file.name}-${file.size}-${Date.now()}-${current.current.length}`, name: cleanFileName(file.name), size: formatSize(file.size), url };
+        added.push(one);
+        current.current = [...current.current, one];
+        setProofs((now) => [...now, one]);
       }
     }
     setBusy(false);
     setError(message);
+    if (!added.length) return;
+    /* an Undo takes the files just added out again (from the server too), unless one of them is already gone */
+    offerUndo({
+      scope: "proofs",
+      label: (l) => undoWords[l].added(added.length, added[0].name),
+      undo: async () => {
+        if (!added.every((f) => current.current.some((x) => x.id === f.id))) return false;
+        for (const f of added) {
+          const id = serverId(f);
+          if (!id) continue;
+          const r = await merchantCall(`/api/documents/${id}`, "DELETE");
+          if (!r || (r.status !== 200 && r.status !== 404)) return false;
+          putList(current.current.filter((x) => x.id !== f.id));
+        }
+        const ids = new Set(added.map((f) => f.id));
+        putList(current.current.filter((x) => !ids.has(x.id)));
+        setError("");
+        return true;
+      },
+    });
   };
 
   /** Removes one file (from the server too, when it is there) */
   const remove = async (f: ProofFile) => {
     const id = serverId(f);
+    const at = current.current.findIndex((x) => x.id === f.id);
     if (id) {
       const r = await merchantCall(`/api/documents/${id}`, "DELETE");
       /* already gone from the server counts as removed */
@@ -156,7 +201,27 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
       }
     }
     setError("");
+    current.current = current.current.filter((x) => x.id !== f.id);
     setProofs((list) => list.filter((x) => x.id !== f.id));
+    /* an Undo brings it back where it was: on the server, only for a few minutes after (app/api/documents/[id]/restore) */
+    offerUndo({
+      scope: "proofs",
+      label: (l) => undoWords[l].removed(f.name),
+      undo: async () => {
+        if (current.current.some((x) => x.id === f.id) || current.current.length >= MAX_PROOFS) return false;
+        let back = f;
+        if (id) {
+          const r = await merchantCall(`/api/documents/${id}/restore`, "POST", {});
+          if (!r || r.status !== 200 || !r.data.document) return false;
+          back = fromServer(r.data.document as ServerDoc);
+        }
+        const list = current.current.filter((x) => x.id !== back.id);
+        const i = Math.max(0, Math.min(at, list.length));
+        putList([...list.slice(0, i), back, ...list.slice(i)]);
+        setError("");
+        return true;
+      },
+    });
   };
 
   /** The page saved the list it holds: its in-browser pictures must outlive this step */

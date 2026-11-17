@@ -86,7 +86,8 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>("ar");
   const [theme, setTheme] = useState<Theme>("light");
 
-  /* Runs before paint so a saved English page never flashes Arabic first. */
+  /* Runs before paint so a saved English page never flashes Arabic first. The English text is drawn before the browser
+     paints again, so the page hidden by app/layout.tsx is shown here, already switched. */
   useIsoLayoutEffect(() => {
     const savedLang = safeGet("seen-lang");
     if (savedLang === "ar" || savedLang === "en") setLangState(savedLang);

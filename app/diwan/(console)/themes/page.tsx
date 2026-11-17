@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { askConfirm } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { ThemesSkeleton } from "@/components/diwan/skeletons";
+import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
 import { ThemePreview } from "@/components/ThemePreview";
 import { defaultConfig } from "@/components/storefront/config";
 import { designFrom } from "@/components/storefront/storage";
@@ -50,13 +52,18 @@ function entryOf(row: ListingRow): Entry | null {
 }
 
 type Filter = "live" | "hidden";
+/* the tab, kept in the address (?show=hidden) so Back brings the list back as it was */
+const LIST = { show: oneOf(["live", "hidden"]) };
 
 export default function ThemesPage() {
   const t = useT();
   const s = useApi<Data>("/api/diwan/themes");
   const [openId, setOpenId] = useState<string | null>(null);
   const [making, setMaking] = useState(false);
-  const [filter, setFilter] = useState<Filter>("live");
+  const [list, setList] = useListState(LIST);
+  const filter = list.show as Filter;
+  const setFilter = (x: Filter) => setList({ show: x });
+  useListScroll(s);
   return (
     <div>
       <PageHead
@@ -65,7 +72,7 @@ export default function ThemesPage() {
         actions={<Btn onClick={() => setMaking(true)}>{t("New theme", "ثيم جديد")}</Btn>}
       />
       <Steps />
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<ThemesSkeleton />}>
         {(d) => {
           const all = d.themes.map(entryOf).filter((x): x is Entry => !!x);
           const count = (f: Filter) => all.filter((e) => inFilter(e.row.status, f)).length;
@@ -149,13 +156,19 @@ function ThemeCard({ theme: th, row, nums: n, onOpen }: { theme: ThemeInfo; row?
   const f = useFmt();
   const w = useWords();
   return (
-    <button type="button" onClick={onOpen} className={`${card} !p-3 text-start transition hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}>
-      <div className="pointer-events-none">
+    /* The card is a plain box: the preview holds a whole (inert) store with its own buttons, so the
+       one real button is the theme's name, stretched over the card so a click anywhere opens it */
+    <div className={`${card} relative !p-3 text-start transition hover:ring-primary/50 focus-within:ring-2 focus-within:ring-primary`}>
+      <div className="pointer-events-none" aria-hidden="true">
         <ThemePreview theme={th} height={200} sample />
       </div>
       <div className="px-2 pb-1 pt-3">
         <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 truncate font-bold">{t(th.name.en, th.name.ar)}</p>
+          <h3 className="min-w-0 truncate font-bold">
+            <button type="button" onClick={onOpen} dir="auto" className="block w-full truncate font-bold after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none ltr:text-left rtl:text-right">
+              {t(th.name.en, th.name.ar)}
+            </button>
+          </h3>
           <PriceBadge price={th.price} />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -163,14 +176,14 @@ function ThemeCard({ theme: th, row, nums: n, onOpen }: { theme: ThemeInfo; row?
           {row?.featured && <Badge tone="amber">★ {t("Featured", "مميّز")}</Badge>}
           {row?.source === "design" && <Badge tone="blue">{t("Made in Diwan", "صُنع في الديوان")}</Badge>}
         </div>
-        <p className="mt-2 line-clamp-2 text-sm text-muted">{t(th.tagline.en, th.tagline.ar) || "—"}</p>
+        <p dir="auto" className="mt-2 line-clamp-2 text-sm text-muted ltr:text-left rtl:text-right">{t(th.tagline.en, th.tagline.ar) || "—"}</p>
         <p className="mt-2 text-xs text-muted">
-          {t(`${f.num(n.stores)} stores use it`, `يستخدمه ${f.num(n.stores)} متجر`)}
+          {f.count(n.stores, ["store uses it", "stores use it"], { one: "يستخدمه متجر واحد", two: "يستخدمه متجران", few: "متاجر تستخدمه", many: "متجرًا يستخدمه" })}
           {row && ` · ${t(`${f.num(n.bought)} bought`, `اشتراه ${f.num(n.bought)}`)}`}
           {row && ` · ${t("place", "الترتيب")} ${f.num(row.sort)}`}
         </p>
       </div>
-    </button>
+    </div>
   );
 }
 

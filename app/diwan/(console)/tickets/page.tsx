@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ShopAndOwner, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { TicketsSkeleton } from "@/components/diwan/skeletons";
 import { PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER } from "@/components/diwan/ticketWords";
 import type { TicketRow } from "@/components/diwan/TicketBits";
 import { FilterBar } from "@/components/diwan/Filters";
+import { oneOf, shaped, typedText, useListScroll, useListState } from "@/components/diwan/useListState";
 
 /* Support tickets from merchants, live from the database: counts per status, filters, sorting and pages. Opening one
    (its own page) is written to the activity log. Bug reports and ideas have their own board (/diwan/feedback). */
@@ -17,12 +19,21 @@ type Data = {
   staff: { id: string; name: string }[]; me: string;
 };
 type Filters = { status: string; priority: string; assignee: string; q: string; sort: string };
+/* the tab, filters, search and sort, kept in the address so Back from a ticket brings the list back as it was */
+const LIST = {
+  status: oneOf(["active", "", ...STATUS_ORDER]),
+  priority: oneOf(["", ...PRIORITY_ORDER]),
+  assignee: shaped(/^(mine|unassigned|[0-9]{1,12})$/),
+  q: typedText(100),
+  sort: oneOf(["updated", "created", "priority"]),
+};
 
 export default function TicketsPage() {
   const t = useT();
   const f = useFmt();
-  const [filters, setFilters] = useState<Filters>({ status: "active", priority: "", assignee: "", q: "", sort: "updated" });
-  const [q, setQ] = useState("");
+  const [filters, setFilters] = useListState(LIST);
+  const [q, setQ] = useState(filters.q);
+  const sp = useSearchParams();
   const router = useRouter();
   /* one store's tickets only, from its page's "See all" (?shop=); every status then, not only the open ones */
   const [shopParam, setShop] = useUrlParam("shop");
@@ -30,7 +41,8 @@ export default function TicketsPage() {
   const [shopStatusSet, setShopStatusSet] = useState(false);
   if (shop && !shopStatusSet) {
     setShopStatusSet(true);
-    setFilters((x) => ({ ...x, status: "" }));
+    /* unless the address already says which tab (Back to a list staff had changed) */
+    if (!sp?.has("status")) setFilters({ status: "" });
   }
   const url = useMemo(() => {
     const p = new URLSearchParams();
@@ -39,7 +51,8 @@ export default function TicketsPage() {
     return `/api/diwan/tickets?${p}`;
   }, [filters, shop]);
   const s = useMore<Data>(url, (d, n) => (n * d.pageSize < d.total ? `page=${n + 1}` : null));
-  const set = (k: keyof Filters, v: string) => setFilters((x) => ({ ...x, [k]: v }));
+  useListScroll(s);
+  const set = (k: keyof Filters, v: string) => setFilters({ [k]: v });
   const counts = s.data?.counts ?? {};
   const active = STATUS_ORDER.filter((x) => x !== "resolved" && x !== "closed").reduce((n, x) => n + (counts[x] ?? 0), 0);
   const all = Object.values(counts).reduce((n, x) => n + x, 0);
@@ -63,16 +76,19 @@ export default function TicketsPage() {
             role="tab"
             aria-selected={filters.status === x.key}
             onClick={() => set("status", x.key)}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${filters.status === x.key ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${filters.status === x.key ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
           >
-            {x.label} <span dir="ltr" className="ms-1 tabular-nums opacity-75">{f.num(x.n)}</span>
+            {/* the gap keeps the count apart from the word in both directions (a margin on the dir="ltr" count would
+                land on its far side in Arabic) */}
+            {x.label}
+            <span dir="ltr" className="tabular-nums opacity-75">{f.num(x.n)}</span>
           </button>
         ))}
       </div>
 
       <FilterBar
         count={(filters.priority ? 1 : 0) + (filters.assignee ? 1 : 0) + (filters.sort !== "updated" ? 1 : 0)}
-        onClear={() => setFilters((x) => ({ ...x, priority: "", assignee: "", sort: "updated" }))}
+        onClear={() => setFilters({ priority: "", assignee: "", sort: "updated" })}
         search={
           <form
             onSubmit={(e) => {
@@ -114,7 +130,7 @@ export default function TicketsPage() {
       </div>
       </FilterBar>
 
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<TicketsSkeleton />}>
         {(d) => (
           <>
             <DataTable
@@ -137,8 +153,9 @@ export default function TicketsPage() {
                     </Link>
                   </td>
                   <td className={td}>
-                    <p className="font-semibold">{r.subject}</p>
-                    <p className="mt-0.5 line-clamp-1 max-w-md text-xs text-muted">{r.preview}</p>
+                    {/* the merchant's words, each in its own direction: an English line in the Arabic console ends with its "…" */}
+                    <p dir="auto" className="font-semibold ltr:text-left rtl:text-right">{r.subject}</p>
+                    <p dir="auto" className="mt-0.5 line-clamp-1 max-w-md text-xs text-muted ltr:text-left rtl:text-right">{r.preview}</p>
                   </td>
                   <td className={td}>
                     <ShopAndOwner id={r.accountId} shop={r.shop} owner={r.owner} />

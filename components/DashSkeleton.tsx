@@ -3,7 +3,7 @@ import { Skeleton } from "./Skeleton";
 /* Loading placeholders that match the page being opened: the dashboard frame
    (sidebar and header) stays the same, and only the content area changes. */
 
-export type DashVariant = "home" | "reports" | "table" | "split" | "invoice" | "form" | "carts";
+export type DashVariant = "home" | "reports" | "table" | "split" | "invoice" | "form" | "carts" | "cards";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
 
@@ -250,7 +250,26 @@ function Form() {
   );
 }
 
-const bodies: Record<DashVariant, () => React.JSX.Element> = { home: Home, reports: Reports, table: Table, carts: Carts, split: Split, invoice: Invoice, form: Form };
+/* a grid of cards with a picture each (the theme store, my themes, Dukkan's guides) */
+function Cards() {
+  return (
+    <>
+      <Skeleton className="h-6 w-44 !rounded-md" />
+      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div key={i} className={card}>
+            <Skeleton className="aspect-[4/3] w-full" />
+            <Skeleton className="mt-4 h-5 w-2/3 !rounded-md" />
+            <Skeleton className="mt-3 h-4 w-full !rounded-md" />
+            <Skeleton className="mt-4 h-10 w-32" />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+const bodies: Record<DashVariant, () => React.JSX.Element> = { home: Home, reports: Reports, table: Table, carts: Carts, split: Split, invoice: Invoice, form: Form, cards: Cards };
 
 export function DashSkeleton({ variant, tabs = 1 }: { variant: DashVariant; tabs?: number }) {
   const Body = bodies[variant];

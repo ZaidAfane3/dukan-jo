@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { askText } from "@/components/diwan/dialogs";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { MarketplaceSkeleton } from "@/components/diwan/skeletons";
 
 /* The theme and app marketplace: outside developers, what they sent in and where each item is on its way to the store
    (sent → checking → approved or rejected → live → removed). There is no developer portal yet, so staff enter the
@@ -42,7 +43,7 @@ export default function MarketplacePage() {
       <p className="mb-6 rounded-xl bg-amber-500/15 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
         {t("There is no developer portal yet: developers send their work to Dukkan directly, and staff enter it here.", "لا توجد بوابة للمطورين بعد: يرسل المطورون أعمالهم إلى دكّان مباشرة، ويدخلها الفريق هنا.")}
       </p>
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<MarketplaceSkeleton />}>
         {(d) => (
           <div className="space-y-10">
             <Items data={d} reload={s.reload} />

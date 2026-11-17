@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { brandName } from "./content";
+import { brandName, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { PreviewEye, PreviewWindow } from "./ThemePopup";
@@ -11,10 +11,14 @@ import { themeWords } from "./themesContent";
 import { useCatalog } from "./catalog";
 import { payNote, themePays, usePublicSettings, type ThemePay } from "./platformPublic";
 import { buyTheme, isFeatured, isFreeTheme, loadThemeState, storeThemes, type ThemeInfo, type ThemeState } from "./themes";
+import { usePageTitle } from "./pageTitle";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 
-export const priceText = (n: number, lang: "en" | "ar", free: string) => (n === 0 ? free : `${n.toFixed(2)} ${lang === "ar" ? "د.أ" : "JOD"}`);
+/** A theme's price as Diwan shows it (components/diwan/ui.tsx useFmt().jod): JOD has 3 decimals (fils), so up to 3 decimals and
+    no trailing zeros (12.345, 12.5, 12), in the dates' locale (Western digits in Arabic too). A free theme says so. */
+export const priceText = (n: number, lang: "en" | "ar", free: string) =>
+  n === 0 ? free : `${Number(n).toLocaleString(dateLocale(lang), { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ${lang === "ar" ? "د.أ" : "JOD"}`;
 
 /* The theme checkout's ways to pay; only the ones Dukkan's staff have on in Diwan (platform settings) are offered */
 const methods: { key: ThemePay; logo: string; h: string }[] = [
@@ -33,9 +37,7 @@ export function ThemeStore() {
   useCatalog();
   usePublicSettings();
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${w.store.title}`;
-  }, [lang, w]);
+  usePageTitle(`${brandName(lang)} | ${w.store.title}`);
   useEffect(() => setState(loadThemeState()), []);
   /* Opened from the designer on one theme (?theme=lamma): that theme is brought into view and marked for a moment */
   const [focus, setFocus] = useState("");
@@ -219,14 +221,14 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
             {offered.map((m) => (
               <button key={m.key} type="button" role="radio" aria-checked={method === m.key} disabled={step === "paying"} onClick={() => setMethod(m.key)} className={`flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-start transition ${method === m.key ? "border-primary bg-primary/10" : "border-fg/15 hover:bg-soft"}`}>
                 <span className="text-sm font-semibold">{w.checkout.methods[m.key]}</span>
-                <span className="grid h-9 w-20 place-items-center rounded-lg bg-white">
+                <span className="grid h-9 w-20 place-items-center rounded-lg bg-white dark:bg-white/[0.07]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={m.logo} alt="" className={`${m.h} w-auto max-w-[70%] object-contain`} />
+                  <img src={m.logo} alt="" className={`${m.h} w-auto max-w-[70%] object-contain dark:brightness-0 dark:invert`} />
                 </span>
               </button>
             ))}
           </div>
-          {method && payNote(platform, method) && <p dir="auto" className="mt-2 text-xs text-muted">{payNote(platform, method)}</p>}
+          {method && payNote(platform, method, lang) && <p dir="auto" className="mt-2 text-xs text-muted">{payNote(platform, method, lang)}</p>}
           {refused && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{refused === "method-off" ? w.checkout.methodOff : w.checkout.failed}</p>}
 
           <div className="mt-5 flex items-center justify-between border-t border-fg/10 pt-4">

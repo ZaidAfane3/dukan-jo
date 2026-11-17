@@ -2,7 +2,7 @@ import { answer } from "@/server/auth";
 import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { notify } from "@/server/notify";
-import { body, notFound, reasonOf, shopId } from "@/server/shopActions";
+import { body, notFound, reasonOf, shopId, shopNameOf } from "@/server/shopActions";
 import { audit, staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ export const POST = staffRoute("shops.status", async (req, staff, ctx) => {
     );
     if (!rowCount) return answer({ result: "already" }, 409);
     await pool.query(`DELETE FROM sessions WHERE account_id = $1 AND pending_totp`, [id]);
-    await audit(req, staff.id, "shop.suspend", { type: "shop", id }, reason);
+    await audit(req, staff.id, "shop.suspend", { type: "shop", id }, reason, { store: await shopNameOf(id) });
     await notify(id, "shopSuspended", { reason });
     return answer({ result: "ok" });
   }
@@ -54,7 +54,7 @@ export const POST = staffRoute("shops.status", async (req, staff, ctx) => {
       c.release();
     }
     if (!rowCount) return answer({ result: "already" }, 409);
-    await audit(req, staff.id, "shop.reactivate", { type: "shop", id }, reason || null);
+    await audit(req, staff.id, "shop.reactivate", { type: "shop", id }, reason || null, { store: await shopNameOf(id) });
     await notify(id, "shopReactivated", {});
     return answer({ result: "ok" });
   }

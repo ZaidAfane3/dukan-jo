@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LEGAL_PAGES, LIMITS, PAY_METHODS, type Bi, type PayMethod, type PlatformSettings, type SettingKey } from "@/components/diwan/platformSettings";
+import { LEGAL_PAGES, LIMITS, okSupportEmail, okSupportNumber, PAY_METHODS, type Bi, type PayMethod, type PlatformSettings, type SettingKey, type SupportContact } from "@/components/diwan/platformSettings";
+import { replyWithin, supportLinks } from "@/components/platformPublic";
+import { latin } from "@/components/digits";
 import { askConfirm, Dialog } from "@/components/diwan/dialogs";
 import { PayLogo } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { SettingsSkeleton } from "@/components/diwan/skeletons";
 
-/* Platform settings (owners): the ways to pay, the legal pages new stores start with (locked: see LegalTemplates) and the
+/* Platform settings (owners): the ways to pay, how merchants reach Dukkan support, the legal pages new stores start with (locked: see LegalTemplates) and the
    starter template (edited in the store designer). Each setting has its own form and its own Save, checked again by the
    server, and every save is written to the activity log with what it was before. Dukkan Ship has its own page
    (/diwan/ship); the free themes and the search engine defaults are set in the code (components/platformDefaults.ts).
@@ -27,11 +30,19 @@ export default function SettingsPage() {
   return (
     <div>
       <PageHead title={t("Platform settings", "إعدادات المنصة")} sub={t("What every store on Dukkan starts with and can choose from.", "ما تبدأ به كل المتاجر في دكّان وما تستطيع الاختيار منه.")} />
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<SettingsSkeleton />}>
         {(d) => (
           <div className="grid items-start gap-6 xl:grid-cols-2">
+            {/* the ways to pay take the whole width: three cards side by side, each with room for its two notes */}
+            <div className="xl:col-span-2">
+              <Payments e={d.settings.payment_methods} />
+            </div>
             <TemplateCard info={d.template} onChange={s.reload} />
-            <Payments e={d.settings.payment_methods} />
+            {/* how merchants reach support and how soon it answers, one above the other */}
+            <div className="grid items-start gap-6">
+              <Support e={d.settings.support_contact} />
+              <ReplyTime e={d.settings.support_reply_hours} />
+            </div>
             <div className="xl:col-span-2">
               <LegalTemplates e={d.settings.store_legal_templates} legal={d.legal} />
             </div>
@@ -87,6 +98,12 @@ function Section({ title, sub, info, state, onSave, children }: {
 
 /* ---------------- the settings ---------------- */
 
+/* what a note could say, in each language */
+const NOTE_EXAMPLES: Partial<Record<PayMethod, Bi>> = {
+  cliq: { en: "e.g. CliQ alias: dukkan", ar: "مثال: اسم كليك: dukkan" },
+  cod: { en: "e.g. Cash or card to the courier", ar: "مثال: نقدًا أو بالبطاقة للمندوب" },
+};
+
 const PAY_NAMES = { cod: ["Cash on delivery", "الدفع عند الاستلام"], cliq: ["CliQ", "كليك"], card: ["Card", "البطاقة"] } as const;
 
 /* How each way to pay is shown: its logo (cash has none, so a drawn note), and where Dukkan offers it. A store's checkout
@@ -98,7 +115,18 @@ const PAY_LOOK: Record<PayMethod, { store: boolean; themes: boolean }> = {
   card: { store: true, themes: true },
 };
 
-type PayUse = { orders: number; ordersTotal: number; stores: number; themes: number; themesTotal: number; buyers: number };
+/* a number still loading: the console's pulsing bar, not "…" */
+function NumBar() {
+  const t = useT();
+  return (
+    <span role="status" className="inline-flex h-5 items-center">
+      <span aria-hidden className="inline-block h-3.5 w-32 animate-pulse rounded-full bg-fg/10 motion-reduce:animate-none" />
+      <span className="sr-only">{t("Loading…", "جارٍ التحميل…")}</span>
+    </span>
+  );
+}
+
+type PayUse = { orders: number; ordersTotal: number; ordersTest?: boolean; stores: number; themes: number; themesTotal: number; buyers: number };
 const PERIODS = [["30", "Last 30 days", "آخر 30 يومًا"], ["90", "Last 90 days", "آخر 90 يومًا"], ["365", "Last year", "آخر سنة"], ["all", "All time", "كل الوقت"]] as const;
 
 function Payments({ e }: { e: Entry<"payment_methods"> }) {
@@ -108,8 +136,8 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
   /* how much each way to pay was used (app/api/diwan/payment-methods): orders in the stores and themes bought */
   const [days, setDays] = useState<(typeof PERIODS)[number][0]>("30");
   const stats = useApi<{ use: Record<PayMethod, PayUse> }>(`/api/diwan/payment-methods?days=${days}`);
-  const jod = (n: number) => `${f.num(n)} ${t("JOD", "د.أ")}`;
-  const set = (m: PayMethod, part: Partial<{ on: boolean; note: string }>) => s.setValue({ ...s.value, [m]: { ...s.value[m], ...part } });
+  const jod = (n: number) => f.jod(n);
+  const set = (m: PayMethod, part: Partial<{ on: boolean; note: Bi }>) => s.setValue({ ...s.value, [m]: { ...s.value[m], ...part } });
   /* a checkout with every way to pay switched off takes no orders: said before saving, not discovered by a merchant */
   const storeOff = PAY_METHODS.every((m) => !PAY_LOOK[m].store || !s.value[m].on);
   const themesOff = PAY_METHODS.every((m) => !PAY_LOOK[m].themes || !s.value[m].on);
@@ -127,7 +155,7 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
           <button type="button" onClick={stats.reload} className="font-semibold underline">{t("Try again", "حاول مجددًا")}</button>
         </p>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {PAY_METHODS.map((m) => {
           const on = s.value[m].on;
           /* the numbers only for the period shown: none while the new period loads */
@@ -164,7 +192,8 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
                   <div>
                     <dt className="text-xs text-muted">{t("Orders in stores", "طلبات المتاجر")}</dt>
                     <dd className="font-bold tabular-nums">
-                      {stats.loading ? "…" : u ? <>{jod(u.ordersTotal)} <span className="font-normal text-muted">· {t(`${f.num(u.orders)} orders · ${f.num(u.stores)} stores`, `${f.num(u.orders)} طلب · ${f.num(u.stores)} متجر`)}</span></> : "—"}
+                      {/* card and CliQ checkouts are test orders while no payment is taken: their total is not money received */}
+                      {stats.loading ? <NumBar /> : u ? <>{jod(u.ordersTotal)} {u.ordersTest && <span className="font-normal text-amber-700 dark:text-amber-300">{t("(test, nothing charged)", "(تجريبية، لم يُخصم أي مبلغ)")}</span>} <span className="font-normal text-muted">· {f.count(u.orders, ["order", "orders"], { one: "طلب واحد", two: "طلبان", few: "طلبات", many: "طلبًا" })} · {f.count(u.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
                     </dd>
                   </div>
                 )}
@@ -172,22 +201,37 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
                   <div>
                     <dt className="text-xs text-muted">{t("Themes bought", "ثيمات مشتراة")}</dt>
                     <dd className="font-bold tabular-nums">
-                      {stats.loading ? "…" : u ? <>{jod(u.themesTotal)} <span className="font-normal text-muted">· {t(`${f.num(u.themes)} bought · ${f.num(u.buyers)} stores`, `${f.num(u.themes)} عملية شراء · ${f.num(u.buyers)} متجر`)}</span></> : "—"}
+                      {stats.loading ? <NumBar /> : u ? <>{jod(u.themesTotal)} <span className="font-normal text-muted">· {f.count(u.themes, ["purchase", "purchases"], { one: "عملية شراء واحدة", two: "عمليتا شراء", few: "عمليات شراء", many: "عملية شراء" })} · {f.count(u.buyers, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
                     </dd>
                   </div>
                 )}
               </dl>
-              <label htmlFor={`pay-note-${m}`} className="mt-3 block text-xs font-semibold text-muted">{t("Note shown under it (optional)", "ملاحظة تظهر تحتها (اختيارية)")}</label>
-              <input
-                id={`pay-note-${m}`}
-                dir="auto"
-                className={`${field} mt-1`}
-                maxLength={LIMITS.note}
-                disabled={!on}
-                placeholder={m === "cliq" ? t("e.g. CliQ alias: dukkan", "مثال: اسم كليك: dukkan") : m === "cod" ? t("e.g. Cash or card to the courier", "مثال: نقدًا أو بالبطاقة للمندوب") : ""}
-                value={s.value[m].note}
-                onChange={(x) => set(m, { note: x.target.value })}
-              />
+              {/* the note in both languages: a checkout in Arabic shows the Arabic one, and the other one when it is empty */}
+              <p className="mt-3 text-xs font-semibold text-muted">{t("Note shown under it (optional)", "ملاحظة تظهر تحتها (اختيارية)")}</p>
+              <div className="mt-1 grid gap-2">
+                {(["en", "ar"] as const).map((l) => (
+                  <div key={l}>
+                    <label htmlFor={`pay-note-${m}-${l}`} className="mb-1 block text-xs text-muted">{l === "en" ? t("English", "بالإنجليزية") : t("Arabic", "بالعربية")}</label>
+                    <input
+                      id={`pay-note-${m}-${l}`}
+                      dir={l === "en" ? "ltr" : "rtl"}
+                      className={field}
+                      maxLength={LIMITS.note}
+                      disabled={!on}
+                      placeholder={NOTE_EXAMPLES[m]?.[l] ?? ""}
+                      value={s.value[m].note[l]}
+                      onChange={(x) => set(m, { note: { ...s.value[m].note, [l]: x.target.value } })}
+                    />
+                  </div>
+                ))}
+              </div>
+              {/* one box written and the other empty (a note saved before notes had two languages comes in this way):
+                  customers of the other language read it as it is */}
+              {!s.value[m].note.en.trim() !== !s.value[m].note.ar.trim() && (
+                <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">
+                  {t("Only one language saved so far: customers of the other language see this text as it is.", "حُفظت لغة واحدة فقط حتى الآن: يرى عملاء اللغة الأخرى هذا النص كما هو.")}
+                </p>
+              )}
             </div>
           );
         })}
@@ -201,6 +245,113 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
               : t("No way to pay is on for buying themes: nobody can buy a theme.", "لا توجد طريقة دفع مفعّلة لشراء الثيمات: لن يستطيع أحد شراء ثيم.")}
         </p>
       )}
+    </Section>
+  );
+}
+
+/* Dukkan support's phone, WhatsApp and email: the one copy the suspended-store page and the website's contact lines show
+   (they read it from /api/platform/settings on each visit). An empty field hides that way everywhere; the preview below
+   is what a suspended merchant sees with what is typed now. */
+function Support({ e }: { e: Entry<"support_contact"> }) {
+  const t = useT();
+  const s = useSaver("support_contact", e);
+  const set = (part: Partial<SupportContact>) => s.setValue({ ...s.value, ...part });
+  const bad = { phone: !okSupportNumber(s.value.phone), whatsapp: !okSupportNumber(s.value.whatsapp), email: !okSupportEmail(s.value.email) };
+  /* only what would pass the server's check is previewed */
+  const v = s.value;
+  const shown = supportLinks({ support_contact: { phone: bad.phone ? "" : v.phone, whatsapp: bad.whatsapp ? "" : v.whatsapp, email: bad.email ? "" : v.email.trim() } });
+  const fields = [
+    ["phone", t("Phone", "الهاتف"), "+962 6 500 0000", t("8 to 15 digits; spaces and + are fine.", "من 8 إلى 15 رقمًا؛ يمكن استخدام المسافات و+.")],
+    ["whatsapp", t("WhatsApp", "واتساب"), "+962 79 000 0000", t("8 to 15 digits; spaces and + are fine.", "من 8 إلى 15 رقمًا؛ يمكن استخدام المسافات و+.")],
+    ["email", t("Email", "البريد الإلكتروني"), "support@example.com", t("That is not an email address.", "هذا ليس عنوان بريد إلكتروني.")],
+  ] as const;
+  const chip = "inline-flex h-9 items-center rounded-lg px-3 text-xs font-semibold";
+  return (
+    <Section
+      title={t("Support contact", "التواصل مع الدعم")}
+      sub={t("How merchants reach Dukkan's team: on the suspended-store page and in the website's contact lines. Leave one empty to hide it.", "كيف يصل التجار إلى فريق دكّان: في صفحة المتجر الموقوف وفي بيانات التواصل على الموقع. اترك أيًّا منها فارغًا لإخفائه.")}
+      info={s.info}
+      state={s.state}
+      onSave={() => s.save()}
+    >
+      {fields.map(([k, label, example, problem]) => (
+        <div key={k}>
+          <label htmlFor={`support-${k}`} className="mb-1 block text-xs font-semibold text-muted">{label}</label>
+          <input
+            id={`support-${k}`}
+            dir="ltr"
+            type={k === "email" ? "email" : "tel"}
+            inputMode={k === "email" ? "email" : "tel"}
+            className={field}
+            maxLength={k === "email" ? LIMITS.supportEmail : LIMITS.supportNumber}
+            placeholder={example}
+            value={s.value[k]}
+            aria-invalid={bad[k]}
+            aria-describedby={bad[k] ? `support-${k}-bad` : undefined}
+            onChange={(x) => set({ [k]: x.target.value })}
+          />
+          {bad[k] && <p id={`support-${k}-bad`} className="mt-1 text-xs text-red-600 dark:text-red-400">{problem}</p>}
+        </div>
+      ))}
+      {/* what the suspended-store page shows with these values */}
+      <div className="rounded-xl bg-soft/70 p-3">
+        <p className="text-xs font-semibold text-muted">{t("A suspended merchant sees", "يرى التاجر الموقوف متجره")}</p>
+        {shown.tel || shown.whatsapp || shown.mailto ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {shown.tel && <span className={`${chip} bg-ink text-onink`}>{t("Call", "اتصال")}&nbsp;<span dir="ltr">{shown.phone}</span></span>}
+            {shown.whatsapp && <span className={`${chip} bg-emerald-600 text-white`}>{t("WhatsApp", "واتساب")}</span>}
+            {shown.mailto && <span className={`${chip} ring-1 ring-fg/15`} dir="ltr">{shown.email}</span>}
+          </div>
+        ) : (
+          <p className="mt-1 text-sm">{t("No way to reach support: only “To sort this out, contact Dukkan's support team.”", "لا توجد طريقة للتواصل مع الدعم: تظهر فقط عبارة «لحلّ الأمر تواصل مع فريق دعم دكّان.»")}</p>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/* How soon Dukkan's support usually answers a ticket, in hours: the merchant Support page says "We usually reply within N
+   hours." (components/platformPublic.ts replyWithin, previewed here with the same words). The server refuses anything
+   but a whole number from 1 to 168. */
+function ReplyTime({ e }: { e: Entry<"support_reply_hours"> }) {
+  const t = useT();
+  const s = useSaver("support_reply_hours", e);
+  /* the box keeps what is typed (even half written); the saved value changes only on Save */
+  const [text, setText] = useState(String(e.value));
+  useEffect(() => setText(String(s.value)), [s.value]);
+  const typed = latin(text).trim();
+  const n = /^\d{1,3}$/.test(typed) ? Number(typed) : NaN;
+  const ok = Number.isInteger(n) && n >= LIMITS.replyHoursMin && n <= LIMITS.replyHoursMax;
+  return (
+    <Section
+      title={t("Support reply time", "مدة الرد على الدعم")}
+      sub={t("How soon Dukkan's team usually answers a ticket. Merchants see it at the top of their Support page.", "المدة التي يرد خلالها فريق دكّان عادةً على التذكرة. يراها التاجر أعلى صفحة الدعم.")}
+      info={s.info}
+      state={s.state}
+      /* a value that fails the rules is still sent (NaN goes as null), so the server refuses it and the card says so */
+      onSave={() => void s.save(ok ? n : NaN)}
+    >
+      <div>
+        <label htmlFor="support-reply-hours" className="mb-1 block text-xs font-semibold text-muted">{t("Hours", "الساعات")}</label>
+        <input
+          id="support-reply-hours"
+          dir="ltr"
+          type="text"
+          inputMode="numeric"
+          maxLength={3}
+          className={`${field} w-32`}
+          value={text}
+          aria-invalid={!ok}
+          aria-describedby={ok ? undefined : "support-reply-hours-bad"}
+          onChange={(x) => setText(x.target.value)}
+        />
+        {!ok && <p id="support-reply-hours-bad" className="mt-1 text-xs text-red-600 dark:text-red-400">{t("A whole number of hours from 1 to 168 (one week).", "عدد ساعات صحيح من 1 إلى 168 (أسبوع).")}</p>}
+      </div>
+      <div className="rounded-xl bg-soft/70 p-3">
+        <p className="text-xs font-semibold text-muted">{t("Merchants see", "يرى التاجر")}</p>
+        <p className="mt-1 text-sm" dir="ltr">{replyWithin(ok ? n : s.value, "en")}</p>
+        <p className="mt-0.5 text-sm" dir="rtl">{replyWithin(ok ? n : s.value, "ar")}</p>
+      </div>
     </Section>
   );
 }
@@ -221,7 +372,9 @@ function BiInputs({ id, value, onChange, max, labels }: { id: string; value: Bi;
   );
 }
 
-const LEGAL_NAMES = { returns: ["Return policy", "سياسة الاسترجاع"], terms: ["Terms and conditions", "الأحكام والشروط"], privacy: ["Privacy policy", "سياسة الخصوصية"] } as const;
+/* only for a page whose saved title is empty: the same names the starting pages have (platformSettings.ts LEGAL_DEFAULTS),
+   so a page is never called two different things */
+const LEGAL_NAMES = { returns: ["Return and exchange policy", "سياسة الاستبدال والاسترجاع"], terms: ["Terms and conditions", "الأحكام والشروط"], privacy: ["Privacy policy", "سياسة الخصوصية"] } as const;
 
 const LockIcon = ({ open = false }: { open?: boolean }) => (
   <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -340,16 +493,25 @@ function LegalTemplates({ e, legal }: { e: Entry<"store_legal_templates">; legal
       <div className="mt-4 space-y-3">
         {LEGAL_PAGES.map((k) => {
           const page = s.value[k];
-          const name = t(LEGAL_NAMES[k][0], LEGAL_NAMES[k][1]);
+          /* the page's name, from one source: its saved title in the staff's language (the saved one, so it stays put
+             while the title is being edited), or the starting name when that title is empty */
+          const savedTitle = kept[k]?.title ?? page.title;
+          const name = t(savedTitle.en.trim() || LEGAL_NAMES[k][0], savedTitle.ar.trim() || LEGAL_NAMES[k][1]);
           const set = (v: Partial<typeof page>) => s.setValue({ ...s.value, [k]: { ...page, ...v } });
           if (!unlocked)
             return (
               <div key={k} className="rounded-xl border border-fg/10 p-3">
-                <p className="text-xs font-medium text-muted">{name}</p>
+                {/* the page's name once, as its heading. The other language's title shows above its text only when it is
+                    neither the heading nor already the text's first line (the starting texts begin with their title). */}
+                <h3 className="text-sm font-semibold">{name}</h3>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
                   {(["en", "ar"] as const).map((l) => (
                     <div key={l} dir={l === "ar" ? "rtl" : "ltr"} lang={l} className="min-w-0">
-                      <p className="text-sm font-semibold">{page.title[l]}</p>
+                      {(() => {
+                        const own = page.title[l].trim();
+                        const shown = own && own !== name && !page.body[l].trimStart().startsWith(own);
+                        return shown ? <p className="text-xs font-medium text-muted">{own}</p> : null;
+                      })()}
                       <p
                         tabIndex={0}
                         aria-label={`${name} (${l === "ar" ? t("Arabic", "عربي") : t("English", "إنجليزي")})`}

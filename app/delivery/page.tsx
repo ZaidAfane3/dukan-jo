@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Delivery } from "@/components/Delivery";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Delivery options",
+  title: "دكان | خيارات التوصيل",
   description: "Change how your orders reach your customers.",
 };
 

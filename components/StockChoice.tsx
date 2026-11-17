@@ -8,6 +8,13 @@ type Lang = "en" | "ar";
 
 /** From this many pieces he is asked whether the number is right */
 export const BIG_STOCK = 999;
+/** The most pieces a product can have (the same limit the server keeps, components/safeAccount.ts) */
+export const STOCK_MAX = 9_999_999;
+/** How many digits the box takes: more than the most that can be saved (7), so a longer number is shown as he typed it
+    with "the most you can enter" under it, never cut down to another number without a word */
+export const QTY_DIGITS = 12;
+/** True when the number is above what can be saved */
+export const stockOverMax = (unlimited: boolean, quantity: string) => !unlimited && Number(quantity) > STOCK_MAX;
 
 /** True while a big quantity has not been confirmed: the form should not save yet */
 export const stockNeedsAnswer = (unlimited: boolean, quantity: string, okFor: string) => !unlimited && Number(quantity) >= BIG_STOCK && okFor !== quantity;
@@ -23,6 +30,15 @@ const words = {
     keep: "Yes, the number is right",
     makeUnlimited: "Make it unlimited",
     confirmed: "Number confirmed",
+    over: "The most you can enter is 9,999,999 pieces. If you never run out, make it unlimited.",
+    /* a service, a file or a code is not counted in pieces */
+    neutral: {
+      limitedHint: "It can be ordered a set number of times",
+      unlimitedHint: "It can be ordered any number of times",
+      quantity: "How many times can it be ordered?",
+      big: (n: string) => `${Number(n).toLocaleString("en")} is a lot. Is this number right, or is there no limit?`,
+      over: "The most you can enter is 9,999,999. If there is no limit, make it unlimited.",
+    },
   },
   ar: {
     limited: "كمية محدودة",
@@ -34,6 +50,14 @@ const words = {
     keep: "نعم، الرقم صحيح",
     makeUnlimited: "اجعلها غير محدودة",
     confirmed: "تم تأكيد الكمية",
+    over: "أكبر عدد يمكنك إدخاله 9,999,999 قطعة. إن كان المنتج لا ينفد فاجعله غير محدود.",
+    neutral: {
+      limitedHint: "يمكن طلبه عددًا معيّنًا من المرات",
+      unlimitedHint: "يمكن طلبه أي عدد من المرات",
+      quantity: "كم مرة يمكن طلبه؟",
+      big: (n: string) => `${Number(n).toLocaleString("en")} عدد كبير. هل هذا الرقم صحيح، أم أنه بلا حد؟`,
+      over: "أكبر عدد يمكنك إدخاله 9,999,999. إن لم يكن له حد فاجعله غير محدود.",
+    },
   },
 };
 
@@ -49,6 +73,7 @@ export function StockChoice({
   inputClass,
   error,
   required = false,
+  neutral = false,
 }: {
   lang: Lang;
   unlimited: boolean;
@@ -64,9 +89,13 @@ export function StockChoice({
   inputClass: string;
   error?: string;
   required?: boolean;
+  /* a service, a file or a code: asked how many times it can be ordered, not how many pieces there are */
+  neutral?: boolean;
 }) {
-  const w = words[lang];
-  const ask = stockNeedsAnswer(unlimited, quantity, okFor);
+  const w = neutral ? { ...words[lang], ...words[lang].neutral } : words[lang];
+  /* above the limit only that is said (one note, not the "is this right?" question too, which could not be saved) */
+  const over = stockOverMax(unlimited, quantity);
+  const ask = !over && stockNeedsAnswer(unlimited, quantity, okFor);
   const choice = (on: boolean, title: string, hint: string, mark: string) => (
     <button
       type="button"
@@ -99,13 +128,20 @@ export function StockChoice({
             dir="ltr"
             inputMode="numeric"
             value={quantity}
-            onChange={(e) => onQuantity(e.target.value)}
-            maxLength={7}
+            onChange={(e) => onQuantity(e.target.value.slice(0, QTY_DIGITS))}
+            maxLength={QTY_DIGITS}
             aria-required={required}
-            aria-invalid={!!error || ask}
+            aria-invalid={!!error || ask || over}
             className={`${inputClass} h-12 text-start`}
           />
-          {error && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}
+          {/* the box below says what is wrong with a number that is too big or needs a "yes": no second message here */}
+          {error && !over && !ask && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}
+        </div>
+      )}
+      {over && (
+        <div role="alert" className="mt-3 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4">
+          <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">{w.over}</p>
+          <button type="button" onClick={() => onUnlimited(true)} className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90">{w.makeUnlimited}</button>
         </div>
       )}
       {ask && (

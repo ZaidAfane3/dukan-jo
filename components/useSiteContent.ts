@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import type { Lang } from "./content";
 import { usePrefs } from "./Prefs";
+import { usePageTitle } from "./pageTitle";
 import { localize, SITE_DEFAULTS, type SiteContent, type SiteView } from "./siteContent";
 
 /* How the landing page reads its words (components/siteContent.ts). Since 2026-11-16 they come from the code only: the
@@ -31,8 +32,8 @@ export function useSite(): { s: SiteView; lang: Lang } {
 export function SiteMeta() {
   const { s } = useSite();
   const { title, description } = s.seo;
+  usePageTitle(title);
   useEffect(() => {
-    document.title = title;
     let m = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (!m) {
       m = document.createElement("meta");
@@ -40,6 +41,6 @@ export function SiteMeta() {
       document.head.appendChild(m);
     }
     m.content = description;
-  }, [title, description]);
+  }, [description]);
   return null;
 }

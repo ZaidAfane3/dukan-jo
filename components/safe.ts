@@ -243,9 +243,9 @@ export function uploadProblemFor(p: UploadProblem, rule: ImageRule, lang: "en" |
   if (p === "type") return lang === "ar" ? `نوع هذا الملف غير مقبول. استخدم ${orList(names, " أو ")}.`.replace(/, /g, " أو ") : `This file type isn't accepted. Use ${orList(names, " or ")}.`;
   if (p === "size") {
     const extra = Object.entries(rule.maxByKind ?? {}).filter(([, v]) => v !== rule.max) as [FileKind, number][];
-    const more = extra.map(([k, v]) => (lang === "ar" ? `${kindName[k]} حتى ${mb(v)} ميجابايت` : `${kindName[k]} max ${mb(v)} MB`));
+    const more = extra.map(([k, v]) => (lang === "ar" ? `${kindName[k]} حتى ${mb(v)} ميغابايت` : `${kindName[k]} max ${mb(v)} MB`));
     return lang === "ar"
-      ? `الملف كبير جدًا (الحد الأقصى ${mb(rule.max)} ميجابايت${more.length ? `، و${more.join("، و")}` : ""}).`
+      ? `الملف كبير جدًا (الحد الأقصى ${mb(rule.max)} ميغابايت${more.length ? `، و${more.join("، و")}` : ""}).`
       : `File too large (max ${mb(rule.max)} MB${more.length ? `; ${more.join(", ")}` : ""}).`;
   }
   return uploadProblemText[p][lang];
@@ -494,6 +494,29 @@ export const RESERVED_SLUGS = new Set([
 /** Turns what was typed into a store address: lower case, spaces become dashes, other characters go. */
 export function typedSlug(s: unknown): string {
   return typeof s === "string" ? s.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30) : "";
+}
+
+/** What the link box says when typing dropped letters (slugDropped) */
+export const slugDroppedText = { en: "Links can only use English letters (a–z), numbers and dashes.", ar: "يمكن أن يحتوي الرابط على حروف إنجليزية (a–z) وأرقام وشرطات فقط." };
+
+/** Whether typing this dropped something a link can't hold (Arabic letters, symbols), so the page can say why */
+export const slugDropped = (s: string): boolean => /[^a-zA-Z0-9\s-]/.test(s);
+
+/* Arabic letters in Latin ones, for a link suggested from an Arabic store name ("متجر الورد" -> "mtjr-alwrd") */
+const AR_LATIN: Record<string, string> = {
+  "ا": "a", "أ": "a", "إ": "i", "آ": "a", "ب": "b", "ت": "t", "ث": "th", "ج": "j", "ح": "h", "خ": "kh", "د": "d", "ذ": "th",
+  "ر": "r", "ز": "z", "س": "s", "ش": "sh", "ص": "s", "ض": "d", "ط": "t", "ظ": "z", "ع": "a", "غ": "gh", "ف": "f", "ق": "q",
+  "ك": "k", "ل": "l", "م": "m", "ن": "n", "ه": "h", "ة": "a", "و": "w", "ي": "y", "ى": "a", "ئ": "e", "ؤ": "o", "ء": "",
+  "پ": "p", "چ": "ch", "گ": "g", "ڤ": "v",
+};
+
+/** A name in letters a link can hold: Arabic letters spelled in Latin ones, Arabic digits as 0-9, marks dropped */
+export function latinName(s: string): string {
+  return s
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[\u0600-\u06FF]/g, (ch) => AR_LATIN[ch] ?? "");
 }
 
 export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG_RULE.test(s) && !RESERVED_SLUGS.has(s);

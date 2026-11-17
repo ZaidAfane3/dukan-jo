@@ -60,8 +60,9 @@ export type SiteContent = {
   finalCta: { title: Bi; body: Bi; button: SiteLink };
   footer: { tagline: Bi; columns: { title: Bi; links: SiteLink[] }[]; industriesTitle: Bi; availableIn: Bi; country: Bi; legal: Bi; payments: PaymentLogo[] };
   social: { kind: SocialKind; href: string }[];
-  /* whatsapp: Dukkan support's WhatsApp number, shown where a merchant needs help (the suspended-store page); empty hides it */
-  contact: { phone: string; place: Bi; email: string; whatsapp: string };
+  /* where Dukkan is. Its phone, WhatsApp and email are not here: staff set them in Diwan > Platform settings (the
+     setting support_contact, components/platformPublic.ts), so the website and the suspended-store page show one live copy */
+  contact: { place: Bi };
   legal: {
     number: string;
     url: string;
@@ -282,7 +283,7 @@ export const SITE_DEFAULTS: SiteContent = {
     { kind: "youtube", href: "" },
     { kind: "instagram", href: "" },
   ],
-  contact: { phone: "+962 6 000 0000", place: bi("Amman, Jordan", "عمّان، الأردن"), email: "hello@dukkan.store", whatsapp: "" },
+  contact: { place: bi("Amman, Jordan", "عمّان، الأردن") },
   legal: {
     number: "016703",
     url: "https://ccr.mit.gov.jo/mitq/faces/HomePage",

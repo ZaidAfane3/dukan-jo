@@ -218,7 +218,7 @@ export type Order = {
   id: number;
   customer: string;
   phone: string;
-  /* Orders from the store may give an email instead of a phone (the receipt goes there) */
+  /* The customer's email: every store order now has a phone and an email; older ones may have only one of them */
   email?: string;
   total: number;
   status: StatusKey;
@@ -358,6 +358,15 @@ export function couponProblems(c: Omit<Coupon, "id" | "used" | "active">, taken:
   return out;
 }
 
+/** Where a coupon is in its dates today, in Jordan time with both days counting: before its start day ("soon"), after
+    its end day ("ended"), or inside them ("now"). The checkout (checkCoupon, here and on the server) and the merchant's
+    coupons list (Coupons.tsx) both go by this. */
+export function couponDates(c: { start: string; end: string }, today = storeToday()): "soon" | "ended" | "now" {
+  if (c.start && today < c.start) return "soon";
+  if (c.end && today > c.end) return "ended";
+  return "now";
+}
+
 /** Why a code typed at checkout is not taken */
 export type CouponRefusal = "unknown" | "off" | "soon" | "ended" | "usedUp" | "min";
 
@@ -369,8 +378,8 @@ export function checkCoupon(code: unknown, coupons: Coupon[], subtotal: number, 
   const c = COUPON_CODE.test(typed) ? coupons.find((x) => x.code.toUpperCase() === typed) : undefined;
   if (!c) return { ok: false, why: "unknown" };
   if (!c.active) return { ok: false, why: "off" };
-  if (c.start && today < c.start) return { ok: false, why: "soon" };
-  if (c.end && today > c.end) return { ok: false, why: "ended" };
+  const when = couponDates(c, today);
+  if (when !== "now") return { ok: false, why: when };
   if (c.limit > 0 && c.used >= c.limit) return { ok: false, why: "usedUp" };
   if (c.minOrder > 0 && subtotal < c.minOrder) return { ok: false, why: "min" };
   const off = c.kind === "percent" ? (subtotal * c.value) / 100 : c.kind === "fixed" ? c.value : 0;

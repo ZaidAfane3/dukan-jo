@@ -1,11 +1,15 @@
 "use client";
 
 import { ShopAndOwner, ShopLink, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { ComplaintsSkeleton } from "@/components/diwan/skeletons";
 import { FilterBar } from "@/components/diwan/Filters";
+import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
 import { REASON_WORDS, REPORT_LIMITS, REPORT_REASONS, type ReportReason } from "@/components/storeReports";
 import { storeAddress } from "@/components/siteAddress";
+import { arCount } from "@/components/undo";
 
 /* Store reports: what customers sent with "Report this store" in a store's footer, and what staff found themselves.
    Staff check each one (New → Checking → Closed) and keep notes the reporter and the shop never see. Suspending a
@@ -34,12 +38,18 @@ type Data = { counts: Partial<Record<Status, number>>; reports: Row[] };
 
 const tone: Record<Status, Tone> = { new: "red", checking: "amber", closed: "grey" };
 const FILTERS = ["open", "new", "checking", "closed", "all"] as const;
+/* the tab and filters, kept in the address so Back from a store brings the list back as it was */
+const LIST = { status: oneOf(FILTERS, "open"), reason: oneOf(["", ...REPORT_REASONS]), from: oneOf(["", "customer", "staff"]) };
 
 export default function ComplaintsPage() {
   const t = useT();
-  const [status, setStatus] = useState<(typeof FILTERS)[number]>("open");
-  const [reason, setReason] = useState("");
-  const [from, setFrom] = useState("");
+  const [list, setList] = useListState(LIST);
+  const status = list.status as (typeof FILTERS)[number];
+  const { reason, from } = list;
+  const setStatus = (x: (typeof FILTERS)[number]) => setList({ status: x });
+  const setReason = (x: string) => setList({ reason: x });
+  const setFrom = (x: string) => setList({ from: x });
+  const sp = useSearchParams();
   const [adding, setAdding] = useState(false);
   /* one store's reports only, from its page's "See all" (?shop=); every status then */
   const [shopParam, setShop] = useUrlParam("shop");
@@ -47,9 +57,11 @@ export default function ComplaintsPage() {
   const [shopStatusSet, setShopStatusSet] = useState(false);
   if (shop && !shopStatusSet) {
     setShopStatusSet(true);
-    setStatus("all");
+    /* unless the address already says which tab (Back to a list staff had changed) */
+    if (!sp?.has("status")) setStatus("all");
   }
   const s = useApi<Data>(`/api/diwan/complaints?${new URLSearchParams({ status, ...(reason ? { reason } : {}), ...(from ? { from } : {}), ...(shop ? { shop } : {}) })}`);
+  useListScroll(s);
 
   const statusName = (x: (typeof FILTERS)[number]) =>
     ({ open: t("To do", "للمتابعة"), new: t("New", "جديد"), checking: t("Checking", "قيد التحقق"), closed: t("Closed", "مغلق"), all: t("All", "الكل") })[x];
@@ -79,7 +91,7 @@ export default function ComplaintsPage() {
           </button>
         ))}
       </div>
-      <FilterBar count={(reason ? 1 : 0) + (from ? 1 : 0)} onClear={() => { setReason(""); setFrom(""); }} className="mb-4">
+      <FilterBar count={(reason ? 1 : 0) + (from ? 1 : 0)} onClear={() => setList({ reason: "", from: "" })} className="mb-4">
         <div className="grid gap-2 sm:grid-cols-2">
           <select className={field} value={reason} onChange={(e) => setReason(e.target.value)} aria-label={t("Reason", "السبب")}>
             <option value="">{t("Every reason", "كل الأسباب")}</option>
@@ -95,16 +107,12 @@ export default function ComplaintsPage() {
         </div>
       </FilterBar>
 
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<ComplaintsSkeleton />}>
         {(d) =>
           d.reports.length === 0 ? (
             <p className={`${card} text-center text-sm text-muted`}>{t("No reports here.", "لا توجد بلاغات هنا.")}</p>
           ) : (
-            <div className="grid gap-3">
-              {d.reports.map((row) => (
-                <ReportCard key={row.id} row={row} statusName={statusName} onDone={s.reload} />
-              ))}
-            </div>
+            <StoreGroups reports={d.reports} statusName={statusName} onDone={s.reload} />
           )
         }
       </Loaded>
@@ -112,7 +120,76 @@ export default function ComplaintsPage() {
   );
 }
 
-function ReportCard({ row, statusName, onDone }: { row: Row; statusName: (x: Status) => string; onDone: () => void }) {
+/* The reports grouped by store: one card per store (in the order of its newest report), its reports inside, newest
+   first. Each report's handling (status and notes) opens behind its own "Handle" button, one at a time. */
+function StoreGroups({ reports, statusName, onDone }: { reports: Row[]; statusName: (x: Status) => string; onDone: () => void }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const groups: Row[][] = [];
+  const at = new Map<string, number>();
+  for (const r of reports) {
+    const i = at.get(r.shopId);
+    if (i === undefined) {
+      at.set(r.shopId, groups.length);
+      groups.push([r]);
+    } else groups[i].push(r);
+  }
+  return (
+    <div className="grid gap-3">
+      {groups.map((g) => (
+        <StoreCard
+          key={g[0].shopId}
+          rows={g}
+          statusName={statusName}
+          openId={openId}
+          setOpenId={setOpenId}
+          onDone={() => {
+            setOpenId(null);
+            onDone();
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StoreCard({ rows, statusName, openId, setOpenId, onDone }: { rows: Row[]; statusName: (x: Status) => string; openId: string | null; setOpenId: (id: string | null) => void; onDone: () => void }) {
+  const t = useT();
+  const f = useFmt();
+  const top = rows[0];
+  const suspended = top.shopStatus === "suspended";
+  const n = rows.length;
+  const countWords = t(`${f.num(n)} ${n === 1 ? "report" : "reports"}`, arCount(n, { one: "بلاغ واحد", two: "بلاغان", few: "بلاغات", many: "بلاغًا" }));
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-bold">
+            <ShopAndOwner id={top.shopId} shop={top.shopName} owner={top.ownerName} />
+            {top.shopSlug && <span dir="ltr" className="block text-xs font-normal text-muted">{storeAddress(top.shopSlug)}</span>}
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            {countWords}
+            {top.shopReports > n && <> · {t(`${f.num(top.shopReports)} about this store in all`, `${f.num(top.shopReports)} عن هذا المتجر في المجموع`)}</>}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {suspended && <Badge tone="red">{t("Store suspended", "المتجر موقوف")}</Badge>}
+          {/* the link says what can still be done there: suspend it, or nothing more when it is already suspended */}
+          <ShopLink id={top.shopId} className="text-sm font-semibold text-primary hover:underline">
+            {suspended ? t("Open the store (already suspended)", "افتح المتجر (موقوف بالفعل)") : t("Open the store (suspend it there)", "افتح المتجر (الإيقاف من هناك)")}
+          </ShopLink>
+        </div>
+      </div>
+      <ul className="mt-4 divide-y divide-fg/[0.07] border-t border-fg/10">
+        {rows.map((row) => (
+          <ReportItem key={row.id} row={row} statusName={statusName} open={openId === row.id} onToggle={() => setOpenId(openId === row.id ? null : row.id)} onDone={onDone} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function ReportItem({ row, statusName, open, onToggle, onDone }: { row: Row; statusName: (x: Status) => string; open: boolean; onToggle: () => void; onDone: () => void }) {
   const t = useT();
   const f = useFmt();
   const [status, setStatus] = useState<Status>(row.status);
@@ -132,50 +209,49 @@ function ReportCard({ row, statusName, onDone }: { row: Row; statusName: (x: Sta
   };
 
   return (
-    <form onSubmit={save} className={card}>
-      <div className="flex flex-wrap items-start gap-3">
+    <li className="py-3">
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1">
-          <div className="font-bold">
-            <ShopAndOwner id={row.shopId} shop={row.shopName} owner={row.ownerName} />
-            {row.shopSlug && <span dir="ltr" className="block text-xs font-normal text-muted">{storeAddress(row.shopSlug)}</span>}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Badge tone={tone[row.status]}>{statusName(row.status)}</Badge>
+            <Badge tone={row.reason === "other" ? "grey" : "red"}>{t(REASON_WORDS[row.reason].en, REASON_WORDS[row.reason].ar)}</Badge>
           </div>
           <p className="mt-1 text-xs text-muted">
             {f.dateTime(row.createdAt)} · {row.from === "staff" ? t("Found by staff", "وجده الفريق") : t("From a customer", "من عميل")}
             {row.contact && <> · <span dir="ltr">{row.contact}</span></>}
-            {row.shopReports > 1 && <> · {t(`${row.shopReports} reports about this store`, `${row.shopReports} بلاغات عن هذا المتجر`)}</>}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Badge tone={tone[row.status]}>{statusName(row.status)}</Badge>
-          <Badge tone={row.reason === "other" ? "grey" : "red"}>{t(REASON_WORDS[row.reason].en, REASON_WORDS[row.reason].ar)}</Badge>
-          {row.shopStatus === "suspended" && <Badge tone="red">{t("Store suspended", "المتجر موقوف")}</Badge>}
-        </div>
+        <Btn type="button" kind="ghost" className="h-9 px-3" aria-expanded={open} aria-controls={`rf-${row.id}`} onClick={onToggle}>
+          {open ? t("Close", "إغلاق") : t("Handle", "معالجة")}
+        </Btn>
       </div>
-      <p className="mt-3 whitespace-pre-line break-words rounded-xl bg-soft px-3 py-2 text-sm">{row.body}</p>
+      <p dir="auto" className="mt-2 whitespace-pre-line break-words rounded-xl bg-soft px-3 py-2 text-start text-sm">{row.body}</p>
 
-      <div className="mt-4 grid gap-3 border-t border-fg/10 pt-4 sm:grid-cols-[12rem_1fr]">
-        <div>
-          <label htmlFor={`rs-${row.id}`} className="mb-1.5 block text-sm font-medium">{t("Status", "الحالة")}</label>
-          <select id={`rs-${row.id}`} className={field} value={status} onChange={(e) => setStatus(e.target.value as Status)}>
-            {(["new", "checking", "closed"] as Status[]).map((x) => (
-              <option key={x} value={x}>{statusName(x)}</option>
-            ))}
-          </select>
-          {row.handler && <p className="mt-2 text-xs text-muted">{t(`Handled by ${row.handler}`, `يتابعه ${row.handler}`)} · {f.ago(row.updatedAt)}</p>}
-        </div>
-        <div>
-          <label htmlFor={`rn-${row.id}`} className="mb-1.5 block text-sm font-medium">{t("Staff notes (only Dukkan sees these)", "ملاحظات الفريق (لا يراها إلا دكان)")}</label>
-          <textarea id={`rn-${row.id}`} className={area} rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
-      </div>
-      {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Btn type="submit" disabled={busy || !changed}>{busy ? t("Saving…", "جارٍ الحفظ…") : t("Save", "حفظ")}</Btn>
-        <ShopLink id={row.shopId} className="text-sm font-semibold text-primary hover:underline">
-          {t("Open the store (suspend it there)", "افتح المتجر (الإيقاف من هناك)")}
-        </ShopLink>
-      </div>
-    </form>
+      {open && (
+        <form id={`rf-${row.id}`} onSubmit={save} className="mt-3 rounded-xl p-3 ring-1 ring-fg/10">
+          <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
+            <div>
+              <label htmlFor={`rs-${row.id}`} className="mb-1.5 block text-sm font-medium">{t("Status", "الحالة")}</label>
+              <select id={`rs-${row.id}`} className={field} value={status} onChange={(e) => setStatus(e.target.value as Status)}>
+                {(["new", "checking", "closed"] as Status[]).map((x) => (
+                  <option key={x} value={x}>{statusName(x)}</option>
+                ))}
+              </select>
+              {row.handler && <p className="mt-2 text-xs text-muted">{t(`Handled by ${row.handler}`, `يتابعه ${row.handler}`)} · {f.ago(row.updatedAt)}</p>}
+            </div>
+            <div>
+              <label htmlFor={`rn-${row.id}`} className="mb-1.5 block text-sm font-medium">{t("Staff notes (only Dukkan sees these)", "ملاحظات الفريق (لا يراها إلا دكان)")}</label>
+              <textarea id={`rn-${row.id}`} dir="auto" className={area} rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+          </div>
+          {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Btn type="submit" disabled={busy || !changed}>{busy ? t("Saving…", "جارٍ الحفظ…") : t("Save", "حفظ")}</Btn>
+            <Btn type="button" kind="ghost" onClick={onToggle} disabled={busy}>{t("Cancel", "إلغاء")}</Btn>
+          </div>
+        </form>
+      )}
+    </li>
   );
 }
 
@@ -223,7 +299,7 @@ function AddReport({ onDone }: { onDone: (added: boolean) => void }) {
       </div>
       <div>
         <label htmlFor="ar-body" className={label}>{t("What was found", "ما الذي وُجد")}</label>
-        <textarea id="ar-body" className={area} rows={3} maxLength={REPORT_LIMITS.body} value={body} onChange={(e) => setBody(e.target.value)} />
+        <textarea id="ar-body" dir="auto" className={area} rows={3} maxLength={REPORT_LIMITS.body} value={body} onChange={(e) => setBody(e.target.value)} />
       </div>
       {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
       <div className="flex flex-wrap gap-2">

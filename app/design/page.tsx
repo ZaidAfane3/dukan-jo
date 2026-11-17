@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Designer } from "@/components/designer/Designer";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Store design",
+  title: "دكان | تصميم المتجر",
   description: "Design your store: colors, sections, header and footer.",
 };
 

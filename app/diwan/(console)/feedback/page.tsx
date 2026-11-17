@@ -4,20 +4,27 @@ import Link from "next/link";
 import { ShopAndOwner, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { useMemo, useState } from "react";
 import { Badge, card, Loaded, LoadMore, PageHead, send, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { FeedbackSkeleton } from "@/components/diwan/skeletons";
 import { ticketPicture, type TicketRow } from "@/components/diwan/TicketBits";
 import { KIND, STATUS, STATUS_ORDER, type TStatus } from "@/components/diwan/ticketWords";
+import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
 
 /* Bug reports and ideas merchants send from the theme designer's "Bug or idea?" button (and any ticket sent as one),
    live from the database: where they were, their screenshots, and a quick status change. Each opens the same ticket
    page as a support ticket. */
 
 type Data = { rows: TicketRow[]; total: number; page: number; pageSize: number; counts: Record<string, number> };
+/* the two rows of tabs, kept in the address so Back from a ticket brings the board back as it was */
+const LIST = { kind: oneOf(["", "bug", "idea"]), status: oneOf(["active", "", ...STATUS_ORDER]) };
 
 export default function FeedbackPage() {
   const t = useT();
   const f = useFmt();
-  const [kind, setKind] = useState<"" | "bug" | "idea">("");
-  const [status, setStatus] = useState("active");
+  const [list, setList] = useListState(LIST);
+  const kind = list.kind as "" | "bug" | "idea";
+  const status = list.status;
+  const setKind = (k: "" | "bug" | "idea") => setList({ kind: k });
+  const setStatus = (x: string) => setList({ status: x });
   const [busy, setBusy] = useState<number | null>(null);
   /* one store's bug reports and ideas only (?shop=, from its page's "See all") */
   const [shopParam, setShop] = useUrlParam("shop");
@@ -30,6 +37,7 @@ export default function FeedbackPage() {
     return `/api/diwan/feedback?${p}`;
   }, [kind, status, shop]);
   const s = useMore<Data>(url, (d, n) => (n * d.pageSize < d.total ? `page=${n + 1}` : null));
+  useListScroll(s);
   const counts = s.data?.counts ?? {};
   const all = Object.values(counts).reduce((n, x) => n + x, 0);
   const activeN = (["new", "open", "waiting_dukkan", "waiting_merchant"] as TStatus[]).reduce((n, x) => n + (counts[x] ?? 0), 0);
@@ -41,7 +49,7 @@ export default function FeedbackPage() {
     s.reload();
   };
 
-  const chip = (on: boolean) => `rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${on ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`;
+  const chip = (on: boolean) => `inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${on ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`;
 
   return (
     <div>
@@ -57,19 +65,19 @@ export default function FeedbackPage() {
       </div>
       <div className="mb-5 flex flex-wrap gap-2">
         <button onClick={() => { setStatus("active"); }} className={chip(status === "active")}>
-          {t("Needs work", "قيد العمل")} <span dir="ltr" className="ms-1 opacity-75">{f.num(activeN)}</span>
+          {t("Needs work", "قيد العمل")}<span dir="ltr" className="opacity-75">{f.num(activeN)}</span>
         </button>
         {STATUS_ORDER.map((x) => (
           <button key={x} onClick={() => { setStatus(x); }} className={chip(status === x)}>
-            {t(STATUS[x].en, STATUS[x].ar)} <span dir="ltr" className="ms-1 opacity-75">{f.num(counts[x] ?? 0)}</span>
+            {t(STATUS[x].en, STATUS[x].ar)}<span dir="ltr" className="opacity-75">{f.num(counts[x] ?? 0)}</span>
           </button>
         ))}
         <button onClick={() => { setStatus(""); }} className={chip(status === "")}>
-          {t("All", "الكل")} <span dir="ltr" className="ms-1 opacity-75">{f.num(all)}</span>
+          {t("All", "الكل")}<span dir="ltr" className="opacity-75">{f.num(all)}</span>
         </button>
       </div>
 
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<FeedbackSkeleton />}>
         {(d) => (
           <>
             {d.rows.length === 0 && <p className={`${card} text-center text-sm text-muted`}>{t("Nothing here.", "لا يوجد شيء هنا.")}</p>}
@@ -82,9 +90,9 @@ export default function FeedbackPage() {
                     <span className="ms-auto text-xs text-muted">{f.ago(r.created)}</span>
                   </div>
                   <Link href={`/diwan/feedback/${r.number}`} className="font-semibold text-primary hover:underline">
-                    <span dir="ltr">#{r.number}</span> {r.subject}
+                    <span dir="ltr">#{r.number}</span> <bdi>{r.subject}</bdi>
                   </Link>
-                  <p className="line-clamp-4 whitespace-pre-wrap break-words text-sm">{r.preview}</p>
+                  <p dir="auto" className="line-clamp-4 whitespace-pre-wrap break-words text-sm ltr:text-left rtl:text-right">{r.preview}</p>
                   {r.where && <p className="rounded-lg bg-soft px-2.5 py-1.5 text-xs text-muted"><span className="font-semibold">{t("Where: ", "المكان: ")}</span>{r.where}</p>}
                   {!!r.pictures.length && (
                     <div className="flex flex-wrap gap-2">
@@ -97,7 +105,7 @@ export default function FeedbackPage() {
                     </div>
                   )}
                   <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-fg/10 pt-3">
-                    <ShopAndOwner id={r.accountId} shop={r.shop} owner={r.owner} className="min-w-0 flex-1 truncate text-xs" />
+                    <ShopAndOwner id={r.accountId} shop={r.shop} owner={r.owner} truncate className="min-w-0 flex-1 text-xs" />
                     <select
                       aria-label={t("Status", "الحالة")}
                       className="h-8 rounded-lg border border-fg/15 bg-card px-2 text-xs outline-none focus:border-primary"

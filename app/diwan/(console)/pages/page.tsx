@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AudiencePicker, audienceBody, audienceForm, blankAudience, useAudienceText, type Audience, type AudienceForm, type ShopNames } from "@/components/diwan/AudiencePicker";
 import { MockDashboard, PreviewPanel, PreviewTabs, Screens, type Look } from "@/components/diwan/MerchantPreview";
 import { fromDukkanWords, PageArticle, PageListCard } from "@/components/FromDukkan";
-import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { area, Badge, Btn, card, field, Loaded, PageHead, reachOf, SavedNote, send, useApi, useFmt, useJustSaved, useStaff, useT, type Tone } from "@/components/diwan/ui";
+import { PagesSkeleton } from "@/components/diwan/skeletons";
 import { PAGE_LIMITS, PAGE_NEXT, PAGE_SLUG, type PageStatus } from "@/components/dukkanPages";
 
 /* Dukkan's pages for merchants (guides, news, rules), read in the merchant dashboard at /from-dukkan. Written here in
@@ -14,9 +15,12 @@ import { PAGE_LIMITS, PAGE_NEXT, PAGE_SLUG, type PageStatus } from "@/components
 type Row = {
   id: string; slug: string; titleEn: string; titleAr: string; summaryEn: string; summaryAr: string; bodyEn: string; bodyAr: string;
   status: PageStatus; inMenu: boolean; sort: number; audience: Audience; publishedAt: string | null; updatedAt: string; by: string | null;
-  views: number; reach: number;
+  /* reach is null only for a row just saved, until the server has counted it */
+  views: number; reach: number | null;
 };
 type Data = { pages: Row[]; shops: ShopNames };
+/** What the form sends */
+type Body = { slug: string; titleEn: string; titleAr: string; summaryEn: string; summaryAr: string; bodyEn: string; bodyAr: string; inMenu: boolean; sort: number; audience: Audience };
 type Form = {
   id: string | null; slug: string; slugTouched: boolean; titleEn: string; titleAr: string; summaryEn: string; summaryAr: string; bodyEn: string; bodyAr: string;
   inMenu: boolean; sort: string; audience: AudienceForm;
@@ -24,6 +28,9 @@ type Form = {
 
 const blank = (): Form => ({ id: null, slug: "", slugTouched: false, titleEn: "", titleAr: "", summaryEn: "", summaryAr: "", bodyEn: "", bodyAr: "", inMenu: false, sort: "100", audience: blankAudience() });
 const STATUS_TONE: Record<PageStatus, Tone> = { draft: "grey", live: "green", hidden: "red" };
+/* the list's order, as the server sorts it: live, then drafts, then hidden; by place in the list; the last changed first */
+const RANK: Record<PageStatus, number> = { live: 0, draft: 1, hidden: 2 };
+const byListOrder = (a: Row, b: Row) => RANK[a.status] - RANK[b.status] || a.sort - b.sort || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
 const slugOf = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 61);
 
 function useWords() {
@@ -43,6 +50,28 @@ export default function PagesPage() {
   const t = useT();
   const s = useApi<Data>("/api/diwan/pages");
   const [form, setForm] = useState<Form | null>(null);
+  const staff = useStaff();
+  const js = useJustSaved<Data, Row>(s.data);
+
+  /* the saved page as the list will show it (the server's copy replaces it when the list has loaded again) */
+  const saved = (d: Data, id: string | null, b: Body, answered: Row | null) => {
+    const wasEdit = !!form?.id;
+    setForm(null);
+    s.reload();
+    if (!id) return;
+    const prev = d.pages.find((x) => x.id === id);
+    const built: Row = {
+      id, slug: b.slug.trim().toLowerCase(), titleEn: b.titleEn.trim(), titleAr: b.titleAr.trim(), summaryEn: b.summaryEn.trim(), summaryAr: b.summaryAr.trim(),
+      bodyEn: b.bodyEn, bodyAr: b.bodyAr, status: prev?.status ?? "draft", inMenu: b.inMenu, sort: b.sort, audience: b.audience,
+      publishedAt: prev?.publishedAt ?? null, updatedAt: new Date().toISOString(), by: staff?.name ?? null,
+      views: prev?.views ?? 0, reach: reachOf(b.audience, prev?.publishedAt ?? null, d.pages, prev, prev?.publishedAt),
+    };
+    /* the server's copy when it answered with one, else the row built from what was sent */
+    const row = answered?.id === id ? answered : built;
+    /* the names of the shops chosen in it, which the list may not know until it has loaded again */
+    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
+    js.show(row, wasEdit ? t("Saved", "تم الحفظ") : t("Saved as draft", "حُفظت كمسودة"), names);
+  };
 
   const edit = (r: Row, d: Data) => {
     setForm({
@@ -60,27 +89,33 @@ export default function PagesPage() {
         sub={t("Guides, news and rules merchants read inside their dashboard (From Dukkan).", "أدلة وأخبار وقواعد يقرؤها التجار داخل لوحة التحكم (من دكّان).")}
         actions={!form && <Btn onClick={() => setForm(blank())}>{t("New page", "صفحة جديدة")}</Btn>}
       />
-      <Loaded s={s}>
-        {(d) => (
-          <>
-            {form && <Editor form={form} setForm={setForm} onSaved={() => { setForm(null); s.reload(); }} />}
-            <div className="space-y-3">
-              {d.pages.length === 0 && !form && (
-                <div className={`${card} text-center`}>
-                  <p className="font-semibold">{t("No pages yet.", "لا توجد صفحات بعد.")}</p>
-                  <p className="mt-1 text-sm text-muted">{t("Write a guide or a piece of news for merchants. It starts as a draft.", "اكتب دليلًا أو خبرًا للتجار. تبدأ الصفحة كمسودة.")}</p>
+      <Loaded s={s} skeleton={<PagesSkeleton />}>
+        {(raw) => {
+          const d = { ...raw, shops: js.names(raw.shops) };
+          return (
+            <>
+              {form && <Editor form={form} setForm={setForm} onSaved={(id, b, row) => saved(d, id, b, row)} />}
+              <div className="relative">
+                <SavedNote note={form ? null : js.note} />
+                <div className="space-y-3">
+                  {js.rows(d.pages).length === 0 && !form && (
+                    <div className={`${card} text-center`}>
+                      <p className="font-semibold">{t("No pages yet.", "لا توجد صفحات بعد.")}</p>
+                      <p className="mt-1 text-sm text-muted">{t("Write a guide or a piece of news for merchants. It starts as a draft.", "اكتب دليلًا أو خبرًا للتجار. تبدأ الصفحة كمسودة.")}</p>
+                    </div>
+                  )}
+                  {js.rows(d.pages, byListOrder).map((r) => <PageRow key={r.id} r={r} d={d} ring={js.ring(r.id)} onEdit={() => edit(r, d)} reload={s.reload} />)}
                 </div>
-              )}
-              {d.pages.map((r) => <PageRow key={r.id} r={r} d={d} onEdit={() => edit(r, d)} reload={s.reload} />)}
-            </div>
-          </>
-        )}
+              </div>
+            </>
+          );
+        }}
       </Loaded>
     </div>
   );
 }
 
-function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void; reload: () => void }) {
+function PageRow({ r, d, ring, onEdit, reload }: { r: Row; d: Data; ring: string; onEdit: () => void; reload: () => void }) {
   const t = useT();
   const f = useFmt();
   const w = useWords();
@@ -107,7 +142,7 @@ function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void
   };
 
   return (
-    <article className={card}>
+    <article id={`row-${r.id}`} className={`${card} ${ring}`}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -115,8 +150,8 @@ function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void
             {r.inMenu && <Badge tone="primary">{t("Pinned", "مثبّتة")}</Badge>}
             <span className="text-xs text-muted">{audienceOf(r.audience, d.shops)}</span>
           </div>
-          <h2 className="mt-2 break-words font-bold">{t(r.titleEn, r.titleAr)}</h2>
-          {t(r.summaryEn, r.summaryAr) && <p className="mt-1 line-clamp-2 break-words text-sm text-muted">{t(r.summaryEn, r.summaryAr)}</p>}
+          <h2 dir="auto" className="mt-2 break-words font-bold ltr:text-left rtl:text-right">{t(r.titleEn, r.titleAr)}</h2>
+          {t(r.summaryEn, r.summaryAr) && <p dir="auto" className="mt-1 line-clamp-2 break-words text-sm text-muted ltr:text-left rtl:text-right">{t(r.summaryEn, r.summaryAr)}</p>}
           <p className="mt-2 text-xs text-muted">
             <code dir="ltr">/from-dukkan/{r.slug}</code>
             {" · "}
@@ -126,9 +161,9 @@ function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void
             {r.by ? ` ${t("by", "بواسطة")} ${r.by}` : ""}
           </p>
         </div>
-        <div className="text-end">
-          <p className="text-2xl font-bold tabular-nums">{f.num(r.views)}<span className="text-sm font-medium text-muted"> / {f.num(r.reach)}</span></p>
-          <p className="text-xs text-muted">{t("stores opened it", "متجر فتحها")}</p>
+        <div className="shrink-0 text-end">
+          <p className="whitespace-nowrap text-2xl font-bold tabular-nums">{f.num(r.views)}<span className="text-sm font-medium text-muted"> / {r.reach == null ? "—" : f.num(r.reach)}</span></p>
+          <p className="whitespace-nowrap text-xs text-muted">{t("stores opened it", "متجر فتحها")}</p>
         </div>
       </div>
       <div className="mt-3 border-t border-fg/10 pt-3">
@@ -156,10 +191,12 @@ function PageRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void
   );
 }
 
-function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: () => void }) {
+function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: (id: string | null, body: Body, row: Row | null) => void }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  /* a message about the form goes as soon as the form is changed: it may be fixed now, and Publish checks again */
+  useEffect(() => setErr(""), [form]);
   const [look, setLook] = useState<Look>({ lang: "ar", phone: false });
   const [view, setView] = useState<"list" | "page">("list");
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm({ ...form, [k]: v });
@@ -177,14 +214,15 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
     e.preventDefault();
     setErr("");
     if (!PAGE_SLUG.test(slug)) return setErr(fields.slug);
-    const body = {
+    const body: Body = {
       slug, titleEn: form.titleEn, titleAr: form.titleAr, summaryEn: form.summaryEn, summaryAr: form.summaryAr, bodyEn: form.bodyEn, bodyAr: form.bodyAr,
       inMenu: form.inMenu, sort: Number(form.sort || 100), audience: audienceBody(form.audience),
     };
     setBusy(true);
     const r = form.id ? await send(`/api/diwan/pages/${form.id}`, "PATCH", body) : await send("/api/diwan/pages", "POST", body);
     setBusy(false);
-    if (r.ok) return onSaved();
+    /* an edit keeps its id; a new one has the id the server answered with */
+    if (r.ok) return onSaved(form.id ?? (r.data?.id ? String(r.data.id) : null), body, (r.data?.row as Row | undefined) ?? null);
     if (r.data?.result === "taken") return setErr(t("Another page has this address.", "توجد صفحة أخرى بهذا العنوان."));
     setErr(fields[r.data?.field] ?? t("It was not saved. Try again.", "لم تُحفظ. حاول مرة أخرى."));
   };
@@ -252,8 +290,9 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
           </div>
           <p className="-mt-2 text-xs text-muted">{hint}</p>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
+          {/* the address gets the wide column (a long one stays readable); the place in the list needs only a few digits */}
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+            <div className="min-w-0">
               <label className={label} htmlFor="pslug">{t("Address", "العنوان في الرابط")}</label>
               <div className="flex items-center gap-1" dir="ltr">
                 <span className="shrink-0 whitespace-nowrap text-xs text-muted">/from-dukkan/</span>
@@ -261,10 +300,10 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
               </div>
             </div>
             <div>
-              <label className={label} htmlFor="psort">{t("Place in the list", "الترتيب في القائمة")}</label>
+              <label className={`${label} whitespace-nowrap`} htmlFor="psort">{t("Place in the list", "الترتيب في القائمة")}</label>
               <input id="psort" inputMode="numeric" dir="ltr" className={field} value={form.sort} onChange={(e) => set("sort", e.target.value.replace(/\D/g, ""))} />
             </div>
-            <label className="flex items-center gap-2 self-end pb-2 text-sm font-semibold">
+            <label className="flex items-center gap-2 text-sm font-semibold sm:col-span-2">
               <input type="checkbox" checked={form.inMenu} onChange={(e) => { set("inMenu", e.target.checked); setView("list"); }} />
               {t("Pin it at the top of their list", "تثبيتها أعلى قائمتهم")}
             </label>

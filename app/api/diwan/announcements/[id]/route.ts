@@ -3,6 +3,7 @@ import { db } from "@/server/db";
 import { cleanAnnouncement } from "@/server/announce";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { oneAnnouncement } from "../rows";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,8 @@ export const PUT = staffRoute("announce", async (req, staff, ctx) => {
   );
   if (!rowCount) return answer({ result: "none" }, 404);
   await audit(req, staff.id, "announcement.edit", { type: "announcement", id }, null, { title: a.titleEn, audience: a.audience, banner: a.banner });
-  return answer({ result: "ok" });
+  /* the row as the list shows it now, so Diwan can update it in the list at once */
+  return answer({ result: "ok", row: await oneAnnouncement(id) });
 });
 
 /** Ends an announcement now: { end: true } */

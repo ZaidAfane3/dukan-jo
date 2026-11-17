@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { dateLocale } from "@/components/content";
 import { readPhoto } from "@/components/designer/image";
 import { usePrefs } from "@/components/Prefs";
+import { arCount } from "@/components/undo";
 import { ContactButton } from "@/components/diwan/Contact";
 import { ShopAndOwner } from "@/components/diwan/shopBits";
 import { area, Badge, Btn, card, field, Loaded, send, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { ChatSkeleton } from "@/components/diwan/skeletons";
 import { ticketPicture } from "@/components/diwan/TicketBits";
 import { CATEGORY, KIND, PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER, systemLine, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 
@@ -30,6 +32,11 @@ type Data = { ticket: Ticket; staff: { id: string; name: string; role: string }[
 type Canned = { title: string; body_en: string; body_ar: string };
 type Fields = { status: TStatus; priority: TPriority; assignee: string };
 
+/** How often an open ticket asks for new messages (while the tab is in view) */
+const REFRESH_MS = 15_000;
+/** A failed send: no connection (status 0) or the server down is the connection message, anything else the page's own */
+const offline = (status: number) => status === 0 || status >= 500;
+
 /** Where Diwan opens a ticket: support tickets under Tickets, bug reports and ideas under Bugs and ideas (they are kept
     as tickets too, for one conversation with replies and statuses, but they are their own thing for the team) */
 export const ticketHref = (kind: string, number: number | string) => (kind === "bug" || kind === "idea" ? `/diwan/feedback/${number}` : `/diwan/tickets/${number}`);
@@ -47,7 +54,7 @@ export function TicketChat({ area }: { area: "tickets" | "feedback" }) {
   }, [wrong, kind, number, router]);
   if (wrong) return null;
   /* a new view per ticket: the composer always opens in "Reply", never in the mode the last ticket was left in */
-  return <Loaded s={s}>{(d) => <TicketView key={d.ticket.number} d={d} reload={s.reload} />}</Loaded>;
+  return <Loaded s={s} skeleton={<ChatSkeleton />}>{(d) => <TicketView key={d.ticket.number} first={d} />}</Loaded>;
 }
 
 const initial = (name: string) => (name.trim()[0] ?? "?").toUpperCase();
@@ -58,9 +65,11 @@ const lockIcon = (
   </svg>
 );
 
-function TicketView({ d, reload }: { d: Data; reload: () => void }) {
+function TicketView({ first }: { first: Data }) {
   const t = useT();
   const f = useFmt();
+  /* the ticket as last loaded: the first load, then each quiet refresh */
+  const [d, setD] = useState(first);
   const tk = d.ticket;
   const [big, setBig] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
@@ -76,11 +85,44 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
      loaded again) or puts it back with a message. */
   const [pending, setPending] = useState<Partial<Fields>>({});
   const [saving, setSaving] = useState<keyof Fields | null>(null);
+  const savingRef = useRef<keyof Fields | null>(null);
   const [saved, setSaved] = useState<keyof Fields | null>(null);
   const [err, setErr] = useState("");
   const shown: Fields = { status: pending.status ?? tk.status, priority: pending.priority ?? tk.priority, assignee: pending.assignee ?? tk.assigneeId ?? "" };
-  /* the reloaded ticket now holds the choice: the waiting value is no longer needed */
-  useEffect(() => setPending({}), [tk.status, tk.priority, tk.assigneeId, tk.updated]);
+
+  /* Loads the ticket again without a loading screen: after each change, and every few seconds while the tab is in
+     view, so a message the merchant (or another staff member) writes shows up here without reopening the ticket. A
+     failed load says nothing and the next one tries again; only the newest answer is used. The loaded ticket holds
+     the saved choices, so the waiting values go, except the one still being saved. */
+  const asked = useRef(0);
+  const refresh = useCallback(async () => {
+    const n = ++asked.current;
+    try {
+      const r = await fetch(`/api/diwan/tickets/${first.ticket.number}`, { credentials: "same-origin", cache: "no-store" });
+      if (r.status === 401) {
+        window.location.href = "/diwan/login";
+        return;
+      }
+      const j = r.ok ? await r.json() : null;
+      if (n !== asked.current || !j?.ticket) return;
+      setD(j as Data);
+      setPending((p) => {
+        const k = savingRef.current;
+        return k && p[k] !== undefined ? { [k]: p[k] } : {};
+      });
+    } catch {
+      /* no connection: the next refresh tries again */
+    }
+  }, [first.ticket.number]);
+  useEffect(() => {
+    const inView = () => document.visibilityState === "visible" && void refresh();
+    const timer = window.setInterval(inView, REFRESH_MS);
+    document.addEventListener("visibilitychange", inView);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", inView);
+    };
+  }, [refresh]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setBig(null);
@@ -88,58 +130,137 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  /* the conversation opens at its newest message, and follows each new one */
-  useEffect(() => {
+  /* The conversation opens on what the merchant wrote last (or, with nothing from him, the newest real message), near
+     the top of the box, so his problem is in view and not a run of status lines. After that it follows each new message,
+     but only while it is scrolled to the bottom: someone who scrolled up to read is left where he is. */
+  const atBottom = useRef(true);
+  const opened = useRef(false);
+  const onScroll = () => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+  const real = tk.messages.filter((m) => m.author !== "system");
+  const focusId = ([...real].reverse().find((m) => m.author === "merchant") ?? real[real.length - 1])?.id ?? null;
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    if (!opened.current) {
+      opened.current = true;
+      const target = focusId ? el.querySelector<HTMLElement>(`[data-msg="${CSS.escape(focusId)}"]`) : null;
+      el.scrollTop = target ? Math.max(0, target.offsetTop - 16) : el.scrollHeight;
+      onScroll();
+      return;
+    }
+    if (atBottom.current) el.scrollTop = el.scrollHeight;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tk.messages.length]);
+  /* the runs of status lines opened to show each change (by the id of their first line) */
+  const [openRuns, setOpenRuns] = useState<Set<string>>(() => new Set());
 
   const change = async (k: keyof Fields, v: string) => {
     setPending((p) => ({ ...p, [k]: v }));
+    savingRef.current = k;
     setSaving(k);
     setSaved(null);
     setErr("");
-    const r = await send(`/api/diwan/tickets/${tk.number}`, "PATCH", k === "assignee" ? { assignee: v || null } : { [k]: v });
-    setSaving(null);
-    if (!r.ok) {
+    let r: Awaited<ReturnType<typeof send>> = { ok: false, status: 0, data: null };
+    try {
+      r = await send(`/api/diwan/tickets/${tk.number}`, "PATCH", k === "assignee" ? { assignee: v || null } : { [k]: v });
+    } finally {
+      savingRef.current = null;
+      setSaving(null);
+    }
+    if (!r.ok || r.data?.result !== "ok") {
+      /* back to what is really saved */
       setPending((p) => ({ ...p, [k]: undefined }));
       setErr(
         r.status === 403
           ? t("Your role can't change this, or the page is out of date. Reload it and try again.", "دورك لا يسمح بهذا التغيير، أو الصفحة قديمة. أعد تحميلها وحاول مجددًا.")
-          : t("The change was not saved. Try again.", "لم يُحفظ التغيير. حاول مجددًا."),
+          : offline(r.status) || r.ok
+            ? t("It could not be saved. Check the connection and try again.", "تعذّر الحفظ. تحقّق من الاتصال وحاول مرة أخرى.")
+            : t("The change was not saved. Try again.", "لم يُحفظ التغيير. حاول مجددًا."),
       );
     } else {
       setSaved(k);
       setTimeout(() => setSaved((x) => (x === k ? null : x)), 2000);
     }
-    reload();
+    void refresh();
   };
 
   const label = "mb-1 flex items-center justify-between text-xs font-medium text-muted";
   const savedMark = (k: keyof Fields) =>
     saving === k ? <span>{t("Saving…", "جارٍ الحفظ…")}</span> : saved === k ? <span className="text-emerald-700 dark:text-emerald-400">{t("Saved", "حُفظ")}</span> : null;
 
-  /* the conversation, with a line for each new day */
+  /* one status line (a change of status, priority or assignee) */
+  const sysLine = (m: Msg) => (
+    <p key={m.id} className="mx-auto w-fit max-w-[90%] rounded-full bg-fg/[0.05] px-3 py-1 text-center text-xs text-muted">
+      {systemLine(m.body, t)}
+      {m.staff ? ` · ${m.staff.name}` : ""} · <bdi>{time(m.at)}</bdi>
+      {m.internal && <span className="ms-1">({t("staff only", "للفريق فقط")})</span>}
+    </p>
+  );
+  /* the conversation, with a line for each new day. Status lines one after another (on one day) fold into one compact
+     "N changes" line that opens to show them; a single one shows as it is. */
   let lastDay = "";
-  const items = tk.messages.map((m) => {
+  const items: React.ReactNode[] = [];
+  const msgs = tk.messages;
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
     const day = new Date(m.at).toDateString();
-    const sep = day !== lastDay ? (
-      <div key={`day-${m.id}`} className="my-2 flex items-center gap-3 text-[11px] font-semibold text-muted">
-        <span className="h-px flex-1 bg-fg/10" />
-        {f.date(m.at)}
-        <span className="h-px flex-1 bg-fg/10" />
-      </div>
-    ) : null;
+    if (day !== lastDay)
+      items.push(
+        <div key={`day-${m.id}`} className="my-2 flex items-center gap-3 text-[11px] font-semibold text-muted">
+          <span className="h-px flex-1 bg-fg/10" />
+          {f.date(m.at)}
+          <span className="h-px flex-1 bg-fg/10" />
+        </div>,
+      );
     lastDay = day;
-    if (m.author === "system")
-      return [
-        sep,
-        <p key={m.id} className="mx-auto w-fit max-w-[90%] rounded-full bg-fg/[0.05] px-3 py-1 text-center text-xs text-muted">
-          {systemLine(m.body, t)}
-          {m.staff ? ` · ${m.staff.name}` : ""} · {time(m.at)}
-          {m.internal && <span className="ms-1">({t("staff only", "للفريق فقط")})</span>}
-        </p>,
-      ];
+    if (m.author === "system") {
+      const run = [m];
+      while (i + 1 < msgs.length && msgs[i + 1].author === "system" && new Date(msgs[i + 1].at).toDateString() === day) run.push(msgs[++i]);
+      if (run.length === 1) {
+        items.push(sysLine(m));
+        continue;
+      }
+      const open = openRuns.has(m.id);
+      const runFrom = time(run[0].at);
+      const runTo = time(run[run.length - 1].at);
+      const toggle = () =>
+        setOpenRuns((x) => {
+          const n = new Set(x);
+          if (n.has(m.id)) n.delete(m.id);
+          else n.add(m.id);
+          return n;
+        });
+      items.push(
+        <div key={`run-${m.id}`} className="space-y-1.5">
+          <button
+            type="button"
+            onClick={toggle}
+            aria-expanded={open}
+            className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-fg/[0.05] px-3 py-1 text-xs font-medium text-muted transition hover:bg-fg/[0.09] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            {t(`${f.num(run.length)} changes`, arCount(run.length, { one: "تغيير واحد", two: "تغييران", few: "تغييرات", many: "تغييرًا" }))}
+            {/* one time when the run began and ended in the same minute; a range only when they differ. Each time is
+                isolated (bdi) so "07:08 م" keeps its own order inside the range. */}
+            <span className="opacity-70">
+              ·{" "}
+              {runFrom === runTo ? (
+                <bdi>{runFrom}</bdi>
+              ) : (
+                <>
+                  <bdi>{runFrom}</bdi>–<bdi>{runTo}</bdi>
+                </>
+              )}
+            </span>
+            <svg aria-hidden viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+          {open && run.map(sysLine)}
+        </div>,
+      );
+      continue;
+    }
     const staffSide = m.author === "staff";
     const who = staffSide ? m.staff?.name ?? t("Dukkan team", "فريق دكّان") : merchantName;
     const bubble = m.internal
@@ -147,9 +268,8 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
       : staffSide
         ? "rounded-se-md bg-primary/[0.12] ring-1 ring-primary/25"
         : "rounded-ss-md bg-card ring-1 ring-fg/10";
-    return [
-      sep,
-      <div key={m.id} className={`flex items-end gap-2.5 ${staffSide ? "flex-row-reverse" : ""}`}>
+    items.push(
+      <div key={m.id} data-msg={m.id} className={`flex items-end gap-2.5 ${staffSide ? "flex-row-reverse" : ""}`}>
         <span
           aria-hidden
           className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold ${
@@ -180,8 +300,8 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
           <p className="mt-1 text-end text-[11px] text-muted">{time(m.at)}</p>
         </div>
       </div>,
-    ];
-  });
+    );
+  }
 
   return (
     <div>
@@ -205,7 +325,7 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
         <div className="min-w-0 space-y-4">
           <section className={`${card} flex h-[calc(100dvh-14rem)] min-h-[32rem] flex-col overflow-hidden p-0`} aria-label={t("Conversation", "المحادثة")}>
-            <div ref={scroller} className="diwan-scroll flex-1 space-y-3 overflow-y-auto bg-fg/[0.015] px-4 py-5 sm:px-6">
+            <div ref={scroller} onScroll={onScroll} className="diwan-scroll relative flex-1 space-y-3 overflow-y-auto bg-fg/[0.015] px-4 py-5 sm:px-6">
               {tk.where && (
                 <p className="rounded-xl bg-soft px-3 py-2 text-xs">
                   <span className="font-semibold">{t("Where in the designer: ", "المكان في المصمم: ")}</span>
@@ -220,7 +340,11 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
               canned={canned.data?.replies ?? []}
               manage={manage}
               onManage={() => setManage((v) => !v)}
-              onSent={reload}
+              onSent={() => {
+                /* his own message is shown at the bottom, wherever he had scrolled */
+                atBottom.current = true;
+                void refresh();
+              }}
             />
           </section>
           {manage && canned.data && (
@@ -245,7 +369,7 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
               <label className={label} htmlFor="st">
                 {t("Status", "الحالة")} {savedMark("status")}
               </label>
-              <select id="st" className={field} value={shown.status} disabled={saving === "status"} onChange={(e) => void change("status", e.target.value)}>
+              <select id="st" className={field} value={shown.status} disabled={!!saving} onChange={(e) => void change("status", e.target.value)}>
                 {STATUS_ORDER.map((x) => <option key={x} value={x}>{t(STATUS[x].en, STATUS[x].ar)}</option>)}
               </select>
               <p className="mt-1 text-xs text-muted">{t("Solved or closed tells the merchant.", "عند الحل أو الإغلاق يصل إشعار للتاجر.")}</p>
@@ -254,7 +378,7 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
               <label className={label} htmlFor="pr">
                 {t("Priority", "الأولوية")} {savedMark("priority")}
               </label>
-              <select id="pr" className={field} value={shown.priority} disabled={saving === "priority"} onChange={(e) => void change("priority", e.target.value)}>
+              <select id="pr" className={field} value={shown.priority} disabled={!!saving} onChange={(e) => void change("priority", e.target.value)}>
                 {PRIORITY_ORDER.map((x) => <option key={x} value={x}>{t(PRIORITY[x].en, PRIORITY[x].ar)}</option>)}
               </select>
             </div>
@@ -262,7 +386,7 @@ function TicketView({ d, reload }: { d: Data; reload: () => void }) {
               <label className={label} htmlFor="as">
                 {t("Assigned to", "مسندة إلى")} {savedMark("assignee")}
               </label>
-              <select id="as" className={field} value={shown.assignee} disabled={saving === "assignee"} onChange={(e) => void change("assignee", e.target.value)}>
+              <select id="as" className={field} value={shown.assignee} disabled={!!saving} onChange={(e) => void change("assignee", e.target.value)}>
                 <option value="">{t("No one", "لا أحد")}</option>
                 {d.staff.map((x) => <option key={x.id} value={x.id}>{x.name}{x.id === d.me ? t(" (me)", " (أنا)") : ""}</option>)}
               </select>
@@ -322,9 +446,23 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
     if (!text.trim() && !pics.length) return;
     setBusy(true);
     setErr("");
-    const r = await send(`/api/diwan/tickets/${number}/reply`, "POST", { body: text, internal: note, pictures: pics });
-    setBusy(false);
-    if (!r.ok) return setErr(t("It was not sent. Try again.", "لم يُرسل. حاول مرة أخرى."));
+    let r: Awaited<ReturnType<typeof send>> = { ok: false, status: 0, data: null };
+    try {
+      r = await send(`/api/diwan/tickets/${number}/reply`, "POST", { body: text, internal: note, pictures: pics });
+    } finally {
+      setBusy(false);
+    }
+    /* not sent: the text and pictures stay, to send again */
+    if (!r.ok || r.data?.result !== "ok")
+      return setErr(
+        r.data?.field === "pictures"
+          ? t("One of the pictures could not be sent. Remove it and try again.", "تعذّر إرسال إحدى الصور. احذفها وحاول مرة أخرى.")
+          : offline(r.status) || r.ok
+            ? note
+              ? t("It could not be saved. Check the connection and try again.", "تعذّر الحفظ. تحقّق من الاتصال وحاول مرة أخرى.")
+              : t("It could not be sent. Check the connection and try again.", "تعذّر الإرسال. تحقّق من الاتصال وحاول مرة أخرى.")
+            : t("It was not sent. Try again.", "لم يُرسل. حاول مرة أخرى."),
+      );
     setText("");
     setPics([]);
     onSent();
@@ -384,6 +522,7 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
         <textarea
           className={`${area} ${note ? "border-amber-400 bg-white/70 focus:border-amber-500 focus:ring-amber-500/25 dark:border-amber-500/40 dark:bg-black/20" : ""}`}
           rows={3}
+          dir="auto"
           value={text}
           onChange={(e) => setText(e.target.value)}
           maxLength={5000}
@@ -436,10 +575,21 @@ function CannedEditor({ initial, onSaved }: { initial: Canned[]; onSaved: () => 
   const save = async () => {
     setBusy(true);
     setMsg("");
-    const r = await send("/api/diwan/tickets/canned", "PUT", { replies: list });
-    setBusy(false);
-    setMsg(r.ok ? t("Saved.", "تم الحفظ.") : t("Not saved: each one needs a title and a text in at least one language.", "لم يُحفظ: كل رد يحتاج عنوانًا ونصًا بلغة واحدة على الأقل."));
-    if (r.ok) onSaved();
+    let r: Awaited<ReturnType<typeof send>> = { ok: false, status: 0, data: null };
+    try {
+      r = await send("/api/diwan/tickets/canned", "PUT", { replies: list });
+    } finally {
+      setBusy(false);
+    }
+    const ok = r.ok && r.data?.result === "ok";
+    setMsg(
+      ok
+        ? t("Saved.", "تم الحفظ.")
+        : offline(r.status) || r.ok
+          ? t("It could not be saved. Check the connection and try again.", "تعذّر الحفظ. تحقّق من الاتصال وحاول مرة أخرى.")
+          : t("Not saved: each one needs a title and a text in at least one language.", "لم يُحفظ: كل رد يحتاج عنوانًا ونصًا بلغة واحدة على الأقل."),
+    );
+    if (ok) onSaved();
   };
   return (
     <div className="space-y-3 rounded-xl bg-soft p-3">

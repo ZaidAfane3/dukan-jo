@@ -12,13 +12,15 @@ export const dynamic = "force-dynamic";
    server/documents.ts documentsRoute), 409 "too-many" or "too-big" (a limit is reached), 400 "invalid" (the file is
    not an image or PDF we accept, or a field is wrong). */
 
-/* seq: this account's first, second... document of its kind (its title: "Proof of delivery #001") */
+/* seq: this account's first, second... document of its kind (its title: "Proof of delivery #001"), kept from when it
+   was sent (schema.ts documents.seq), so removing one never renumbers the others */
 const SELECT = `SELECT id, public_id, kind, name, partner, partner_kind, status, note, mime, bytes, data IS NOT NULL AS has_file, created_at,
-  rejection_seen, row_number() OVER (PARTITION BY account_id, kind ORDER BY created_at, id)::int AS seq FROM documents`;
+  rejection_seen, seq FROM documents`;
 
-/** My documents, oldest first (the order they were added), at most what an account can keep */
+/** My documents, oldest first (the order they were added), at most what an account can keep. The ones I removed stay
+    only as a record for Diwan, never here. */
 export const GET = documentsRoute(async (_req, me) => {
-  const { rows } = await (await db()).query(`${SELECT} WHERE account_id = $1 ORDER BY created_at, id LIMIT ${PER_ACCOUNT * 2}`, [me.id]);
+  const { rows } = await (await db()).query(`${SELECT} WHERE account_id = $1 AND removed_at IS NULL ORDER BY created_at, id LIMIT ${PER_ACCOUNT * 2}`, [me.id]);
   return answer({ result: "ok", documents: rows.map(merchantDocument), limits: { perPartner: PER_PARTNER, perAccount: PER_ACCOUNT } });
 });
 
@@ -38,8 +40,14 @@ export const POST = documentsRoute(async (req, me) => {
   const saved = await inTransaction(async (c) => {
     /* one upload at a time per account, so two sent together can't both slip under a limit */
     await c.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [me.id]);
+    /* the counts are of what the merchant still keeps; the bytes also count a removed file whose bytes are still stored
+       (the few minutes it can be restored in, until purgeRemovedFiles clears data and file_key), so removing and sending
+       again can't store more than the limit; the next number counts removed ones too, so it is never reused */
     const { rows } = await c.query(
-      `SELECT count(*)::int AS all_n, count(*) FILTER (WHERE kind = $2)::int AS kind_n, COALESCE(sum(bytes), 0)::bigint AS used
+      `SELECT count(*) FILTER (WHERE removed_at IS NULL)::int AS all_n,
+              count(*) FILTER (WHERE kind = $2 AND removed_at IS NULL)::int AS kind_n,
+              COALESCE(sum(bytes) FILTER (WHERE removed_at IS NULL OR data IS NOT NULL OR file_key IS NOT NULL), 0)::bigint AS used,
+              COALESCE(max(seq) FILTER (WHERE kind = $2), 0)::int + 1 AS next_seq
          FROM documents WHERE account_id = $1`,
       [me.id, kind],
     );
@@ -48,10 +56,10 @@ export const POST = documentsRoute(async (req, me) => {
     if (n.kind_n >= PER_PARTNER || n.all_n >= PER_ACCOUNT) return "too-many" as const;
     if (Number(n.used) + file.size > ACCOUNT_BYTES) return "too-big" as const;
     const ins = await c.query(
-      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting')
-       RETURNING id, public_id, rejection_seen, 0 AS seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
-      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size],
+      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9)
+       RETURNING id, public_id, rejection_seen, seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
+      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq],
     );
     return ins.rows[0] as Record<string, unknown>;
   });
@@ -68,7 +76,7 @@ export const PUT = documentsRoute(async (req, me) => {
   const partner = partnerName(body.partner);
   const pKind = partnerKind(body.partnerKind);
   await (await db()).query(
-    `UPDATE documents SET partner = $2, partner_kind = $3 WHERE account_id = $1 AND kind = 'courier_proof' AND status = 'waiting'`,
+    `UPDATE documents SET partner = $2, partner_kind = $3 WHERE account_id = $1 AND kind = 'courier_proof' AND status = 'waiting' AND removed_at IS NULL`,
     [me.id, seal(partner), pKind],
   );
   return answer({ result: "ok" });

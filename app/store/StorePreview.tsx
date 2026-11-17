@@ -7,7 +7,7 @@ import { StorefrontTheme } from "@/components/storefront/StorefrontTheme";
 import { defaultConfig, type StorefrontConfig } from "@/components/storefront/config";
 import { StoreSkeleton } from "@/components/StoreSkeletons";
 import { loadConfig, loadTemplate, refreshTemplate, TEMPLATE_EVENT } from "@/components/storefront/storage";
-import { accountName, loadSetup } from "@/components/setup";
+import { defaultStoreName, loadSetup } from "@/components/setup";
 import { useCatalog } from "@/components/catalog";
 import { composeDesign, findTheme, loadThemeState, previewProducts } from "@/components/themes";
 import { safeStoredImage } from "@/components/safe";
@@ -94,7 +94,7 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   }, [lang, preview, catalog, templateRev]);
 
   useEffect(() => {
-    const name = loadSetup()?.name || accountName();
+    const name = loadSetup()?.name?.trim() || defaultStoreName(lang);
     if (name) document.title = preview ? `${b.preview} | ${name}` : name;
     /* only picture data or the site's own file: never a link to another site or a javascript: address */
     const icon = safeStoredImage(config.identity.favicon);
@@ -110,7 +110,7 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
       link.remove();
       old.forEach((l) => document.head.appendChild(l));
     };
-  }, [config.identity.favicon, preview, b.preview]);
+  }, [config.identity.favicon, preview, b.preview, lang]);
 
   if (!ready) return <StoreSkeleton />;
 
@@ -119,7 +119,7 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
     const lg = config.identity.logo;
     /* his own logo picture, or the one from setup; otherwise the first letter on the store color */
     const logo = safeStoredImage(lg.kind === "image" ? lg.image : lg.kind === "auto" ? setup?.logo : "");
-    return <MaintenancePage lang={lang} name={setup?.name || accountName()} logo={logo} color={setup?.color || "#e67726"} message={paused} owner />;
+    return <MaintenancePage lang={lang} name={setup?.name?.trim() || defaultStoreName(lang)} logo={logo} color={setup?.color || "#e67726"} message={paused} owner />;
   }
 
   return (

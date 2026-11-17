@@ -12,12 +12,32 @@ import { isJordanMobile, jordanMobile, phoneError, savedMobile, typedPhone } fro
 import { cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { ACCOUNT_LIMITS, passwordError } from "./safeAccount";
+import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { loadSetup, saveSetup } from "./setup";
 import { resetToStarterDesign } from "./storefront/storage";
 import { SUSPENDED_PATH } from "./suspended";
 import { TwoStepCodeStep } from "./TwoStepSettings";
+import { ForgotPassword } from "./ForgotPassword";
+import { usePageTitle } from "./pageTitle";
 
 type Tab = "create" | "login";
+
+/* Words only this page uses: the button before the page is ready, and what is said once a forgotten password was
+   reset by code (ForgotPassword.tsx, which also keeps the ways to reach support for when no code comes) */
+const words = {
+  en: {
+    loading: "Loading…",
+    resetDone: "Your password was changed.",
+    resetSigningIn: "Your password was changed. Signing you in…",
+    resetTitle: "Reset password",
+  },
+  ar: {
+    loading: "جارٍ التحميل…",
+    resetDone: "تم تغيير كلمة المرور.",
+    resetSigningIn: "تم تغيير كلمة المرور. جارٍ تسجيل دخولك…",
+    resetTitle: "إعادة تعيين كلمة المرور",
+  },
+};
 
 const iconProps = {
   viewBox: "0 0 24 24",
@@ -69,12 +89,15 @@ function Field({
   hint,
   error,
   children,
+  below,
 }: {
   label: string;
   icon?: React.ReactNode;
   hint?: string;
   error?: string;
   children: React.ReactNode;
+  /* shown under the mistake or hint (the length of a name) */
+  below?: React.ReactNode;
 }) {
   return (
     <div>
@@ -86,6 +109,7 @@ function Field({
         </span>
       </label>
       {error ? <p className="mt-1.5 text-xs text-rose-600">{error}</p> : hint && <p className="mt-1.5 text-xs text-muted">{hint}</p>}
+      {below}
     </div>
   );
 }
@@ -100,12 +124,23 @@ type Errors = { name?: string; email?: string; phone?: string; password?: string
 export function SignupForm() {
   const { lang, t } = usePrefs();
   const c = content[lang].signup;
+  const w = words[lang];
+  /* "Forgot your password?" opens the reset by code in place of the form (ForgotPassword.tsx); notice: what is said on
+     the sign-in form when it is done */
+  const [forgot, setForgot] = useState(false);
+  const [notice, setNotice] = useState("");
+  /* Until the page has loaded its script, pressing the button (or Enter) would send the form the browser's way: the
+     page reloads and everything typed is gone. So the button waits, disabled, until the page is ready. */
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
 
   const [tab, setTab] = useState<Tab>("create");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", loginId: "" });
   const [errors, setErrors] = useState<Errors>({});
+  /* a message about the whole form, not one field (too many sign-ups from this connection) */
+  const [formErr, setFormErr] = useState("");
   /* while the server answers, the button can't be pressed twice */
   const [busy, setBusy] = useState(false);
   /* signing in to an account with 2-step codes: the code step is open, and tells the sign-in how it ended */
@@ -131,14 +166,14 @@ export function SignupForm() {
     else if (demoActive()) endDemo(window.location.pathname + window.location.search);
   }, []);
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${tab === "create" ? c.tabs.create : c.tabs.login}`;
-  }, [tab, c]);
+  usePageTitle(`${brandName(lang)} | ${forgot ? w.resetTitle : tab === "create" ? c.tabs.create : c.tabs.login}`);
 
   /* The create form is checked when he presses the button, each mistake shown under its field */
   const check = (): Errors => {
     const e: Errors = {};
     if (visibleLength(form.name) < 2) e.name = c.errName;
+    /* a name over the limit is refused, never cut */
+    else if (lineLength(form.name) > ACCOUNT_LIMITS.name) e.name = nameTooLong(ACCOUNT_LIMITS.name)[lang];
     if (!emailOf(form.email)) e.email = c.errEmail;
     if (!isJordanMobile(form.phone)) e.phone = phoneError[lang];
     const pw = passwordProblem(form.password);
@@ -150,7 +185,7 @@ export function SignupForm() {
   /* Creates the account (or signs in) on the server, then goes to first-time setup or the dashboard */
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !ready) return;
     let valid = loginValid;
     if (tab === "create") {
       const found = check();
@@ -167,8 +202,14 @@ export function SignupForm() {
     const phone = savedMobile(form.phone);
     if (valid && tab === "create" && !tour) {
       setBusy(true);
+      setFormErr("");
       const r = await createAccount({ email, name, phone, password: form.password });
       setBusy(false);
+      if (r === "slow-down") {
+        /* not about one field: said under the button, where he is looking */
+        setFormErr(c.errSignupMany);
+        return;
+      }
       if (r !== "ok") {
         const field = r === "taken-phone" ? "phone" : r === "taken" ? "email" : "password";
         setErrors({ [field]: r === "taken-phone" ? c.errPhoneTaken : r === "taken" ? c.errTaken : c.errServer });
@@ -206,11 +247,12 @@ export function SignupForm() {
           sessionStorage.setItem("seen-account-phone", phone);
           /* Never the password, only what the settings page can show. */
           sessionStorage.setItem("seen-account-profile", JSON.stringify({ name, email, phone }));
-          /* His name and the number he registered with are the starting name and contact number of his store, until he changes them in setup or the designer. */
+          /* The number he registered with is the starting contact number of his store, until he changes it in setup or the
+             designer. His own name is the account's name only: the store name starts empty in setup, for him to type. */
           const prev = loadSetup();
-          if (!prev?.name || !prev?.phone) {
+          if (!prev?.phone) {
             saveSetup({
-              name: prev?.name || name,
+              name: prev?.name ?? "",
               description: prev?.description ?? "",
               color: prev?.color ?? "#e67726",
               phone: prev?.phone || phone,
@@ -220,6 +262,8 @@ export function SignupForm() {
               logo: prev?.logo,
               product: prev?.product ?? null,
               shipping: prev?.shipping ?? null,
+              /* a new store takes no way to pay until he turns one on (setup or Delivery options); an older one keeps its choice */
+              pays: prev ? prev.pays : [],
             });
           }
         }
@@ -234,6 +278,39 @@ export function SignupForm() {
       }
       router.push(tour ? "/demo" : goTo);
     }
+  };
+
+  /* The password was reset by code: back on the sign-in form, signed in with the new one the usual way (so the 2-step
+     code is still asked for when it is on, and a suspended store still goes to its page). If that does not work out
+     (the code step closed, the server can't be reached, or in the platform tour, which never signs in), the form just
+     says the password was changed, ready for him to sign in. */
+  const afterReset = async (id: string, password: string) => {
+    setForgot(false);
+    setTab("login");
+    setErrors({});
+    setForm((f) => ({ ...f, loginId: id, password: "" }));
+    const back = () => {
+      setNotice(w.resetDone);
+      setTimeout(() => document.getElementById("s-password")?.focus(), 0);
+    };
+    if (tour) return back();
+    setNotice(w.resetSigningIn);
+    setBusy(true);
+    let r: Awaited<ReturnType<typeof logIn>> | "cancel" = await logIn(id, password);
+    if (r === "code") {
+      r = await new Promise<"ok" | "cancel">((done) => setCodeStep(() => done));
+      setCodeStep(null);
+    }
+    setBusy(false);
+    if (r === "suspended") return router.push(SUSPENDED_PATH);
+    if (r !== "ok") return back();
+    try {
+      sessionStorage.removeItem("seen-account-phone");
+      sessionStorage.setItem("seen-signed-in", "1");
+    } catch {
+      /* storage unavailable */
+    }
+    router.push((loadSetup()?.done ?? []).filter(Boolean).length >= 6 ? "/dashboard" : "/onboarding");
   };
 
   const creating = tab === "create";
@@ -281,6 +358,17 @@ export function SignupForm() {
               {lang === "ar" ? "سجّل دخولك أو أنشئ حسابًا لتجربة المنصة." : "Log in or create an account to try the platform."}
             </p>
           )}
+          {forgot ? (
+            <ForgotPassword
+              initial={form.loginId}
+              onBack={() => {
+                setForgot(false);
+                setTimeout(() => document.getElementById("s-loginId")?.focus(), 0);
+              }}
+              onDone={afterReset}
+            />
+          ) : (
+          <>
           <div role="tablist" className="grid grid-cols-2 overflow-hidden rounded-xl border border-primary/30">
             {(["login", "create"] as const).map((id) => (
               <button
@@ -295,11 +383,19 @@ export function SignupForm() {
             ))}
           </div>
 
-          <form onSubmit={onSubmit} className="mt-8 space-y-5" noValidate>
+          {/* method post and no named fields: even a send before the page is ready never puts what he typed (the password)
+              into the address */}
+          <form method="post" action="#" onSubmit={onSubmit} className="mt-8 space-y-5" noValidate>
             <RequiredNote text={requiredNote[lang]} show={hasErrors(errors)} />
+            {notice && tab === "login" && (
+              <p role="status" className="rounded-xl bg-primary/10 px-4 py-3 text-sm font-medium text-deep dark:text-primary">
+                {notice}
+              </p>
+            )}
             {tab === "create" ? (
               <>
-                <Field label={c.fullName} icon={icons.user} error={errors.name}>
+                <Field label={c.fullName} icon={icons.user} error={errors.name} below={<LengthCounter value={form.name} max={ACCOUNT_LIMITS.name} lang={lang} hideMessage={!!errors.name} />}>
+                  {/* room past the limit, so a longer name is shown as too long instead of being stopped or cut */}
                   <input id="s-name" maxLength={ACCOUNT_LIMITS.name * 2} value={form.name} onChange={set("name")} placeholder={c.fullNamePh} autoComplete="name" aria-required aria-invalid={!!errors.name} className={`${inputClass} ps-11 ${errors.name ? bad : ""}`} />
                 </Field>
                 <Field label={c.email} icon={icons.mail} error={errors.email}>
@@ -332,7 +428,19 @@ export function SignupForm() {
                   <input id="s-loginId" maxLength={254} value={form.loginId} onChange={set("loginId")} placeholder={c.loginIdPh} autoComplete="username" aria-required aria-invalid={!!errors.loginId} className={`${inputClass} ps-11 ${errors.loginId ? bad : ""}`} />
                 </Field>
                 {passwordField}
-                <a href="#" className="block text-sm font-medium text-primary hover:underline">{c.forgot}</a>
+                <div>
+                  {/* the reset by code, in place of this form; its last line keeps the ways to reach support */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotice("");
+                      setForgot(true);
+                    }}
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    {c.forgot}
+                  </button>
+                </div>
               </>
             )}
 
@@ -349,11 +457,13 @@ export function SignupForm() {
             {/* Always pressable when creating an account: pressing it shows what is missing */}
             <button
               type="submit"
-              disabled={busy || (tab === "login" && !loginValid)}
-              className="h-12 w-full rounded-xl bg-ink text-sm font-semibold text-white transition enabled:hover:-translate-y-0.5 enabled:hover:bg-deep disabled:cursor-not-allowed disabled:bg-primary/20 disabled:text-muted"
+              disabled={!ready || busy || (tab === "login" && !loginValid)}
+              aria-disabled={!ready || undefined}
+              className={`h-12 w-full rounded-xl bg-ink text-sm font-semibold text-white transition enabled:hover:-translate-y-0.5 enabled:hover:bg-deep disabled:cursor-not-allowed disabled:bg-primary/20 disabled:text-muted ${ready ? "" : "!cursor-wait"}`}
             >
-              {tab === "create" ? c.register : c.loginBtn}
+              {!ready ? w.loading : tab === "create" ? c.register : c.loginBtn}
             </button>
+            {formErr && <p role="alert" className="text-center text-sm text-rose-600 dark:text-rose-400">{formErr}</p>}
 
           </form>
           {codeStep && <TwoStepCodeStep onDone={codeStep} />}
@@ -389,6 +499,8 @@ export function SignupForm() {
               {c.terms.and}
               <a href="#" className="font-semibold text-fg hover:underline">{c.terms.privacy}</a>
             </p>
+          )}
+          </>
           )}
         </div>
       </div>

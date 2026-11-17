@@ -3,7 +3,7 @@ import { isJordanMobile, savedMobile } from "@/components/phone";
 import { cleanLine, emailOf, passwordProblem, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS } from "@/components/safeAccount";
 import { answer, guarded, hashPassword, noteLogin, readJson, sameOrigin, startSession, tooMany } from "@/server/auth";
-import { emailKey, phoneKey, seal } from "@/server/crypto";
+import { emailKey, NAME_KEYS_VERSION, nameKeys, phoneKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { touchShop } from "@/server/shops";
 
@@ -18,20 +18,23 @@ export const POST = guarded(async (req: NextRequest) => {
   if (tooMany(req, "signup", 10, 60)) return answer({ result: "slow-down" }, 429);
   const body = await readJson(req, 4_000);
   const email = emailOf(body?.email);
+  /* a name longer than the limit is refused, never cut (the page says so while it is typed) */
+  const nameTooLong = cleanLine(body?.name, 100_000).length > ACCOUNT_LIMITS.name;
   const name = cleanLine(body?.name, ACCOUNT_LIMITS.name);
   const phone = typeof body?.phone === "string" && isJordanMobile(body.phone) ? savedMobile(body.phone) : "";
   const password = body?.password;
-  if (!email || visibleLength(name) < 2 || !phone || typeof password !== "string" || passwordProblem(password)) {
+  if (!email || nameTooLong || visibleLength(name) < 2 || !phone || typeof password !== "string" || passwordProblem(password)) {
     return answer({ result: "invalid" }, 400);
   }
 
   const pool = await db();
   let id: string;
   try {
-    /* email, name and mobile are stored encrypted; their fingerprints keep them unique (server/crypto.ts) */
+    /* email, name and mobile are stored encrypted; their fingerprints keep them unique (server/crypto.ts), and the
+       fingerprints of the name's words let Diwan find the owner by name */
     const { rows } = await pool.query(
-      `INSERT INTO accounts (email, name, phone, email_hash, phone_hash, password_hash) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [seal(email), seal(name), seal(phone), emailKey(email), phoneKey(phone), await hashPassword(password)],
+      `INSERT INTO accounts (email, name, phone, email_hash, phone_hash, password_hash, name_keys, name_keys_v) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [seal(email), seal(name), seal(phone), emailKey(email), phoneKey(phone), await hashPassword(password), nameKeys(name), NAME_KEYS_VERSION],
     );
     id = String(rows[0].id);
   } catch (e) {

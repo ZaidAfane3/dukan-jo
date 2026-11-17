@@ -7,7 +7,8 @@ import { LoginForm } from "./LoginForm";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Diwan | Sign in",
+  /* Arabic first; LoginForm sets it again in the staff's language */
+  title: "ديوان | تسجيل الدخول",
   robots: { index: false, follow: false },
 };
 

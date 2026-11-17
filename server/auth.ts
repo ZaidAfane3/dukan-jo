@@ -167,6 +167,25 @@ export function renewCookie(res: NextResponse, req: NextRequest) {
 
 /* ---------------- request checks ---------------- */
 
+/** The header the dashboard sends with what it saves or loads for the store, naming the account it was signed in as
+    (its email, URI-encoded; components/serverSync.ts ACCOUNT_HEADER). The cookie is the browser's, shared by its tabs,
+    so a tab still open on the account signed in before could otherwise save that account's data under the new one. */
+export const ACCOUNT_HEADER = "x-dukkan-account";
+
+/** True when the request names another account than the session's (answer 409 { result: "other-account" }). Without
+    the header (a tab opened before it existed) it is not refused. */
+export function otherAccount(req: NextRequest, a: { id: string; email: string }): boolean {
+  const h = req.headers.get(ACCOUNT_HEADER);
+  if (h === null) return false;
+  let named: string;
+  try {
+    named = decodeURIComponent(h).trim().toLowerCase();
+  } catch {
+    return true;
+  }
+  return named !== a.email.trim().toLowerCase() && named !== a.id;
+}
+
 /** Requests that change something must come from Dukkan's own pages (against cross-site requests, CSRF) */
 export function sameOrigin(req: NextRequest): boolean {
   const origin = req.headers.get("origin");

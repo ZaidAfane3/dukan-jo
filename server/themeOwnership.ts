@@ -35,48 +35,70 @@ export async function boughtThemes(q: Query, accountId: string | number): Promis
    held back: a store must never lose a theme because that one-time step has not run. */
 let recorded = false;
 
-/** For one account: whether it may use a theme (and the looks that come with it) */
+/** The themes held back from stores that did not buy them: the paid ones (paidThemes), or none until the one-time
+    recording below has run */
+export async function enforcedPaidThemes(q: Query): Promise<Set<string>> {
+  return recorded ? paidThemes(q) : new Set();
+}
+
+/** THE RULE (owner's decision, QA 94), for one account, read once and asked as often as needed (one call per request):
+    whether it may use a theme. A free theme, a theme not for sale at a price now, and a design of his own ("mine-...")
+    always; a paid theme only with a purchase recorded for this account. Used by every path that puts a theme on a store:
+    the save of the merchant's data (app/api/store PUT, through cleanThemeState), the public store
+    (server/publicStore.ts), the merchant pages (app/api/themes/access) and Diwan's "theme in use". */
 export async function themeOwner(q: Query, accountId: string | number): Promise<(themeId: string) => boolean> {
   if (!recorded) return () => true;
   const [paid, bought] = await Promise.all([paidThemes(q), boughtThemes(q, accountId)]);
   return (id) => !paid.has(id) || bought.has(id);
 }
 
+/** One question of the rule above (for a single check; ask themeOwner once when there are several) */
+export async function mayUseTheme(q: Query, accountId: string | number, themeId: string): Promise<boolean> {
+  return (await themeOwner(q, accountId))(themeId);
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
-/** A saved seen-themes value with everything it claims about a paid theme the account did not buy taken out: the theme in
-    its "owned" list, a copy that says it comes from it (it stays, as a design he saved himself), and the theme as the one
-    in use (the store's design itself is not touched). Null when there is nothing to change, or it is not such a value. */
-export function cleanThemeState(value: string, owns: (themeId: string) => boolean): string | null {
+/** The theme a saved seen-themes value (its text, or read already) says the store uses: the theme in use, or for one of
+    his copies of a theme (a customized copy, or "Make a copy") the theme it was made from, so a copy or edit of a theme
+    counts as using that theme. "" for Dukkan's default (nothing chosen) or a design of his own with no theme under it.
+    The same reading as server/shops.ts themeOf (Diwan's "theme in use"). */
+export function themeInUse(value: unknown): string {
+  let s = value;
+  if (typeof s === "string") {
+    try {
+      s = JSON.parse(s);
+    } catch {
+      return "";
+    }
+  }
+  if (!isObj(s) || typeof s.active !== "string" || !s.active) return "";
+  const active = s.active;
+  const copy = Array.isArray(s.custom) ? s.custom.find((c): c is Record<string, unknown> => isObj(c) && c.id === active) : undefined;
+  const id = typeof copy?.from === "string" ? copy.from : active;
+  return THEME_ID.test(id) && !id.startsWith("mine-") ? id : "";
+}
+
+/** A seen-themes value the merchant's page sent, checked with the rule (`owns`):
+    - notBought: the paid theme it puts on the store without a purchase (the theme in use, or the theme under the copy in
+      use), or "" when there is none. Such a save is refused for this key (app/api/store PUT): the store stays on the
+      theme it had.
+    - value: the value with the paid themes he did not buy taken out of his "owned" list (the list can't make up a
+      purchase), or null when there is nothing to change or it is not such a value. His copies of a paid theme keep the
+      theme they came from: they stay in My themes as drafts of his work, and can be used once he buys it. */
+export function cleanThemeState(value: string, owns: (themeId: string) => boolean): { value: string | null; notBought: string } {
   let s: unknown;
   try {
     s = JSON.parse(value);
   } catch {
-    return null;
+    return { value: null, notBought: "" };
   }
-  if (!isObj(s)) return null;
-  let changed = false;
-  const out: Record<string, unknown> = { ...s };
-  if (Array.isArray(s.owned)) {
-    const kept = s.owned.filter((o) => !isObj(o) || typeof o.id !== "string" || owns(o.id));
-    if (kept.length !== s.owned.length) {
-      out.owned = kept;
-      changed = true;
-    }
-  }
-  if (Array.isArray(s.custom)) {
-    out.custom = s.custom.map((c) => {
-      if (!isObj(c) || typeof c.from !== "string" || owns(c.from)) return c;
-      changed = true;
-      const { from: _from, ...rest } = c;
-      return rest;
-    });
-  }
-  if (typeof s.active === "string" && !owns(s.active)) {
-    out.active = "";
-    changed = true;
-  }
-  return changed ? JSON.stringify(out) : null;
+  if (!isObj(s)) return { value: null, notBought: "" };
+  const inUse = themeInUse(s);
+  const notBought = inUse && !owns(inUse) ? inUse : "";
+  if (!Array.isArray(s.owned)) return { value: null, notBought };
+  const kept = s.owned.filter((o) => !isObj(o) || typeof o.id !== "string" || owns(o.id));
+  return { value: kept.length !== s.owned.length ? JSON.stringify({ ...s, owned: kept }) : null, notBought };
 }
 
 /* Run once, when the server first starts with this rule (from db(), marked done in start_seeds): every theme a store

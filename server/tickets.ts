@@ -69,17 +69,42 @@ export function checkPictures(v: unknown): Picture[] | null {
   return out;
 }
 
-/** Sends one stored picture as an image (never as a page: nosniff, no inline scripts) */
-export function pictureResponse(row: { data: string; mime: string } | undefined): NextResponse {
-  if (!row) return answer({ result: "none" }, 404);
-  const b64 = row.data.slice(row.data.indexOf(",") + 1);
-  return new NextResponse(Buffer.from(b64, "base64"), {
-    headers: {
-      "Content-Type": row.mime,
-      "Cache-Control": "private, max-age=3600",
-      "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": "default-src 'none'; sandbox",
-    },
+/* A ticket's picture never changes once sent (there is no editing a picture, only adding new ones under new ids), so the
+   browser may keep its own private copy and show it again without asking: the chat's thumbnails appear at once when a
+   ticket is opened again, and the chat refreshing never downloads them again. "private" keeps every shared cache (a
+   proxy, Cloudflare) from keeping one, and each request that does reach the server is checked again (who is asking,
+   which ticket). A day, not longer, so a copy on a shared computer does not outlive its use by long; after that the
+   tag below still spares the download. */
+const PICTURE_CACHE = "private, max-age=86400, immutable";
+const PICTURE_HEADERS = {
+  "Cache-Control": PICTURE_CACHE,
+  "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "default-src 'none'; sandbox",
+  /* only Dukkan's own pages may show it (an <img> on another site gets nothing) */
+  "Cross-Origin-Resource-Policy": "same-origin",
+};
+
+/** Sends one stored picture as an image (never as a page: nosniff, no inline scripts). find runs the route's own
+    who-may-see query with the columns asked for (always this file's fixed column lists, never input): when the browser
+    already holds this picture (If-None-Match with its tag), only "p.mime" is read, so the check still runs but the bytes
+    are neither read from the database nor decrypted, and a 304 answers. */
+export async function sendPicture(
+  req: NextRequest,
+  id: string,
+  find: (columns: "p.mime" | "p.data, p.mime") => Promise<{ data?: string; mime: string } | undefined>,
+): Promise<NextResponse> {
+  const tag = `"tp-${id}"`;
+  const asked = req.headers.get("if-none-match") ?? "";
+  if (asked && asked.split(",").some((x) => x.trim().replace(/^W\//, "") === tag)) {
+    const row = await find("p.mime");
+    if (!row) return answer({ result: "none" }, 404);
+    return new NextResponse(null, { status: 304, headers: { ...PICTURE_HEADERS, ETag: tag } });
+  }
+  const row = await find("p.data, p.mime");
+  if (!row?.data) return answer({ result: "none" }, 404);
+  const bytes = Buffer.from(row.data.slice(row.data.indexOf(",") + 1), "base64");
+  return new NextResponse(bytes, {
+    headers: { ...PICTURE_HEADERS, "Content-Type": row.mime, "Content-Length": String(bytes.length), ETag: tag },
   });
 }
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Invoices } from "@/components/Invoices";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Invoice customization",
+  title: "دكان | تخصيص الفاتورة",
   description: "Choose how your invoices look.",
 };
 

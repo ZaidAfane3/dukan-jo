@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { brandName } from "./content";
 import { usePrefs } from "./Prefs";
+import { isStoreAddress } from "./safe";
+import { usePageTitle } from "./pageTitle";
 
 /* The short pages shown instead of a store: suspended by Dukkan, not open yet, no store at this address, or no page at
    all (app/not-found.tsx). */
@@ -48,6 +51,10 @@ const missing = {
     ar: { title: "الصفحة غير موجودة!", lines: ["عذرًا، لا يوجد شيء على هذا العنوان.", "تأكد من الرابط، أو عد إلى الصفحة الرئيسية."] },
   },
   create: { en: "Create your store now", ar: "أنشئ متجرك الآن" },
+  home: { en: "Go to Dukkan's home page", ar: "العودة إلى صفحة دكان الرئيسية" },
+  /* a missing page inside a store that exists: back to that store */
+  storeHome: { en: "Back to the store", ar: "العودة إلى المتجر" },
+  storeHomeNamed: { en: "Back to {name}", ar: "العودة إلى {name}" },
 };
 
 /* Dukkan's store mark, looking sad: the shop's roof line and a frown, drawn in the brand colour */
@@ -68,6 +75,26 @@ export function MissingPage() {
   const { lang } = usePrefs();
   const parts = (usePathname() || "/").split("/").filter(Boolean);
   const w = missing[parts.length === 1 ? "store" : "page"][lang];
+  /* an address inside a store (/<store>/...) that leads nowhere: when that store exists, a way back to its home page */
+  const storeSlug = parts.length > 1 && isStoreAddress(`/${parts[0]}`) ? parts[0].toLowerCase() : "";
+  const [store, setStore] = useState<{ slug: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!storeSlug) return;
+    let live = true;
+    fetch(`/api/public/store/${encodeURIComponent(storeSlug)}`, { headers: { accept: "application/json" } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { result?: string; store?: { status?: string; name?: unknown; setup?: { name?: unknown } } } | null) => {
+        if (!live || j?.result !== "ok" || !j.store) return;
+        /* a suspended store gives no name; an open one its own */
+        const raw = j.store.status === "open" ? j.store.setup?.name : j.store.status === "unavailable" ? "" : j.store.name;
+        setStore({ slug: storeSlug, name: typeof raw === "string" ? raw.trim().slice(0, 60) : "" });
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [storeSlug]);
+  const back = store && store.slug === storeSlug ? store : null;
+  /* the tab says what happened, in the visitor's language ("Store not found · Dukkan"), not only the site's name */
+  usePageTitle(`${w.title.replace(/!$/, "")} · ${brandName(lang)}`);
   return (
     <div dir={lang === "ar" ? "rtl" : "ltr"} className="flex min-h-screen flex-col bg-page text-fg">
       <main className="grid flex-1 place-items-center px-5 py-16">
@@ -78,8 +105,21 @@ export function MissingPage() {
           </div>
           <h1 className="mt-10 text-3xl font-extrabold tracking-tight text-fg/80 sm:text-4xl">{w.title}</h1>
           {w.lines.map((l) => <p key={l} className="mt-2 leading-relaxed text-muted first-of-type:mt-5">{l}</p>)}
-          {/* to Dukkan's main page, where anyone can see what Dukkan is and start a store of their own */}
-          <a href="/" className="mt-8 inline-block text-sm font-semibold text-primary hover:underline">{missing.create[lang]}</a>
+          <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
+            {/* inside a store that exists: back to its home page first */}
+            {back && (
+              <a href={`/${back.slug}`} className="inline-flex min-h-[44px] items-center rounded-full bg-primary px-6 text-sm font-bold text-white shadow-sm transition hover:opacity-90">
+                {back.name ? <>{missing.storeHomeNamed[lang].split("{name}")[0]}<bdi>{back.name}</bdi>{missing.storeHomeNamed[lang].split("{name}")[1]}</> : missing.storeHome[lang]}
+              </a>
+            )}
+            {/* the home page the words speak of: Dukkan's own */}
+            <a href="/" className={back ? "inline-flex min-h-[44px] items-center rounded-full px-5 text-sm font-bold text-fg/80 ring-1 ring-fg/15 transition hover:ring-fg/30" : "inline-flex min-h-[44px] items-center rounded-full bg-primary px-6 text-sm font-bold text-white shadow-sm transition hover:opacity-90"}>
+              {missing.home[lang]}
+            </a>
+            {/* to Dukkan's main page, where anyone can see what Dukkan is and start a store of their own (never offered
+                to a store's customers, on a missing page inside a store that exists) */}
+            {!back && <a href="/" className="inline-block text-sm font-semibold text-primary hover:underline">{missing.create[lang]}</a>}
+          </div>
         </div>
       </main>
     </div>

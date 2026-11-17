@@ -1,9 +1,9 @@
 import { answer, readJson } from "@/server/auth";
-import { AUDIENCE_HAS } from "@/server/announce";
 import { db } from "@/server/db";
 import { cleanPopup } from "@/server/popups";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { onePopup, popupRow, popupRowsSql } from "./rows";
 
 export const dynamic = "force-dynamic";
 
@@ -17,19 +17,7 @@ const MAX = 700_000;
     button. Also the names of the shops chosen in each one. */
 export const GET = staffRoute("announce", async () => {
   const pool = await db();
-  const list = await pool.query(
-      `SELECT a.*, st.name AS by,
-              CASE WHEN a.status <> 'live' THEN a.status
-                   WHEN a.starts_at > now() THEN 'scheduled'
-                   WHEN a.ends_at IS NOT NULL AND a.ends_at <= now() THEN 'expired'
-                   ELSE 'showing' END AS shown,
-              (SELECT count(*)::int FROM popup_views v WHERE v.popup_id = a.id) AS seen,
-              (SELECT count(*)::int FROM popup_views v WHERE v.popup_id = a.id AND v.clicked_at IS NOT NULL) AS clicked,
-              (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id")}) AS reach
-         FROM popups a LEFT JOIN staff st ON st.id = a.created_by
-        ORDER BY a.created_at DESC
-        LIMIT 200`,
-  );
+  const list = await pool.query(`${popupRowsSql()} ORDER BY a.created_at DESC LIMIT 200`);
   const ids = Array.from(new Set(list.rows.flatMap((r) => (Array.isArray(r.audience?.accounts) ? r.audience.accounts : []).map(String))));
   const shops = ids.length
     ? (await pool.query(`SELECT a.id, COALESCE(NULLIF(s.name, ''), a.name) AS name, a.email FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = ANY($1::bigint[])`, [ids])).rows
@@ -37,13 +25,7 @@ export const GET = staffRoute("announce", async () => {
   return answer({
     result: "ok",
     shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, email: s.email }])),
-    popups: list.rows.map((r) => ({
-      id: String(r.id),
-      template: r.template, slots: r.slots, placement: r.placement, titleEn: r.title_en, titleAr: r.title_ar,
-      status: r.status, shown: r.shown, audience: r.audience, priority: r.priority,
-      startsAt: r.starts_at, endsAt: r.ends_at, createdAt: r.created_at, updatedAt: r.updated_at, by: r.by,
-      reach: r.reach, seen: r.seen, clicked: r.clicked,
-    })),
+    popups: list.rows.map(popupRow),
   });
 });
 
@@ -61,5 +43,6 @@ export const POST = staffRoute("announce", async (req, me) => {
   );
   const id = String(rows[0].id);
   await audit(req, me.id, "popup.create", { type: "popup", id }, null, { title: c.titleEn, template: p.template, placement: p.placement, audience: p.audience });
-  return answer({ result: "ok", id });
+  /* the new row as the list shows it, so Diwan can put it in the list at once */
+  return answer({ result: "ok", id, row: await onePopup(id) });
 });

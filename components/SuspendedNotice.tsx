@@ -2,22 +2,26 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { dateLocale } from "./content";
+import { brandName, dateLocale } from "./content";
+import { usePageTitle } from "./pageTitle";
 import { Logo } from "./Nav";
+import { refreshPublicSettings, supportLinks, usePublicSettings } from "./platformPublic";
 import { LangSwitch, ThemeToggle, usePrefs } from "./Prefs";
 import { checkSuspension, readSuspension, rememberSuspension, type Suspension } from "./suspended";
-import { useSiteContent } from "./useSiteContent";
 
 /* The page a merchant sees when Dukkan suspended their store: after signing in with the right password, or in a tab
    that was open when it happened. It says why (the reason staff wrote in Diwan), since when, and how to reach support.
-   Support tickets need a signed-in store, so it gives the phone, email and WhatsApp of the site's contact section
-   (the `contact` part of components/siteContent.ts), so changing them there changes this page too; an empty one is left out. The reason comes from this tab (components/suspended.ts) or, when the page is opened again, from the
-   session the merchant signed in with; anyone else just sees a way back to sign in. */
+   Support tickets need a signed-in store, so it gives Dukkan support's phone, WhatsApp and email as staff set them in
+   Diwan > Platform settings (the public setting support_contact, read from /api/platform/settings, which needs no
+   sign-in), so a change there shows here on the next visit; an empty one is left out. The reason comes from this tab
+   (components/suspended.ts) or, when the page is opened again, from the session the merchant signed in with; anyone else
+   just sees a way back to sign in. */
 
 const words = {
   en: {
     title: "Your store is suspended",
     contactTitle: "To sort this out, contact Dukkan support:",
+    contactNone: "To sort this out, contact Dukkan's support team.",
     call: "Call",
     whatsapp: "WhatsApp",
     intro: "Dukkan's team has paused your store for now. While it is suspended you can't sign in or make changes.",
@@ -34,6 +38,7 @@ const words = {
   ar: {
     title: "تم إيقاف متجرك مؤقتًا",
     contactTitle: "لحلّ الأمر تواصل مع دعم دكّان:",
+    contactNone: "لحلّ الأمر تواصل مع فريق دعم دكّان.",
     call: "اتصال",
     whatsapp: "واتساب",
     intro: "أوقف فريق دكّان متجرك مؤقتًا. لا يمكنك تسجيل الدخول أو إجراء أي تغيير طوال فترة الإيقاف.",
@@ -48,13 +53,6 @@ const words = {
     none: "تشرح هذه الصفحة لصاحب المتجر سبب إيقافه. إذا أُوقف متجرك، سجّل الدخول مرة أخرى لترى السبب.",
   },
 };
-
-/* wa.me wants the number with its country code and digits only: a local Jordanian 07... number gets 962 in front */
-function waLink(n: string): string {
-  let d = n.replace(/\D/g, "").replace(/^00/, "");
-  if (/^07\d{8}$/.test(d)) d = `962${d.slice(1)}`;
-  return d.length >= 8 ? `https://wa.me/${d}` : "";
-}
 
 const iconProps = { viewBox: "0 0 24 24", className: "h-4 w-4", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 const icon = {
@@ -79,9 +77,21 @@ const icon = {
 export function SuspendedNotice() {
   const { lang } = usePrefs();
   const w = words[lang];
-  const { contact } = useSiteContent();
+  const c = supportLinks(usePublicSettings());
+  usePageTitle(`${brandName(lang)} | ${w.title}`);
   /* undefined: still asking the server; null: nothing to show */
   const [s, setS] = useState<Suspension | null | undefined>(undefined);
+  /* the contact waits for the server's answer, so a copy this browser kept from an older visit never flashes a number
+     staff have since changed; if the server can't be reached, the kept copy is shown */
+  const [asked, setAsked] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void refreshPublicSettings().finally(() => alive && setAsked(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const kept = readSuspension();
@@ -97,10 +107,10 @@ export function SuspendedNotice() {
   }, []);
 
   const since = s?.since ? new Date(s.since).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" }) : "";
-  const tel = contact.phone.replace(/[^\d+]/g, "");
-  const wa = waLink(contact.whatsapp);
   const button =
     "inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40";
+
+  const anyContact = !!(c.tel || c.whatsapp || c.mailto);
 
   return (
     <main className="flex min-h-screen flex-col bg-page px-6 py-6 text-fg sm:px-10">
@@ -113,7 +123,7 @@ export function SuspendedNotice() {
       </header>
 
       <div data-lang-fade className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center py-10">
-        {s === undefined ? (
+        {s === undefined || (s && !asked) ? (
           <p role="status" className="text-center text-sm text-muted">
             {w.loading}
           </p>
@@ -145,32 +155,35 @@ export function SuspendedNotice() {
                   )}
                 </div>
 
-                {(tel || contact.email || wa) && (
+                {anyContact ? (
                   <>
                     <p className="mt-6 text-sm font-semibold">{w.contactTitle}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {tel && (
-                        <a href={`tel:${tel}`} className={`${button} bg-ink text-onink hover:bg-deep`}>
+                      {c.tel && (
+                        <a href={c.tel} className={`${button} bg-ink text-onink hover:bg-deep`}>
                           {icon.phone}
-                          {w.call} <span dir="ltr">{contact.phone}</span>
+                          {w.call} <span dir="ltr">{c.phone}</span>
                         </a>
                       )}
-                      {wa && (
-                        <a href={wa} target="_blank" rel="noopener noreferrer" className={`${button} bg-emerald-600 text-white hover:bg-emerald-700`}>
+                      {c.whatsapp && (
+                        <a href={c.whatsapp} target="_blank" rel="noopener noreferrer" className={`${button} bg-emerald-600 text-white hover:bg-emerald-700`}>
                           {icon.chat}
                           {w.whatsapp}
                         </a>
                       )}
-                      {contact.email && (
-                        <a href={`mailto:${contact.email}`} className={`${button} border border-fg/15 hover:bg-soft`}>
+                      {c.mailto && (
+                        <a href={c.mailto} className={`${button} border border-fg/15 hover:bg-soft`}>
                           {icon.mail}
-                          <span dir="ltr">{contact.email}</span>
+                          <span dir="ltr">{c.email}</span>
                         </a>
                       )}
                     </div>
-                    <p className="mt-3 text-xs leading-relaxed text-muted">{w.next}</p>
                   </>
+                ) : (
+                  /* staff left every way to reach support empty: still say who to turn to, never an empty box */
+                  <p className="mt-6 text-sm font-semibold">{w.contactNone}</p>
                 )}
+                <p className="mt-3 text-xs leading-relaxed text-muted">{w.next}</p>
               </>
             )}
 
