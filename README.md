@@ -16,20 +16,6 @@ An e-commerce platform prototype for merchants in Jordan: a marketing site for p
 
 Both English and Arabic use **Readex Pro** (open license, SIL OFL), loaded through `next/font/google`.
 
-## Getting started
-
-```bash
-npm install
-npm run dev
-```
-
-Then open http://localhost:3000.
-
-| Command | Description |
-| --- | --- |
-| `npm run dev` | Start the development server |
-| `npm run build` | Create a production build |
-| `npm start` | Serve the production build |
 
 ## Project structure
 
@@ -101,8 +87,3 @@ These are the logos and icons the prototype uses today. Remember that most of th
 | <img src="public/logos/jo-ministry.png" height="56" alt="Ministry emblem"> | Ministry emblem next to the commercial registration (check that its use is allowed before launch) | `public/logos/jo-ministry.png` |
 | <img src="public/demo/perfume/logo.png" width="48" alt="Demo store logo"> | Logo of the demo perfume store used in the platform tour | `public/demo/perfume/logo.png` |
 
-## Open question for the team
-
-The payment methods shown in the footer of the main page (Visa, Apple Pay, CliQ, PayPal) feel a bit out of place to Saad. Should they stay in the footer, move somewhere else, or be removed? What do you think, guys?
-
-The footer in general needs suggestions. Saad thinks it looks ugly as it is, so any ideas for a better layout, spacing or content are welcome.
