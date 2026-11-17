@@ -29,6 +29,9 @@ import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
 import { ProductPhoto } from "./storefront/NoPhoto";
 import { dropUndos, offerUndo } from "./undo";
 import { PRODUCT_MAX, typedMoney } from "./records";
+import { kindWords } from "./productsContent";
+import { SizesEditor } from "./SizesEditor";
+import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, type ProductKind, type SizeStock } from "./safeOrder";
 import { RudeNote } from "./RudeNote";
 import { usePageTitle } from "./pageTitle";
 
@@ -52,7 +55,7 @@ type Store = {
   /* WhatsApp for customers (+9627XXXXXXXX), "" for none, null while the step was never answered */
   whatsapp: string | null;
   slug: string;
-  product: { type: number; name: string; price: string; quantity?: number; image: string | null; description?: string; /* the product it became in the product list */ id?: number } | null;
+  product: { kind: ProductKind; name: string; price: string; quantity?: number; image: string | null; description?: string; /* the product it became in the product list */ id?: number; /* clothing and shoes */ sizes?: SizeStock[]; shipping?: boolean } | null;
   /* `fee`: his own courier's delivery fee per order (0: free), asked in this step and on the Delivery page; `cities`: the
      cities his courier delivers to (English names, see safeOrder ownCities) */
   shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string; fee?: number; cities?: string[] } | null;
@@ -261,12 +264,14 @@ const taskIcons = [
   <svg key="5" {...icon}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M9 9v11" /></svg>,
 ];
 
-/* Product-type icons: a parcel that ships, a file that downloads, a card with a code, a warm dish */
-const productIcons = [
-  <svg key="p0" {...icon}><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z" /><path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.25l9 4.5" /></svg>,
-  <svg key="p1" {...icon}><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>,
-  <svg key="p2" {...icon}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18M7 14.5h2M11 14.5h2M15 14.5h2" /></svg>,
-];
+/* Product-kind icons (the product form's kinds): a parcel, a shirt, a shoe, a card with a code, a calendar */
+const productIcons: Record<ProductKind, React.ReactNode> = {
+  standard: <svg {...icon}><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z" /><path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.25l9 4.5" /></svg>,
+  clothing: <svg {...icon}><path d="M9 3.5 4 6 2.5 10.5l3 1.5L6.5 10v10.5h11V10l1 2 3-1.5L20 6l-5-2.5a3 3 0 0 1-6 0Z" /></svg>,
+  shoes: <svg {...icon}><path d="M3 17.5V8h5c.5 2 2 3 4 3.5l6 1.5a3 3 0 0 1 3 3v1.5H3Z" /><path d="M3 20h18M10 11l1-2M13 12l1-2" /></svg>,
+  digital: <svg {...icon}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18M7 14.5h2M11 14.5h2M15 14.5h2" /></svg>,
+  service: <svg {...icon}><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4M9 15l2 2 4-4" /></svg>,
+};
 
 const chevron = (
   <svg viewBox="0 0 24 24" className="h-5 w-5 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -921,7 +926,11 @@ function ProductStep({ store, onSave }: StepProps) {
   const p = c.product;
 
   const saved = store.product;
-  const [type, setType] = useState(Math.min(saved?.type ?? 0, 2));
+  /* the same kinds, words and rules as the product form (Products.tsx): one list in productsContent.ts */
+  const kw = kindWords[lang];
+  const [kind, setKind] = useState<ProductKind>(saved?.kind ?? "standard");
+  /* clothing and shoes: each size and how many of it (typed, so a string), in the product form's own editor */
+  const [sizes, setSizes] = useState<{ name: string; quantity: string }[]>((saved?.sizes ?? []).map((z) => ({ name: z.name, quantity: String(z.quantity) })));
   const [name, setName] = useState(saved?.name ?? "");
   const [price, setPrice] = useState(saved?.price ?? "");
   /* optional, with the same limit and cleaning as the product editor's description */
@@ -932,13 +941,13 @@ function ProductStep({ store, onSave }: StepProps) {
   /* the picture as it is being cropped, shown in the product preview right away */
   const [imageLive, setImageLive] = useState<string | null>(null);
   const [imageError, setImageError] = useState("");
-  const [needsShipping, setNeedsShipping] = useState(true);
+  const [needsShipping, setNeedsShipping] = useState(saved?.shipping !== false);
   const [unlimited, setUnlimited] = useState(saved?.quantity === undefined);
   const [quantity, setQuantity] = useState(saved?.quantity !== undefined ? String(saved.quantity) : "");
   /* a big quantity (999 or more) he said is right; one he saved before already was */
   const [stockOk, setStockOk] = useState(saved?.quantity !== undefined ? String(saved.quantity) : "");
   const [device, setDevice] = useState<"mobile" | "desktop">("desktop");
-  const [errors, setErrors] = useState<{ name?: string; price?: string; quantity?: string }>({});
+  const [errors, setErrors] = useState<{ name?: string; price?: string; quantity?: string; sizes?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
   const created = useRef<string[]>([]);
   const savedUrl = useRef<string | null>(saved?.image ?? null);
@@ -972,11 +981,16 @@ function ProductStep({ store, onSave }: StepProps) {
     };
   }, []);
 
-  /* Files and cards never ship, shipped products and food usually do. */
-  const physical = type === 0;
-  const chooseType = (i: number) => {
-    setType(i);
-    setNeedsShipping(i === 0 || i === 3);
+  /* As in the product form: a digital product or a service is never shipped, the others are unless he says no;
+     clothing and shoes are sold in sizes, each with its own stock */
+  const physical = kindShips(kind);
+  const sized = kindHasSizes(kind);
+  const chooseKind = (k: ProductKind) => {
+    setNeedsShipping((v) => (!kindShips(k) ? false : !kindShips(kind) ? true : v));
+    /* clothing sizes are not shoe sizes: switching between the two starts the sizes again (as in the product form) */
+    if (sized && kindHasSizes(k) && k !== kind) setSizes([]);
+    setKind(k);
+    if (errors.sizes || errors.quantity) setErrors((x) => ({ ...x, sizes: undefined, quantity: undefined }));
   };
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1004,7 +1018,11 @@ function ProductStep({ store, onSave }: StepProps) {
     const next: typeof errors = {};
     if (visibleLength(name) < 2) next.name = p.errName;
     if (!(priceNumber > 0)) next.price = p.errPrice;
-    if (!unlimited && quantity === "") next.quantity = p.errQuantity;
+    /* clothing and shoes: at least one size with a name (their stock is the sizes'), the product form's rule */
+    const savedSizes = sizes.map((z) => ({ name: sizeName(z.name), quantity: Math.max(0, Math.floor(Number(z.quantity) || 0)) })).filter((z) => z.name);
+    if (sized) {
+      if (!savedSizes.length) next.sizes = kw.errSizes;
+    } else if (!unlimited && quantity === "") next.quantity = p.errQuantity;
     /* above the most that can be saved: the stock box says so itself (with "Make it unlimited"); this only stops the save */
     else if (stockOverMax(unlimited, quantity)) next.quantity = p.errQuantity;
     else if (stockNeedsAnswer(unlimited, quantity, stockOk)) next.quantity = lang === "ar" ? "أكّد هذه الكمية الكبيرة، أو اجعلها غير محدودة." : "Confirm this big quantity, or make it unlimited.";
@@ -1015,13 +1033,22 @@ function ProductStep({ store, onSave }: StepProps) {
     const noPhoto = !photo;
     if (noPhoto) setImageError(p.errImage);
     setErrors(next);
-    const wrong = (["name", "price", "quantity"] as const).filter((k) => next[k]);
+    const wrong = (["name", "price", "sizes", "quantity"] as const).filter((k) => next[k]);
     if (wrong.length || noPhoto) {
       focusFirst([...(noPhoto ? ["ob-product-photo"] : []), ...wrong.map((k) => `ob-product-${k}`)]);
       return;
     }
     savedUrl.current = photo;
-    const product = { type, name: cleanLine(name, ACCOUNT_LIMITS.productName), price: cleanMoney(price), ...(unlimited ? {} : { quantity: Number(quantity) }), image: photo, description: cleanLines(description, PRODUCT_MAX.description) };
+    const product = {
+      kind,
+      name: cleanLine(name, ACCOUNT_LIMITS.productName),
+      price: cleanMoney(price),
+      /* clothing and shoes: their sizes are the stock (never unlimited); the others: the quantity, or none for unlimited */
+      ...(sized ? { sizes: savedSizes } : unlimited ? {} : { quantity: Number(quantity) }),
+      ...(physical && !needsShipping ? { shipping: false } : {}),
+      image: photo,
+      description: cleanLines(description, PRODUCT_MAX.description),
+    };
     /* it becomes a real product, with its cropped picture, so the store shows it */
     const id = syncSetupProduct(product, saved?.id) ?? saved?.id;
     onSave({ product: { ...product, ...(id ? { id } : {}) } });
@@ -1030,22 +1057,24 @@ function ProductStep({ store, onSave }: StepProps) {
   return (
     <div className="mt-6">
       <p className="font-bold">{p.typeQuestion}</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        {p.types.map((t, i) => (
+      <p className="mt-1 text-sm text-muted">{kw.kindHint}</p>
+      {/* the product form's kinds, names and descriptions (productsContent.ts kindWords) */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {PRODUCT_KINDS.map((k) => (
           <button
-            key={t.title}
+            key={k}
             type="button"
-            onClick={() => chooseType(i)}
-            aria-pressed={type === i}
-            className={`flex items-center gap-4 rounded-2xl border-2 bg-card p-4 text-start transition ${type === i ? "border-primary shadow-md" : "border-fg/10 hover:-translate-y-0.5 hover:border-primary/50"}`}
+            onClick={() => chooseKind(k)}
+            aria-pressed={kind === k}
+            className={`flex items-center gap-4 rounded-2xl border-2 bg-card p-4 text-start transition ${kind === k ? "border-primary shadow-md" : "border-fg/10 hover:-translate-y-0.5 hover:border-primary/50"}`}
           >
-            {/* The chosen type: solid icon tile, thick border and a tick */}
-            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl transition ${type === i ? "bg-primary text-white" : "bg-soft text-primary"}`}>{productIcons[i]}</span>
+            {/* The chosen kind: solid icon tile, thick border and a tick */}
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl transition ${kind === k ? "bg-primary text-white" : "bg-soft text-primary"}`}>{productIcons[k]}</span>
             <span className="min-w-0 flex-1">
-              <span className="block font-bold">{t.title}</span>
-              <span className="mt-0.5 block text-sm text-muted">{t.desc}</span>
+              <span className="block font-bold">{kw.names[k]}</span>
+              <span className="mt-0.5 block text-sm text-muted">{kw.about[k]}</span>
             </span>
-            <ChoiceMark on={type === i} />
+            <ChoiceMark on={kind === k} />
           </button>
         ))}
       </div>
@@ -1143,6 +1172,24 @@ function ProductStep({ store, onSave }: StepProps) {
             )}
           </div>
 
+          {sized ? (
+          /* clothing and shoes: the product form's size editor, a stock for each size (the size chart waits for the Products page) */
+          <div>
+            <SizesEditor
+              id="ob-product-sizes"
+              lang={lang}
+              kind={kind}
+              sizes={sizes}
+              error={errors.sizes}
+              inputClass={inputClass}
+              onChange={(v) => { setSizes(v); if (errors.sizes) setErrors((x) => ({ ...x, sizes: undefined })); }}
+            />
+            <p className="mt-3 text-xs text-muted">
+              {lang === "ar" ? "يمكنك إضافة جدول المقاسات بعد الإعداد من " : "You can add a size chart after setup in "}
+              <a href="/products" className="font-semibold text-primary hover:underline">{lang === "ar" ? "صفحة المنتجات" : "Products"}</a>.
+            </p>
+          </div>
+          ) : (
           <div>
             <Label title={p.quantityLabel} />
             <StockChoice
@@ -1159,14 +1206,8 @@ function ProductStep({ store, onSave }: StepProps) {
               required
               neutral={!physical}
             />
-            {/* clothes and shoes are sold in sizes: the Products page has them (setup keeps to one simple product) */}
-            {physical && (
-              <p className="mt-3 text-xs text-muted">
-                {lang === "ar" ? "يمكنك إضافة المقاسات بعد الإعداد من " : "You can add sizes after setup in "}
-                <a href="/products" className="font-semibold text-primary hover:underline">{lang === "ar" ? "صفحة المنتجات" : "Products"}</a>.
-              </p>
-            )}
           </div>
+          )}
 
           <SaveButton onClick={save}>{p.add}</SaveButton>
         </div>
@@ -1701,7 +1742,7 @@ export function Onboarding() {
       done,
       pickup: store.pickup,
       logo: store.logoData,
-      product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.description ? { description: store.product.description } : {}), ...(store.product.image && (store.product.image.startsWith("data:") || isMediaUrl(store.product.image)) ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
+      product: store.product ? { kind: store.product.kind, ...(store.product.sizes?.length ? { sizes: store.product.sizes } : {}), ...(store.product.shipping === false ? { shipping: false } : {}), name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.description ? { description: store.product.description } : {}), ...(store.product.image && (store.product.image.startsWith("data:") || isMediaUrl(store.product.image)) ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
       ...(store.pays ? { pays: store.pays } : {}),
       shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address, ...(store.shipping.fee !== undefined ? { fee: store.shipping.fee } : {}), ...(store.shipping.cities ? { cities: store.shipping.cities } : {}) } : null,
     });

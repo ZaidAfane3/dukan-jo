@@ -5,6 +5,7 @@
 import { cleanProfile, cleanSetup, savedPhone } from "./safeAccount";
 import { nextProductId } from "./productIds";
 import { cleanProduct, money, parseList, productProblems, type Product } from "./records";
+import { kindHasSizes, kindShips, type ProductKind, type SizeStock } from "./safeOrder";
 
 export type SavedSetup = {
   name: string;
@@ -21,7 +22,9 @@ export type SavedSetup = {
   /* `quantity`: how many are for sale; left out when the stock is unlimited */
   /* `image`: its cropped picture (a small data URL); `id`: the product it became in the product list */
   /* `description`: the product's description (optional, the same rule as the product editor's) */
-  product: { type: number; name: string; price: string; quantity?: number; image?: string; description?: string; id?: number } | null;
+  /* `kind`: the product form's kinds (safeOrder PRODUCT_KINDS); `sizes`: clothing and shoes, each size and its stock;
+     `shipping`: false when he said it needs no delivery (a digital product or a service never ships) */
+  product: { kind: ProductKind; name: string; price: string; quantity?: number; image?: string; description?: string; id?: number; sizes?: SizeStock[]; shipping?: boolean } | null;
   /* `fee`: with his own courier, what a customer pays for delivery per order in JOD (left out or 0: free). Dukkan Ship
      has no fee of his: the price Dukkan's staff set in Diwan is charged */
   /* `cities`: with his own courier, the cities he delivers to (English names of safeOrder KNOWN_CITIES); left out: all */
@@ -70,7 +73,7 @@ export function loadSetup(): SavedSetup | null {
 
 /** Puts the product made in setup into the product list (or updates the one it made before), through the same checks as a
     product saved on the Products page, so it shows in Products and in the store with its picture. Returns its id. */
-export function syncSetupProduct(p: { name: string; price: string; quantity?: number; image?: string | null; description?: string }, id?: number): number | null {
+export function syncSetupProduct(p: { kind: ProductKind; name: string; price: string; quantity?: number; image?: string | null; description?: string; sizes?: SizeStock[]; shipping?: boolean }, id?: number): number | null {
   try {
     const KEY_PRODUCTS = "seen-products";
     const items = parseList(localStorage.getItem(KEY_PRODUCTS), cleanProduct);
@@ -78,6 +81,11 @@ export function syncSetupProduct(p: { name: string; price: string; quantity?: nu
     const next = cleanProduct({
       ...(old ?? { created: Date.now(), shipping: true }),
       id: old?.id ?? nextProductId(items),
+      /* the kind picked in setup, as on the Products page: clothing and shoes keep their sizes (their stock is the sizes',
+         cleanProduct adds them up), a kind that is not shipped is never shipped. A size chart added on the Products page stays. */
+      kind: p.kind,
+      sizes: kindHasSizes(p.kind) ? (p.sizes ?? []) : [],
+      shipping: kindShips(p.kind) && p.shipping !== false,
       name: p.name,
       price: money(p.price),
       /* the description written in setup; none given keeps the one the product has */

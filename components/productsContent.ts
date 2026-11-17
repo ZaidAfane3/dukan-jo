@@ -1,5 +1,6 @@
 import type { Lang } from "./content";
 import { arCount } from "./undo";
+import type { ProductKind } from "./safeOrder";
 
 export type FilterKey =
   | "all"
@@ -407,4 +408,74 @@ export const productsCopy: Record<Lang, Copy> = {
     undoForever: (name) => `حُذف «${name}» نهائيًا`,
     undoCat: (c) => `حُذف التصنيف «${c}»`,
   },
+};
+
+/* What kind of product it is, and the sizes of clothing and shoes: the product form (Products.tsx) and the setup's
+   first product (Onboarding.tsx) both read these, so the two always offer the same kinds with the same words */
+export const kindWords: Record<Lang, { kind: string; kindHint: string; names: Record<ProductKind, string>; about: Record<ProductKind, string>; chart: string; optional: string; chartHint: string; chartUpload: string; chartBusy: string; chartChange: string; chartRemove: string; chartBad: string; sizes: string; sizesHint: string; quick: string; addSize: string; sizeName: string; sizeQty: string; removeSize: string; total: string; errSizes: string; shipOff: (k: string) => string }> = {
+  ar: {
+    kind: "نوع المنتج",
+    kindHint: "يحدد ما يحتاجه المنتج: المقاسات والشحن والكمية.",
+    names: { standard: "منتج عادي", clothing: "ملابس", shoes: "أحذية", digital: "منتج رقمي", service: "خدمة" },
+    about: {
+      standard: "كمية واحدة للمنتج، مثل العطور والإكسسوارات والأجهزة.",
+      clothing: "مقاسات مثل S وM وL، ولكل مقاس كميته.",
+      shoes: "مقاسات بالأرقام مثل 40 و41، ولكل مقاس كميته.",
+      digital: "أكواد وبطاقات هدايا واشتراكات، تصل للعميل بلا شحن.",
+      service: "حجوزات وتصميم وتعليم وغيرها، بلا شحن ولا مقاسات.",
+    },
+    chart: "جدول المقاسات",
+    optional: "(اختياري)",
+    chartHint: "صورة لجدول مقاساتك، يفتحها العميل من صفحة المنتج بجانب المقاسات.",
+    chartUpload: "ارفع صورة الجدول",
+    chartBusy: "جارٍ الرفع…",
+    chartChange: "تغيير",
+    chartRemove: "حذف",
+    chartBad: "هذا الملف ليس صورة أو أكبر من 8 ميغابايت. استخدم PNG أو JPG أو WebP.",
+    sizes: "المقاسات",
+    sizesHint: "أضف المقاسات المتوفرة وكمية كل مقاس. المقاس الذي كميته صفر يظهر للعميل «نفد».",
+    quick: "إضافة سريعة:",
+    addSize: "+ مقاس آخر",
+    sizeName: "المقاس",
+    sizeQty: "الكمية",
+    removeSize: "حذف المقاس",
+    total: "مجموع الكمية",
+    errSizes: "أضف مقاسًا واحدًا على الأقل واكتب اسمه.",
+    shipOff: (k) => `غير متاح لأن نوع المنتج «${k}» لا يُشحن.`,
+  },
+  en: {
+    kind: "Product type",
+    kindHint: "Decides what the product needs: sizes, shipping and quantity.",
+    names: { standard: "Regular product", clothing: "Clothing", shoes: "Shoes", digital: "Digital product", service: "Service" },
+    about: {
+      standard: "One quantity for the product, like perfumes, accessories and devices.",
+      clothing: "Sizes like S, M and L, each with its own quantity.",
+      shoes: "Number sizes like 40 and 41, each with its own quantity.",
+      digital: "Codes, gift cards and subscriptions, delivered without shipping.",
+      service: "Bookings, design, lessons and more, with no shipping or sizes.",
+    },
+    chart: "Size chart",
+    optional: "(optional)",
+    chartHint: "A picture of your size chart. Customers open it from the product page, beside the sizes.",
+    chartUpload: "Upload the chart picture",
+    chartBusy: "Uploading…",
+    chartChange: "Change",
+    chartRemove: "Remove",
+    chartBad: "This file is not a picture, or it is bigger than 8 MB. Use PNG, JPG or WebP.",
+    sizes: "Sizes",
+    sizesHint: "Add the sizes you have and how many of each. A size with 0 shows to customers as sold out.",
+    quick: "Quick add:",
+    addSize: "+ Another size",
+    sizeName: "Size",
+    sizeQty: "Quantity",
+    removeSize: "Remove size",
+    total: "Total quantity",
+    errSizes: "Add at least one size and write its name.",
+    shipOff: (k) => `Not available because a “${k}” is not shipped.`,
+  },
+};
+/* the usual sizes, one press each */
+export const sizePresets: Partial<Record<ProductKind, string[]>> = {
+  clothing: ["XS", "S", "M", "L", "XL", "XXL", "3XL"],
+  shoes: ["36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46"],
 };

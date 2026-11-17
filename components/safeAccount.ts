@@ -10,7 +10,7 @@ import { jordanMobile, savedMobile, typedPhone } from "./phone";
 import { cleanDate, cleanLine, cleanLines, cleanMoney, emailOf, isSlug, safeColor, safeImage, safeStoredImage } from "./safe";
 import type { SavedSetup } from "./setup";
 import { PRODUCT_MAX } from "./records";
-import { savedCities, savedPays } from "./safeOrder";
+import { PRODUCT_KINDS, productKind, productSizes, savedCities, savedPays, type ProductKind } from "./safeOrder";
 
 /** The longest each field may be. The form fields use the same numbers. */
 export const ACCOUNT_LIMITS = {
@@ -91,8 +91,11 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
     logo: safeStoredImage(s.logo) || undefined,
     product: pr
       ? {
-          /* 0 shipped, 1 file, 2 card or code (the old 3, food and same-day orders, is gone: it becomes a shipped product) */
-          type: whole(pr.type, 0, 2, 0),
+          /* the product form's kinds. Setup saved before them had a `type`: 0 shipped (and the old 3, food) becomes a
+             regular product, 1 a file and 2 a card or code become a digital product */
+          kind: PRODUCT_KINDS.includes(pr.kind as ProductKind) ? productKind(pr.kind) : pr.type === 1 || pr.type === 2 ? "digital" : "standard",
+          ...(productSizes(pr).length ? { sizes: productSizes(pr) } : {}),
+          ...(pr.shipping === false ? { shipping: false } : {}),
           name: cleanLine(pr.name, ACCOUNT_LIMITS.productName),
           price,
           ...(pr.quantity !== undefined ? { quantity: whole(pr.quantity, 0, 9_999_999, 0) } : {}),

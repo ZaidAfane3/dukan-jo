@@ -103,7 +103,6 @@ export type Content = {
     errName: string;
     product: {
       typeQuestion: string;
-      types: { title: string; desc: string }[];
       dataTitle: string;
       imageAdd: string;
       imageBrowse: string;
@@ -591,11 +590,6 @@ export const content: Record<Lang, Content> = {
       errName: "Enter a store name, at least 2 letters.",
       product: {
         typeQuestion: "What type of product do you want to add?",
-        types: [
-          { title: "A product you ship", desc: "Clothes, perfumes, devices… needs delivery" },
-          { title: "A file to download", desc: "E-books, courses, designs… delivered instantly" },
-          { title: "A card or code", desc: "Gift cards, subscriptions, activation codes" },
-        ],
         dataTitle: "Add product details",
         imageAdd: "Add a new image",
         imageBrowse: "Choose from your device",
@@ -1179,11 +1173,6 @@ export const content: Record<Lang, Content> = {
       errName: "أدخل اسم المتجر، حرفان على الأقل.",
       product: {
         typeQuestion: "ما نوع المنتج الذي تود إضافته؟",
-        types: [
-          { title: "منتج يُشحن", desc: "ملابس، عطور، أجهزة… يحتاج توصيلًا" },
-          { title: "ملف للتحميل", desc: "كتب إلكترونية، دورات، تصاميم… يصل للعميل فورًا" },
-          { title: "بطاقة أو رمز", desc: "بطاقات هدايا، اشتراكات، أكواد تفعيل" },
-        ],
         dataTitle: "أضف بيانات المنتج",
         imageAdd: "أضف صورة جديدة",
         imageBrowse: "اختر من جهازك",
