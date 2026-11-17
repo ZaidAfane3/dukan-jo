@@ -412,7 +412,7 @@ export function Products() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   /* the "saved" card at the top: the product's name (empty: a product brought back from the bin) */
   const [flash, setFlash] = useState<{ name: string; n: number } | null>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout>>();
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const showSaved = (name: string) => {
     clearTimeout(flashTimer.current);
     setFlash((f) => ({ name, n: (f?.n ?? 0) + 1 }));

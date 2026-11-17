@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 /* Staff sign-in, outside the console's frame. Someone already signed in (with the 2-step code) goes straight in. */
 export default async function DiwanLoginPage() {
-  const s = await staffFromToken(cookies().get(STAFF_COOKIE)?.value).catch(() => null);
+  const s = await staffFromToken((await cookies()).get(STAFF_COOKIE)?.value).catch(() => null);
   if (s?.verified) redirect("/diwan");
   return <LoginForm />;
 }

@@ -149,7 +149,7 @@ function WhatsNewPopup({ slots, lang, act, titleId }: TemplateProps) {
 }
 
 /** Every template's component, by its id (every id of POPUP_TEMPLATE_RULES must have one) */
-export const POPUP_TEMPLATES: Record<TemplateId, (p: TemplateProps) => JSX.Element> = {
+export const POPUP_TEMPLATES: Record<TemplateId, (p: TemplateProps) => React.JSX.Element> = {
   card: CardPopup,
   "theme-gift": ThemeGiftPopup,
   "whats-new": WhatsNewPopup,
@@ -157,6 +157,6 @@ export const POPUP_TEMPLATES: Record<TemplateId, (p: TemplateProps) => JSX.Eleme
 
 /** Draws a pop-up by its template (nothing for a template this version does not know) */
 export function PopupTemplate({ template, ...p }: TemplateProps & { template: string }) {
-  const T = (POPUP_TEMPLATES as Record<string, ((p: TemplateProps) => JSX.Element) | undefined>)[template];
+  const T = (POPUP_TEMPLATES as Record<string, ((p: TemplateProps) => React.JSX.Element) | undefined>)[template];
   return T ? <T {...p} /> : null;
 }

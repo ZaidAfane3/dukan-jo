@@ -106,13 +106,14 @@ export const currentStaff = (req: NextRequest) => staffFromToken(req.cookies.get
 /** Wraps a Diwan API route: signed-in staff who passed the 2-step code, with the permission, and (for changes) from
     Dukkan's own pages. Database errors become a 503 like the other routes. */
 export function staffRoute(perm: Perm | null, fn: (req: NextRequest, staff: Staff, ctx: { params: Record<string, string> }) => Promise<NextResponse>) {
-  return async (req: NextRequest, ctx: { params: Record<string, string> } = { params: {} }) =>
+  /* Next 16 hands a route its URL parts as a promise; the routes inside get them already read */
+  return async (req: NextRequest, ctx?: { params?: Promise<Record<string, string>> }) =>
     guarded(async (r: NextRequest) => {
       if (r.method !== "GET" && r.method !== "HEAD" && !sameOrigin(r)) return answer({ result: "forbidden" }, 403);
       const s = await currentStaff(r);
       if (!s || !s.verified) return answer({ result: "signed-out" }, 401);
       if (perm && !can(s, perm)) return answer({ result: "not-allowed" }, 403);
-      return fn(r, s, ctx);
+      return fn(r, s, { params: (await ctx?.params) ?? {} });
     })(req);
 }
 

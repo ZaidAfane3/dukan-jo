@@ -18,13 +18,14 @@ export const dynamic = "force-dynamic";
 const MAX_BODY = 400;
 const done = () => new NextResponse(null, { status: 204, headers: { "Cache-Control": "no-store" } });
 
-export async function POST(req: NextRequest, ctx: { params: { slug: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
+  const p = await ctx.params;
   try {
     if (!sameOrigin(req) || isPrefetch(req) || isBot(req.headers.get("user-agent") ?? "")) return done();
     if (req.cookies.get(STAFF_COOKIE)?.value) return done();
     /* per visitor: a person opens far fewer pages than this */
     if (tooMany(req, "store-visit", 120, 10)) return done();
-    const slug = String(ctx.params.slug ?? "").toLowerCase().slice(0, 64);
+    const slug = String(p.slug ?? "").toLowerCase().slice(0, 64);
     /* per store, from every visitor together */
     if (tooManyFor(`store-visit-shop:${slug}`, 6000, 10)) return done();
     const body = await readJson(req, MAX_BODY);
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest, ctx: { params: { slug: string } }) 
     const signedIn = async () => (await currentAccount(req))?.id ?? null;
     void recordVisit(req, slug, body, signedIn).catch((e) => console.error("[store visit]", slug, e));
   } catch (e) {
-    console.error("[store visit]", ctx.params.slug, e);
+    console.error("[store visit]", p.slug, e);
   }
   return done();
 }

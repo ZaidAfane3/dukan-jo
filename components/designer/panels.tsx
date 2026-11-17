@@ -2173,7 +2173,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
      back the background that was there before */
   const [pending, setPending] = useState<{ id: string; src: string } | null>(null);
   const before = useRef(bg);
-  const saving = useRef<ReturnType<typeof setTimeout>>();
+  const saving = useRef<ReturnType<typeof setTimeout>>(undefined);
   const store = (id: string, url: string) =>
     fetch(url)
       .then((r) => r.blob())
