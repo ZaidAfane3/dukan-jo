@@ -3,6 +3,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { cleanFlag, FLAG_KEY, FLAGS_SQL } from "./shape";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export const POST = staffRoute("flags", async (req: NextRequest, me) => {
   try {
     await (await db()).query(
       `INSERT INTO feature_flags (key, name, description, mode, account_ids, updated_by) VALUES ($1, $2, $3, $4, $5::bigint[], $6)`,
-      [key, f.name, f.description, f.mode, f.accountIds, me.id],
+      plainParams([key, f.name, f.description, f.mode, f.accountIds, me.id]),
     );
   } catch (e) {
     if ((e as { code?: string }).code === "23505") return answer({ result: "taken" }, 409);

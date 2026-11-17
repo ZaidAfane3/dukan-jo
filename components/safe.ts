@@ -406,12 +406,46 @@ export function emailOf(s: unknown): string {
   return /^[^\s@"(),:;<>[\\\]]{1,64}@(?:[^\s@."(),:;<>[\\\]_]{1,63}\.)+[^\s@.\d"(),:;<>[\\\]_-]{2,63}$/.test(t) ? t : "";
 }
 
-/** A password people can set: 8 to 128 characters, not only spaces. Never trimmed or changed. */
+/* Passwords tried first by anyone guessing: the most common ones, and the names closest to Dukkan and its merchants.
+   Compared after the password is put in small letters, its look-alike signs are read as letters ("p@ssw0rd") and the
+   digits and signs at its end are dropped ("Password123!"). */
+const COMMON_PASSWORDS = new Set([
+  "password", "passwort", "pass", "passcode", "letmein", "welcome", "admin", "administrator", "root", "login", "master", "secret",
+  "qwerty", "qwertyui", "qwertyuiop", "asdfgh", "asdfghjk", "asdfghjkl", "zxcvbn", "zxcvbnm", "qazwsx", "qazwsxedc", "iqazwsx", "iqweear", "iqaz",
+  "iloveyou", "iloveu", "loveyou", "lovely", "princess", "sunshine", "monkey", "dragon", "shadow", "superman", "batman", "football",
+  "baseball", "soccer", "starwars", "whatever", "computer", "internet", "samsung", "iphone", "google", "facebook", "instagram",
+  "changeme", "default", "guest", "test", "testtest", "testing", "demo", "hello", "abc", "abcd", "aaa", "trustno", "freedom",
+  "dukkan", "dukan", "dukkanjo", "diwan", "store", "mystore", "shop", "myshop", "jordan", "amman", "irbid", "zarqa", "aqaba",
+  "habibi", "habibti", "mohammad", "mohammed", "muhammad", "ahmad", "ahmed", "allah", "bismillah", "yarab",
+]);
+const RUNS = ["abcdefghijklmnopqrstuvwxyz", "qwertyuiop", "asdfghjkl", "zxcvbnm", "01234567890123456789"];
+const backwards = (s: string) => s.split("").reverse().join("");
+
+/** True for a password that would be among the first guesses: only digits (a mobile, a date), one character or a short
+    piece repeated, letters or digits in a row ("12345678", "abcdefgh", "qwertyui"), or a very common word with or without
+    digits after it. The rule is the same in the browser and on the server. */
+export function isWeakPassword(s: string): boolean {
+  const t = s.toLowerCase();
+  if (/^\d+$/.test(t)) return true;
+  if (/^(.{1,4})\1+$/.test(t)) return true;
+  if (new Set(t).size < 4) return true;
+  if (RUNS.some((r) => r.includes(t) || backwards(r).includes(t))) return true;
+  const word = t
+    .replace(/[^a-z0-9@$!]+$/g, "")
+    .replace(/[0-9!@$]+$/g, "")
+    .replace(/@/g, "a").replace(/\$/g, "s").replace(/0/g, "o").replace(/[1!]/g, "i").replace(/3/g, "e").replace(/4/g, "a").replace(/5/g, "s").replace(/7/g, "t")
+    .replace(/[^a-z]/g, "");
+  return COMMON_PASSWORDS.has(word) || COMMON_PASSWORDS.has(t.replace(/[^a-z]/g, ""));
+}
+
+/** A password people can set: 8 to 128 characters, not only spaces, and not one that is easy to guess ("common": see
+    isWeakPassword). Never trimmed or changed. Passwords set before this rule keep working: it is only asked of a new one. */
 export const PASSWORD = { min: 8, max: 128 };
-export function passwordProblem(s: unknown): "short" | "long" | "blank" | null {
+export function passwordProblem(s: unknown): "short" | "long" | "blank" | "common" | null {
   if (typeof s !== "string" || s.length < PASSWORD.min) return "short";
   if (s.length > PASSWORD.max) return "long";
-  return /\S/.test(s) ? null : "blank";
+  if (!/\S/.test(s)) return "blank";
+  return isWeakPassword(s) ? "common" : null;
 }
 
 /** An amount of money in JOD: at most 3 decimals (fils), never negative, at most `max`. "1.50" becomes "1.5".
@@ -501,7 +535,32 @@ export const isRudeSlug = (s: string): boolean => {
   const flat = s.replace(/-/g, "");
   return BAD_ANYWHERE.some((w) => flat.includes(w)) || s.split("-").some((part) => BAD_PART.has(part));
 };
-/** A name the platform keeps, or a rude one, when a store chooses or changes its link */
-export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s) || isRudeSlug(s);
+/* Links that would look like Dukkan itself. Every store lives at Dukkan's own address, so a store at
+   ".../secure-login" or ".../dukkan-support" could pass for a page of the platform and ask people for their password.
+   - a part between dashes that names such a page ("my-login", "account-verify", "payments")
+   - the same words written without dashes ("helpcenter", "securelogin")
+   - Dukkan's or Diwan's name with one of those words, or a word a team uses, before or after it ("dukkan-team",
+     "pay-dukkan", "diwanstaff", "dukkan-jo"). The name with anything else stays free ("dukkan-ali"): it is an everyday
+     word for a shop. */
+const OFFICIAL_PART = new Set([
+  "login", "logon", "signin", "signup", "verify", "verified", "verification", "secure", "security", "official", "admin", "billing",
+  "password", "account", "accounts", "payment", "payments", "support", "helpdesk", "helpcenter", "helpcentre", "staff", "moderator",
+  "refund", "refunds",
+]);
+const OFFICIAL_ANYWHERE = ["helpcenter", "helpcentre", "helpdesk", "customerservice", "customercare", "securelogin", "signin", "resetpassword"];
+const BRANDS = ["dukkan", "dukan", "dokkan", "diwan"];
+const BRAND_COMPANION = new Set([
+  ...Array.from(OFFICIAL_PART), "team", "help", "care", "service", "services", "pay", "app", "jo", "store", "shop", "online", "com", "net",
+  "hq", "info", "news", "center", "centre", "portal", "panel", "dashboard",
+]);
+/** Whether a link could pass for a page of Dukkan's own */
+export const isOfficialSlug = (s: string): boolean => {
+  const flat = s.replace(/-/g, "");
+  if (s.split("-").some((part) => OFFICIAL_PART.has(part)) || OFFICIAL_ANYWHERE.some((w) => flat.includes(w))) return true;
+  return BRANDS.some((b) => (flat.startsWith(b) && BRAND_COMPANION.has(flat.slice(b.length))) || (flat.endsWith(b) && BRAND_COMPANION.has(flat.slice(0, -b.length))));
+};
+/** A name the platform keeps, a rude one, or one that looks like Dukkan's own, when a store chooses or changes its link. A
+    store that already has such a link keeps it (app/api/store checks only a link that changes). */
+export const reservedForNew = (s: string) => RESERVED_SLUGS.has(s) || RESERVED_FOR_NEW.has(s) || isRudeSlug(s) || isOfficialSlug(s);
 /** A link a store may choose now */
-export const isNewSlug = (s: unknown): s is string => isSlug(s) && !RESERVED_FOR_NEW.has(s) && !isRudeSlug(s);
+export const isNewSlug = (s: unknown): s is string => isSlug(s) && !RESERVED_FOR_NEW.has(s) && !isRudeSlug(s) && !isOfficialSlug(s);

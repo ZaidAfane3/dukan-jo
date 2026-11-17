@@ -8,6 +8,10 @@ const nextConfig = {
      `npm run build` still checks types as before */
   typescript: { ignoreBuildErrors: process.env.SKIP_CHECKS === "1" },
   eslint: { ignoreDuringBuilds: process.env.SKIP_CHECKS === "1" },
+  /* Dukkan serves its own pictures (/media/<id>) and never uses next/image, so Next's resizing address (/_next/image)
+     is switched off: it answers 404. Left on, anyone could ask it to resize a store's largest picture over and over and
+     use up the server's memory and disk. */
+  images: { unoptimized: true },
 };
 
 try {

@@ -38,8 +38,11 @@ const MAX_BODY = 8_000_000;
 /* about four times what a browser's localStorage holds */
 const MAX_TOTAL = 20_000_000;
 
-/* the keys the browser shares between accounts are never stored per account */
-const okKey = (k: string) => k.length > 0 && k.length <= MAX_KEY && !k.startsWith("dukkan-") && !k.startsWith("saad-") && !k.startsWith("acct:");
+/* the keys the browser shares between accounts are never stored per account. A key is a short name the pages choose: no
+   character that can't be seen or stored (a null character), and never the mark of a sealed value (server/crypto.ts:
+   db.ts would open it on the way out). */
+const okKey = (k: string) =>
+  k.length > 0 && k.length <= MAX_KEY && !/[\u0000-\u001f\u007f]/.test(k) && !k.startsWith("e1:") && !k.startsWith("dukkan-") && !k.startsWith("saad-") && !k.startsWith("acct:");
 
 /** All of the account's saved data, as { key: value }, or only the keys asked for (?keys=a,b). "rev": the newest store
     order the saved products and coupons include, read in the same query so it always matches them. */

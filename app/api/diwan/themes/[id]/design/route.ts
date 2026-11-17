@@ -3,6 +3,7 @@ import { sanitizeDesign } from "@/components/safeDesign";
 import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export const PUT = staffRoute("marketplace", async (req: NextRequest, me, { para
   const text = JSON.stringify(config);
   const { rowCount } = await (await db()).query(
     `UPDATE catalog_themes SET design = $2::jsonb, updated_by = $3, updated_at = now() WHERE id = $1 AND source = 'design'`,
-    [params.id, text, me.id],
+    plainParams([params.id, text, me.id]),
   );
   if (!rowCount) return answer({ result: "missing" }, 404);
   await audit(req, me.id, "theme.design", { type: "theme", id: params.id }, null, { bytes: text.length, sections: config.sections.length });

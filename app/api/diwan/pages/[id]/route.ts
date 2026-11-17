@@ -4,6 +4,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { cleanPage, PAGE_COLUMNS, type PageInput } from "@/server/dukkanPages";
 import { audit, staffRoute } from "@/server/staff";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export const PATCH = staffRoute("announce", async (req: NextRequest, me, { param
   values.push(me.id);
   sets.push(`updated_by = $${values.length + 1}`, `updated_at = now()`);
   try {
-    await pool.query(`UPDATE dukkan_pages SET ${sets.join(", ")} WHERE id = $1`, [params.id, ...values]);
+    await pool.query(`UPDATE dukkan_pages SET ${sets.join(", ")} WHERE id = $1`, plainParams([params.id, ...values]));
   } catch (e) {
     if ((e as { code?: string }).code === "23505") return answer({ result: "taken", field: "slug" }, 409);
     throw e;

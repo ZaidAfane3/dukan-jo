@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { cleanSetup } from "@/components/safeAccount";
-import { lookupKeys, seal } from "./crypto";
+import { lookupKeys, plainText, seal } from "./crypto";
 import { db } from "./db";
 
 /* The shops table: one row per merchant account, worked out on the server from what the merchant's pages sync to
@@ -86,7 +86,8 @@ export async function syncShop(accountId: string | number, q?: Q): Promise<void>
   const ship = setup?.shipping;
   const values = [
     accountId,
-    setup?.name ?? "",
+    /* the name and the pickup city are kept unsealed (Diwan searches them): made safe first (server/crypto.ts) */
+    plainText(setup?.name ?? ""),
     setup?.slug || null,
     seal(setup?.phone ?? ""),
     setup?.color ?? "",
@@ -94,7 +95,7 @@ export async function syncShop(accountId: string | number, q?: Q): Promise<void>
     !!k.published,
     !!k.paused,
     ship?.mode ?? "",
-    ship?.mode === "seen" ? ship.city : "",
+    plainText(ship?.mode === "seen" ? ship.city : ""),
     seal(ship?.mode === "seen" ? ship.address : ""),
     k.product_count,
     k.order_count,
@@ -168,7 +169,7 @@ export function touchShop(accountId: string | number): void {
 export const STATUS_SQL = `CASE WHEN s.status = 'suspended' THEN 'suspended' WHEN s.paused THEN 'paused' ELSE 'open' END`;
 
 /** Escapes % _ and \ so a search finds them as typed */
-export const likeText = (s: string) => `%${s.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+export const likeText = (s: string) => `%${s.replace(/[\u0000-\u001f\u007f]/g, "").replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
 /* ---------------- the shop list (Diwan's Shops page and its CSV) ---------------- */
 

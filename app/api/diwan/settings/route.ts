@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { forgetConfirmation, hasRealPassword, staffConfirmed } from "@/server/staffConfirm";
 import { inTransaction } from "@/server/tickets";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +61,7 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
     const value = cleanSetting(key, part ? { ...(now as Record<string, unknown>), ...part } : body?.value);
     /* thrown, so the transaction is rolled back and nothing (not even the starting row above) is kept */
     if (value === null) throw BAD;
-    await c.query(`UPDATE platform_settings SET value = $2, updated_by = $3, updated_at = now() WHERE key = $1`, [key, JSON.stringify(value), me.id]);
+    await c.query(`UPDATE platform_settings SET value = $2, updated_by = $3, updated_at = now() WHERE key = $1`, plainParams([key, JSON.stringify(value), me.id]));
     return { before: rows[0]?.updated_by == null ? null : saved, value };
   }).catch((e) => {
     if (e === BAD) return null;

@@ -3,6 +3,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { cleanItemFields, ITEM_KEY } from "../shape";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export const POST = staffRoute("marketplace", async (req: NextRequest, me) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO marketplace_items (developer_id, kind, key, name, description, price, version) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-      [f.developerId, kind, key, f.name, f.description, f.price, f.version],
+      plainParams([f.developerId, kind, key, f.name, f.description, f.price, f.version]),
     );
     id = String(rows[0].id);
   } catch (e) {

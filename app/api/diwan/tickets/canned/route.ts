@@ -2,6 +2,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { cleanLine, cleanLines } from "@/components/safe";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ export const PUT = staffRoute("tickets", async (req, staff) => {
   await (await db()).query(
     `INSERT INTO platform_settings (key, value, updated_by, updated_at) VALUES ($1, $2, $3, now())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-    [KEY, JSON.stringify(replies), staff.id],
+    plainParams([KEY, JSON.stringify(replies), staff.id]),
   );
   await audit(req, staff.id, "tickets.canned.save", { type: "setting", id: KEY }, null, { count: replies.length });
   return answer({ result: "ok", replies });

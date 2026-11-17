@@ -5,6 +5,7 @@ import { answer, readJson } from "@/server/auth";
 import { readListings } from "@/server/catalog";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export const POST = staffRoute("marketplace", async (req: NextRequest, me) => {
     `INSERT INTO catalog_themes (id, source, status, name, price, sort, design, created_by, updated_by)
      VALUES ($1, 'design', 'hidden', $2, 0, (SELECT COALESCE(max(sort), 0) + 10 FROM catalog_themes), $3, $4, $4)
      ON CONFLICT (id) DO NOTHING`,
-    [id, JSON.stringify(name), JSON.stringify(design), me.id],
+    plainParams([id, JSON.stringify(name), JSON.stringify(design), me.id]),
   );
   if (!rowCount) return answer({ result: "taken" }, 409);
   await audit(req, me.id, "theme.create", { type: "theme", id }, null, { name: name.en || name.ar });

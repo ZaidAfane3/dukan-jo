@@ -27,6 +27,8 @@ const live = {
     takenEmail: "Another account already uses this email.",
     takenPhone: "Another account already uses this number.",
     wrongCurrent: "This isn't your current password.",
+    needCurrent: "Enter your current password to change your email or mobile number.",
+    noteIdentity: "Changing your email or mobile number needs your current password.",
     slow: "Too many tries. Wait a few minutes and try again.",
     failed: "Couldn't save. Check your connection and try again.",
     saving: "Saving…",
@@ -38,6 +40,8 @@ const live = {
     takenEmail: "هذا البريد مستخدم في حساب آخر.",
     takenPhone: "هذا الرقم مستخدم في حساب آخر.",
     wrongCurrent: "هذه ليست كلمة المرور الحالية.",
+    needCurrent: "أدخل كلمة المرور الحالية لتغيير بريدك أو رقم جوالك.",
+    noteIdentity: "تغيير البريد أو رقم الجوال يحتاج إلى كلمة المرور الحالية.",
     slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مجددًا.",
     failed: "تعذّر الحفظ. تحقق من اتصالك وحاول مجددًا.",
     saving: "جارٍ الحفظ…",
@@ -183,7 +187,12 @@ export function Settings() {
     else if (p.dob && !cleanDate(p.dob, DOB_MIN, today)) e.dob = dobError[lang];
 
     /* Signed out or in the tour, passwords are only checked, never stored. Signed in, the server changes it. */
-    const changing = current !== "" || next !== "" || confirm !== "";
+    /* a new email or mobile (what the account signs in with) is kept by the server only with the current password */
+    const was = JSON.parse(kept) as Profile;
+    const identity = server && (emailOf(p.email) !== emailOf(was.email) || savedMobile(p.phone) !== savedMobile(was.phone));
+    if (identity && isBlank(current)) e.current = l.needCurrent;
+    /* the current password alone, typed for a new email or mobile, is not a change of password */
+    const changing = next !== "" || confirm !== "" || (current !== "" && !identity);
     if (changing) {
       if (isBlank(current)) e.current = s.errors.current;
       const pw = passwordProblem(next);
@@ -226,7 +235,10 @@ export function Settings() {
           setConfirm("");
         }
         const before = signedInAs();
-        const r = await merchantCall("/api/account", "PUT", clean);
+        /* the password as it is now: the new one when it was just changed above */
+        const r = await merchantCall("/api/account", "PUT", identity ? { ...clean, password: changing ? next : current } : clean);
+        if (r?.data.result === "password-needed") return void showErrors({ current: l.needCurrent });
+        if (r?.data.result === "wrong-password") return void showErrors({ current: l.wrongCurrent });
         if (r?.data.result === "taken") return void showErrors({ email: l.takenEmail });
         if (r?.data.result === "taken-phone") return void showErrors({ phone: l.takenPhone });
         if (r?.data.result === "invalid") return void showErrors({ name: s.errors.name });
@@ -337,7 +349,7 @@ export function Settings() {
                 <input id="set-confirm" aria-invalid={!!errors.confirm} type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={s.password.ph} autoComplete="new-password" className={`${field} ${errors.confirm ? bad : ""}`} />
               </Field>
             </div>
-            <p className="text-xs text-muted">{server ? l.note : s.password.note}</p>
+            <p className="text-xs text-muted">{server ? `${l.note} ${l.noteIdentity}` : s.password.note}</p>
           </div>
         </section>
         <TwoStepSettings />

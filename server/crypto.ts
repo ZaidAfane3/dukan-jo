@@ -117,6 +117,54 @@ export function sealDeep(v: unknown, keepSealed = false, depth = 0): unknown {
   return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, sealDeep(x, keepSealed, depth + 1)]));
 }
 
+/* ---------------- text kept as it is (not private), made safe ----------------
+
+   db.ts opens every text that starts with the "e1:" mark on its way out of the database, whatever column it sits in. So a
+   text that is stored WITHOUT being sealed (a store's name, the product names on an order, a payment's reference, a
+   page's words) must never start with that mark:
+   - someone holding a copy of the database could put a sealed value copied from it (another shop's email, a 2-step
+     secret) into such a field and read it back opened, without ever having the key;
+   - any other text starting with the mark can't be opened, which stops every answer that carries its row.
+   Everything stored unsealed goes through one of these first. A text that starts with the mark is sealed itself, so it
+   comes back exactly as it was typed (as the text "e1:...", never as what that text would open to); any other text is
+   kept as it is, so the columns stay searchable. */
+
+/** A text for a column that is not sealed */
+export function plainText(v: string): string;
+export function plainText(v: string | null | undefined): string | null;
+export function plainText(v: string | null | undefined): string | null {
+  if (v == null) return null;
+  return v.startsWith(MARK) ? seal(v) : v;
+}
+
+/** The same for every text inside a JSON value kept unsealed (an order's lines, a design, a setting). Below the depth
+    db.ts opens to, a text starting with the mark gets an invisible character in front instead, so it is never taken for
+    a sealed one. */
+export function plainDeep<T>(v: T, depth = 0): T {
+  if (typeof v === "string") return (v.startsWith(MARK) ? (depth > 8 ? `\u200b${v}` : seal(v)) : v) as unknown as T;
+  if (v == null || typeof v !== "object" || v instanceof Date || Buffer.isBuffer(v)) return v;
+  if (Array.isArray(v)) return v.map((x) => plainDeep(x, depth + 1)) as unknown as T;
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, plainDeep(x, depth + 1)])) as T;
+}
+
+/** The values of a query that stores unsealed text: each text made safe (plainText), also inside lists and inside JSON
+    already turned into text. Never for a query that also carries sealed values: they would be sealed twice. */
+export function plainParams(values: unknown[]): unknown[] {
+  return values.map((v) => {
+    if (Array.isArray(v)) return v.map((x) => (typeof x === "string" ? plainText(x) : x));
+    if (typeof v !== "string") return v;
+    if (v.startsWith(MARK)) return seal(v);
+    if ((v.startsWith("{") || v.startsWith("[") || v.startsWith('"')) && v.includes(`"${MARK}`)) {
+      try {
+        return JSON.stringify(plainDeep(JSON.parse(v)));
+      } catch {
+        return v;
+      }
+    }
+    return v;
+  });
+}
+
 /** A keyed fingerprint for finding a value without storing it (pass the value already in its saved form) */
 export function blind(text: string): string {
   return createHmac("sha256", loadKeys().idx).update(text, "utf8").digest("hex");

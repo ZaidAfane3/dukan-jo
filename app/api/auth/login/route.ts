@@ -1,16 +1,27 @@
 import type { NextRequest } from "next/server";
 import { savedMobile } from "@/components/phone";
-import { answer, checkPassword, guarded, noteLogin, readJson, sameOrigin, startSession, suspendedReply, tooMany } from "@/server/auth";
+import { answer, checkPassword, clearFailures, failedTooOften, guarded, hashPassword, noteFailure, noteLogin, readJson, sameOrigin, startSession, suspendedReply, tooMany } from "@/server/auth";
 import { emailKey, phoneKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { touchShop } from "@/server/shops";
 
 export const dynamic = "force-dynamic";
 
-/* Signs in with an email or the mobile number the account signed up with. Answers: "ok", "none" (no such account),
-   "wrong" (the password does not match), as the sign-in form expects; "suspended" (Dukkan suspended the store: no
-   sign-in until it is back; with the reason staff wrote and since when, so the merchant knows why); "code" (the account has 2-step codes on: the session waits for the code, given to
-   /api/auth/totp within 10 minutes). */
+/* Signs in with an email or the mobile number the account signed up with. Answers: "ok"; "wrong" (no such account, or
+   the password does not match: the same answer, after the same wait, so nobody can test which emails and mobiles have an
+   account); "slow-down" (too many wrong tries from this address, or on this email or mobile from anywhere: wait 15
+   minutes); "suspended" (Dukkan suspended the store: no sign-in until it is back; with the reason staff wrote and since
+   when, told only after the right password); "code" (the account has 2-step codes on: the session waits for the code,
+   given to /api/auth/totp within 10 minutes). */
+
+/* an unknown email or mobile is checked against this, so it takes as long as a wrong password */
+let dummy: Promise<string> | null = null;
+const dummyHash = () => (dummy ??= hashPassword("dukkan-no-such-account"));
+
+/* wrong tries on one email or mobile, from every address together */
+const ACCOUNT_TRIES = 10;
+const ACCOUNT_WAIT = 15;
+
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   if (tooMany(req, "login", 20, 15)) return answer({ result: "slow-down" }, 429);
@@ -29,8 +40,16 @@ export const POST = guarded(async (req: NextRequest) => {
     [emailKey(id), phoneKey(savedMobile(id)) ?? ""],
   );
   const a = rows[0];
-  if (!a) return answer({ result: "none" }, 401);
-  if (!(await checkPassword(password, a.password_hash))) return answer({ result: "wrong" }, 401);
+  /* wrong tries are counted per account (its email and its mobile together), and for an email or mobile nobody has by
+     what was typed, so it waits the same way as a real one */
+  const mobile = savedMobile(id);
+  const who = a ? `login:account:${a.id}` : `login:${mobile ? phoneKey(mobile) : emailKey(id)}`;
+  if (failedTooOften(who, ACCOUNT_TRIES)) return answer({ result: "slow-down" }, 429);
+  if (!(await checkPassword(password, a?.password_hash ?? (await dummyHash()))) || !a) {
+    noteFailure(who, ACCOUNT_WAIT);
+    return answer({ result: "wrong" }, 401);
+  }
+  clearFailures(who);
   /* told only to someone who knows the password, and the reason only then */
   if (a.suspended) return answer(suspendedReply(a.suspend_reason, a.suspended_at), 403);
 

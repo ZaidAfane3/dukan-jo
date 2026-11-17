@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { answer, currentAccount, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { newTotpSecret, totpLink, totpOk } from "@/server/staff";
+import { newTotpSecret, totpLink, useTotpCode } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -28,14 +28,15 @@ export const POST = guarded(async (req: NextRequest) => {
 
   if (typeof body?.code !== "string") {
     const secret = newTotpSecret();
-    await pool.query(`UPDATE accounts SET totp_secret = $2 WHERE id = $1 AND NOT totp_on`, [a.id, seal(secret)]);
+    await pool.query(`UPDATE accounts SET totp_secret = $2, totp_last_step = NULL WHERE id = $1 AND NOT totp_on`, [a.id, seal(secret)]);
     return answer({ result: "ok", secret, grouped: grouped(secret), link: totpLink(secret, a.email, "Dukkan") });
   }
   if (tooMany(req, "totp-setup", 10, 15)) return answer({ result: "slow-down" }, 429);
   const { rows } = await pool.query(`SELECT totp_secret FROM accounts WHERE id = $1`, [a.id]);
   const secret = rows[0]?.totp_secret;
   if (!secret) return answer({ result: "start-again" }, 400);
-  if (!totpOk(secret, body.code)) return answer({ result: "wrong" }, 400);
+  /* used up like a sign-in code, so the code that turned 2-step on can't also sign someone in */
+  if (!(await useTotpCode("accounts", a.id, secret, body.code))) return answer({ result: "wrong" }, 400);
   await pool.query(`UPDATE accounts SET totp_on = true WHERE id = $1`, [a.id]);
   return answer({ result: "ok", on: true });
 });

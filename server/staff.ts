@@ -170,12 +170,28 @@ function totpAt(secret: string, step: number): string {
   return String(n % 1_000_000).padStart(6, "0");
 }
 
-/** True when the code matches now, or one step either side (clock drift) */
-export function totpOk(secret: string, code: string): boolean {
+/** The 30-second step a code belongs to (now, or one step either side for clock drift), or null when it matches none */
+export function totpStep(secret: string, code: string): number | null {
   const c = code.replace(/\s/g, "");
-  if (!/^\d{6}$/.test(c)) return false;
+  if (!/^\d{6}$/.test(c)) return null;
   const step = Math.floor(Date.now() / 30_000);
-  return [-1, 0, 1].some((d) => timingSafeEqual(Buffer.from(totpAt(secret, step + d)), Buffer.from(c)));
+  let found: number | null = null;
+  /* every step is compared, whichever matches, so the time taken says nothing */
+  for (const d of [-1, 0, 1]) if (timingSafeEqual(Buffer.from(totpAt(secret, step + d)), Buffer.from(c)) && found === null) found = step + d;
+  return found;
+}
+
+/** True when the code matches now, or one step either side (clock drift) */
+export const totpOk = (secret: string, code: string): boolean => totpStep(secret, code) !== null;
+
+/** Checks a sign-in code and uses it up: a code (and any older one) is accepted once, so a code that was seen or caught
+    on its way can't be given again in the 90 seconds it stays right. `table`: whose code it is. False for a wrong code
+    and for one already used. The step is kept on the account (totp_last_step), so two tries at once can't both pass. */
+export async function useTotpCode(table: "accounts" | "staff", id: string, secret: string, code: string): Promise<boolean> {
+  const step = totpStep(secret, code);
+  if (step === null) return false;
+  const r = await (await db()).query(`UPDATE ${table} SET totp_last_step = $2 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)`, [id, step]);
+  return !!r.rowCount;
 }
 
 /** The link authenticator apps read (also shown as text to type in). issuer: the name the app shows ("Dukkan" for merchants). */

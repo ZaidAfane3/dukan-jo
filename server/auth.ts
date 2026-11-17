@@ -200,11 +200,45 @@ export function tooManyFor(key: string, max: number, minutes: number): boolean {
   return t.n > max;
 }
 
-/** Reads a JSON object body of at most `max` characters, or null */
+/* Wrong tries counted per account (or per anything else named by `key`), whatever address they come from: after `max`
+   wrong tries in `minutes` the key waits. Only wrong tries count, and a right one clears them, so someone who knows the
+   password is never slowed down by their own sign-ins. Kept in memory, like the limit above. */
+const fails = new Map<string, { n: number; until: number }>();
+/** True while this key has had too many wrong tries */
+export function failedTooOften(key: string, max: number): boolean {
+  const f = fails.get(key);
+  return !!f && f.until > Date.now() && f.n >= max;
+}
+/** Notes one wrong try for this key */
+export function noteFailure(key: string, minutes: number): void {
+  const now = Date.now();
+  if (fails.size > 10_000) fails.forEach((v, k) => v.until < now && fails.delete(k));
+  const f = fails.get(key);
+  if (!f || f.until < now) fails.set(key, { n: 1, until: now + minutes * 60_000 });
+  else f.n++;
+}
+/** Forgets the wrong tries of this key (the right password was given) */
+export const clearFailures = (key: string): void => void fails.delete(key);
+
+/** Reads a JSON object body of at most `max` bytes, or null. The body is read piece by piece and dropped as soon as it
+    is longer than `max`, so a huge body (sent without a Content-Length, or with a false one) is never held in memory. */
 export async function readJson(req: NextRequest, max: number): Promise<Record<string, unknown> | null> {
   if (Number(req.headers.get("content-length") ?? 0) > max) return null;
-  const text = await req.text();
-  if (text.length > max) return null;
+  const reader = req.body?.getReader();
+  if (!reader) return null;
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  const text = Buffer.concat(parts).toString("utf8");
   try {
     const v = JSON.parse(text);
     return v && typeof v === "object" && !Array.isArray(v) ? v : null;
@@ -221,6 +255,10 @@ export function guarded(fn: (req: NextRequest) => Promise<NextResponse>) {
     try {
       return await fn(req);
     } catch (e) {
+      /* text the database can't keep (a null character, broken Unicode) or an address that can't be read: the
+         request is wrong, the server is fine */
+      const code = (e as { code?: string })?.code;
+      if (code === "22021" || code === "22P05" || e instanceof URIError) return answer({ result: "invalid" }, 400);
       console.error("[api]", req.method, req.nextUrl.pathname, e);
       return answer({ result: "error" }, 503);
     }

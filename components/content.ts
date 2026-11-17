@@ -63,8 +63,8 @@ export type Content = {
     errTaken: string;
     errPhoneTaken: string;
     errServer: string;
-    errNoAccount: string;
     errWrongPassword: string;
+    errTooMany: string;
     terms: { before: string; terms: string; and: string; privacy: string };
     side: { kicker: string; heading: string; panelTitle: string; steps: string[]; caption: string };
   };
@@ -522,8 +522,8 @@ export const content: Record<Lang, Content> = {
       errTaken: "This email already has an account. Log in instead.",
       errPhoneTaken: "This mobile number already has an account. Log in instead.",
       errServer: "We couldn't reach Dukkan right now. Check your connection and try again.",
-      errNoAccount: "No account with this email or number. Create one first.",
-      errWrongPassword: "The password is not right. Try again.",
+      errWrongPassword: "The email, number or password is not right. Try again.",
+      errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
       terms: {
         before: "By creating an account, you agree to Dukkan's ",
         terms: "Terms of Service",
@@ -1102,8 +1102,8 @@ export const content: Record<Lang, Content> = {
       errTaken: "يوجد حساب بهذا البريد. سجّل الدخول بدلًا من ذلك.",
       errPhoneTaken: "يوجد حساب بهذا الرقم. سجّل الدخول بدلًا من ذلك.",
       errServer: "تعذّر الاتصال بدكان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
-      errNoAccount: "لا يوجد حساب بهذا البريد أو الرقم. أنشئ حسابًا أولًا.",
-      errWrongPassword: "كلمة المرور غير صحيحة. حاول مرة أخرى.",
+      errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
+      errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
       terms: {
         before: "بإنشائك حسابًا، فإنك توافق على ",
         terms: "شروط الاستخدام",
