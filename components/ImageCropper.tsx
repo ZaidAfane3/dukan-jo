@@ -93,7 +93,7 @@ export function ImageCropper({
   const latest = useRef({ crop, shape });
   latest.current = { crop, shape };
   const drawing = useRef(false);
-  const sharp = useRef<ReturnType<typeof setTimeout>>();
+  const sharp = useRef<ReturnType<typeof setTimeout>>(undefined);
   const again = useRef(false);
   const open = useRef(true);
   useEffect(() => {

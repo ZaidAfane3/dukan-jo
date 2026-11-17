@@ -123,12 +123,13 @@ export type Merchant = { id: string; email: string; name: string };
 
 /** Wraps a merchant route: signed in, and (for changes) from Dukkan's own pages. Database errors become a 503. */
 export function merchantRoute(fn: (req: NextRequest, me: Merchant, ctx: { params: Record<string, string> }) => Promise<NextResponse>) {
-  return async (req: NextRequest, ctx: { params: Record<string, string> } = { params: {} }) =>
+  /* Next 16 hands a route its URL parts as a promise; the routes inside get them already read */
+  return async (req: NextRequest, ctx?: { params?: Promise<Record<string, string>> }) =>
     guarded(async (r: NextRequest) => {
       if (r.method !== "GET" && r.method !== "HEAD" && !sameOrigin(r)) return answer({ result: "forbidden" }, 403);
       const a = await currentAccount(r);
       if (!a) return answer({ result: "signed-out" }, 401);
-      return fn(r, { id: a.id, email: a.email, name: a.name }, ctx);
+      return fn(r, { id: a.id, email: a.email, name: a.name }, { params: (await ctx?.params) ?? {} });
     })(req);
 }
 

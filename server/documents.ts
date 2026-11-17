@@ -107,13 +107,14 @@ export function fileResponse(row: { data: Buffer | null; mime: string | null; na
 /** Wraps a merchant documents route. Signed in, and for changes: from Dukkan's own pages and not a suspended store (the
     same refusals as saving the store, app/api/store). Database errors become a 503. */
 export function documentsRoute(fn: (req: NextRequest, me: SessionAccount, ctx: { params: Record<string, string> }) => Promise<NextResponse>) {
-  return async (req: NextRequest, ctx: { params: Record<string, string> } = { params: {} }) =>
+  /* Next 16 hands a route its URL parts as a promise; the routes inside get them already read */
+  return async (req: NextRequest, ctx?: { params?: Promise<Record<string, string>> }) =>
     guarded(async (r: NextRequest) => {
       const change = r.method !== "GET" && r.method !== "HEAD";
       if (change && !sameOrigin(r)) return answer({ result: "forbidden" }, 403);
       const a = await currentAccount(r);
       if (!a) return answer({ result: "signed-out" }, 401);
       if (change && a.suspended) return answer({ result: "suspended" }, 423);
-      return fn(r, a, ctx);
+      return fn(r, a, { params: (await ctx?.params) ?? {} });
     })(req);
 }

@@ -69,5 +69,5 @@ async function serve(req: NextRequest, id: string, head: boolean): Promise<NextR
   }
 }
 
-export const GET = (req: NextRequest, ctx: { params: { id: string } }) => serve(req, ctx.params.id, false);
-export const HEAD = (req: NextRequest, ctx: { params: { id: string } }) => serve(req, ctx.params.id, true);
+export const GET = async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => serve(req, (await ctx.params).id, false);
+export const HEAD = async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => serve(req, (await ctx.params).id, true);

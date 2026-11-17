@@ -16,7 +16,8 @@ export const dynamic = "force-dynamic";
 
 const MAX_BODY = 16_000;
 
-export async function POST(req: NextRequest, ctx: { params: { slug: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
+  const p = await ctx.params;
   try {
     if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
     /* per visitor: enough for a team testing from one office, too few to empty a store */
@@ -24,11 +25,11 @@ export async function POST(req: NextRequest, ctx: { params: { slug: string } }) 
     const body = await readJson(req, MAX_BODY);
     if (!body) return answer({ result: "too-big" }, 413);
     /* per store, from every visitor together */
-    if (tooManyFor(`store-order-shop:${String(ctx.params.slug ?? "").toLowerCase().slice(0, 64)}`, 60, 60)) return answer({ result: "slow-down" }, 429);
-    const r = await placeStoreOrder(ctx.params.slug, body);
+    if (tooManyFor(`store-order-shop:${String(p.slug ?? "").toLowerCase().slice(0, 64)}`, 60, 60)) return answer({ result: "slow-down" }, 429);
+    const r = await placeStoreOrder(p.slug, body);
     return answer(r.body, r.status);
   } catch (e) {
-    console.error("[store order]", ctx.params.slug, e);
+    console.error("[store order]", p.slug, e);
     return answer({ result: "error" }, 503);
   }
 }

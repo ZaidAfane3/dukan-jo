@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 /* Every Diwan page sits behind this check, on the server: a staff session that passed the 2-step code. The data
    itself comes from /api/diwan/... routes, which check again (and check the role). */
 export default async function DiwanLayout({ children }: { children: React.ReactNode }) {
-  const s = await staffFromToken(cookies().get(STAFF_COOKIE)?.value);
+  const s = await staffFromToken((await cookies()).get(STAFF_COOKIE)?.value);
   if (!s || !s.verified) redirect("/diwan/login");
   /* the host draws the questions any page asks with askConfirm / askText / tell (components/diwan/dialogs.tsx) */
   return (

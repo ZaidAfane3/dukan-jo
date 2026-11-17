@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: "Dukkan | From Dukkan",
 };
 
-export default function DukkanPage({ params }: { params: { slug: string } }) {
+export default async function DukkanPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   return <FromDukkanPage slug={params.slug} />;
 }

@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 /* the page and its title ask once per visit */
 const load = cache((slug: string) => publicStore(slug));
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const params = await props.params;
   /* a link name no shop has: the page below says so (middleware.ts gives it the 404) */
   const store = await load(params.slug);
   if (!store) return { title: "Dukkan", robots: { index: false, follow: false } };
@@ -26,7 +27,8 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   return { title: store.setup.name || "Dukkan", description: store.setup.description.slice(0, 160) || undefined };
 }
 
-export default async function StorePage({ params }: { params: { slug: string } }) {
+export default async function StorePage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const store = await load(params.slug);
   /* drawn here rather than with notFound(): Next 14 shows its own plain page for a notFound() from this segment */
   if (!store) return <MissingPage />;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, use } from "react";
 import { ActivityText, type ActivityRow } from "@/components/diwan/ActivityLine";
 import { ContactDialog } from "@/components/diwan/Contact";
 import { ticketHref } from "@/components/diwan/TicketChat";
@@ -78,7 +78,8 @@ const reportTone: Record<ReportRow["status"], Tone> = { new: "red", checking: "a
    all" to the full list narrowed to this store. A part shows only to staff whose role may open its own page (the server
    sends nothing for the others). The actions are only shown to staff whose role allows them (the server checks again).
    The owner's email and mobile are behind the Contact button, not printed on the page. */
-export default function ShopPage({ params }: { params: { id: string } }) {
+export default function ShopPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const t = useT();
   const f = useFmt();
   const s = useApi<Detail>(`/api/diwan/shops/${encodeURIComponent(params.id)}`);
