@@ -322,8 +322,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
      Ship. A merchant with his own courier charges his own fee instead (set on the Delivery page). Orders reaching the
      free delivery amount pay nothing either way */
   const platform = usePublicSettings();
-  /* the ways Dukkan has on that he chose (the server takes the same: safeOrder orderPays) */
-  const pays = orderPays(storePays(platform), choicesFix ? choicesFix.pays : chosenPays);
+  /* the ways Dukkan has on that he chose (the server takes the same: safeOrder orderPays). After a refusal the server's
+     list is already worked out from Diwan's current settings, so it is used as it is (this page's settings may be older) */
+  const pays = choicesFix ? choicesFix.pays : orderPays(storePays(platform), chosenPays);
   /* home delivery as the server works it out (safeOrder storeDelivery): Dukkan Ship's cities and price from Diwan, or
      his own courier's cities and fee; null when he has not chosen how he delivers (then only pickup, or no order) */
   const offer = storeDelivery(shipMode, { price: platform.dukkan_ship.price, cities: shipCityLists(platform) }, { fee: typeof ownFee === "number" ? ownFee : undefined, cities: ownCities });
