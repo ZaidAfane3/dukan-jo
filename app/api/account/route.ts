@@ -50,10 +50,9 @@ export const PUT = guarded(async (req: NextRequest) => {
     if (failedTooOften(who, 5)) return answer({ result: "slow-down" }, 429);
     const password = body?.password;
     if (typeof password !== "string" || !password) return answer({ result: "password-needed" }, 403);
-    if (password.length > 128 || !(await checkPassword(password, cur.rows[0].password_hash))) {
-      noteFailure(who, 15);
-      return answer({ result: "wrong-password" }, 403);
-    }
+    /* counted before the check (as signing in does), so tries sent all at once can't all get past the limit */
+    noteFailure(who, 15);
+    if (password.length > 128 || !(await checkPassword(password, cur.rows[0].password_hash))) return answer({ result: "wrong-password" }, 403);
     clearFailures(who);
   }
 

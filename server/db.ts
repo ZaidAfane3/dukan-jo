@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from "pg";
-import { isSealed, open } from "./crypto";
+import { isSealed, open, OPEN_DEPTH } from "./crypto";
 import { encryptOldRows } from "./encryptData";
 import { moveOldPictures } from "./media";
 import { DIWAN_SCHEMA } from "./schema";
@@ -43,7 +43,7 @@ const SCHEMA = `
 
 /* Walks an answer (rows, and the JSON in them) and opens every sealed text */
 function openDeep(v: unknown, depth = 0): unknown {
-  if (depth > 8 || v == null) return v;
+  if (depth > OPEN_DEPTH || v == null) return v;
   if (typeof v === "string") return isSealed(v) ? open(v) : v;
   if (typeof v !== "object" || v instanceof Date || Buffer.isBuffer(v)) return v;
   if (Array.isArray(v)) {
