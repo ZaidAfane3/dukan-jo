@@ -45,10 +45,10 @@ export const POST = guarded(async (req: NextRequest) => {
   const mobile = savedMobile(id);
   const who = a ? `login:account:${a.id}` : `login:${mobile ? phoneKey(mobile) : emailKey(id)}`;
   if (failedTooOften(who, ACCOUNT_TRIES)) return answer({ result: "slow-down" }, 429);
-  if (!(await checkPassword(password, a?.password_hash ?? (await dummyHash()))) || !a) {
-    noteFailure(who, ACCOUNT_WAIT);
-    return answer({ result: "wrong" }, 401);
-  }
+  /* the try is counted before the password is checked, in the same step as the look above: tries sent all at once
+     can't all pass the look while the first ones are still being checked. The right password forgets them again. */
+  noteFailure(who, ACCOUNT_WAIT);
+  if (!(await checkPassword(password, a?.password_hash ?? (await dummyHash()))) || !a) return answer({ result: "wrong" }, 401);
   clearFailures(who);
   /* told only to someone who knows the password, and the reason only then */
   if (a.suspended) return answer(suspendedReply(a.suspend_reason, a.suspended_at), 403);
