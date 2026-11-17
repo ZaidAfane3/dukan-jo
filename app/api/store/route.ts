@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { answer, currentAccount, guarded, readJson, sameOrigin } from "@/server/auth";
+import { answer, currentAccount, guarded, otherAccount, readJson, sameOrigin } from "@/server/auth";
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
@@ -8,6 +8,8 @@ import { movePicturesOut } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
 import { mergeOnlineSales, ONLINE_KEYS, onlineRev, shopLock, type OnlineKey } from "@/server/storeOrders";
 import { cleanThemeState, themeOwner } from "@/server/themeOwnership";
+import { valueVersion } from "@/server/storeVersion";
+import { LIST_KEYS } from "@/components/listMerge";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +28,10 @@ export const dynamic = "force-dynamic";
    keeps the smaller copy too. The size limits below are checked after that, so they only count the merchant's words and
    numbers. Too big after that: 413 "too-big" with the key, and nothing is written.
 
-   Themes: the "seen-themes" key says which themes the store has. What it says about a paid theme is kept only when
-   Dukkan recorded the purchase (server/themeOwnership.ts); the corrected value comes back in "rewritten" too.
+   Themes: the "seen-themes" key says which themes the store has and which one it uses. What it says about a paid theme
+   is kept only when Dukkan recorded the purchase (server/themeOwnership.ts); the corrected value comes back in
+   "rewritten" too. A save that puts a paid theme he did not buy on the store is not kept for that key (and the design
+   sent with it): "refused" gives each such key { result: "theme-not-bought", theme, value: the server's copy }.
 
    Store orders: customers' orders on the public store take stock out of the saved products (and count coupon uses)
    on the server, and count them as online sales on each product and coupon (server/storeOrders.ts). A save of the
@@ -53,6 +57,8 @@ const okKey = (k: string) =>
 export const GET = guarded(async (req: NextRequest) => {
   const a = await currentAccount(req);
   if (!a) return answer({ result: "none" }, 401);
+  /* a tab still on the account signed in before must not take this one's data */
+  if (otherAccount(req, a)) return answer({ result: "other-account" }, 409);
   touchShop(a.id);
   const only = (req.nextUrl.searchParams.get("keys") ?? "").split(",").filter((k) => k && okKey(k)).slice(0, 20);
   const pool = await db();
@@ -62,9 +68,14 @@ export const GET = guarded(async (req: NextRequest) => {
     only.length ? [a.id, only] : [a.id],
   );
   const data: Record<string, string> = {};
-  for (const r of rows) data[r.key] = r.value;
+  /* the version of each list, which the browser names when it saves it (see PUT "base") */
+  const versions: Record<string, string> = {};
+  for (const r of rows) {
+    data[r.key] = r.value;
+    if (LIST_KEYS.has(r.key)) versions[r.key] = valueVersion(r.value);
+  }
   const rev = rows.length ? Number(rows[0].rev) : await onlineRev(pool, a.id);
-  return answer({ result: "ok", data, rev });
+  return answer({ result: "ok", data, rev, versions });
 });
 
 /** Saves changes: { set: { key: value }, remove: [key] }. Answers { result: "ok", rewritten?: { key: value } } */
@@ -72,6 +83,8 @@ export const PUT = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   const a = await currentAccount(req);
   if (!a) return answer({ result: "none" }, 401);
+  /* a tab still on the account signed in before must not save its data under this one */
+  if (otherAccount(req, a)) return answer({ result: "other-account" }, 409);
   if (a.suspended) return answer({ result: "suspended" }, 423);
   const body = await readJson(req, MAX_BODY);
   if (!body) return answer({ result: "too-big" }, 413);
@@ -80,6 +93,11 @@ export const PUT = guarded(async (req: NextRequest) => {
   if (set.length + remove.length > 500) return answer({ result: "invalid" }, 400);
   for (const [k, v] of set) if (!okKey(k) || typeof v !== "string") return answer({ result: "invalid" }, 400);
   for (const k of remove) if (typeof k !== "string" || !okKey(k)) return answer({ result: "invalid" }, 400);
+  /* the version each list's copy came from ("" when the browser had none on the server): a list changed since is not
+     saved, and the answer gives it as it is now ("stale"), for the browser to merge with its own and send again */
+  const base: Record<string, string> = {};
+  if (body.base && typeof body.base === "object" && !Array.isArray(body.base))
+    for (const [k, v] of Object.entries(body.base as Record<string, unknown>)) if (LIST_KEYS.has(k) && typeof v === "string" && v.length <= 64) base[k] = v;
   const online = set.filter(([k]) => (ONLINE_KEYS as readonly string[]).includes(k));
 
   /* pictures still inside the data become files, before anything is measured */
@@ -91,14 +109,27 @@ export const PUT = guarded(async (req: NextRequest) => {
       rewritten[entry[0]] = next;
     }
   }
-  /* what the browser says about its themes is checked against the purchases Dukkan recorded: a paid theme the store did
-     not buy leaves its "owned" list and is not counted as the theme in use (server/themeOwnership.ts) */
+  /* what the browser says about its themes is checked against the purchases Dukkan recorded (server/themeOwnership.ts):
+     a paid theme the store did not buy leaves its "owned" list, and a save that puts one on the store (as the theme in
+     use, or a copy or edit of it in use) is refused for that key, with the design saved with it: both stay as they are
+     on the server and come back in "refused" (result "theme-not-bought", the theme), for the page to put back and say
+     so. The rest of the save goes on. */
+  const refused: Record<string, { result: "theme-not-bought"; theme: string; value: string | null }> = {};
   const themeState = set.find(([k]) => k === "seen-themes");
   if (themeState) {
-    const kept = cleanThemeState(themeState[1] as string, await themeOwner(await db(), a.id));
-    if (kept !== null) {
-      themeState[1] = kept;
-      rewritten[themeState[0]] = kept;
+    const checked = cleanThemeState(themeState[1] as string, await themeOwner(await db(), a.id));
+    if (checked.notBought) {
+      const held = ["seen-themes", "seen-storefront"].filter((k) => set.some(([s]) => s === k));
+      const { rows } = await (await db()).query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, held]);
+      const now = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
+      for (const k of held) {
+        refused[k] = { result: "theme-not-bought", theme: checked.notBought, value: now.get(k) ?? null };
+        set.splice(set.findIndex(([s]) => s === k), 1);
+        delete rewritten[k];
+      }
+    } else if (checked.value !== null) {
+      themeState[1] = checked.value;
+      rewritten[themeState[0]] = checked.value;
     }
   }
   const tooLong = set.find(([, v]) => (v as string).length > MAX_VALUE);
@@ -121,14 +152,28 @@ export const PUT = guarded(async (req: NextRequest) => {
     }
   }
 
+  const stale: Record<string, { value: string | null; v: string }> = {};
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
     /* a save of the products or coupons waits for an order being placed on the store, and takes again what the store
        sold online that the browser's copy has not seen */
+    if (online.length) await shopLock(client, a.id);
+    const asked = set.map(([k]) => k).filter((k) => k in base);
+    if (asked.length) {
+      const { rows } = await client.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[]) FOR UPDATE`, [a.id, asked]);
+      const now = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
+      for (const k of asked) {
+        const cur = now.get(k) ?? null;
+        const v = cur === null ? "" : valueVersion(cur);
+        if (v !== base[k]) stale[k] = { value: cur, v };
+      }
+      for (let i = set.length - 1; i >= 0; i--) if (set[i][0] in stale) set.splice(i, 1);
+      for (const k of Object.keys(stale)) delete rewritten[k];
+    }
     if (online.length) {
-      await shopLock(client, a.id);
       for (const entry of online) {
+        if (entry[0] in stale) continue;
         const kept = await mergeOnlineSales(client, a.id, entry[0] as OnlineKey, entry[1] as string);
         if (kept !== entry[1]) {
           entry[1] = kept;
@@ -162,5 +207,14 @@ export const PUT = guarded(async (req: NextRequest) => {
     await syncShop(a.id).catch((e) => console.error("[shops] sync", a.id, e));
   }
   touchShop(a.id);
-  return answer(Object.keys(rewritten).length ? { result: "ok", rewritten } : { result: "ok" });
+  /* the new version of each list saved, for the browser's next save of it */
+  const versions: Record<string, string> = {};
+  for (const [k, v] of set) if (LIST_KEYS.has(k)) versions[k] = valueVersion(v as string);
+  return answer({
+    result: "ok",
+    ...(Object.keys(rewritten).length ? { rewritten } : {}),
+    ...(Object.keys(versions).length ? { versions } : {}),
+    ...(Object.keys(stale).length ? { stale } : {}),
+    ...(Object.keys(refused).length ? { refused } : {}),
+  });
 });

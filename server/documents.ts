@@ -3,6 +3,7 @@ import { checkImageBytes, cleanFileName, cleanLine, imageRules, type FileKind } 
 import { ACCOUNT_LIMITS } from "@/components/safeAccount";
 import { answer, currentAccount, guarded, sameOrigin, type SessionAccount } from "./auth";
 import { openBytes } from "./crypto";
+import { db } from "./db";
 
 /* Papers a merchant sends for Dukkan's staff to check (for now, proof for the merchant's own delivery partner). The
    merchant routes (app/api/documents) and Diwan's routes (app/api/diwan/documents) share what is here. A file is kept in
@@ -104,6 +105,22 @@ export function fileResponse(row: { data: Buffer | null; mime: string | null; na
   });
 }
 
+/** How long a removed document keeps its file, so the merchant can undo the removal (POST /api/documents/[id]/restore).
+    It is never served in that time (every file route asks for removed_at IS NULL); after it the file goes for good. */
+export const RESTORE_MINUTES = 5;
+
+/* the last time this server let go of old removed files: at most once a minute */
+let purged = 0;
+/** Lets go of the files of documents removed more than RESTORE_MINUTES ago, every account's (the rows stay as Diwan's
+    record). Run by the merchant documents routes; a failure only waits for the next one. */
+async function purgeRemovedFiles(): Promise<void> {
+  if (Date.now() - purged < 60_000) return;
+  purged = Date.now();
+  await (await db())
+    .query(`UPDATE documents SET data = NULL, file_key = NULL WHERE removed_at < now() - make_interval(mins => $1) AND (data IS NOT NULL OR file_key IS NOT NULL)`, [RESTORE_MINUTES])
+    .catch(() => {});
+}
+
 /** Wraps a merchant documents route. Signed in, and for changes: from Dukkan's own pages and not a suspended store (the
     same refusals as saving the store, app/api/store). Database errors become a 503. */
 export function documentsRoute(fn: (req: NextRequest, me: SessionAccount, ctx: { params: Record<string, string> }) => Promise<NextResponse>) {
@@ -115,6 +132,7 @@ export function documentsRoute(fn: (req: NextRequest, me: SessionAccount, ctx: {
       const a = await currentAccount(r);
       if (!a) return answer({ result: "signed-out" }, 401);
       if (change && a.suspended) return answer({ result: "suspended" }, 423);
+      await purgeRemovedFiles();
       return fn(r, a, { params: (await ctx?.params) ?? {} });
     })(req);
 }

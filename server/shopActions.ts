@@ -14,6 +14,13 @@ export async function shopId(ctx: { params: Record<string, string> }): Promise<s
 
 export const notFound = () => answer({ result: "not-found" }, 404);
 
+/** The store's name (else its link) as it is now, kept in the activity log's line about it ({ store }), so the line still
+    names the store if its account is deleted later (server/activityDetail.ts) */
+export async function shopNameOf(id: string): Promise<string> {
+  const { rows } = await (await db()).query(`SELECT COALESCE(NULLIF(name, ''), slug, '') AS name FROM shops WHERE account_id = $1`, [id]);
+  return String(rows[0]?.name ?? "");
+}
+
 /** A JSON body, at most 4 KB */
 export const body = (req: NextRequest) => readJson(req, 4_000);
 

@@ -4,5 +4,5 @@ import { readSettings } from "@/server/settings";
 
 export const dynamic = "force-dynamic";
 
-/** The platform settings any page may read (payment methods, Dukkan Ship, the legal pages a new store starts with); components/platformPublic.ts keeps them for the pages. */
+/** The platform settings any page may read (payment methods, Dukkan Ship, the legal pages a new store starts with, Dukkan support's contact); components/platformPublic.ts keeps them for the pages. */
 export const GET = guarded(async () => answer(await readSettings(PUBLIC_KEYS)));

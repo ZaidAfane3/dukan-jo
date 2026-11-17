@@ -1,9 +1,10 @@
 import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
-import { AUDIENCE_HAS, cleanAnnouncement } from "@/server/announce";
+import { cleanAnnouncement } from "@/server/announce";
 import { audit, staffRoute } from "@/server/staff";
 import { inTransaction } from "@/server/tickets";
 import { plainParams } from "@/server/crypto";
+import { announcementRow, announcementRowsSql, oneAnnouncement } from "./rows";
 
 export const dynamic = "force-dynamic";
 
@@ -11,16 +12,7 @@ export const dynamic = "force-dynamic";
     Also the names of the shops chosen in each one. */
 export const GET = staffRoute("announce", async () => {
   const pool = await db();
-  const list = await pool.query(
-      `SELECT a.*, st.name AS by,
-              CASE WHEN a.starts_at > now() THEN 'scheduled' WHEN a.ends_at IS NOT NULL AND a.ends_at <= now() THEN 'ended' ELSE 'live' END AS status,
-              (SELECT count(*)::int FROM notification_reads r JOIN notifications n ON n.id = r.notification_id
-                WHERE n.announcement_id = a.id AND n.account_id IS NULL) AS reads,
-              (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id")}) AS reach
-         FROM announcements a LEFT JOIN staff st ON st.id = a.created_by
-        ORDER BY a.created_at DESC
-        LIMIT 200`,
-  );
+  const list = await pool.query(`${announcementRowsSql()} ORDER BY a.created_at DESC LIMIT 200`);
   const ids = Array.from(new Set(list.rows.flatMap((r) => (Array.isArray(r.audience?.accounts) ? r.audience.accounts : []).map(String))));
   const shops = ids.length
     ? (
@@ -33,19 +25,7 @@ export const GET = staffRoute("announce", async () => {
   return answer({
     result: "ok",
     shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, email: s.email }])),
-    announcements: list.rows.map((r) => ({
-      id: String(r.id),
-      titleEn: r.title_en, titleAr: r.title_ar, bodyEn: r.body_en, bodyAr: r.body_ar,
-      audience: r.audience,
-      banner: r.banner,
-      startsAt: r.starts_at,
-      endsAt: r.ends_at,
-      createdAt: r.created_at,
-      by: r.by,
-      status: r.status,
-      reads: r.reads,
-      reach: r.reach,
-    })),
+    announcements: list.rows.map(announcementRow),
   });
 });
 
@@ -65,5 +45,6 @@ export const POST = staffRoute("announce", async (req, staff) => {
     return String(rows[0].id);
   });
   await audit(req, staff.id, "announcement.create", { type: "announcement", id }, null, { title: a.titleEn, audience: a.audience, banner: a.banner });
-  return answer({ result: "ok", id });
+  /* the new row as the list shows it, so Diwan can put it in the list at once */
+  return answer({ result: "ok", id, row: await oneAnnouncement(id) });
 });

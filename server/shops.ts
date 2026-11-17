@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { cleanSetup } from "@/components/safeAccount";
-import { lookupKeys, plainText, seal } from "./crypto";
+import { lookupKeys, NAME_KEYS_VERSION, nameKeys, nameSearchKeys, plainText, seal } from "./crypto";
 import { db } from "./db";
 
 /* The shops table: one row per merchant account, worked out on the server from what the merchant's pages sync to
@@ -15,7 +15,9 @@ import { db } from "./db";
    - product_count: products in seen-products that are not in the bin (no deletedAt)
    - order_count: every order in seen-orders with a real id, whatever its status
    - total_sales: the totals of those orders, leaving out the cancelled and refunded ones
-   - first_order_at: the date of the oldest order (or now, when no order has a date) */
+   - first_product_at / first_order_at: the date of the oldest product (bin included: it was added) / order, from their
+     saved "created" times; when none has a date, the moment a sync first saw one (a store whose row already counted some
+     without a date keeps none: Diwan says "Not recorded" rather than a made-up date). An older date found later wins. */
 
 /** The keys whose change can change the shops row */
 export const SHOP_KEYS = new Set(["seen-setup", "seen-products", "seen-orders", "seen-storefront", "seen-maintenance", "seen-themes"]);
@@ -24,7 +26,7 @@ type Q = Pick<PoolClient, "query">;
 
 /* The counts, worked out here from the opened values (store_data is encrypted, so SQL can't read inside it). Only
    the numbers leave this function. */
-type Counts = { product_count: number; order_count: number; total_sales: string; first_at: Date | null; published: boolean; paused: boolean; theme_id: string };
+type Counts = { product_count: number; order_count: number; total_sales: string; first_at: Date | null; first_product: Date | null; published: boolean; paused: boolean; theme_id: string };
 const parse = (v: string | undefined): unknown => {
   if (v == null) return null;
   try {
@@ -48,6 +50,10 @@ export function countShop(data: Map<string, string>): Counts {
   const orders = parse(data.get("seen-orders"));
   const maint = parse(data.get("seen-maintenance"));
   const productCount = Array.isArray(products) ? products.filter((x) => isObj(x) && x.deletedAt == null).length : 0;
+  /* a real time: milliseconds between 2000 and 2100 (an old product saved without one reads as 0) */
+  const when = (c: unknown): c is number => typeof c === "number" && /^[0-9]{12,13}(\.[0-9]+)?$/.test(String(c)) && c >= 946684800000 && c <= 4102444800000;
+  let firstProduct: number | null = null;
+  if (Array.isArray(products)) for (const x of products) if (isObj(x) && when(x.created)) firstProduct = firstProduct == null ? x.created : Math.min(firstProduct, x.created);
   const real = Array.isArray(orders)
     ? orders.filter((x): x is Record<string, unknown> => isObj(x) && typeof x.id === "number" && /^[1-9][0-9]{0,15}$/.test(String(x.id)))
     : [];
@@ -57,13 +63,14 @@ export function countShop(data: Map<string, string>): Counts {
     const total = typeof o.total === "number" || typeof o.total === "string" ? String(o.total) : "";
     if (o.status !== "cancelled" && o.status !== "refunded" && /^[0-9]{1,7}(\.[0-9]{1,3})?$/.test(total)) sales += Math.min(Number(total), 1_000_000);
     const c = o.created;
-    if (typeof c === "number" && /^[0-9]{12,13}(\.[0-9]+)?$/.test(String(c)) && c >= 946684800000 && c <= 4102444800000) first = first == null ? c : Math.min(first, c);
+    if (when(c)) first = first == null ? c : Math.min(first, c);
   }
   return {
     product_count: productCount,
     order_count: real.length,
     total_sales: sales.toFixed(3),
     first_at: first == null ? null : new Date(first),
+    first_product: firstProduct == null ? null : new Date(firstProduct),
     published: data.has("seen-storefront"),
     paused: isObj(maint) && maint.on === true,
     theme_id: themeOf(parse(data.get("seen-themes"))),
@@ -102,20 +109,24 @@ export async function syncShop(accountId: string | number, q?: Q): Promise<void>
     k.total_sales,
     k.first_at,
     k.theme_id,
+    k.first_product,
   ];
   const sql = `
     INSERT INTO shops (account_id, name, slug, phone, color, setup_done, published, paused, ship_mode, pickup_city, pickup_address,
                        product_count, order_count, total_sales, published_at, first_product_at, first_order_at, theme_id, updated_at)
     VALUES ($1, $2, $3::text, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-            CASE WHEN $7 THEN now() END, CASE WHEN $12 > 0 THEN now() END, CASE WHEN $13 > 0 THEN COALESCE($15, now()) END, $16, now())
+            CASE WHEN $7 THEN now() END, COALESCE($17::timestamptz, CASE WHEN $12 > 0 THEN now() END),
+            COALESCE($15::timestamptz, CASE WHEN $13 > 0 THEN now() END), $16, now())
     ON CONFLICT (account_id) DO UPDATE SET
       name = EXCLUDED.name, slug = EXCLUDED.slug, phone = EXCLUDED.phone, color = EXCLUDED.color, setup_done = EXCLUDED.setup_done,
       published = EXCLUDED.published, paused = EXCLUDED.paused, ship_mode = EXCLUDED.ship_mode, pickup_city = EXCLUDED.pickup_city,
       pickup_address = EXCLUDED.pickup_address, product_count = EXCLUDED.product_count, order_count = EXCLUDED.order_count,
       total_sales = EXCLUDED.total_sales, theme_id = EXCLUDED.theme_id,
       published_at = COALESCE(shops.published_at, EXCLUDED.published_at),
-      first_product_at = COALESCE(shops.first_product_at, EXCLUDED.first_product_at),
-      first_order_at = COALESCE(shops.first_order_at, EXCLUDED.first_order_at),
+      /* the oldest of: what was kept, the oldest saved time, and now when this is the first time it has any (LEAST skips
+         nulls); a row that already counted some with no date stays without one */
+      first_product_at = LEAST(shops.first_product_at, $17::timestamptz, CASE WHEN shops.product_count = 0 AND EXCLUDED.product_count > 0 THEN now() END),
+      first_order_at = LEAST(shops.first_order_at, $15::timestamptz, CASE WHEN shops.order_count = 0 AND EXCLUDED.order_count > 0 THEN now() END),
       updated_at = now()`;
   try {
     await c.query(sql, values);
@@ -148,7 +159,12 @@ export async function prepareShops(): Promise<void> {
     await pool.query(`INSERT INTO shops (account_id, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [r.id, r.created_at]);
     await syncShop(r.id, pool);
   }
-  if (rows.length === 500) lastPrepared = 0;
+  /* accounts from before owners could be found by name: the fingerprints of their name's words, 500 at a time (the
+     names come back opened by db()) */
+  const named = await pool.query(`SELECT id, name FROM accounts WHERE name_keys_v < $1 LIMIT 500`, [NAME_KEYS_VERSION]);
+  for (const r of named.rows)
+    await pool.query(`UPDATE accounts SET name_keys = $2, name_keys_v = $3 WHERE id = $1 AND name_keys_v < $3`, [r.id, nameKeys(r.name ?? ""), NAME_KEYS_VERSION]);
+  if (rows.length === 500 || named.rows.length === 500) lastPrepared = 0;
 }
 
 /** Notes that the merchant was here, at most once every 5 minutes */
@@ -194,8 +210,11 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   if (q) {
     const like = add(likeText(q));
     const [e, m] = lookupKeys(q);
-    /* the owner's name, email and mobile are encrypted: email and mobile are found only when typed in full */
-    where.push(`(s.name ILIKE ${like} OR s.slug ILIKE ${like} OR a.email_hash = ${add(e)} OR a.phone_hash = ${add(m)})`);
+    /* the owner's name, email and mobile are encrypted: email and mobile are found only when typed in full, the name by
+       its full words (every word typed must be one of the name's words, in any order) */
+    const words = nameSearchKeys(q).slice(0, 6);
+    const byName = words.length ? ` OR a.name_keys @> ${add(words)}::text[]` : "";
+    where.push(`(s.name ILIKE ${like} OR s.slug ILIKE ${like} OR a.email_hash = ${add(e)} OR a.phone_hash = ${add(m)}${byName})`);
   }
   const status = p.get("status");
   if (status && (SHOP_STATUSES as readonly string[]).includes(status)) where.push(`(${STATUS_SQL}) = ${add(status)}`);

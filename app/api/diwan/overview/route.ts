@@ -15,14 +15,16 @@ export const GET = staffRoute("shops.read", async () => {
     pool.query(`
       SELECT count(*)::int AS total,
              count(*) FILTER (WHERE s.created_at > now() - interval '7 days')::int AS new_week,
-             count(*) FILTER (WHERE s.last_seen_at > now() - interval '14 days')::int AS active,
+             /* active: a store that isn't suspended and whose owner came in during the last 14 days (a suspended store is
+                never counted as active, QA 169) */
+             count(*) FILTER (WHERE s.last_seen_at > now() - interval '14 days' AND s.status <> 'suspended')::int AS active,
              count(*) FILTER (WHERE s.status = 'suspended')::int AS suspended,
              count(*) FILTER (WHERE s.published)::int AS published
         FROM shops s`),
     pool.query(`
       SELECT (SELECT count(*) FROM tickets WHERE status NOT IN ('resolved', 'closed'))::int AS tickets,
              (SELECT count(*) FROM store_reports WHERE status = 'new')::int AS reports,
-             (SELECT count(*) FROM documents WHERE status = 'waiting')::int AS documents`),
+             (SELECT count(*) FROM documents WHERE status = 'waiting' AND removed_at IS NULL)::int AS documents`),
     pool.query(`
       SELECT s.account_id AS id, s.name, s.slug, a.name AS owner, s.created_at, s.setup_done, (${STATUS_SQL}) AS status
         FROM shops s JOIN accounts a ON a.id = s.account_id
@@ -34,7 +36,8 @@ export const GET = staffRoute("shops.read", async () => {
     total: k.total,
     newWeek: k.new_week,
     active: k.active,
-    inactive: k.total - k.active,
+    /* quiet: not suspended, and no visit from the owner for 14 days or more */
+    inactive: k.total - k.suspended - k.active,
     suspended: k.suspended,
     published: k.published,
     waiting: waiting.rows[0],

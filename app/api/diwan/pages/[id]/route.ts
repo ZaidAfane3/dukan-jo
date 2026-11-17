@@ -5,6 +5,7 @@ import { db } from "@/server/db";
 import { cleanPage, PAGE_COLUMNS, type PageInput } from "@/server/dukkanPages";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { onePage } from "../rows";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +60,8 @@ export const PATCH = staffRoute("announce", async (req: NextRequest, me, { param
   }
   if (keys.length) await audit(req, me.id, "page.edit", { type: "page", id: params.id }, null, { slug: p.slug ?? cur.slug, changed: keys });
   if (status) await audit(req, me.id, "page.status", { type: "page", id: params.id }, null, { slug: p.slug ?? cur.slug, from: cur.status, to: status });
-  return answer({ result: "ok" });
+  /* the row as the list shows it now, so Diwan can update it in the list at once */
+  return answer({ result: "ok", row: await onePage(params.id) });
 });
 
 /** Deletes a draft that was never published (one merchants may have read is hidden instead). Answers "ok", "missing",

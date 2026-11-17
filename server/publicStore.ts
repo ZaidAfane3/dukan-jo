@@ -4,9 +4,10 @@ import { money } from "@/components/records";
 import { cleanLines, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { sanitizeDesign, sanitizePages } from "@/components/safeDesign";
-import { stripPaidLooks } from "@/components/themeLooks";
+import { defaultConfig, type PageRef } from "@/components/storefront/config";
+import { stripPaidLooks, withLookOf } from "@/components/themeLooks";
 import { db } from "./db";
-import { themeOwner } from "./themeOwnership";
+import { themeInUse, themeOwner } from "./themeOwnership";
 
 /* A store as anyone sees it at its address (app/[slug] and GET /api/public/store/<slug>). The shop is found by its link
    name in the shops table; its saved data (store_data, opened by db()) is read only for the few keys a storefront
@@ -17,11 +18,12 @@ import { themeOwner } from "./themeOwnership";
    - suspended by Dukkan: only "unavailable", nothing about the store
    - not published yet (its design was never saved): only its name, for a "not open yet" page
    - paused by the merchant: its name, logo, colour and his "back soon" message
-   - open: the store's public setup, design (without the looks of a paid theme it did not buy), visible products,
-     published pages and free delivery offer */
+   - open: the store's public setup, design (with the free default theme in place of a paid theme it did not buy, and
+     without the looks of one), visible products, published pages and free delivery offer */
 
-/* the only keys of the merchant's saved data this file ever asks the database for */
-const READ_KEYS = ["seen-setup", "seen-storefront", "seen-products", "seen-pages", "seen-freedelivery", "seen-maintenance"];
+/* the only keys of the merchant's saved data this file ever asks the database for. Of "seen-themes" only the theme in
+   use is read (server/themeOwnership.ts themeInUse), to know whether the store bought it; nothing of it is sent out. */
+const READ_KEYS = ["seen-setup", "seen-storefront", "seen-products", "seen-pages", "seen-freedelivery", "seen-maintenance", "seen-themes"];
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
 const parse = (v: string | undefined): unknown => {
@@ -109,13 +111,27 @@ export async function shapePublicStore(
     slug: shop.slug,
     logo,
     pickup: setup?.pickup === true,
-    shipping: setup?.shipping ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}) } : null,
+    shipping: setup?.shipping ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}), ...(setup.shipping.cities ? { cities: setup.shipping.cities } : {}) } : null,
   };
 
+  const rawPages = data.has("seen-pages") ? sanitizePages(parse(data.get("seen-pages"))) : undefined;
   const rawDesign = parse(data.get("seen-storefront"));
-  /* the looks of a paid theme are shown only for a store that bought it, whatever its saved design says
-     (components/themeLooks.ts): the designer takes them out when it saves, and this holds for a design saved around it */
-  const design = isObj(rawDesign) ? (owner ? stripPaidLooks(sanitizeDesign(rawDesign), await owner()) : sanitizeDesign(rawDesign)) : null;
+  let design = isObj(rawDesign) ? sanitizeDesign(rawDesign) : null;
+  if (design && owner) {
+    const owns = await owner();
+    /* a paid theme is shown only for a store that bought it (server/themeOwnership.ts): a store whose theme in use (or
+       the theme under his copy in use) is one it did not buy is shown with the free default theme instead (Dukkan's
+       starter design), with everything that is his kept (components/themeLooks.ts withLookOf). Nothing saved changes:
+       the merchant's dashboard switches him to the free theme on his next visit (components/themes.ts). */
+    const inUse = themeInUse(data.get("seen-themes"));
+    if (inUse && !owns(inUse)) {
+      const t = await starter();
+      design = sanitizeDesign(withLookOf(design, t ? sanitizeDesign(t) : defaultConfig, (rawPages ?? null) as PageRef[] | null));
+    }
+    /* the looks of a paid theme are shown only for a store that bought it, whatever its saved design says
+       (components/themeLooks.ts): the designer takes them out when it saves, and this holds for a design saved around it */
+    design = stripPaidLooks(design, owns);
+  }
   /* a store with no design of its own shows Dukkan's starter design, like the merchant's own preview */
   let template: unknown = null;
   if (!design) {
@@ -127,7 +143,6 @@ export async function shapePublicStore(
   const products = Array.isArray(rawProducts) ? rawProducts.filter(isObj).filter((p) => !p.deletedAt && !p.hidden).slice(0, 2000).map(publicProduct) : [];
 
   /* only the pages customers can open: published ones, never the sample pages a ready theme brings (9100 to 9299) */
-  const rawPages = data.has("seen-pages") ? sanitizePages(parse(data.get("seen-pages"))) : undefined;
   const pages = rawPages
     ? rawPages.filter((p) => isObj(p) && p.published === true && !(typeof p.id === "number" && p.id >= 9100 && p.id < 9300))
     : null;

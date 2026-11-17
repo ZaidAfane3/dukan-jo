@@ -138,6 +138,10 @@ export const DIWAN_SCHEMA = `
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS payments_account ON payments (account_id, paid_on DESC);
+  /* one key per "Mark a payment as received" form: the same press sent twice (a double click, a retry after a lost
+     answer) saves one payment, never two (QA 31) */
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS request_key TEXT;
+  CREATE UNIQUE INDEX IF NOT EXISTS payments_request ON payments (account_id, request_key) WHERE request_key IS NOT NULL;
 
   /* ---------- log in as merchant ---------- */
   /* Unused since 2026-11-16, when "Log in as merchant" was removed: no new rows are written. Kept with its old rows. */
@@ -192,6 +196,8 @@ export const DIWAN_SCHEMA = `
     bytes      INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
+  /* a ticket's pictures are found by their ticket (the chat and the Bugs and ideas board), without reading the table */
+  CREATE INDEX IF NOT EXISTS ticket_pictures_ticket ON ticket_pictures (ticket_id, id);
 
   /* ---------- deleted orders: the number and the reason only, never the order ---------- */
   CREATE TABLE IF NOT EXISTS order_deletions (
@@ -208,7 +214,8 @@ export const DIWAN_SCHEMA = `
   /* ---------- orders placed by customers on a store's public page (app/[slug]) ----------
      server/storeOrders.ts writes them. number counts per shop and goes on from the shop's own orders (it is what the
      customer and the merchant see). The customer's details are sealed (server/crypto.ts); items are the products as
-     priced by the server (id, name, qty, price, size, image). No payment is taken yet: payment_status is 'test'.
+     priced by the server (id, name, qty, price, size, image). No payment is taken online yet: payment_status is 'test',
+     and 'paid' for a cash order while it is marked delivered.
      stock_taken: the order took its products out of the shop's saved stock, so a merchant's save made before he saw
      the order gets it taken again (server/storeOrders.ts mergeOnlineSales). */
   CREATE TABLE IF NOT EXISTS store_orders (
@@ -233,12 +240,20 @@ export const DIWAN_SCHEMA = `
     address          TEXT,
     notes            TEXT,
     payment_method   TEXT NOT NULL CHECK (payment_method IN ('cliq', 'cash', 'card')),
-    payment_status   TEXT NOT NULL DEFAULT 'test' CHECK (payment_status IN ('unpaid', 'test')),
+    payment_status   TEXT NOT NULL DEFAULT 'test' CHECK (payment_status IN ('unpaid', 'test', 'paid')),
     source           TEXT NOT NULL DEFAULT 'storefront' CHECK (source IN ('storefront')),
     stock_taken      BOOLEAN NOT NULL DEFAULT true,
     UNIQUE (account_id, number)
   );
   CREATE INDEX IF NOT EXISTS store_orders_account ON store_orders (account_id, id DESC);
+  /* 'paid': a cash order the merchant marked delivered (the courier took the cash; server/storeOrders.ts
+     setStoreOrderStatus). A database made before it allows it too. */
+  DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'store_orders_payment_status_check' AND pg_get_constraintdef(oid) NOT LIKE '%''paid''%') THEN
+      ALTER TABLE store_orders DROP CONSTRAINT store_orders_payment_status_check;
+      ALTER TABLE store_orders ADD CONSTRAINT store_orders_payment_status_check CHECK (payment_status IN ('unpaid', 'test', 'paid'));
+    END IF;
+  END $$;
 
   /* ---------- visitors of the stores at their addresses (server/storeVisits.ts) ----------
      store_visits: one row per page a visitor opened, kept only for yesterday and today (Jordan time). No IP address,
@@ -331,6 +346,24 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner TEXT NOT NULL DEFAULT '';
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner_kind SMALLINT;
   CREATE INDEX IF NOT EXISTS documents_account ON documents (account_id, kind, created_at);
+  /* A document's number among its account's documents of the same kind ("Proof of delivery #002"), kept for good: it was
+     counted on every read before, so removing one renumbered the rest and the merchant and staff no longer meant the
+     same file by the same number. A new document takes the next number after every one of its kind, removed ones too,
+     so a number is never given twice. Rows from before get the number they showed until now (their place in the order
+     they were sent), after any number already given in their account, before the unique index needs them. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS seq INTEGER;
+  UPDATE documents d SET seq = n.seq
+    FROM (SELECT x.id,
+                 COALESCE((SELECT max(m.seq) FROM documents m WHERE m.account_id = x.account_id AND m.kind = x.kind), 0)
+                   + row_number() OVER (PARTITION BY x.account_id, x.kind ORDER BY x.created_at, x.id) AS seq
+            FROM documents x WHERE x.seq IS NULL) n
+   WHERE d.id = n.id;
+  CREATE UNIQUE INDEX IF NOT EXISTS documents_seq ON documents (account_id, kind, seq);
+  /* Set when the merchant removes a document. Its file goes (data and file_key are cleared, as the merchant asked, once
+     the few minutes he can undo it in are over: server/documents.ts RESTORE_MINUTES; it is never served meanwhile) but
+     the row stays as a record for staff: a proof staff were checking, or already approved, doesn't vanish from Diwan
+     without a trace. The merchant's own pages and limits never count it again. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;
 
   /* ---------- pictures and videos of the stores (product photos, logos, designs, page backgrounds) ---------- */
   /* One row per file a merchant's store shows, served to anyone at /media/<id> (server/media.ts). The id is random and
@@ -380,6 +413,16 @@ export const DIWAN_SCHEMA = `
     account_id      BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
     read_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (notification_id, account_id)
+  );
+  /* What the merchant chose on Settings, Customize notifications (app/api/notification-prefs/route.ts):
+     prefs = { "<event>": { "whatsapp": true|false, "email": true|false } } for the events in components/notifyPrefs.ts
+     (newOrder, storeRating, productRating, shippingRating, customerQuestion, lowStock, outOfStock). No row, or an event
+     missing from prefs: the default, both on. Nothing sends WhatsApp or email messages yet: this is what a future sender
+     reads before it sends one. The bell does not use it. */
+  CREATE TABLE IF NOT EXISTS notification_prefs (
+    account_id BIGINT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+    prefs      JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 
   /* ---------- complaints about stores ---------- */
@@ -646,4 +689,44 @@ export const DIWAN_SCHEMA = `
      the same key sent again (its answer was lost) gets the order already saved, never a second one. */
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS attempt_key TEXT;
   CREATE UNIQUE INDEX IF NOT EXISTS store_orders_attempt ON store_orders (account_id, attempt_key) WHERE attempt_key IS NOT NULL;
+  /* Diwan's Payment methods card counts the orders of the last 30, 90 or 365 days by way to pay
+     (app/api/diwan/payment-methods): read by when they were placed, never the whole table for a short window */
+  CREATE INDEX IF NOT EXISTS store_orders_created ON store_orders (created_at, payment_method);
+
+  /* ---------- forgotten passwords: a one-time code sent to the email or mobile (server/passwordReset.ts) ----------
+     One row per code asked for. contact_hash: the fingerprint of the email or mobile it was asked for (crypto.ts
+     emailKey / phoneKey), which the code is checked against. account_id is NULL when nobody has that email or mobile:
+     the row is still made (with a code that can never match), so asking for and checking a code answer the same whether
+     there is an account or not. code_hash: an HMAC of the code with the server's key, never the code. Only the newest
+     code of an account (and of a contact) is good: asking again marks the older ones used. A right code gives a reset
+     token (only its SHA-256 kept here) good for one password change within 15 minutes. ip_hash: a keyed fingerprint of
+     the address that asked, never the address. Rows are cleared a day after they ran out. */
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id               BIGSERIAL PRIMARY KEY,
+    account_id       BIGINT REFERENCES accounts (id) ON DELETE CASCADE,
+    contact_hash     TEXT NOT NULL,
+    code_hash        TEXT NOT NULL,
+    channel          TEXT NOT NULL CHECK (channel IN ('email', 'phone')),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at       TIMESTAMPTZ NOT NULL,
+    attempts         SMALLINT NOT NULL DEFAULT 0,
+    verified_at      TIMESTAMPTZ,
+    token_hash       TEXT,
+    token_expires_at TIMESTAMPTZ,
+    used_at          TIMESTAMPTZ,
+    ip_hash          TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS password_resets_contact ON password_resets (contact_hash, id DESC);
+  CREATE INDEX IF NOT EXISTS password_resets_account ON password_resets (account_id) WHERE account_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS password_resets_token ON password_resets (token_hash) WHERE token_hash IS NOT NULL;
+
+  /* ---------- finding a shop by its owner's name ----------
+     The name is sealed, so Diwan finds it by the fingerprints of its words (server/crypto.ts nameKeys): written at sign-up
+     and on every name change. NULL: not worked out yet (an account from before this column), filled in batches by
+     prepareShops (server/shops.ts) before Diwan's lists read it. */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_keys TEXT[];
+  CREATE INDEX IF NOT EXISTS accounts_name_keys ON accounts USING GIN (name_keys);
+  /* the form of those fingerprints (server/crypto.ts NAME_KEYS_VERSION): 2 adds each word without its "ال"/"al-" */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name_keys_v SMALLINT NOT NULL DEFAULT 0;
+  CREATE INDEX IF NOT EXISTS accounts_name_keys_old ON accounts (id) WHERE name_keys_v < 2;
 `;

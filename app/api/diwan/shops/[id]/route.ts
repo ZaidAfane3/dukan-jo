@@ -6,8 +6,40 @@ import { prepareShops, STATUS_SQL, syncShop } from "@/server/shops";
 import { SHOWN_SQL } from "@/components/diwan/activityWords";
 import { can, staffRoute } from "@/server/staff";
 import { shopVisitors30 } from "@/server/storeVisits";
+import { FREE_THEME_IDS } from "@/components/platformDefaults";
+import { CODE_THEME_IDS, type Bi } from "@/components/themeListing";
+import { themePrice } from "@/components/themePrices";
+import { enforcedPaidThemes } from "@/server/themeOwnership";
 
 export const dynamic = "force-dynamic";
+
+/** The theme the store uses now (shops.theme_id, worked out from its saved seen-themes by server/shops.ts themeOf, the same
+    column the Themes page counts "stores use it" from). kind: "free" one of the free designs every store has (Dukkan, Mada),
+    "listed" a theme in the theme store's list, "code" a code theme with no row in the list, "removed" a theme deleted from
+    the list since. how: "free" it costs nothing, "bought" a purchase is recorded, "not_bought" it has a price (or had one)
+    and no purchase is recorded. shownFree: it is a theme for sale at a price now with no purchase, so the public store
+    shows the free theme in its place (server/publicStore.ts). When it was chosen is not saved anywhere, so it is not sent. */
+export type ThemeInUse = { id: string; name: Bi | null; kind: "free" | "listed" | "code" | "removed"; how: "free" | "bought" | "not_bought"; shownFree?: boolean };
+
+const biOf = (v: unknown): Bi | null =>
+  v && typeof v === "object" && typeof (v as Bi).en === "string" && typeof (v as Bi).ar === "string" && ((v as Bi).en || (v as Bi).ar) ? { en: (v as Bi).en, ar: (v as Bi).ar } : null;
+
+function themeInUse(r: Record<string, unknown>): ThemeInUse {
+  const id = typeof r.theme_id === "string" && r.theme_id ? r.theme_id : "dukkan";
+  const free = (FREE_THEME_IDS as readonly string[]).includes(id);
+  const listed = r.theme_source != null;
+  const kind = free ? "free" : listed ? "listed" : CODE_THEME_IDS.includes(id) ? "code" : "removed";
+  /* its price now: the list's, or the code's for a code theme with no row there; unknown for a removed one */
+  const price = listed ? Number(r.theme_list_price) : kind === "code" ? themePrice(id) : null;
+  const how =
+    free ? "free"
+    : r.theme_paid != null ? (Number(r.theme_paid) > 0 ? "bought" : "free")
+    : kind === "removed" || (price ?? 0) > 0 ? "not_bought"
+    : "free";
+  /* the list's name; for a removed theme the name it had when it was deleted (kept in the activity log); else none (the
+     page names the code themes and the free designs itself) */
+  return { id, name: biOf(listed ? r.theme_listed_name : r.theme_deleted_name), kind, how };
+}
 
 /* how many rows of each part of the store's history the page shows; "See all" opens the whole list, filtered to it */
 const FEW = 5;
@@ -40,12 +72,23 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
   const [shop, payments, themes, tickets, documents, reports, deletions, activityRaw] = await Promise.all([
     q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode,
               s.pickup_city, s.pickup_address, s.status AS shop_status, s.suspend_reason, s.suspended_at, s.product_count, s.order_count,
-              s.total_sales, s.first_product_at, s.published_at, s.first_order_at, s.last_seen_at, s.created_at,
+              s.total_sales, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
+              /* the oldest order: the one the merchant's saved orders give, or an older one customers placed on its page */
+              LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at,
               a.name AS owner, a.email, a.phone, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
               /* how many orders customers placed on its public page: a count only, never the orders (they are the shop's) */
               (SELECT count(*)::int FROM store_orders o WHERE o.account_id = s.account_id) AS storefront_orders,
-              (${STATUS_SQL}) AS status
-         FROM shops s JOIN accounts a ON a.id = s.account_id WHERE s.account_id = $1`),
+              (${STATUS_SQL}) AS status,
+              /* the theme in use (themeInUse above): its row in the theme store's list, the store's purchase of it, and for
+                 one deleted from the list the name the activity log kept */
+              s.theme_id, ct.name AS theme_listed_name, ct.source AS theme_source, ct.price::float AS theme_list_price,
+              tp.price::float AS theme_paid,
+              CASE WHEN ct.id IS NULL THEN (SELECT l.meta->'name' FROM audit_log l WHERE l.action = 'theme.delete' AND l.target_type = 'theme'
+                                              AND l.target_id = s.theme_id ORDER BY l.at DESC LIMIT 1) END AS theme_deleted_name
+         FROM shops s JOIN accounts a ON a.id = s.account_id
+         LEFT JOIN catalog_themes ct ON ct.id = s.theme_id
+         LEFT JOIN theme_purchases tp ON tp.account_id = s.account_id AND tp.theme_id = s.theme_id
+        WHERE s.account_id = $1`),
     part(
       billing,
       `SELECT pay.id, pay.amount, pay.method, pay.reference, pay.paid_on::text AS paid_on, pay.note, st.name AS marked_by, pay.created_at
@@ -64,13 +107,11 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
       `SELECT number, subject, kind, status, priority, created_at, updated_at FROM tickets WHERE account_id = $1 ORDER BY updated_at DESC, number DESC`,
       `SELECT count(*)::int AS n FROM tickets WHERE account_id = $1`,
     ),
-    /* what each document is and where it stands, and its number among the store's documents of its kind; never its file */
+    /* what each document is and where it stands, its number among the store's documents of its kind, and when the
+       merchant removed it (the row stays as a record); never its file */
     part(
       can(staff, "documents"),
-      `SELECT d.public_id, d.kind, d.status, d.created_at, d.seq
-         FROM (SELECT public_id, kind, status, created_at, id, row_number() OVER (PARTITION BY kind ORDER BY created_at, id)::int AS seq
-                 FROM documents WHERE account_id = $1) d
-        ORDER BY d.created_at DESC, d.id DESC`,
+      `SELECT public_id, kind, status, created_at, seq, removed_at FROM documents WHERE account_id = $1 ORDER BY created_at DESC, id DESC`,
       `SELECT count(*)::int AS n FROM documents WHERE account_id = $1`,
     ),
     part(
@@ -91,20 +132,41 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
       `SELECT count(*)::int AS n FROM audit_log l WHERE ${aboutShopSql("l", "$1")} AND ${SHOWN_SQL("l")}`,
     ),
   ]);
+  /* a store whose row counts products or orders without the date of the first one (counted before those dates were
+     worked out from the saved data): worked out again now, once, from its saved products' and orders' own times */
+  const sh0 = shop[0];
+  if (sh0 && ((sh0.product_count > 0 && !sh0.first_product_at) || (sh0.order_count > 0 && !sh0.first_order_at))) {
+    await syncShop(id, pool).catch((e) => console.error("[shops] sync", id, e));
+    const again = await q(
+      `SELECT s.first_product_at, LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at
+         FROM shops s WHERE s.account_id = $1`,
+    );
+    if (again[0]) Object.assign(sh0, again[0]);
+  }
   /* the activity lines in words (server/activityDetail.ts: only safe facts leave the server) */
   const activity = activityRaw && { rows: await describeActivity(pool, activityRaw.rows), count: activityRaw.count };
   /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
   const visitors30 = shop[0] ? await shopVisitors30(pool, id) : 0;
+  /* the theme columns leave the shop row: they go out as one "theme" */
+  const { theme_id, theme_listed_name, theme_source, theme_list_price, theme_paid, theme_deleted_name, ...shopRow } = shop[0] ?? {};
+  const inUse = shop[0] ? themeInUse({ theme_id, theme_listed_name, theme_source, theme_list_price, theme_paid, theme_deleted_name }) : null;
+  /* a paid theme with no purchase is not shown to its customers: the store shows the free theme (server/themeOwnership.ts,
+     the same rule as the public store) */
+  const theme = inUse && { ...inUse, shownFree: inUse.how === "not_bought" && (await enforcedPaidThemes(pool)).has(inUse.id) };
   const paymentsTotal = billing ? ((await q(`SELECT COALESCE(sum(amount), 0)::numeric(14, 3) AS t FROM payments WHERE account_id = $1`))[0]?.t ?? "0") : null;
   return answer({
     result: "ok",
-    shop: shop[0] && { ...shop[0], visitors_30: visitors30 },
+    shop: shop[0] && { ...shopRow, visitors_30: visitors30 },
+    theme,
     payments: payments && { ...payments, total: paymentsTotal },
     themes,
     tickets,
     documents: documents && {
       ...documents,
-      rows: documents.rows.map((d) => ({ id: String(d.public_id), kind: d.kind, status: d.status, created_at: d.created_at, seq: d.seq })),
+      rows: documents.rows.map((d) => ({
+        id: String(d.public_id), kind: d.kind, status: d.status, created_at: d.created_at, seq: d.seq,
+        removed_at: d.removed_at ? new Date(d.removed_at).toISOString() : null,
+      })),
     },
     reports,
     deletions,
@@ -112,6 +174,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     can: {
       status: can(staff, "shops.status"),
       billing,
+      /* the Themes page (the theme in use links to it) */
+      themes: can(staff, "marketplace"),
     },
   });
 });

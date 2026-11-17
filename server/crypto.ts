@@ -53,7 +53,12 @@ export function seal(text: string | null | undefined): string | null {
 
 /* the text inside a sealed value, or null when it doesn't open with this key (or was never really sealed) */
 function decrypt(value: string): string | null {
-  const all = Buffer.from(value.slice(MARK.length), "base64");
+  return decryptRaw(Buffer.from(value.slice(MARK.length), "base64"));
+}
+
+/* the same from the value's bytes already read out of its base64 (open() reads them once, not twice: a ticket's
+   picture is a sealed text of a few MB) */
+function decryptRaw(all: Buffer): string | null {
   if (all.length < 28) return null;
   try {
     const d = createDecipheriv("aes-256-gcm", loadKeys().enc, all.subarray(0, 12));
@@ -71,8 +76,9 @@ export function open(value: string | null | undefined): string | null {
   if (value == null) return null;
   if (!isSealed(value)) return value;
   /* a text that only looks sealed (someone typed "e1:..." into a plain field) is not one: give it back as it is */
-  if (Buffer.from(value.slice(MARK.length), "base64").length < 28) return value;
-  const text = decrypt(value);
+  const all = Buffer.from(value.slice(MARK.length), "base64");
+  if (all.length < 28) return value;
+  const text = decryptRaw(all);
   if (text != null) return text;
   /* In production this means the key is wrong: stop the request. Handing back the sealed text as if it were the data
      would let the next save write it over the real data (a store's JSON read as "invalid", then replaced by defaults). */
@@ -182,3 +188,44 @@ export const emailKey = (email: string) => blind(`email:${email.trim().toLowerCa
 /** The fingerprint of a mobile in its saved form (+9627XXXXXXXX); empty when there is none */
 export const phoneKey = (phone: string) => (phone ? blind(`phone:${phone}`) : null);
 
+
+/* ---------------- finding an owner by name ----------------
+
+   Names are sealed, so SQL can't search inside them. Instead every account keeps a fingerprint of each word of its name
+   (accounts.name_keys): staff find an owner by any full word of the name (a first name, a family name), never by a part
+   of a word. The words are compared in a simple form: lower case, Arabic marks and the long dash (tatweel) dropped,
+   أ إ آ ٱ as ا, ى as ي, ة as ه, ؤ as و, ئ as ي. Equal words give equal fingerprints (that is what makes them findable),
+   which can't be reversed without the key. */
+
+/** A name's words in the form they are compared in */
+export function nameWords(name: string): string[] {
+  const s = name
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed\u0640]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي");
+  const parts = s.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  /* a Latin "Al-" or "El-" stays with the word after it ("al-afaneh"), so bareWord can take it off */
+  const words: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    if ((parts[i] === "al" || parts[i] === "el") && i + 1 < parts.length && /^\p{Script=Latin}/u.test(parts[i + 1])) words.push(`${parts[i]}-${parts[++i]}`);
+    else words.push(parts[i]);
+  }
+  return Array.from(new Set(words)).slice(0, 12);
+}
+
+/** A name word without its "ال" (Arabic, a word longer than 3 letters) or "al-"/"el-" (Latin), so "عفانة" and
+    "العفانة", "Afaneh" and "Al-Afaneh" are the same word to the search */
+export const bareWord = (w: string): string => (w.length > 3 && w.startsWith("ال") ? w.slice(2) : w.replace(/^(al|el)-(?=.)/, ""));
+
+/** Which form of the fingerprints accounts.name_keys holds: accounts with an older one are filled again (prepareShops) */
+export const NAME_KEYS_VERSION = 2;
+/** The fingerprints of a name's words, for accounts.name_keys: each word as written and without its "ال"/"al-" */
+export const nameKeys = (name: string): string[] =>
+  Array.from(new Set(nameWords(name).flatMap((w) => [w, bareWord(w)]))).map((w) => blind(`name:${w}`));
+/** The fingerprints a search looks for: each typed word without its "ال"/"al-" (every name holds that form) */
+export const nameSearchKeys = (q: string): string[] => Array.from(new Set(nameWords(q).map(bareWord))).map((w) => blind(`name:${w}`));

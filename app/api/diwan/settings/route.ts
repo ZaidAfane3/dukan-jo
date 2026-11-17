@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { cleanSetting, SETTING_DEFAULTS, SETTING_KEYS, type SettingKey } from "@/components/diwan/platformSettings";
+import { cleanSetting, LIMITS, SETTING_DEFAULTS, SETTING_KEYS, type SettingKey } from "@/components/diwan/platformSettings";
 import { cleanLine } from "@/components/safe";
 import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
@@ -48,6 +48,13 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
   const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
   const part = isObj(body?.part) ? body.part : null;
   if (body?.part !== undefined && (!part || !isObj(SETTING_DEFAULTS[key]))) return answer({ result: "invalid" }, 400);
+  /* Dukkan Ship's short line is refused when it is too long, never saved cut short (merchants read it whole): counted as
+     cleanLine keeps it, spaces run together and none at the ends */
+  if (key === "dukkan_ship") {
+    const policy = isObj(part?.policy) ? part.policy : isObj(body?.value) && isObj(body.value.policy) ? body.value.policy : null;
+    const long = (v: unknown) => typeof v === "string" && v.replace(/\s+/g, " ").trim().length > LIMITS.shipPolicy;
+    if (policy && (long(policy.en) || long(policy.ar))) return answer({ result: "too-long" }, 400);
+  }
   const BAD = new Error("invalid");
   const out = await inTransaction(async (c) => {
     /* the row exists before it is locked, so a first save of a setting is locked too */
@@ -62,7 +69,9 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
     /* thrown, so the transaction is rolled back and nothing (not even the starting row above) is kept */
     if (value === null) throw BAD;
     await c.query(`UPDATE platform_settings SET value = $2, updated_by = $3, updated_at = now() WHERE key = $1`, plainParams([key, JSON.stringify(value), me.id]));
-    return { before: rows[0]?.updated_by == null ? null : saved, value };
+    /* the log keeps the value that was in effect before the save (the starting one on a first save, flagged "first"), so
+       every change can be told from what to what, e.g. Dukkan Ship's price history */
+    return { before: now, first: rows[0]?.updated_by == null, value };
   }).catch((e) => {
     if (e === BAD) return null;
     throw e;
@@ -72,6 +81,7 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
   await audit(req, me.id, "settings.change", { type: "setting", id: key }, cleanLine(body?.reason ?? "", 300) || null, {
     before: out.before,
     after: value,
+    ...(out.first ? { first: true } : {}),
   });
   if (key === "store_legal_templates") await forgetConfirmation(req);
   return answer({ result: "ok", value });
