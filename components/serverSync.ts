@@ -15,7 +15,7 @@
    down in this browser, per account (the "outbox"), until the server confirms them, and the next page load of that
    account sends them first (resumeSaves). Leaving the page while a change is still on its way asks first. */
 
-import { accountValue, replaceAccountValue, signedInAs } from "./demoSandbox";
+import { accountValue, replaceAccountValue, restoreAccountValue, signedInAs } from "./demoSandbox";
 import { LIST_KEYS, listMarks, mergeList, type ItemMarks } from "./listMerge";
 import { bounceIfSuspended } from "./suspended";
 
@@ -472,6 +472,54 @@ type Outcome = "ok" | "retry" | "stop";
 
 const asObject = <T,>(v: unknown): T | undefined => (v && typeof v === "object" && !Array.isArray(v) ? (v as T) : undefined);
 
+/* The design the browser sent when the server did not keep it because the store is not ready to sell: kept as the
+   designer's draft (Designer.tsx loadDraft), so the work is not lost and the designer opens on it; once the store can
+   sell, its Save publishes it. Only the design: the designer fills the store's name and contact from the setup. */
+const DESIGN_KEY = "seen-storefront";
+const DESIGN_DRAFT_KEY = "seen-design-draft";
+function keepRefusedDesign(design: string) {
+  try {
+    const config = JSON.parse(design) as unknown;
+    if (!config || typeof config !== "object" || Array.isArray(config)) return;
+    /* written as the page writes it, so it is kept on the server too and opens on his other devices */
+    localStorage.setItem(DESIGN_DRAFT_KEY, JSON.stringify({ config }));
+  } catch {
+    /* not a design, or storage full: the server's copy still comes back */
+  }
+}
+
+/* The keys a save sent that the server did not keep (app/api/store PUT "refused"), put back here as the server has
+   them, unless the page changed the key again since, and the page says why (SaveNotice.tsx).
+   - not ready to sell ("not-ready"): exactly the server's copy, none when it has none (a design the server does not
+     have is removed here, so the store does not look live in this browser, and the designer's Save opens it once it
+     can sell); the design sent is kept as the designer's draft first.
+   - a paid theme he has not bought ("theme-not-bought"): the store stays on the theme it had (SaveNotice.tsx offers a
+     way to the theme store). */
+function takeBackRefused(held: Record<string, Held> | undefined, sent: Record<string, string>, notReady = false) {
+  let notBought = "";
+  for (const [k, h] of Object.entries(held ?? {})) {
+    if (h && h.result === "not-ready") {
+      notReady = true;
+      /* not in `set`: a removal the server did not keep */
+      const mine = typeof sent[k] === "string" ? sent[k] : null;
+      const theirs = typeof h.value === "string" ? h.value : null;
+      if (k === DESIGN_KEY && mine !== null && mine !== theirs && accountValue(k) === mine) keepRefusedDesign(mine);
+      if (mine !== theirs && restoreAccountValue(k, theirs, mine)) showAgain(k);
+      continue;
+    }
+    if (!h || h.result !== "theme-not-bought" || typeof sent[k] !== "string") continue;
+    notBought ||= typeof h.theme === "string" ? h.theme : "";
+    const mine = sent[k];
+    /* his themes, when the server had none yet: kept, with none in use (dropping them would lose his own copies) */
+    const theirs = typeof h.value === "string" ? h.value : k === "seen-themes" ? themesWithoutActive(mine) : null;
+    /* the design: as for "not-ready", kept as the draft, then exactly the server's copy (none: removed here) */
+    if (k === DESIGN_KEY && mine !== theirs && accountValue(k) === mine) keepRefusedDesign(mine);
+    if (mine !== theirs && (theirs !== null || k === DESIGN_KEY) && restoreAccountValue(k, theirs, mine)) showAgain(k);
+  }
+  if (notBought) window.dispatchEvent(new CustomEvent(THEME_NOT_BOUGHT, { detail: notBought }));
+  if (notReady) refused("not-ready");
+}
+
 function outcome(r: Reply, sent: Record<string, string>, owner: string | null = signedInAs()): Outcome {
   if (!r) return "retry";
   if (r.status >= 200 && r.status < 300) {
@@ -496,24 +544,14 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
     /* a paid theme he has not bought was put on the store: those keys were not kept. This browser takes the server's copy
        back (the store stays on the theme it had), unless the page changed the key again since, and the page says why
        (SaveNotice.tsx, with a way to the theme store) */
-    let notBought = "";
-    let notReady = false;
-    for (const [k, h] of Object.entries(r.refused ?? {})) {
-      /* not kept because the store is not ready to sell (app/api/store PUT "not-ready"): the server's copy comes back
-         here, and the page says why (SaveNotice.tsx) */
-      if (h && h.result === "not-ready" && typeof sent[k] === "string") {
-        notReady = true;
-        if (typeof h.value === "string" && replaceAccountValue(k, h.value, sent[k])) showAgain(k);
-        continue;
-      }
-      if (!h || h.result !== "theme-not-bought" || typeof sent[k] !== "string") continue;
-      notBought ||= typeof h.theme === "string" ? h.theme : "";
-      const back = typeof h.value === "string" ? h.value : k === "seen-themes" ? themesWithoutActive(sent[k]) : null;
-      if (back !== null && replaceAccountValue(k, back, sent[k])) showAgain(k);
-    }
-    if (notBought) window.dispatchEvent(new CustomEvent(THEME_NOT_BOUGHT, { detail: notBought }));
-    if (notReady) refused("not-ready");
+    takeBackRefused(r.refused, sent);
     return "ok";
+  }
+  /* not kept at all because the store is not ready to sell: the keys come back as the server has them (its answer
+     names them in "refused", as above), the design is kept as the designer's draft, and the page says why */
+  if (r.status === 409 && r.result === "not-ready") {
+    takeBackRefused(r.refused, sent, true);
+    return "stop";
   }
   /* signed out (here, in another tab, or because Dukkan suspended the store): the tab stops saving and leaves; the
      change is not dropped, it stays in the outbox for the same account's next sign-in */

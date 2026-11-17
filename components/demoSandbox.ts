@@ -192,6 +192,26 @@ export function replaceAccountValue(key: string, value: string, expected: string
   }
 }
 
+/** Puts one key of the account's data back to the server's copy without sending it, as replaceAccountValue, and also
+    when the server has none (`value` null: the browser's copy is removed). Only while the browser still holds
+    `expected` (null: none, a removal the server did not keep). True when the browser holds `value` now. */
+export function restoreAccountValue(key: string, value: string | null, expected: string | null): boolean {
+  if (!account || !orig) return false;
+  const k = `acct:${account}:${key}`;
+  try {
+    const ls = window.localStorage;
+    const now = orig.get.call(ls, k);
+    if (now === value) return true;
+    if (now !== expected) return false;
+    if (value === null) orig.remove.call(ls, k);
+    else orig.set.call(ls, k, value);
+    return true;
+  } catch {
+    /* storage blocked */
+    return false;
+  }
+}
+
 /** One key of the signed-in account's data as this browser holds it (null when it has none) */
 export function accountValue(key: string): string | null {
   if (!account || !orig) return null;

@@ -155,37 +155,13 @@ export const PUT = guarded(async (req: NextRequest) => {
      and pickup or a valid delivery choice). A live store is never taken offline for it, but a setup save that would
      leave it missing something it had is not kept either (a store Diwan's change already left without a way to pay can
      still save the rest of its setup). Only those keys are held back, with the server's copy, as for a theme not bought;
-     a save of nothing else is answered 409 "not-ready" with what is missing. */
+     a save of nothing else is answered 409 "not-ready" with what is missing, and "refused" (each key with the server's
+     copy, as above) for the browser to put back.
+     It is checked inside the save's transaction, under the account's save lock (below), against the stored values as
+     this save leaves them: two devices saving at once (one taking away the last way to pay of a paused store, the other
+     reopening it) are checked one after the other, so the second sees what the first kept. */
   const touchesLive = [...set.map(([k]) => k), ...(remove as string[])].some((k) => LIVE_KEYS.includes(k));
-  if (touchesLive) {
-    const { rows } = await (await db()).query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, LIVE_KEYS]);
-    const was = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
-    const after = (k: string): string | null => {
-      const s = set.find(([x]) => x === k);
-      return s ? (s[1] as string) : remove.includes(k) ? null : was.get(k) ?? null;
-    };
-    const before = (k: string) => was.get(k) ?? null;
-    const isLive = (get: (k: string) => string | null) => get("seen-storefront") !== null && !pausedIn(get("seen-maintenance"));
-    const platform = await sellPlatform();
-    const now = readyToSell(setupIn(after("seen-setup")), platform);
-    const then = readyToSell(setupIn(before("seen-setup")), platform);
-    let hold: string[] = [];
-    if (isLive(after) && !isLive(before) && !now.ok) hold = ["seen-storefront", "seen-maintenance"];
-    else if (isLive(after) && isLive(before) && now.missing.some((m) => !then.missing.includes(m))) hold = ["seen-setup"];
-    hold = hold.filter((k) => set.some(([s]) => s === k) || remove.includes(k));
-    if (hold.length) {
-      const missing = hold.includes("seen-setup") ? now.missing.filter((m) => !then.missing.includes(m)) : now.missing;
-      for (const k of hold) {
-        const i = set.findIndex(([s]) => s === k);
-        if (i >= 0) set.splice(i, 1);
-        const j = remove.indexOf(k);
-        if (j >= 0) remove.splice(j, 1);
-        delete rewritten[k];
-        refused[k] = { result: "not-ready", missing, value: was.get(k) ?? null };
-      }
-      if (!set.length && !remove.length) return answer({ result: "not-ready", missing }, 409);
-    }
-  }
+  const platform = touchesLive ? await sellPlatform() : null;
   const tooLong = set.find(([, v]) => (v as string).length > MAX_VALUE);
   if (tooLong) return answer({ result: "too-big", key: tooLong[0] }, 413);
 
@@ -214,11 +190,13 @@ export const PUT = guarded(async (req: NextRequest) => {
        sold online that the browser's copy has not seen */
     if (online.length) await shopLock(client, a.id);
     const asked = set.map(([k]) => k).filter((k) => k in base);
+    /* one save of the account's lists, or of what decides whether the store is live (setup, design, pause), at a time:
+       a lock that exists before any row does, so a second device that also had no copy on the server ("") waits for
+       the first and then finds its row, and gets "stale" to merge with it, instead of writing over it (a row lock alone
+       can't hold a row that isn't there yet); and a store's readiness is checked against what the save before kept.
+       Always taken after the store-order lock above (71002, then 71004), never the other way round. */
+    if (asked.length || touchesLive) await client.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [a.id]);
     if (asked.length) {
-      /* one save of the account's lists at a time: a lock that exists before any list does, so a second device that
-         also had no copy on the server ("") waits for the first and then finds its row, and gets "stale" to merge with
-         it, instead of writing over it (a row lock alone can't hold a row that isn't there yet) */
-      await client.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [a.id]);
       const { rows } = await client.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[]) FOR UPDATE`, [a.id, asked]);
       const now = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
       for (const k of asked) {
@@ -228,6 +206,39 @@ export const PUT = guarded(async (req: NextRequest) => {
       }
       for (let i = set.length - 1; i >= 0; i--) if (set[i][0] in stale) set.splice(i, 1);
       for (const k of Object.keys(stale)) delete rewritten[k];
+    }
+    if (touchesLive && platform) {
+      /* read under the lock and held until the commit: the values every other such save of this account will see */
+      const { rows } = await client.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[]) FOR UPDATE`, [a.id, LIVE_KEYS]);
+      const was = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
+      const after = (k: string): string | null => {
+        const s = set.find(([x]) => x === k);
+        return s ? (s[1] as string) : remove.includes(k) ? null : was.get(k) ?? null;
+      };
+      const before = (k: string) => was.get(k) ?? null;
+      const isLive = (get: (k: string) => string | null) => get("seen-storefront") !== null && !pausedIn(get("seen-maintenance"));
+      const now = readyToSell(setupIn(after("seen-setup")), platform);
+      const then = readyToSell(setupIn(before("seen-setup")), platform);
+      let hold: string[] = [];
+      if (isLive(after) && !isLive(before) && !now.ok) hold = ["seen-storefront", "seen-maintenance"];
+      else if (isLive(after) && isLive(before) && now.missing.some((m) => !then.missing.includes(m))) hold = ["seen-setup"];
+      hold = hold.filter((k) => set.some(([s]) => s === k) || remove.includes(k));
+      if (hold.length) {
+        const missing = hold.includes("seen-setup") ? now.missing.filter((m) => !then.missing.includes(m)) : now.missing;
+        for (const k of hold) {
+          const i = set.findIndex(([s]) => s === k);
+          if (i >= 0) set.splice(i, 1);
+          const j = remove.indexOf(k);
+          if (j >= 0) remove.splice(j, 1);
+          delete rewritten[k];
+          refused[k] = { result: "not-ready", missing, value: was.get(k) ?? null };
+        }
+        /* nothing else in it (a list sent back "stale" is something: it is answered as usual, for the browser to merge) */
+        if (!set.length && !remove.length && !Object.keys(stale).length) {
+          await client.query("ROLLBACK");
+          return answer({ result: "not-ready", missing, refused }, 409);
+        }
+      }
     }
     if (online.length) {
       for (const entry of online) {

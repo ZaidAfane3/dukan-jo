@@ -38,7 +38,7 @@ import { keepPicture } from "../media";
 import { picturesIn, swapKnown } from "../mediaRules";
 import { onServer } from "../merchantApi";
 import { onHandOver } from "../oneTab";
-import { pictureSavesHeld, THEME_NOT_BOUGHT } from "../serverSync";
+import { pictureSavesHeld, SAVE_REFUSED, THEME_NOT_BOUGHT } from "../serverSync";
 import { usePageTitle } from "../pageTitle";
 
 /* The design as text for "is anything changed?": keys in one order, and what draws the same as nothing (a value taken away, an
@@ -121,13 +121,15 @@ function changedPaths(a: unknown, b: unknown, path = "", out: { path: string; le
 }
 const TASKS = 6; /* the store design task is the last one of the setup list */
 
-/* Work he left before it could be saved (the store name or a contact number was missing): kept in this browser only, so the
-   store does not go live with it; the designer opens on it next time, and a real save or "leave without saving" clears it */
+/* Work he left before it could be saved (the store name or a contact number was missing, or the store could not sell yet),
+   so the store does not go live with it; the designer opens on it next time, and a real save or "leave without saving"
+   clears it. A design the server did not keep because the store was not ready to sell is kept here too (serverSync.ts
+   keepRefusedDesign), without the store's name and contact: those come from the setup, as when the designer opens. */
 const DRAFT_KEY = "seen-design-draft";
-function loadDraft(): Draft | null {
+function loadDraft(): (Omit<Draft, "identity"> & { identity?: Draft["identity"] }) | null {
   try {
     const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null");
-    return d && typeof d === "object" && d.config && d.identity ? (d as Draft) : null;
+    return d && typeof d === "object" && d.config && typeof d.config === "object" && (d.identity === undefined || (d.identity && typeof d.identity === "object")) ? d : null;
   } catch {
     return null;
   }
@@ -302,6 +304,21 @@ export function Designer() {
   /* whether customers can see the store yet (it opens with its first save) */
   const [isOpen, setIsOpen] = useState(false);
   useEffect(() => setIsOpen(storeIsLive()), []);
+  /* The server did not keep the save that opened the store (it can't sell yet, app/api/store PUT "not-ready"): this
+     browser no longer has the design (serverSync.ts takes the server's copy back, and keeps the design as the draft), so
+     the store is not live here either, the bar says what is missing, and once it can sell, Save opens it with this design */
+  useEffect(() => {
+    const again = (e: Event) => {
+      const key = e instanceof StorageEvent ? e.key : null;
+      if (e.type === SAVE_REFUSED || key === null || key === "seen-storefront" || key.endsWith(":seen-storefront")) setIsOpen(storeIsLive());
+    };
+    window.addEventListener("storage", again);
+    window.addEventListener(SAVE_REFUSED, again);
+    return () => {
+      window.removeEventListener("storage", again);
+      window.removeEventListener(SAVE_REFUSED, again);
+    };
+  }, []);
   /* whether the store can sell (safeOrder readyToSell): the first save, which opens the store, waits until it can */
   const sell = useSellReady();
   /* In the platform tour the designer can be opened and looked at, but nothing in it can be changed or uploaded */
@@ -397,7 +414,7 @@ export function Designer() {
       /* the unfinished work he left last time comes back, still unsaved (the store keeps what was saved before) */
       const left = !ro && !tryTheme ? loadDraft() : null;
       if (left) {
-        setDraft({ ...left, config: withoutUnboughtLooks(left.config) });
+        setDraft({ ...left, identity: left.identity ?? d.identity, config: withoutUnboughtLooks(left.config) });
         setSaved(JSON.stringify(d));
         return;
       }
