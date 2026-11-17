@@ -7,6 +7,7 @@ import { isStaffPage } from "./diwan/nav";
 import { isStoreAddress } from "./safe";
 import { demoActive, endDemo, installAccounts, installDemoIfActive, reseedDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
+import { OtherTabScreen } from "./OtherTabScreen";
 import { SaveNotice } from "./SaveNotice";
 
 const words = {
@@ -102,7 +103,8 @@ export function DemoBoot() {
   const inDesigner = (usePathname() ?? "").startsWith("/design");
   if (staff) return null;
   /* a signed-in store: a change the server refused for good is said, on every page (the tour saves nothing) */
-  if (!on) return <SaveNotice />;
+  /* ...and when another tab of the account is the active one, the screen that says so (oneTab.ts) */
+  if (!on) return <><SaveNotice /><OtherTabScreen /></>;
   return (
     <div role="status" className={`demo-pill dash fixed ${inDesigner ? "bottom-20" : "bottom-4"} start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-brand-dark px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2`}>
       <span className={label}>{w.label}</span>

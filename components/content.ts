@@ -65,6 +65,7 @@ export type Content = {
     errServer: string;
     errWrongPassword: string;
     errTooMany: string;
+    errSignupMany: string;
     terms: { before: string; terms: string; and: string; privacy: string };
     side: { kicker: string; heading: string; panelTitle: string; steps: string[]; caption: string };
   };
@@ -184,6 +185,8 @@ export type Content = {
       addressPh: string;
       previewSeen: string;
       errCity: string;
+      /* the saved pickup city is no longer one Dukkan Ship serves (Diwan took it off the list): {city} is its name */
+      cityGone: string;
       errName: string;
       errAddress: string;
     };
@@ -230,7 +233,6 @@ export type Content = {
     welcomeNoName: string;
     welcomeSub: string;
     setupTitle: string;
-    setupDone: string;
     setupProgress: string;
     setupCta: string;
     summaryTitle: string;
@@ -347,6 +349,14 @@ export type Content = {
     turnOn: string;
     turnOff: string;
     expiredOff: string;
+    /* under "Scheduled": the day it starts working at checkout ({date}) */
+    startsOn: string;
+    /* the undo note at the bottom (UndoToast.tsx); {name} is the coupon's name or code */
+    undoAdded: string;
+    undoEdited: string;
+    undoDeleted: string;
+    undoOn: string;
+    undoOff: string;
   };
   sidebar: {
     collapse: string;
@@ -421,6 +431,7 @@ export type Content = {
       loading: string;
       loadFailed: string;
       sendFailed: string;
+      saveFailed: string;
       tooMany: string;
       picturesBad: string;
       you: string;
@@ -524,6 +535,7 @@ export const content: Record<Lang, Content> = {
       errServer: "We couldn't reach Dukkan right now. Check your connection and try again.",
       errWrongPassword: "The email, number or password is not right. Try again.",
       errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
+      errSignupMany: "Too many accounts were created from this connection in the last hour. Wait an hour and try again.",
       terms: {
         before: "By creating an account, you agree to Dukkan's ",
         terms: "Terms of Service",
@@ -586,10 +598,10 @@ export const content: Record<Lang, Content> = {
         ],
         dataTitle: "Add product details",
         imageAdd: "Add a new image",
-        imageBrowse: "Or browse from your device",
+        imageBrowse: "Choose from your device",
         errImage: "Add a photo of the product. Every product needs one.",
-        imageHint: "Maximum file size is 2 MB. The image should be at least 250 × 100 px.",
-        imageTooBig: "This file is larger than 2 MB.",
+        imageHint: "PNG, JPG or WebP, up to 8 MB. The image should be at least 250 × 100 px.",
+        imageTooBig: "This file is larger than 8 MB.",
         imageRemove: "Remove image",
         nameLabel: "Product name",
         namePh: "Enter the product name",
@@ -667,6 +679,7 @@ export const content: Record<Lang, Content> = {
         addressPh: "Street, building number, landmark",
         previewSeen: "This is how Dukkan Ship will appear in your account",
         errCity: "Choose a pickup city.",
+        cityGone: "Dukkan Ship no longer picks up from {city}. Choose another pickup city so your orders can be collected.",
         errName: "Enter their name, at least 2 letters.",
         errAddress: "Enter the pickup address: area, street and building.",
       },
@@ -795,7 +808,6 @@ export const content: Record<Lang, Content> = {
       welcomeNoName: "Welcome back",
       welcomeSub: "Here is how your store is doing today.",
       setupTitle: "Finish setting up your store",
-      setupDone: "Your store is ready to launch",
       setupProgress: "{done} of {total} tasks done",
       setupCta: "Continue setup",
       summaryTitle: "{month} summary",
@@ -864,7 +876,7 @@ export const content: Record<Lang, Content> = {
       title: "Discount coupons",
       search: "Search by coupon name or code",
       export: "Export coupons",
-      statuses: ["All", "Active", "Disabled", "Expired", "Used up"],
+      statuses: ["All", "Active", "Disabled", "Expired", "Used up", "Scheduled"],
       cols: ["Coupon", "Discount", "Start date", "End date", "Status", "Actions"],
       noEnd: "No end date",
       startsNow: "Starts immediately",
@@ -921,6 +933,12 @@ export const content: Record<Lang, Content> = {
       turnOn: "Turn on coupon {code}",
       turnOff: "Turn off coupon {code}",
       expiredOff: "This coupon has expired. Change its end date to turn it on again.",
+      startsOn: "Starts {date}",
+      undoAdded: "Coupon “{name}” added",
+      undoEdited: "Changes to coupon “{name}” saved",
+      undoDeleted: "Coupon “{name}” deleted",
+      undoOn: "Coupon “{name}” turned on",
+      undoOff: "Coupon “{name}” turned off",
     },
     sidebar: {
       collapse: "Collapse menu",
@@ -1002,6 +1020,7 @@ export const content: Record<Lang, Content> = {
         loading: "Loading your tickets…",
         loadFailed: "Your tickets could not be loaded. Check your connection and try again.",
         sendFailed: "It could not be sent. Check your connection and try again.",
+        saveFailed: "It could not be saved. Check your connection and try again.",
         tooMany: "You have sent a lot in a short time. Please try again in a little while.",
         picturesBad: "One of the pictures could not be sent. Remove it and try again.",
         you: "You",
@@ -1104,6 +1123,7 @@ export const content: Record<Lang, Content> = {
       errServer: "تعذّر الاتصال بدكان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
       errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
       errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
+      errSignupMany: "أُنشئت حسابات كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
       terms: {
         before: "بإنشائك حسابًا، فإنك توافق على ",
         terms: "شروط الاستخدام",
@@ -1166,10 +1186,10 @@ export const content: Record<Lang, Content> = {
         ],
         dataTitle: "أضف بيانات المنتج",
         imageAdd: "أضف صورة جديدة",
-        imageBrowse: "أو تصفّح من جهازك",
+        imageBrowse: "اختر من جهازك",
         errImage: "أضف صورة للمنتج، فكل منتج يحتاج صورة.",
-        imageHint: "الحد الأقصى لحجم الملف 2 ميغابايت، ويفضّل ألا يقل مقاس الصورة عن 250 × 100 بكسل.",
-        imageTooBig: "حجم هذا الملف أكبر من 2 ميغابايت.",
+        imageHint: "PNG أو JPG أو WebP، حتى 8 ميغابايت، ويفضّل ألا يقل مقاس الصورة عن 250 × 100 بكسل.",
+        imageTooBig: "حجم هذا الملف أكبر من 8 ميغابايت.",
         imageRemove: "إزالة الصورة",
         nameLabel: "اسم المنتج",
         namePh: "أدخل اسم المنتج",
@@ -1245,6 +1265,7 @@ export const content: Record<Lang, Content> = {
         addressPh: "الشارع، رقم المبنى، أقرب معلم",
         previewSeen: "هكذا سيظهر شحن دكان في حسابك",
         errCity: "اختر مدينة الاستلام.",
+        cityGone: "لم يعد شحن دكان يستلم الطلبات من {city}. اختر مدينة استلام أخرى ليتمكّن من استلام طلباتك.",
         errName: "أدخل الاسم، حرفان على الأقل.",
         errAddress: "أدخل عنوان الاستلام: المنطقة والشارع والمبنى.",
       },
@@ -1373,7 +1394,6 @@ export const content: Record<Lang, Content> = {
       welcomeNoName: "حيّاك الله",
       welcomeSub: "هذا ملخص أداء متجرك اليوم.",
       setupTitle: "أكمل إعداد متجرك",
-      setupDone: "متجرك جاهز للإطلاق",
       setupProgress: "{done} من {total} مهام مكتملة",
       setupCta: "متابعة الإعداد",
       summaryTitle: "ملخص {month}",
@@ -1442,7 +1462,7 @@ export const content: Record<Lang, Content> = {
       title: "كوبونات الخصم",
       search: "ابحث باسم أو رمز الكوبون",
       export: "تصدير الكوبونات",
-      statuses: ["الكل", "مفعّل", "معطّل", "منتهي الصلاحية", "مكتمل الاستخدام"],
+      statuses: ["الكل", "مفعّل", "معطّل", "منتهي الصلاحية", "مكتمل الاستخدام", "مجدول"],
       cols: ["الكوبون", "الخصم", "تاريخ البداية", "تاريخ الانتهاء", "حالة الكوبون", "إجراءات"],
       noEnd: "بدون تاريخ انتهاء",
       startsNow: "يبدأ فورًا",
@@ -1499,6 +1519,12 @@ export const content: Record<Lang, Content> = {
       turnOn: "تفعيل الكوبون {code}",
       turnOff: "إيقاف الكوبون {code}",
       expiredOff: "انتهت صلاحية هذا الكوبون. غيّر تاريخ الانتهاء لتفعيله من جديد.",
+      startsOn: "يبدأ {date}",
+      undoAdded: "أُضيف الكوبون «{name}»",
+      undoEdited: "حُفظت تعديلات الكوبون «{name}»",
+      undoDeleted: "حُذف الكوبون «{name}»",
+      undoOn: "فُعّل الكوبون «{name}»",
+      undoOff: "أُوقف الكوبون «{name}»",
     },
     sidebar: {
       collapse: "طي القائمة",
@@ -1580,6 +1606,7 @@ export const content: Record<Lang, Content> = {
         loading: "جارٍ تحميل تذاكرك…",
         loadFailed: "تعذّر تحميل تذاكرك. تحقق من الاتصال وحاول مرة أخرى.",
         sendFailed: "تعذّر الإرسال. تحقق من الاتصال وحاول مرة أخرى.",
+        saveFailed: "تعذّر الحفظ. تحقق من الاتصال وحاول مرة أخرى.",
         tooMany: "أرسلت كثيرًا في وقت قصير. حاول مرة أخرى بعد قليل.",
         picturesBad: "تعذّر إرسال إحدى الصور. احذفها وحاول مرة أخرى.",
         you: "أنت",

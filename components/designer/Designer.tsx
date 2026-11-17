@@ -5,13 +5,13 @@ import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } f
 import { brandName } from "../content";
 import { refreshCatalog, useCatalog } from "../catalog";
 import { demoActive, setOwnCopy } from "../demoSandbox";
-import { adoptTheme, baseTheme, defaultTheme, findTheme, keepActiveLook, loadThemeState, previewProducts, saveDesignAsTheme, withoutUnboughtLooks, type ThemeInfo } from "../themes";
+import { adoptTheme, baseTheme, defaultTheme, findTheme, keepActiveLook, loadThemeState, markThemeInUse, notBought, previewProducts, refreshThemeAccess, saveDesignAsTheme, unboughtBase, withoutUnboughtLooks, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
 import { PageEditor } from "./PageEditor";
 import { load as loadPages, savePages } from "../InfoPages";
 import { LangSwitch, usePrefs } from "../Prefs";
 import { oneSided, startingWords, textsNow, TRANSLATE_WORDS } from "./translations";
-import { accountName, accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
+import { accountPhone, loadSetup, saveSetup, type SavedSetup } from "../setup";
 import { StorefrontTheme } from "../storefront/StorefrontTheme";
 import { DesignerSkeleton } from "../StoreSkeletons";
 import { clearTemplate, dropServerTemplate, loadConfig, loadTemplate, refreshTemplate, saveConfig, saveTemplate, sendTemplate, sendThemeDesign, designFrom, storeIsLive, templateReady } from "../storefront/storage";
@@ -21,7 +21,7 @@ import { HEX, input } from "./controls";
 import { dc } from "./copy";
 import { BugReport } from "./BugReport";
 import { legibleOn } from "../storefront/footerColors";
-import { OptionsPanel, PageLookNow, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus, type OptionsScreen } from "./panels";
+import { OptionsPanel, PageLookNow, PreviewProducts, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus, type OptionsScreen } from "./panels";
 import { hasStoreContact, visibleLength } from "../safe";
 import type { Design } from "../storefront/sections";
 
@@ -36,7 +36,9 @@ import { savedPhone } from "../safeAccount";
 import { keepPicture } from "../media";
 import { picturesIn, swapKnown } from "../mediaRules";
 import { onServer } from "../merchantApi";
-import { pictureSavesHeld } from "../serverSync";
+import { onHandOver } from "../oneTab";
+import { pictureSavesHeld, THEME_NOT_BOUGHT } from "../serverSync";
+import { usePageTitle } from "../pageTitle";
 
 /* The design as text for "is anything changed?": keys in one order, and what draws the same as nothing (a value taken away, an
    empty group of settings, words left empty in both languages) left out, so a value changed and then put back by hand is no change */
@@ -146,7 +148,8 @@ function initial(): Draft {
   const wa = s?.whatsapp ? `+962 ${shownMobile(s.whatsapp)}` : "";
   return {
     config: wa && !config.footer.whatsapp?.trim() ? { ...config, footer: { ...config.footer, whatsapp: wa } } : config,
-    identity: { name: s?.name || accountName(), description: s?.description ?? "", color: s?.color ?? "#e67726", phone: shownMobile(s?.phone || (s?.whatsapp === undefined ? accountPhone() : "")) },
+    /* the store name is only what he typed himself (in setup or here), never his own name from signup */
+    identity: { name: s?.name ?? "", description: s?.description ?? "", color: s?.color ?? "#e67726", phone: shownMobile(s?.phone || (s?.whatsapp === undefined ? accountPhone() : "")) },
   };
 }
 
@@ -258,6 +261,9 @@ export function Designer() {
     if (openedPage !== null && !loadPages().some((p) => p.id === openedPage)) setOpenedPage(null);
   }, [openedPage, pagesVersion]);
   const [moreMenu, setMoreMenu] = useState(false);
+  /* A "are you sure?" asked in the page (never the browser's own window): what it asks, the button that goes on, and what
+     that does. Cancel has the focus first. */
+  const [ask, setAsk] = useState<{ text: string; yes: string; run: () => void } | null>(null);
   /* The name being typed to save this design as a theme (null: the form is closed) */
   const [themeName, setThemeName] = useState<string | null>(null);
   /* The name of the theme in use, as My themes shows it (his own name for it, a saved design's name, or the theme's) */
@@ -321,10 +327,10 @@ export function Designer() {
   const bar = useRef<HTMLDivElement>(null);
   /* the theme store's list (themes made in Diwan, their names and prices): this browser's copy at once, the server's after */
   useCatalog();
+  /* which paid themes this store bought, from the server: a paid theme he has not bought can be tried, not saved */
+  useEffect(() => void refreshThemeAccess(), []);
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${t.title}`;
-  }, [lang, t]);
+  usePageTitle(`${brandName(lang)} | ${t.title}`);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -481,6 +487,12 @@ export function Designer() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  /* Another tab takes over this account's Dukkan (oneTab.ts): the unsaved work is kept as the draft the designer opens
+     on there, so nothing is lost and this tab's own warning about leaving no longer applies */
+  useEffect(() => onHandOver(() => {
+    if (dirty && draft && !readOnly && keepDraft(draft)) setSaved(JSON.stringify(draft));
+  }), [dirty, draft, readOnly]);
 
   /* Closing the tab or reloading with unsaved changes asks first. */
   useEffect(() => {
@@ -642,7 +654,12 @@ export function Designer() {
   /* the page's background and the store color, for the color boxes that warn when a text color vanishes on them */
   const pageBgNow = draft?.config.theme.background ?? "#ffffff";
   const primaryNow = draft ? draft.config.theme.primary || (/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#e67726") : "#e67726";
-  const pageLook = useMemo(() => ({ bg: pageBgNow, primary: primaryNow }), [pageBgNow, primaryNow]);
+  /* the colors the store draws now where nothing is chosen (the same rules as StorefrontTheme): the page's text and titles,
+     and the accent, so an "Auto" color box shows the color really used */
+  const textNowD = draft ? legibleOn(draft.config.theme.text, pageBgNow) : "#1c1a17";
+  const titleNowD = draft ? legibleOn(draft.config.theme.titleColor || textNowD, pageBgNow, textNowD) : textNowD;
+  const accentNowD = draft?.config.theme.accent || primaryNow;
+  const pageLook = useMemo(() => ({ bg: pageBgNow, primary: primaryNow, text: textNowD, title: titleNowD, accent: accentNowD }), [pageBgNow, primaryNow, textNowD, titleNowD, accentNowD]);
 
   if (!draft) return <DesignerSkeleton />;
 
@@ -811,6 +828,11 @@ export function Designer() {
     </span>
   );
 
+  /* the paid theme he has not bought that saving this design would put on his store: the theme being tried, or (not
+     trying one) the theme in use or the theme under his copy in use; "" when there is none (themes.ts notBought) */
+  const unbought = (): string => (trying ? (notBought(trying.id) ? trying.id : "") : unboughtBase(loadThemeState().active) ?? "");
+  const tellNotBought = (id: string) => window.dispatchEvent(new CustomEvent(THEME_NOT_BOUGHT, { detail: id }));
+
   const save = (): boolean => {
     const problem = firstProblem(draft);
     if (problem) {
@@ -826,6 +848,13 @@ export function Designer() {
       return false;
     }
     emptyOk.current = false;
+    /* A paid theme he has not bought can be tried here (the preview), not published: nothing is saved, and the page says
+       so with a way to buy it (SaveNotice.tsx). The server holds a save to the same rule (app/api/store PUT). */
+    const held = templateMode ? "" : unbought();
+    if (held) {
+      tellNotBought(held);
+      return false;
+    }
     /* A look of a theme he has not bought can be tried in the preview, but the store keeps only what he owns */
     const kept = templateMode ? draft : { ...draft, config: withoutUnboughtLooks(draft.config) };
     /* the starter template's own copy is on the server (sent below); this browser's copy is only a cache, so a full storage doesn't stop it */
@@ -870,8 +899,14 @@ export function Designer() {
     };
     saveSetup(next);
     /* the theme in use, when it is one of his own (a copy or a design he saved), keeps what he just saved; a theme being tried
-       (?theme=) is not the one in use, so nothing of his is changed by it */
+       (?theme=) is not the one in use, so nothing of his is changed by it. Saved, the theme being tried is the store's
+       theme now: it becomes the one in use (as "Use this theme" makes it), so My themes, Diwan and the server's check of a
+       paid theme all see it. */
     if (!trying) keepActiveLook(kept.config);
+    else if (markThemeInUse(trying.id)) {
+      setActiveTheme(trying.name[lang]);
+      setUsingTheme(trying.id);
+    }
     keepDraft(null);
     if (kept !== draft) setDraft(kept);
     setSaved(JSON.stringify(kept));
@@ -887,6 +922,8 @@ export function Designer() {
   acts.current = { select, selectProduct, moveBit, editPic, reorderChips, openPage: (id) => { setOpenedPage(id); setProductView(false); setCartView(false); if (id !== null) setPanelOpen(true); }, sampleProducts: setSample };
   /* the preview with sample products: offered while the store has no products of its own (a theme try-out and his own copy of a
      theme already show the theme's sample products, the starter template always shows them); it is only on screen, never saved */
+  /* what the preview's products are, for the link list (it tells a link to a part customers see empty) */
+  const previewOfLinks: { sample: boolean; products?: StoreProduct[] } = { sample, products: tryProducts };
   const sampleChoice = !trying && !templateMode && (!hasOwnProducts || sample) ? { on: sample, set: setSample } : null;
   /* the design this page is built on, as it first came (a design he made himself goes back to Dukkan's): the "original design" of the menu */
   const originalTheme = findTheme(trying?.id ?? usingTheme) ?? defaultTheme;
@@ -1101,13 +1138,18 @@ export function Designer() {
         {templateMode && !catalogTheme && (
           <button
             type="button"
-            onClick={() => {
-              if (!window.confirm(t.restoreMainAsk)) return;
-              setDraft((d) => d && { ...d, config: defaultConfig });
-              clearTemplate();
-              void dropServerTemplate();
-              setEditing(null);
-            }}
+            onClick={() =>
+              setAsk({
+                text: t.restoreMainAsk,
+                yes: t.restoreMain,
+                run: () => {
+                  setDraft((d) => d && { ...d, config: defaultConfig });
+                  clearTemplate();
+                  void dropServerTemplate();
+                  setEditing(null);
+                },
+              })
+            }
             className="h-9 rounded-xl border border-amber-500/50 px-4 text-sm font-semibold text-amber-800 transition hover:bg-amber-500/15 dark:text-amber-300"
           >
             {t.restoreMain}
@@ -1159,11 +1201,16 @@ export function Designer() {
                   disabled={readOnly}
                   title={readOnly ? t.demoBlocked : undefined}
                   onClick={() => {
-                    if (!window.confirm(t.restoreOriginalAsk)) return;
                     setMoreMenu(false);
-                    setEditing(null);
-                    setSelected(null);
-                    update((d) => ({ ...d, config: adoptTheme(d.config, originalTheme.build(lang, { samples: false, storeName: d.identity.name })) }));
+                    setAsk({
+                      text: t.restoreOriginalAsk,
+                      yes: t.restoreOriginal,
+                      run: () => {
+                        setEditing(null);
+                        setSelected(null);
+                        update((d) => ({ ...d, config: adoptTheme(d.config, originalTheme.build(lang, { samples: false, storeName: d.identity.name })) }));
+                      },
+                    });
                   }}
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition hover:bg-soft disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
@@ -1183,6 +1230,14 @@ export function Designer() {
                     <button
                       type="button"
                       onClick={() => {
+                        /* a paid theme he has not bought can be tried, not kept as a design of his own (that would be using it) */
+                        const held = unbought();
+                        if (held) {
+                          setThemeName(null);
+                          setMoreMenu(false);
+                          tellNotBought(held);
+                          return;
+                        }
                         const r = saveDesignAsTheme(themeName.trim() || t.themeDefaultName, draft.config);
                         setThemeName(null);
                         setMoreMenu(false);
@@ -1247,6 +1302,7 @@ export function Designer() {
           <UsingTheme.Provider value={trying?.id ?? usingTheme}>
           <StoreColorNow.Provider value={/^#[0-9a-f]{6}$/i.test(draft.identity.color) ? draft.identity.color : "#e67726"}>
           <SampleProducts.Provider value={sampleChoice}>
+          <PreviewProducts.Provider value={previewOfLinks}>
           <OpenPage.Provider value={(id) => { setOpenedPage(id); setProductView(false); setCartView(false); setPanelOpen(true); }}>
           {/* --sf-heading: the store's titles font, so the font pickers' "like the titles" choice writes in it */}
           <aside className={`relative flex min-h-0 flex-1 flex-col bg-card ${phoneStore ? "max-lg:hidden" : ""} lg:w-[var(--panel-w)] lg:flex-none lg:shrink-0 lg:border-e lg:border-fg/10`} style={{ "--sf-heading": headingFamily(draft.config.theme), "--panel-w": `${panelW}px` } as React.CSSProperties}>
@@ -1308,6 +1364,7 @@ export function Designer() {
             </div>
           </aside>
           </OpenPage.Provider>
+          </PreviewProducts.Provider>
           </SampleProducts.Provider>
           </StoreColorNow.Provider>
           </UsingTheme.Provider>
@@ -1368,6 +1425,28 @@ export function Designer() {
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button type="button" autoFocus onClick={() => setExiting(false)} className="h-11 whitespace-nowrap rounded-xl border border-fg/15 px-3 text-sm font-semibold transition hover:bg-soft">{t.modal.stay}</button>
               <button type="button" onClick={() => { if (!templateMode) keepDraft(null); setSaved(JSON.stringify(draft)); leave(); }} className="h-11 whitespace-nowrap rounded-xl px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{t.modal.leave}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ask && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setAsk(null)}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="designer-ask" onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), setAsk(null))} className="dash w-full max-w-sm rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10 sm:p-7">
+            <p id="designer-ask" className="text-sm leading-relaxed">{ask.text}</p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button" autoFocus onClick={() => setAsk(null)} className="h-11 rounded-xl border border-fg/15 px-3 text-sm font-semibold transition hover:bg-soft">{t.cancel}</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const go = ask.run;
+                  setAsk(null);
+                  go();
+                }}
+                className="h-11 rounded-xl bg-ink px-3 text-sm font-semibold text-onink transition hover:bg-deep"
+              >
+                {ask.yes}
+              </button>
             </div>
           </div>
         </div>

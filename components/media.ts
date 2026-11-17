@@ -12,7 +12,7 @@
 import { checkImage, type FileKind, type UploadProblem } from "./safe";
 import { isMovablePicture, MEDIA_SIDE, mediaRule, PICTURE_KEYS, swapInSaved, type MediaKind } from "./mediaRules";
 import { onServer } from "./merchantApi";
-import { SAVE_REFUSED } from "./serverSync";
+import { accountHeader, lostSession, SAVE_REFUSED } from "./serverSync";
 import { decode } from "./designer/image";
 
 /* ---------------- how much to shrink (no page needed: tested on its own) ---------------- */
@@ -106,12 +106,17 @@ async function encode(c: HTMLCanvasElement, type: "image/webp" | "image/png", qu
 async function send(file: Blob, kind: MediaKind): Promise<Uploaded> {
   let r: Response;
   try {
-    r = await fetch(`/api/media?kind=${kind}`, { method: "POST", body: file, credentials: "same-origin", headers: { "Content-Type": file.type || "application/octet-stream" } });
+    r = await fetch(`/api/media?kind=${kind}`, { method: "POST", body: file, credentials: "same-origin", headers: { "Content-Type": file.type || "application/octet-stream", ...accountHeader() } });
   } catch {
     return { problem: "offline" };
   }
   const reply = (await r.json().catch(() => null)) as { result?: string; url?: string } | null;
   if (r.ok && typeof reply?.url === "string") return { url: reply.url };
+  /* signed out, or the browser's session is now another account's: the tab stops saving and leaves (serverSync.ts) */
+  if (r.status === 401 || (r.status === 409 && reply?.result === "other-account")) {
+    lostSession();
+    return { problem: "refused" };
+  }
   if (r.status === 409) {
     window.dispatchEvent(new CustomEvent(SAVE_REFUSED, { detail: "media-full" }));
     return { problem: "full" };

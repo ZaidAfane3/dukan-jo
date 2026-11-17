@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { brandName, content, dateLocale } from "./content";
+import { brandName, content, dateLocale, type Lang } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { pushNotification } from "./notifications";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
-import { COUPON_MAX, cleanCoupon, cleanCouponDescription, cleanCouponName, couponName, couponProblems, parseList, storeToday, typedMoney, type Coupon, type CouponKind, type CouponType } from "./records";
+import { COUPON_MAX, cleanCoupon, cleanCouponDescription, cleanCouponName, couponDates, couponName, couponProblems, parseList, storeToday, typedMoney, type Coupon, type CouponKind, type CouponType } from "./records";
+import { dropUndos, listUndo, offerUndo } from "./undo";
+import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
+import { usePageTitle } from "./pageTitle";
 
 /* ====================================================================
    Types
@@ -58,12 +61,19 @@ function randomCode(length = 6): string {
   return Array.from(bytes, (b) => chars[b % chars.length]).join("");
 }
 
-function statusOf(c: Coupon): 1 | 2 | 3 | 4 {
-  /* 1 active, 2 disabled, 3 expired, 4 used up (matches the statuses list) */
-  if (c.end && c.end < isoToday()) return 3;
+/* 1 active, 2 disabled, 3 expired, 4 used up, 5 scheduled (matches the statuses list). The dates are read the way the
+   checkout reads them (couponDates in records.ts, Jordan time, both days count), so "Active" means a customer can use it
+   today: one whose start day has not come yet is "Scheduled". */
+type Status = 1 | 2 | 3 | 4 | 5;
+function statusOf(c: Coupon): Status {
+  const when = couponDates(c, isoToday());
+  if (when === "ended") return 3;
   if (c.limit > 0 && c.used >= c.limit) return 4;
-  return c.active ? 1 : 2;
+  if (!c.active) return 2;
+  return when === "soon" ? 5 : 1;
 }
+/* the status tabs: "Scheduled" right after "Active" */
+const TAB_ORDER = [0, 1, 5, 2, 3, 4];
 
 /* The sample coupons an older version could load (s1 to s4): they are not his, so they are dropped */
 const OLD_SAMPLES = new Set(["s1", "s2", "s3", "s4"]);
@@ -142,11 +152,13 @@ function CouponDialog({
     const bad = couponProblems({ type, name, code: cleanCode, kind, value: kind === "shipping" ? 0 : amount, minOrder: min, start, end, limit: 0, validDays: days }, taken, initial?.end, isoToday());
     const say: Record<string, [string, string]> = { code: ["code", f.errCode], dup: ["code", f.errDup], value: ["value", f.errValue], percent: ["value", f.errPercent], overMin: ["value", f.errOverMin], past: ["end", f.errPast], dates: ["end", f.errDates], days: ["validDays", f.errDays] };
     for (const b of bad) if (!next[say[b][0]]) next[say[b][0]] = say[b][1];
+    /* a name over the limit is refused, never cut */
+    if (lineLength(name) > COUPON_MAX.name) next.name = nameTooLong(COUPON_MAX.name)[lang];
     setErrors(next);
     /* the first field with a mistake comes into view with the cursor in it */
-    const firstBad = (["code", "value", "validDays", "end"] as const).find((k) => next[k]);
+    const firstBad = (["name", "code", "value", "validDays", "end"] as const).find((k) => next[k]);
     if (firstBad) {
-      const el = document.getElementById({ code: "c-code", value: "c-value", validDays: "c-days", end: "c-end" }[firstBad]);
+      const el = document.getElementById({ name: "c-name", code: "c-code", value: "c-value", validDays: "c-days", end: "c-end" }[firstBad]);
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
       el?.focus({ preventScroll: true });
       return;
@@ -193,8 +205,10 @@ function CouponDialog({
         <div className="mt-6 space-y-5">
           <div>
             <label className={label} htmlFor="c-name">{f.name}</label>
-            <input id="c-name" ref={first} value={name} onChange={(e) => setName(e.target.value)} placeholder={f.namePh} maxLength={COUPON_MAX.name} aria-describedby="c-name-hint" className={field} />
+            <input id="c-name" ref={first} value={name} onChange={(e) => { setName(e.target.value); if (errors.name) setErrors((x) => { const { name: _drop, ...rest } = x; return rest; }); }} placeholder={f.namePh} maxLength={COUPON_MAX.name * 2} aria-invalid={!!errors.name} aria-describedby="c-name-hint" className={`${field} ${errors.name ? bad : ""}`} />
+            {errors.name && <p className="mt-1.5 text-xs text-rose-600">{errors.name}</p>}
             <p id="c-name-hint" className="mt-1.5 text-xs text-muted">{f.nameHint}</p>
+            <LengthCounter value={name} max={COUPON_MAX.name} lang={lang} hideMessage={!!errors.name} />
           </div>
 
           <div>
@@ -304,24 +318,75 @@ export function Coupons() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  /* the list as read from storage (see the save below) */
+  const loadedList = useRef<Coupon[] | null>(null);
+  /* the list as it is now, for an undo (it checks nothing changed since) */
+  const couponsNow = useRef<Coupon[]>([]);
+  useEffect(() => {
+    couponsNow.current = coupons;
+  }, [coupons]);
+  /* only this page can put its coupons back: its undos go when it closes */
+  useEffect(() => () => dropUndos("coupons"), []);
+  /** A change to the coupons, saved like any edit (below), with an Undo at the bottom that puts back exactly the coupons it
+      changed, unless one of them changed again since (a use at checkout counts as a change) */
+  const change = (next: Coupon[], label: (l: Lang) => string) => {
+    const before = couponsNow.current;
+    couponsNow.current = next;
+    setCoupons(next);
+    offerUndo({
+      scope: "coupons",
+      label,
+      undo: listUndo({
+        before,
+        after: next,
+        key: (x) => x.id,
+        now: () => couponsNow.current,
+        put: (list) => {
+          couponsNow.current = list;
+          setCoupons(list);
+          setDeleting(null);
+        },
+      }),
+    });
+  };
+  const said = (key: "undoAdded" | "undoEdited" | "undoDeleted" | "undoOn" | "undoOff", c: Coupon) => (l: Lang) => content[l].coupons[key].replace("{name}", couponName(c));
+
+  usePageTitle(`${brandName(lang)} | ${m.title}`);
+
+  /* The dashboard search links here with ?open=ID: that coupon's edit window opens (an unknown id: just the list). The
+     address loses ?open so a reload doesn't open it again. */
+  useEffect(() => {
+    if (!ready) return;
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get("open");
+    if (id === null) return;
+    const hit = coupons.find((x) => x.id === id);
+    if (hit) setDialog({ type: hit.type, coupon: hit });
+    url.searchParams.delete("open");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   useEffect(() => {
-    document.title = `${brandName(lang)} | ${m.title}`;
-  }, [lang, m]);
-
-  useEffect(() => {
-    setCoupons(loadCoupons());
+    const read = () => {
+      const list = loadCoupons();
+      loadedList.current = list;
+      setCoupons(list);
+    };
+    read();
     setReady(true);
     /* Another tab changed the coupons, or the server counted uses from his public store: take that list, so this page
        never writes back an older one */
-    const onStorage = (e: StorageEvent) => e.key === KEY && setCoupons(loadCoupons());
+    const onStorage = (e: StorageEvent) => e.key === KEY && read();
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  /* Coupons are kept in localStorage, like the rest of the store (and on the server for a signed-in account). */
+  /* Coupons are kept in localStorage, like the rest of the store (and on the server for a signed-in account). The list
+     as read from storage is not saved back (only a change he makes is), so opening the page on a device with an older
+     copy never sends that copy over a newer one */
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || coupons === loadedList.current) return;
     try {
       localStorage.setItem(KEY, JSON.stringify(coupons));
     } catch {
@@ -352,11 +417,19 @@ export function Coupons() {
     [coupons, tab, query],
   );
 
+  /* saved: the note at the bottom says so, with its Undo (a new coupon goes away again, an edit goes back) */
   const save = (c: Coupon) => {
-    if (!coupons.some((x) => x.id === c.id)) pushNotification("couponCreated", { code: c.code });
-    setCoupons((list) => (list.some((x) => x.id === c.id) ? list.map((x) => (x.id === c.id ? c : x)) : [c, ...list]));
+    const list = couponsNow.current;
+    const known = list.some((x) => x.id === c.id);
+    if (!known) pushNotification("couponCreated", { code: c.code });
+    change(known ? list.map((x) => (x.id === c.id ? c : x)) : [c, ...list], said(known ? "undoEdited" : "undoAdded", c));
     setDialog(null);
-    flash(m.form.saved);
+  };
+  const toggle = (c: Coupon) => change(couponsNow.current.map((x) => (x.id === c.id ? { ...x, active: !x.active } : x)), said(c.active ? "undoOff" : "undoOn", c));
+  /* deleting a coupon is for good, so it still asks first; the Undo after it puts it back for a moment */
+  const remove = (c: Coupon) => {
+    change(couponsNow.current.filter((x) => x.id !== c.id), said("undoDeleted", c));
+    setDeleting(null);
   };
 
   const copyCode = async (code: string) => {
@@ -390,7 +463,7 @@ export function Coupons() {
 
   const th = "px-4 py-3 text-start text-xs font-bold text-muted";
   const td = "px-4 py-4 text-sm";
-  const pill = ["", "bg-primary/15 text-deep dark:text-primary", "bg-fg/10 text-muted", "bg-rose-500/15 text-rose-600 dark:text-rose-400", "bg-fg/10 text-muted"];
+  const pill = ["", "bg-primary/15 text-deep dark:text-primary", "bg-fg/10 text-muted", "bg-rose-500/15 text-rose-600 dark:text-rose-400", "bg-fg/10 text-muted", "bg-sky-500/15 text-sky-700 dark:text-sky-300"];
 
   return (
     <div className="dash min-h-screen bg-page">
@@ -449,8 +522,8 @@ export function Coupons() {
           </div>
 
           <div role="tablist" className="mt-5 flex flex-wrap gap-5 border-b border-fg/10 text-sm font-medium">
-            {m.statuses.map((s, i) => (
-              <button key={s} role="tab" aria-selected={tab === i} type="button" onClick={() => setTab(i)} className={`-mb-px border-b-2 pb-3 transition-colors ${tab === i ? "border-primary font-semibold text-primary" : "border-transparent text-muted hover:text-fg"}`}>
+            {TAB_ORDER.map((i) => m.statuses[i]).map((s, n) => (
+              <button key={s} role="tab" aria-selected={tab === TAB_ORDER[n]} type="button" onClick={() => setTab(TAB_ORDER[n])} className={`-mb-px border-b-2 pb-3 transition-colors ${tab === TAB_ORDER[n] ? "border-primary font-semibold text-primary" : "border-transparent text-muted hover:text-fg"}`}>
                 {s}
               </button>
             ))}
@@ -493,6 +566,7 @@ export function Coupons() {
                           <span className="h-2 w-2 rounded-full bg-current opacity-70" />
                           {m.statuses[st]}
                         </span>
+                        {st === 5 && <span className="mt-1 block text-xs text-muted">{m.startsOn.replace("{date}", dateText(c.start, ""))}</span>}
                       </td>
                       <td className={td}>
                         <div className="flex items-center gap-2">
@@ -504,7 +578,7 @@ export function Coupons() {
                             aria-label={(on ? m.turnOff : m.turnOn).replace("{code}", c.code)}
                             title={st === 3 ? m.expiredOff : undefined}
                             disabled={st === 3}
-                            onClick={() => setCoupons((list) => list.map((x) => (x.id === c.id ? { ...x, active: !x.active } : x)))}
+                            onClick={() => toggle(c)}
                             className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${on ? "bg-primary" : "bg-fg/20"}`}
                           >
                             <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? "start-[1.375rem]" : "start-0.5"}`} />
@@ -513,18 +587,19 @@ export function Coupons() {
                             <svg {...icon} className="h-4 w-4"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4" /></svg>
                           </button>
                           {deleting === c.id ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCoupons((list) => list.filter((x) => x.id !== c.id));
-                                setDeleting(null);
-                              }}
-                              onBlur={() => setDeleting(null)}
-                              autoFocus
-                              className="h-9 rounded-lg bg-rose-600 px-3 text-xs font-bold text-white"
+                            /* asking before deleting starts on Cancel, so Enter cancels; deleting takes moving to the red
+                               button. Leaving both puts the trash button back. */
+                            <span
+                              className="flex items-center gap-1.5"
+                              onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setDeleting(null)}
                             >
-                              {m.confirmDel}
-                            </button>
+                              <button type="button" onClick={() => setDeleting(null)} autoFocus className="h-9 rounded-lg border border-fg/15 px-3 text-xs font-semibold transition hover:bg-soft">
+                                {m.form.cancel}
+                              </button>
+                              <button type="button" onClick={() => remove(c)} className="h-9 rounded-lg bg-rose-600 px-3 text-xs font-bold text-white">
+                                {m.confirmDel}
+                              </button>
+                            </span>
                           ) : (
                             <button type="button" onClick={() => setDeleting(c.id)} aria-label={m.del} title={m.del} className="grid h-9 w-9 place-items-center rounded-lg border border-rose-500/40 text-rose-500 transition hover:bg-rose-500/10">
                               <svg {...icon} className="h-4 w-4"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>

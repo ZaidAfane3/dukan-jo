@@ -11,9 +11,35 @@ import type { StatusKey } from "./ordersContent";
 
 const DAY = 86_400_000;
 
-/* A cancelled or refunded order brought no money in, so it never counts as a sale */
+/* A cancelled or refunded order was not bought: it is not a sale, a customer's purchase or a unit sold */
 const NOT_SALES: readonly StatusKey[] = ["cancelled", "refunded"];
+/** The order still stands (not cancelled or refunded). Customers, units sold and payment methods count these. */
 export const isSale = (o: Pick<Order, "status">) => !NOT_SALES.includes(o.status);
+
+/** An order as the merchant's pages count it: kept in his browser, or placed on his public store and kept on the server
+    (`payment` "test": placed while payment is not open, so nothing was charged). */
+export type CountedOrder = Order & { payment?: "test" | "unpaid" };
+
+/** What an order is worth to the sales numbers (the home page and Reports share this):
+    - "none": cancelled or refunded; or placed on the store and paid by card or CliQ, which no payment takes yet (a test
+      order: nothing was charged), so no money came in and none is coming
+    - "sale": a store order delivered (or picked up): the money is in; an order he added himself as soon as the Orders
+      page calls it "Paid" (any status after pending), so the two pages agree
+    - "expected": a store order still on its way (pending, in review, being prepared, out for delivery: cash on
+      delivery), or an order he added himself that is still pending */
+export type SaleState = "sale" | "expected" | "none";
+/** A test order: placed on the store (or its preview) and paid by card or CliQ, which no payment takes yet, so nothing
+    was charged. Never a sale, never "expected", never in a money total; counted apart only ("test orders not counted"). */
+export const isTestOrder = (o: Pick<CountedOrder, "channel" | "pay" | "payment">) =>
+  (o.channel === 1 || o.payment === "test") && (o.pay === "card" || o.pay === "cliq");
+export function saleState(o: Pick<CountedOrder, "status" | "channel" | "pay" | "payment">): SaleState {
+  if (!isSale(o)) return "none";
+  if (isTestOrder(o)) return "none";
+  /* added by hand: the Orders page shows it "Paid" from the first status after pending (Orders.tsx payment line) */
+  if (o.channel === 0 && o.payment === undefined) return o.status === "pending" ? "expected" : "sale";
+  return o.status === "delivered" ? "sale" : "expected";
+}
+const countsAsSale = (o: CountedOrder) => saleState(o) === "sale";
 
 const fils = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -63,7 +89,7 @@ export function percentChange(current: number, previous: number): number | null 
 /* ============================== sales ============================== */
 
 export type SalesFigures = {
-  /** Orders that count as sales (not cancelled or refunded) */
+  /** Orders that count as sales (delivered, see saleState) */
   orders: number;
   /** What customers paid: the orders' totals, already after coupons */
   sales: number;
@@ -77,11 +103,19 @@ export type SalesFigures = {
   cogsUnknown: number;
   /** Delivery fees the customers paid (saved on the orders), or null when no order in the period has one saved */
   shipping: number | null;
-  /** The profit on the products: sales − the delivery fees customers paid − cost of goods. What the merchant pays the
-      courier is not recorded anywhere, so it is not in this (the page says so); costs that are not known are left out. */
-  profit: number;
+  /** The profit on the products that have a cost price: for each line of those, what the customer paid for it (its share
+      of the order after the coupon, without the delivery fee) − its cost. Lines with no known cost are left out
+      entirely (counting their price as profit would read as 100% profit). null when nothing sold has a cost, so there
+      is no profit to show. What the merchant pays the courier is not recorded anywhere, so it is not in this. */
+  profit: number | null;
+  /** The different products sold in the period, and how many of them have a cost price (the profit's "N of M") */
+  products: { all: number; withCost: number };
   /** sales ÷ orders */
   average: number;
+  /** Orders still on their way (saleState "expected") and what they will bring in once delivered */
+  expected: { orders: number; sales: number };
+  /** Store orders paid by card or CliQ while payment is not open: nothing was charged, so they are not sales */
+  notCharged: number;
 };
 
 /** The product an order line was: by its id (it survives a rename, and is never given to another product, see
@@ -96,15 +130,20 @@ function productMaps(products: Product[]) {
 }
 
 /** Sales, discounts, cost of goods, delivery and profit of the orders placed in `span`. */
-export function salesFigures(orders: Order[], products: Product[], span: Span): SalesFigures {
+export function salesFigures(orders: CountedOrder[], products: Product[], span: Span): SalesFigures {
   const { byId, byName } = productMaps(products);
-  const list = orders.filter((o) => isSale(o) && inSpan(o, span));
+  const inPeriod = orders.filter((o) => inSpan(o, span));
+  const list = inPeriod.filter(countsAsSale);
   let sales = 0;
   let discounts = 0;
   let cogs = 0;
   let cogsUnknown = 0;
   let shipping = 0;
   let shippingSaved = false;
+  let profit = 0;
+  /* the products sold, and those of them with a cost: by the product's id, else the line's name */
+  const sold = new Set<string>();
+  const costed = new Set<string>();
   for (const o of list) {
     sales += o.total;
     discounts += o.coupon?.discount ?? 0;
@@ -114,11 +153,33 @@ export function salesFigures(orders: Order[], products: Product[], span: Span): 
     }
     /* an order added by hand with only a total: what it cost is not known */
     if (!o.items?.length) cogsUnknown += 1;
-    for (const line of o.items ?? []) {
+    /* what the customer paid for the products (the total after the coupon, without the delivery fee), shared over the
+       lines by their prices, so a coupon lowers each line's part */
+    const lines = o.items ?? [];
+    const listed = lines.reduce((n, l) => n + l.price * l.qty, 0);
+    const paid = Math.max(0, o.total - (o.delivery ?? 0));
+    for (const line of lines) {
       const p = productOf(line, byId, byName);
-      if (p && p.cost !== null) cogs += p.cost * line.qty;
-      else cogsUnknown += line.qty;
+      const key = p ? `p:${p.id}` : `n:${line.name}`;
+      sold.add(key);
+      if (p && p.cost !== null) {
+        costed.add(key);
+        cogs += p.cost * line.qty;
+        const part = listed > 0 ? (paid * line.price * line.qty) / listed : 0;
+        profit += part - p.cost * line.qty;
+      } else cogsUnknown += line.qty;
     }
+  }
+  /* what is still on its way, and the store's card and CliQ test orders that are never sales */
+  let expectedOrders = 0;
+  let expectedSales = 0;
+  let notCharged = 0;
+  for (const o of inPeriod) {
+    const s = saleState(o);
+    if (s === "expected") {
+      expectedOrders += 1;
+      expectedSales += o.total;
+    } else if (s === "none" && isSale(o)) notCharged += 1;
   }
   const ship = shippingSaved ? fils(shipping) : null;
   return {
@@ -129,29 +190,35 @@ export function salesFigures(orders: Order[], products: Product[], span: Span): 
     cogs: fils(cogs),
     cogsUnknown,
     shipping: ship,
-    profit: fils(sales - cogs - (ship ?? 0)),
+    /* nothing sold: no profit (0); things sold but none with a cost: not known */
+    profit: sold.size === 0 && list.length === 0 ? 0 : costed.size ? fils(profit) : null,
+    products: { all: sold.size, withCost: costed.size },
     average: list.length ? fils(sales / list.length) : 0,
+    expected: { orders: expectedOrders, sales: fils(expectedSales) },
+    notCharged,
   };
 }
 
 /* ============================== home page ============================== */
 
+/** sales: what the day's (or month's) sales brought in (saleState "sale"); orders: every order placed in it, whatever its
+    status, like the Orders report counts them, so a new order shows at once even before it is delivered */
 export type Series = { sales: number[]; orders: number[] };
 
 /** The home page's chart: each day of this month ("daily"), or each month of this year ("monthly"). */
-export function salesSeries(orders: Order[], now: Date, mode: "daily" | "monthly"): Series {
+export function salesSeries(orders: CountedOrder[], now: Date, mode: "daily" | "monthly"): Series {
   const y = now.getFullYear();
   const m = now.getMonth();
   const length = mode === "daily" ? new Date(y, m + 1, 0).getDate() : 12;
   const sales = Array<number>(length).fill(0);
   const count = Array<number>(length).fill(0);
   for (const o of orders) {
-    if (!isSale(o) || !o.created) continue;
+    if (!o.created) continue;
     const d = new Date(o.created);
     if (d.getFullYear() !== y || (mode === "daily" && d.getMonth() !== m)) continue;
     const i = mode === "daily" ? d.getDate() - 1 : d.getMonth();
-    sales[i] += o.total;
     count[i] += 1;
+    if (countsAsSale(o)) sales[i] += o.total;
   }
   return { sales: sales.map(fils), orders: count };
 }
@@ -176,9 +243,11 @@ export type OrdersReport = {
   manual: number;
   /** cancelled ÷ all, in percent (one decimal) */
   cancelRate: number;
+  /** Of `all`, the card or CliQ test orders (isTestOrder: nothing was charged), whatever their status */
+  test: number;
 };
 
-export function ordersReport(orders: Order[], span: Span): OrdersReport {
+export function ordersReport(orders: CountedOrder[], span: Span): OrdersReport {
   const list = orders.filter((o) => inSpan(o, span));
   const byStatus = { pending: 0, review: 0, processing: 0, shipping: 0, delivered: 0, cancelled: 0, refunded: 0 } as Record<StatusKey, number>;
   for (const o of list) byStatus[o.status] += 1;
@@ -189,7 +258,7 @@ export function ordersReport(orders: Order[], span: Span): OrdersReport {
     if (day >= span.to || i > 366) break;
     const next = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i + 1).getTime();
     const those = list.filter((o) => o.created >= day && o.created < next);
-    byDay.push({ day, orders: those.length, sales: fils(those.filter(isSale).reduce((s, o) => s + o.total, 0)) });
+    byDay.push({ day, orders: those.length, sales: fils(those.filter(countsAsSale).reduce((s, o) => s + o.total, 0)) });
   }
   return {
     all: list.length,
@@ -201,6 +270,7 @@ export function ordersReport(orders: Order[], span: Span): OrdersReport {
     online: list.filter((o) => o.channel === 1).length,
     manual: list.filter((o) => o.channel !== 1).length,
     cancelRate: list.length ? Math.round((byStatus.cancelled / list.length) * 1000) / 10 : 0,
+    test: list.filter(isTestOrder).length,
   };
 }
 
@@ -272,10 +342,11 @@ export function customersReport(orders: Order[], span: Span): CustomersReport {
 export type PayKey = "card" | "cliq" | "cash" | "none";
 export const PAY_KEYS: readonly PayKey[] = ["card", "cliq", "cash", "none"];
 
-export function paymentsReport(orders: Order[], span: Span): Record<PayKey, { count: number; sum: number }> {
+export function paymentsReport(orders: CountedOrder[], span: Span): Record<PayKey, { count: number; sum: number }> {
   const out = { card: { count: 0, sum: 0 }, cliq: { count: 0, sum: 0 }, cash: { count: 0, sum: 0 }, none: { count: 0, sum: 0 } };
   for (const o of orders) {
-    if (!isSale(o) || !inSpan(o, span)) continue;
+    /* paid, or to be paid on delivery: a card or CliQ test order (nothing charged) is not a payment */
+    if (saleState(o) === "none" || !inSpan(o, span)) continue;
     const row = out[o.pay ?? "none"];
     row.count += 1;
     row.sum += o.total;

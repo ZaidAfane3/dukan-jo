@@ -1,21 +1,24 @@
 "use client";
 
-import { StockChoice, stockNeedsAnswer } from "./StockChoice";
+import { QTY_DIGITS, StockChoice, stockNeedsAnswer, stockOverMax } from "./StockChoice";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
-import { inLang } from "./safeOrder";
+import { inLang, KNOWN_CITIES, ownCities, savedCities } from "./safeOrder";
 import { FlagJO } from "./Flag";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
-import { shipWords, usePublicSettings } from "./platformPublic";
+import { shipCityShown, shipServes, shipWords, storePays, usePublicSettings, useSettingsChecked, type StorePay } from "./platformPublic";
+import { storeAddress, storeUrl } from "./siteAddress";
+import { ShareMenu } from "./ShareMenu";
+import { CityGone, OwnCities } from "./Delivery";
 import { pushNotification } from "./notifications";
 import { SeenShipLogo, SeenShipMark } from "./SeenShip";
 import { loadSetup, saveSetup, syncSetupProduct } from "./setup";
 import { Tilt } from "./ui";
 import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, savedMobile, shownMobile, typedPhone } from "./phone";
-import { cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isMediaUrl, isNewSlug, isPickupAddress, isSlug, normalizeHex, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
+import { cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isMediaUrl, isNewSlug, isPickupAddress, isSlug, latinName, normalizeHex, slugDropped, slugDroppedText, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
 import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
 import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
@@ -23,6 +26,10 @@ import { keepPicture } from "./media";
 import { merchantCall, onServer } from "./merchantApi";
 import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
 import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
+import { dropUndos, offerUndo } from "./undo";
+import { PRODUCT_MAX, typedMoney } from "./records";
+import { RudeNote } from "./RudeNote";
+import { usePageTitle } from "./pageTitle";
 
 /* ====================================================================
    Types and constants
@@ -44,9 +51,10 @@ type Store = {
   /* WhatsApp for customers (+9627XXXXXXXX), "" for none, null while the step was never answered */
   whatsapp: string | null;
   slug: string;
-  product: { type: number; name: string; price: string; quantity?: number; image: string | null; /* the product it became in the product list */ id?: number } | null;
-  /* `fee`: his own courier's delivery fee, set on the Delivery page; setup keeps it as it is */
-  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string; fee?: number } | null;
+  product: { type: number; name: string; price: string; quantity?: number; image: string | null; description?: string; /* the product it became in the product list */ id?: number } | null;
+  /* `fee`: his own courier's delivery fee per order (0: free), asked in this step and on the Delivery page; `cities`: the
+     cities his courier delivers to (English names, see safeOrder ownCities) */
+  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; proofs: ProofFile[]; city: string; address: string; fee?: number; cities?: string[] } | null;
   pickup: boolean;
 };
 
@@ -124,14 +132,18 @@ function formatSize(bytes: number): string {
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-/** "Olive & Co" -> "olive-co" */
+/** "Olive & Co" -> "olive-co". A long name is shortened at the end of a whole word (never "olive-and-compan"); only a
+    single word longer than the limit is cut. */
 function slugify(value: string): string {
-  return value
+  /* an Arabic name is spelled in Latin letters first, so it gets a suggestion too */
+  const full = latinName(value)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 30)
-    .replace(/-+$/, "");
+    .replace(/^-+|-+$/g, "");
+  if (full.length <= 30) return full;
+  const cut = full.slice(0, 31);
+  const lastBreak = cut.lastIndexOf("-");
+  return (lastBreak >= 3 ? cut.slice(0, lastBreak) : full.slice(0, 30)).replace(/-+$/, "");
 }
 
 /* ====================================================================
@@ -200,7 +212,7 @@ function SaveButton({ disabled = false, onClick, children }: { disabled?: boolea
   );
 }
 
-function PhoneField({ id, value, onChange, placeholder, label, invalid = false }: { id?: string; value: string; onChange: (v: string) => void; placeholder: string; label: string; invalid?: boolean }) {
+function PhoneField({ id, value, onChange, onBlur, placeholder, label, invalid = false }: { id?: string; value: string; onChange: (v: string) => void; onBlur?: () => void; placeholder: string; label: string; invalid?: boolean }) {
   return (
     <span dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${invalid ? badWithin : ""}`}>
       <span className="flex h-full items-center gap-2 border-e border-fg/15 bg-soft/60 px-3 font-semibold">
@@ -213,6 +225,7 @@ function PhoneField({ id, value, onChange, placeholder, label, invalid = false }
         inputMode="tel"
         value={value}
         onChange={(e) => onChange(typedPhone(e.target.value))}
+        onBlur={onBlur}
         placeholder={placeholder}
         aria-label={label}
         className="h-full flex-1 bg-transparent px-3 outline-none placeholder:text-muted/70"
@@ -344,12 +357,35 @@ function IdentityStep({ store, onSave }: StepProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const created = useRef<string[]>([]);
   const savedUrl = useRef<string | null>(store.logo?.url ?? null);
+  /* the logo as it is now, for the Undo after "Remove" (it is put back only while no other logo was picked) */
+  const logoNow = useRef(logo);
+  useEffect(() => {
+    logoNow.current = logo;
+  }, [logo]);
 
-  /* Free preview URLs that were never saved when the step closes. */
+  /* Free preview URLs that were never saved when the step closes (its undo goes first: it needs them) */
   useEffect(() => {
     const urls = created.current;
-    return () => urls.forEach((u) => u !== savedUrl.current && URL.revokeObjectURL(u));
+    return () => {
+      dropUndos("setup-logo");
+      urls.forEach((u) => u !== savedUrl.current && URL.revokeObjectURL(u));
+    };
   }, []);
+  const removeLogo = () => {
+    const was = logoNow.current;
+    if (!was) return;
+    logoNow.current = null;
+    setLogo(null);
+    offerUndo({
+      scope: "setup-logo",
+      label: (l) => (l === "ar" ? "أُزيل الشعار" : "Logo removed"),
+      undo: () => {
+        if (logoNow.current) return false;
+        logoNow.current = was;
+        setLogo(was);
+      },
+    });
+  };
 
   /* Read the logo's main color so it can be offered as a swatch. Local only. */
   useEffect(() => {
@@ -426,10 +462,10 @@ function IdentityStep({ store, onSave }: StepProps) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={logo.url} alt="" className="h-16 w-16 rounded-xl object-cover" />
               <div className="min-w-0 flex-1 text-sm">
-                <p className="truncate font-semibold">{logo.name}</p>
+                <p dir="auto" className="truncate font-semibold">{logo.name}</p>
                 <p dir="ltr" className="text-xs text-muted">{logo.size}</p>
               </div>
-              <button type="button" onClick={() => setLogo(null)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
+              <button type="button" onClick={removeLogo} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
                 {c.logoRemove}
               </button>
             </div>
@@ -572,6 +608,9 @@ function ServiceStep({ store, onSave }: StepProps) {
   /* The number he signed up with, if he created an account in this session. */
   const [account, setAccount] = useState("");
   const [tried, setTried] = useState(false);
+  /* A box's "not a valid number" note waits until he leaves the box (or presses save), not while he types */
+  const [waLeft, setWaLeft] = useState(false);
+  const [callLeft, setCallLeft] = useState(false);
   /* WhatsApp (required): the account's number by default, or another one */
   const [useAccount, setUseAccount] = useState(true);
   const [waField, setWaField] = useState("");
@@ -616,7 +655,11 @@ function ServiceStep({ store, onSave }: StepProps) {
   const callNumber = callOwn ? callField.trim() : waNumber;
   const callBad = callOwn && callField.trim() !== "" && !isJordanMobile(callField);
   const none = !waOk && !isJordanMobile(callNumber);
-  const noneError = tried && none && !waError && !callBad;
+  /* "Add at least one" only while both boxes are empty (the registered number counts as filled) */
+  const noneShown = none && !waError && !callBad;
+  const noneError = tried && noneShown;
+  const waErrorShown = waError && (waLeft || tried);
+  const callBadShown = callBad && (callLeft || tried);
 
   const save = () => {
     if (waError || callBad || none) {
@@ -647,7 +690,7 @@ function ServiceStep({ store, onSave }: StepProps) {
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-6 lg:order-2">
         {/* One of the two is needed; WhatsApp is the one filled in by default */}
-        <p className={`!mt-4 rounded-xl px-3 py-2 text-sm ${noneError ? "bg-rose-500/10 font-semibold text-rose-600" : "bg-primary/10 text-deep dark:text-primary"}`} role={noneError ? "alert" : undefined}>{sv.oneNeeded}</p>
+        {noneShown && <p className={`!mt-4 rounded-xl px-3 py-2 text-sm ${noneError ? "bg-rose-500/10 font-semibold text-rose-600" : "bg-primary/10 text-deep dark:text-primary"}`} role={noneError ? "alert" : undefined}>{sv.oneNeeded}</p>}
 
         {/* WhatsApp */}
         <div>
@@ -667,8 +710,8 @@ function ServiceStep({ store, onSave }: StepProps) {
           {!usingAccount && (
             <div className={hasAccount ? "mt-5" : ""}>
               {hasAccount && <p className="mb-2 text-sm font-semibold">{sv.waOther}</p>}
-              <PhoneField id="ob-service-wa" value={waField} onChange={(v) => { setWaField(v); setTried(false); }} placeholder={sv.phonePh} label={sv.waOther} invalid={waError || noneError} />
-              {waError ? <FieldError id="ob-service-wa-err">{sv.waInvalid}</FieldError> : <p className="mt-2 text-xs text-muted">{sv.waEmpty}</p>}
+              <PhoneField id="ob-service-wa" value={waField} onChange={(v) => { setWaField(v); setTried(false); setWaLeft(false); }} onBlur={() => setWaLeft(true)} placeholder={sv.phonePh} label={sv.waOther} invalid={waErrorShown || noneError} />
+              {waErrorShown ? <FieldError id="ob-service-wa-err">{sv.waInvalid}</FieldError> : waField.trim() === "" ? <p className="mt-2 text-xs text-muted">{sv.waEmpty}</p> : null}
             </div>
           )}
         </div>
@@ -684,8 +727,8 @@ function ServiceStep({ store, onSave }: StepProps) {
           )}
           {callOwn && (
             <div className={waOk ? "mt-4" : ""}>
-              <PhoneField id="ob-service-phone" value={callField} onChange={(v) => { setCallField(v); setTried(false); }} placeholder={sv.phonePh} label={sv.callOther} invalid={callBad || noneError} />
-              {callBad ? <FieldError id="ob-service-phone-err">{sv.invalid}</FieldError> : waOk ? <p className="mt-2 text-xs text-muted">{sv.callEmpty}</p> : null}
+              <PhoneField id="ob-service-phone" value={callField} onChange={(v) => { setCallField(v); setTried(false); setCallLeft(false); }} onBlur={() => setCallLeft(true)} placeholder={sv.phonePh} label={sv.callOther} invalid={callBadShown || noneError} />
+              {callBadShown ? <FieldError id="ob-service-phone-err">{sv.invalid}</FieldError> : waOk && callField.trim() === "" ? <p className="mt-2 text-xs text-muted">{sv.callEmpty}</p> : null}
             </div>
           )}
         </div>
@@ -755,6 +798,8 @@ function LinkStep({ store, onSave }: StepProps) {
   const canSuggest = isNewSlug(suggestion) && suggestion !== slug;
 
   const clean = typedSlug;
+  /* he typed something a link can't hold (Arabic letters, symbols): say so instead of dropping it silently */
+  const [dropped, setDropped] = useState(false);
 
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.15fr]">
@@ -768,7 +813,7 @@ function LinkStep({ store, onSave }: StepProps) {
               id="ob-link"
               required
               value={slug}
-              onChange={(e) => { setSlug(clean(e.target.value)); setTried(false); }}
+              onChange={(e) => { setDropped(slugDropped(e.target.value)); setSlug(clean(e.target.value)); setTried(false); }}
               onBlur={() => setTouched(true)}
               placeholder={c.link.ph}
               spellCheck={false}
@@ -790,11 +835,13 @@ function LinkStep({ store, onSave }: StepProps) {
                     ? reservedSlugError[lang]
                     : c.link.invalid}
             </FieldError>
+          ) : dropped ? (
+            <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-300">{slugDroppedText[lang]}</p>
           ) : (
             <p dir="ltr" className="mt-2 text-xs text-muted">{c.link.examples}</p>
           )}
           {canSuggest && (
-            <button type="button" onClick={() => setSlug(suggestion)} className="mt-3 rounded-full border border-primary/40 px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white">
+            <button type="button" onClick={() => { setSlug(suggestion); setDropped(false); }} className="mt-3 rounded-full border border-primary/40 px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white">
               {c.link.suggest} <span dir="ltr">{c.link.prefix}{suggestion}</span>
             </button>
           )}
@@ -872,6 +919,8 @@ function ProductStep({ store, onSave }: StepProps) {
   const [type, setType] = useState(Math.min(saved?.type ?? 0, 2));
   const [name, setName] = useState(saved?.name ?? "");
   const [price, setPrice] = useState(saved?.price ?? "");
+  /* optional, with the same limit and cleaning as the product editor's description */
+  const [description, setDescription] = useState(saved?.description ?? "");
   const [image, setImage] = useState<string | null>(saved?.image ?? null);
   /* a chosen picture waiting to be cropped */
   const [imagePending, setImagePending] = useState("");
@@ -888,10 +937,34 @@ function ProductStep({ store, onSave }: StepProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const created = useRef<string[]>([]);
   const savedUrl = useRef<string | null>(saved?.image ?? null);
+  /* the picture as it is now, for the Undo after "Remove image" (it is put back only while no other one was picked) */
+  const imageNow = useRef(image);
+  useEffect(() => {
+    imageNow.current = image;
+  }, [image]);
+  const removeImage = () => {
+    const was = imageNow.current;
+    if (!was) return;
+    imageNow.current = null;
+    setImage(null);
+    offerUndo({
+      scope: "setup-product",
+      label: (l) => (l === "ar" ? "أُزيلت صورة المنتج" : "Product picture removed"),
+      undo: () => {
+        if (imageNow.current) return false;
+        imageNow.current = was;
+        setImage(was);
+      },
+    });
+  };
 
   useEffect(() => {
     const urls = created.current;
-    return () => urls.forEach((u) => u !== savedUrl.current && URL.revokeObjectURL(u));
+    return () => {
+      /* its undo needs the step and its pictures: it goes first */
+      dropUndos("setup-product");
+      urls.forEach((u) => u !== savedUrl.current && URL.revokeObjectURL(u));
+    };
   }, []);
 
   /* Files and cards never ship, shipped products and food usually do. */
@@ -905,7 +978,8 @@ function ProductStep({ store, onSave }: StepProps) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
+    /* the same limit as the product editor (one rule, components/safe.ts) */
+    if (file.size > imageRules.productPhoto.max) {
       setImageError(p.imageTooBig);
       return;
     }
@@ -926,6 +1000,8 @@ function ProductStep({ store, onSave }: StepProps) {
     if (visibleLength(name) < 2) next.name = p.errName;
     if (!(priceNumber > 0)) next.price = p.errPrice;
     if (!unlimited && quantity === "") next.quantity = p.errQuantity;
+    /* above the most that can be saved: the stock box says so itself (with "Make it unlimited"); this only stops the save */
+    else if (stockOverMax(unlimited, quantity)) next.quantity = p.errQuantity;
     else if (stockNeedsAnswer(unlimited, quantity, stockOk)) next.quantity = lang === "ar" ? "أكّد هذه الكمية الكبيرة، أو اجعلها غير محدودة." : "Confirm this big quantity, or make it unlimited.";
     /* a photo still in the cropper counts as it looks there now: no need to press Done first */
     const photo = imagePending ? imageLive ?? imagePending : image;
@@ -940,7 +1016,7 @@ function ProductStep({ store, onSave }: StepProps) {
       return;
     }
     savedUrl.current = photo;
-    const product = { type, name: cleanLine(name, ACCOUNT_LIMITS.productName), price: cleanMoney(price), ...(unlimited ? {} : { quantity: Number(quantity) }), image: photo };
+    const product = { type, name: cleanLine(name, ACCOUNT_LIMITS.productName), price: cleanMoney(price), ...(unlimited ? {} : { quantity: Number(quantity) }), image: photo, description: cleanLines(description, PRODUCT_MAX.description) };
     /* it becomes a real product, with its cropped picture, so the store shows it */
     const id = syncSetupProduct(product, saved?.id) ?? saved?.id;
     onSave({ product: { ...product, ...(id ? { id } : {}) } });
@@ -981,7 +1057,7 @@ function ProductStep({ store, onSave }: StepProps) {
               <div className="flex items-center gap-4 rounded-2xl border border-fg/15 p-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={image} alt="" className="h-20 w-20 rounded-xl object-cover" />
-                <button type="button" onClick={() => setImage(null)} className="ms-auto rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
+                <button type="button" onClick={removeImage} className="ms-auto rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
                   {p.imageRemove}
                 </button>
               </div>
@@ -1033,6 +1109,20 @@ function ProductStep({ store, onSave }: StepProps) {
           </div>
 
           <div>
+            <Label title={lang === "ar" ? "وصف المنتج" : "Product description"} optional={c.optional} htmlFor="ob-product-desc" />
+            <textarea
+              id="ob-product-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={lang === "ar" ? "اكتب التفاصيل التي يحتاجها عملاؤك" : "Write the details your customers need"}
+              rows={3}
+              maxLength={PRODUCT_MAX.description}
+              className={`${inputClass} resize-y py-3`}
+            />
+            <RudeNote lang={lang} text={description} />
+          </div>
+
+          <div>
             <Label title={p.shippingLabel} />
             {physical ? (
               <div className="flex flex-wrap gap-5 text-sm">
@@ -1056,13 +1146,21 @@ function ProductStep({ store, onSave }: StepProps) {
               quantity={quantity}
               okFor={stockOk}
               onUnlimited={(v) => { setUnlimited(v); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
-              onQuantity={(v) => { setQuantity(latin(v).replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, 7)); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
+              onQuantity={(v) => { setQuantity(latin(v).replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, QTY_DIGITS)); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
               onConfirm={(q) => { setStockOk(q); if (errors.quantity) setErrors((x) => ({ ...x, quantity: undefined })); }}
               inputId="ob-product-quantity"
               inputClass={`${inputClass} ${errors.quantity ? bad : ""}`}
               error={errors.quantity}
               required
+              neutral={!physical}
             />
+            {/* clothes and shoes are sold in sizes: the Products page has them (setup keeps to one simple product) */}
+            {physical && (
+              <p className="mt-3 text-xs text-muted">
+                {lang === "ar" ? "يمكنك إضافة المقاسات بعد الإعداد من " : "You can add sizes after setup in "}
+                <a href="/products" className="font-semibold text-primary hover:underline">{lang === "ar" ? "صفحة المنتجات" : "Products"}</a>.
+              </p>
+            )}
           </div>
 
           <SaveButton onClick={save}>{p.add}</SaveButton>
@@ -1090,7 +1188,6 @@ function ProductStep({ store, onSave }: StepProps) {
                     <div className={`flex gap-4 ${device === "mobile" ? "flex-col-reverse" : "items-center"}`}>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-lg font-bold">{shownName}</p>
-                        <p className="mt-1 text-xs tracking-widest text-amber-400" aria-hidden>★★★★★</p>
                         <p className="mt-2 text-sm font-semibold">
                           {priceNumber > 0 ? <span dir="ltr">{priceNumber.toFixed(2)} {p.currency}</span> : <span className="text-muted">-</span>}
                         </p>
@@ -1120,11 +1217,20 @@ function ProductStep({ store, onSave }: StepProps) {
    Step 5: Shipping method (company or person, their number, proof)
    ==================================================================== */
 
+/* His own courier's fee per order: the Delivery page's field and rule (components/Delivery.tsx) */
+const feeWords = {
+  en: { label: "Delivery fee per order", hint: "What customers pay for delivery. Write 0 if delivery is free.", empty: "Enter the delivery fee. Write 0 if delivery is free.", bad: "Enter an amount from 0 to {max} JOD, with up to 3 decimals." },
+  ar: { label: "رسوم التوصيل لكل طلب", hint: "ما يدفعه العميل للتوصيل. اكتب 0 إن كان التوصيل مجانيًا.", empty: "اكتب رسوم التوصيل. اكتب 0 إن كان التوصيل مجانيًا.", bad: "اكتب مبلغًا من 0 إلى {max} د.أ، بثلاث خانات عشرية على الأكثر." },
+};
+
 function ShippingStep({ store, onSave }: StepProps) {
   const { lang } = usePrefs();
   const c = content[lang].onboarding;
   /* Dukkan Ship's price, the line under it, pickup cities and points are the ones Dukkan's staff set in Diwan */
-  const s = { ...c.shipping, ...shipWords(usePublicSettings(), lang) };
+  const platform = usePublicSettings();
+  const s = { ...c.shipping, ...shipWords(platform, lang) };
+  /* the server's settings are in: only then is a city missing from the list really gone */
+  const checked = useSettingsChecked();
 
   const saved = store.shipping;
   const [mode, setMode] = useState<"own" | "seen" | null>(saved?.mode ?? null);
@@ -1141,9 +1247,12 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [kind, setKind] = useState(own?.kind ?? 0);
   const [name, setName] = useState(own?.name ?? "");
   const [phone, setPhone] = useState(shownMobile(own?.phone ?? ""));
+  /* what customers pay for delivery: the same field, limit and saved value as the Delivery page (0 is free) */
+  const [fee, setFee] = useState(own?.fee !== undefined ? String(own.fee) : "");
+  const [cities, setCities] = useState<string[]>(own ? ownCities(own.cities).en : KNOWN_CITIES.en);
   /* the proofs go to Dukkan's server as soon as they are picked (components/partnerProofs.tsx) */
   const { proofs, error, busy, ready: proofsReady, sends: proofsSent, add: addProofs, remove: removeProof, keep: keepProofs } = usePartnerProofs(own?.proofs ?? [], s, lang);
-  const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string }>({});
+  const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string; fee?: string; cities?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
 
   /* Images and PDFs only, up to 5 files of 5 MB, checked from their bytes. Each one is sent with the partner as typed
@@ -1190,7 +1299,7 @@ function ShippingStep({ store, onSave }: StepProps) {
               <span className="mt-1 block text-sm text-muted">{s.modes[1].desc}</span>
             </span>
             <span className="rounded-full bg-primary/15 px-3 py-1 text-sm font-bold text-deep dark:text-primary">
-              <span dir="auto">{s.price} {s.perOrder}</span>
+              <span dir="auto">{s.price}{!s.free && ` ${s.perOrder}`}</span>
             </span>
           </button>
         </div>
@@ -1210,7 +1319,8 @@ function ShippingStep({ store, onSave }: StepProps) {
     const saveSeen = () => {
       /* A courier collects from the address, so Dukkan Ship needs both */
       const next: typeof errors = {};
-      if (city === "") next.city = s.errCity;
+      /* a city Dukkan Ship no longer serves is never saved again: he chooses one it serves */
+      if (city === "" || !shipServes(platform, city)) next.city = s.errCity;
       if (!isPickupAddress(address)) next.address = s.errAddress;
       if (next.city || next.address) {
         setErrors(next);
@@ -1231,27 +1341,29 @@ function ShippingStep({ store, onSave }: StepProps) {
           <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
             <SeenShipLogo />
             <p className="mt-4 text-3xl font-bold text-primary">
-              <span dir="auto">{s.price}</span> <span className="text-base font-medium text-muted">{s.perOrder}</span>
+              <span dir="auto">{s.price}</span>{!s.free && <> <span className="text-base font-medium text-muted">{s.perOrder}</span></>}
             </p>
             <p className="mt-1 text-sm text-muted">{s.priceNote}</p>
           </div>
 
           <div>
+            {/* his saved pickup city was taken off Dukkan Ship's list in Diwan: kept as saved until he chooses another */}
+            {checked && !shipServes(platform, city) && <div className="mb-3"><CityGone text={s.cityGone} city={city} id="ob-ship-city-gone" /></div>}
             <Label title={s.cityLabel} required htmlFor="ob-ship-city" />
             <select
               id="ob-ship-city"
               required
               aria-invalid={!!errors.city}
-              value={city}
+              aria-describedby={checked && !shipServes(platform, city) ? "ob-ship-city-gone" : undefined}
+              value={shipCityShown(platform, city, lang)}
               onChange={(e) => { setCity(e.target.value); if (errors.city) setErrors((x) => ({ ...x, city: undefined })); }}
               className={`${inputClass} h-12 ${errors.city ? bad : ""}`}
             >
               <option value="">{s.cityPh}</option>
+              {/* only the cities Dukkan Ship serves now */}
               {s.cities.map((name, i) => (
                 <option key={i} value={name}>{name}</option>
               ))}
-              {/* a city saved before the list was cut stays shown, so the saved setup is not lost */}
-              {city && !s.cities.includes(city) && <option value={city}>{city}</option>}
             </select>
             {errors.city && <FieldError id="ob-ship-city-err">{errors.city}</FieldError>}
           </div>
@@ -1282,7 +1394,7 @@ function ShippingStep({ store, onSave }: StepProps) {
                   <SeenShipLogo />
                 </div>
                 <p className="mt-5 text-4xl font-bold text-primary" style={{ transform: "translateZ(25px)" }}>
-                  <span dir="auto">{s.price}</span> <span className="text-base font-medium text-muted">{s.perOrder}</span>
+                  <span dir="auto">{s.price}</span>{!s.free && <> <span className="text-base font-medium text-muted">{s.perOrder}</span></>}
                 </p>
                 <ul className="mt-5 space-y-3">
                   {s.features.map((f) => (
@@ -1315,15 +1427,19 @@ function ShippingStep({ store, onSave }: StepProps) {
     const next: typeof errors = {};
     if (visibleLength(name) < 2) next.name = s.errName;
     if (!phoneOk) next.phone = s.phoneInvalid;
+    const amount = cleanMoney(fee, ACCOUNT_LIMITS.shipFee);
+    if (fee.trim() === "") next.fee = feeWords[lang].empty;
+    else if (amount === "") next.fee = feeWords[lang].bad.replace("{max}", String(ACCOUNT_LIMITS.shipFee));
+    if (!savedCities(cities).length) next.cities = lang === "ar" ? "اختر مدينة واحدة على الأقل توصّل إليها." : "Choose at least one city you deliver to.";
     setErrors(next);
-    const wrong = (["name", "phone"] as const).filter((k) => next[k]);
+    const wrong = (["name", "phone", "fee", "cities"] as const).filter((k) => next[k]);
     if (wrong.length) {
       focusFirst(wrong.map((k) => `ob-ship-${k}`));
       return;
     }
     keepProofs();
     syncProofPartner(cleanLine(name, ACCOUNT_LIMITS.shipName), kind);
-    onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "", ...(own?.fee !== undefined ? { fee: own.fee } : {}) } });
+    onSave({ pickup, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "", fee: Number(amount) || 0, cities: savedCities(cities) } });
   };
 
   return (
@@ -1375,6 +1491,28 @@ function ShippingStep({ store, onSave }: StepProps) {
           />
           {phoneError && <FieldError id="ob-ship-phone-err">{phoneError}</FieldError>}
         </div>
+
+        <div>
+          <Label title={feeWords[lang].label} hint={feeWords[lang].hint} required htmlFor="ob-ship-fee" />
+          <div className="relative max-w-[14rem]">
+            <span className="pointer-events-none absolute start-4 top-1/2 -translate-y-1/2 text-xs font-bold text-muted">{c.product.currency}</span>
+            <input
+              id="ob-ship-fee"
+              dir="ltr"
+              required
+              inputMode="decimal"
+              aria-invalid={!!errors.fee}
+              aria-describedby={errors.fee ? "ob-ship-fee-err" : undefined}
+              value={fee}
+              onChange={(e) => { setFee(typedMoney(e.target.value, 3)); if (errors.fee) setErrors((x) => ({ ...x, fee: undefined })); }}
+              placeholder="0"
+              className={`${inputClass} h-12 ps-14 text-start ${errors.fee ? bad : ""}`}
+            />
+          </div>
+          {errors.fee && <FieldError id="ob-ship-fee-err">{errors.fee}</FieldError>}
+        </div>
+
+        <OwnCities lang={lang} id="ob-ship-cities" value={cities} onChange={(v) => { setCities(v); if (errors.cities) setErrors((x) => ({ ...x, cities: undefined })); }} error={errors.cities} />
 
         <div>
           <Label title={s.proofLabel} hint={s.proofHint} optional={c.optional} />
@@ -1438,6 +1576,61 @@ function ShippingStep({ store, onSave }: StepProps) {
 }
 
 /* ====================================================================
+   The end of setup: the store is live
+   ==================================================================== */
+
+const liveWords = {
+  en: {
+    title: "Your store is live", sub: "Customers can visit it now at this address:", open: "Open store", copy: "Copy link", copied: "Copied", dashboard: "Go to dashboard",
+    pays: "Customers can pay by: {list}", payNames: { cash: "Cash on delivery", cliq: "CliQ", card: "Card" } as Record<StorePay, string>,
+  },
+  ar: {
+    title: "متجرك مفتوح الآن", sub: "يستطيع العملاء زيارته الآن على هذا العنوان:", open: "افتح المتجر", copy: "نسخ الرابط", copied: "تم النسخ", dashboard: "اذهب إلى لوحة التحكم",
+    pays: "طرق الدفع المتاحة لعملائك: {list}", payNames: { cash: "الدفع عند الاستلام", cliq: "كليك", card: "البطاقة" } as Record<StorePay, string>,
+  },
+};
+
+/** Every task is done and the store's design is saved, so customers can see it: its address, open it, copy or share the
+    link, and how customers can pay (the ways Dukkan's staff turned on in Diwan; merchants do not choose them) */
+function LiveMoment({ slug, name }: { slug: string; name: string }) {
+  const { lang } = usePrefs();
+  const t = liveWords[lang];
+  const pays = storePays(usePublicSettings());
+  const [copied, setCopied] = useState(false);
+  /* signed in, the store is at its own address; otherwise it opens as customers would see it (as the profile menu does) */
+  const [href, setHref] = useState("/store");
+  useEffect(() => setHref(onServer() && storeIsLive() ? storeUrl(slug) : "/store"), [slug]);
+  const url = storeUrl(slug);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      return; /* clipboard blocked: do not claim it was copied */
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+  const ghost = "inline-flex h-11 items-center rounded-xl border border-primary/60 px-5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white";
+  return (
+    <section className="mt-8 rounded-3xl border border-primary/40 bg-primary/5 p-6 text-center sm:p-8" aria-labelledby="ob-live-title">
+      <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-primary text-white" aria-hidden>
+        <svg {...icon} className="h-7 w-7" strokeWidth={2.4}><path d="m5 12 5 5 9-10" /></svg>
+      </span>
+      <h2 id="ob-live-title" className="mt-4 text-2xl font-extrabold">{t.title}</h2>
+      <p className="mt-2 text-sm text-muted">{t.sub}</p>
+      <p dir="ltr" className="mt-1 break-all text-lg font-bold">{storeAddress(slug)}</p>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 items-center rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep">{t.open}</a>
+        <button type="button" onClick={() => void copy()} className={ghost}><span aria-live="polite">{copied ? t.copied : t.copy}</span></button>
+        <ShareMenu url={url} title={name} lang={lang} fileName={`${slug}-qr`} align="start" className={ghost} />
+        <a href="/dashboard" className="inline-flex h-11 items-center rounded-xl px-5 text-sm font-semibold text-primary transition hover:bg-card">{t.dashboard}</a>
+      </div>
+      {pays.length > 0 && <p className="mt-6 text-sm text-muted">{t.pays.replace("{list}", pays.map((p) => t.payNames[p]).join(lang === "ar" ? "، " : ", "))}</p>}
+    </section>
+  );
+}
+
+/* ====================================================================
    Page: task list that opens each step
    ==================================================================== */
 
@@ -1451,9 +1644,7 @@ export function Onboarding() {
   /* He lands on the first task, Store identity, already open. */
   const [view, setView] = useState<number | null>(0);
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${view === null ? c.title : c.tasks[view].title}`;
-  }, [c, view]);
+  usePageTitle(`${brandName(lang)} | ${view === null ? c.title : c.tasks[view].title}`);
 
   /* Pick up where he left off: restore saved answers and progress for this session. */
   const [restored, setRestored] = useState(false);
@@ -1493,8 +1684,8 @@ export function Onboarding() {
       done,
       pickup: store.pickup,
       logo: store.logoData,
-      product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.image && (store.product.image.startsWith("data:") || isMediaUrl(store.product.image)) ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
-      shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address, ...(store.shipping.fee !== undefined ? { fee: store.shipping.fee } : {}) } : null,
+      product: store.product ? { type: store.product.type, name: store.product.name, price: store.product.price, ...(store.product.quantity !== undefined ? { quantity: store.product.quantity } : {}), ...(store.product.description ? { description: store.product.description } : {}), ...(store.product.image && (store.product.image.startsWith("data:") || isMediaUrl(store.product.image)) ? { image: store.product.image } : {}), ...(store.product.id ? { id: store.product.id } : {}) } : null,
+      shipping: store.shipping ? { mode: store.shipping.mode, kind: store.shipping.kind, name: store.shipping.name, phone: store.shipping.phone, city: store.shipping.city, address: store.shipping.address, ...(store.shipping.fee !== undefined ? { fee: store.shipping.fee } : {}), ...(store.shipping.cities ? { cities: store.shipping.cities } : {}) } : null,
     });
   }, [restored, store, done]);
 
@@ -1520,7 +1711,7 @@ export function Onboarding() {
   const doneCount = done.filter(Boolean).length;
   const taskTitles = c.tasks.map((t) => t.title);
 
-  /* Wait for the saved setup (his name, from signup) to load before mounting the steps: they copy "store" into their own state once, on mount. */
+  /* Wait for the saved setup (his phone, from signup) to load before mounting the steps: they copy "store" into their own state once, on mount. */
   if (!restored) return null;
 
   const stepBody =
@@ -1549,6 +1740,8 @@ export function Onboarding() {
         </div>
         <LaunchPath done={done} labels={taskTitles} />
 
+        {/* every task done: the store is live, said once here before the list (the home page says it too) */}
+        {view === null && doneCount >= TOTAL_TASKS && store.slug && <LiveMoment slug={store.slug} name={store.name} />}
         {view === null ? (
           <ul className="mt-8 space-y-3">
             {c.tasks.map((task, i) => (

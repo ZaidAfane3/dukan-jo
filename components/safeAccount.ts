@@ -9,6 +9,8 @@
 import { jordanMobile, savedMobile, typedPhone } from "./phone";
 import { cleanDate, cleanLine, cleanLines, cleanMoney, emailOf, isSlug, safeColor, safeImage, safeStoredImage } from "./safe";
 import type { SavedSetup } from "./setup";
+import { PRODUCT_MAX } from "./records";
+import { savedCities } from "./safeOrder";
 
 /** The longest each field may be. The form fields use the same numbers. */
 export const ACCOUNT_LIMITS = {
@@ -96,6 +98,7 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
           ...(pr.quantity !== undefined ? { quantity: whole(pr.quantity, 0, 9_999_999, 0) } : {}),
           /* the cropped picture: picture data only, the same rule as every stored picture */
           ...(safeStoredImage(pr.image) ? { image: safeStoredImage(pr.image) } : {}),
+          ...(cleanLines(pr.description, PRODUCT_MAX.description) ? { description: cleanLines(pr.description, PRODUCT_MAX.description) } : {}),
           ...(pr.id !== undefined ? { id: whole(pr.id, 1, Number.MAX_SAFE_INTEGER, 1) } : {}),
         }
       : null,
@@ -109,6 +112,8 @@ export function cleanSetup(v: unknown, tasks = 6): SavedSetup | null {
           address: cleanLine(sh.address, ACCOUNT_LIMITS.address),
           /* only his own courier has a fee of his; a fee that is not a valid amount is dropped (delivery is then free) */
           ...(sh.mode !== "seen" && cleanMoney(sh.fee, ACCOUNT_LIMITS.shipFee) !== "" ? { fee: Number(cleanMoney(sh.fee, ACCOUNT_LIMITS.shipFee)) } : {}),
+          /* his own courier's cities: only names on the list; none left means every city (the key is left out) */
+          ...(sh.mode !== "seen" && savedCities(sh.cities).length ? { cities: savedCities(sh.cities) } : {}),
         }
       : null,
   };

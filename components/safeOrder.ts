@@ -39,6 +39,27 @@ export const isKnownCity = (s: unknown): s is string => typeof s === "string" &&
 export const FULFILS = ["delivery", "pickup"] as const;
 export type Fulfil = (typeof FULFILS)[number];
 
+/** The cities a merchant with his own courier delivers to, from the list he saved (the English names of KNOWN_CITIES, as
+    the Delivery page and the setup save them), in both languages. Nothing saved (stores from before he could choose), or
+    nothing left that is on the list: every city. */
+export function ownCities(saved: unknown): { en: string[]; ar: string[] } {
+  const picked = Array.isArray(saved) ? KNOWN_CITIES.en.map((_, i) => i).filter((i) => saved.includes(KNOWN_CITIES.en[i])) : [];
+  const at = picked.length ? picked : KNOWN_CITIES.en.map((_, i) => i);
+  return { en: at.map((i) => KNOWN_CITIES.en[i]), ar: at.map((i) => KNOWN_CITIES.ar[i]) };
+}
+
+/** A merchant's delivery cities as they are saved: the English names of KNOWN_CITIES he picked, each once, in the list's
+    order (an empty list is not a choice: the pages ask for at least one) */
+export const savedCities = (v: unknown): string[] => (Array.isArray(v) ? KNOWN_CITIES.en.filter((c) => v.includes(c)) : []);
+
+/** The cities a store's checkout offers for delivery. With Dukkan Ship (or no choice made yet, which is priced as Dukkan
+    Ship): the cities Ship serves, as Dukkan's staff set them in Diwan. With his own courier: the cities he chose on the
+    Delivery page or in setup (`own`, see ownCities; none saved: every city). The checkout (Cart.tsx), the server
+    (server/storeOrders.ts) and the add-order form (Orders.tsx) all take the list from here, so they accept the same
+    cities. An order already placed keeps its city when he takes that city off later. */
+export const deliveryCities = (mode: "own" | "seen" | null | undefined, ship: { en: readonly string[]; ar: readonly string[] }, own?: unknown): { en: readonly string[]; ar: readonly string[] } =>
+  mode === "own" ? ownCities(own) : ship;
+
 /** A city orders are delivered to now (in either language): Dukkan Ship's cities from Diwan when given, else the list above. */
 export const isCity = (s: unknown, list: { en: readonly string[]; ar: readonly string[] } = CITIES): s is string =>
   typeof s === "string" && (list.en.includes(s) || list.ar.includes(s));
@@ -199,11 +220,16 @@ const visible = (s: string) => s.replace(INVISIBLE, "").length;
 
 export type CheckoutField = "name" | "phone" | "city" | "address" | "note" | "pay";
 
+/** An order the store has to reach the customer about (delivery to his door, or cash paid on delivery) needs a phone
+    number: an email alone is accepted only for pickup paid another way. */
+export const needsPhone = (fulfil: unknown, pay: unknown) => fulfil !== "pickup" || pay === "cash";
+
 /* `phone` or `email`: the customer gives one of them (the receipt goes there); the other is "" */
 export type CheckoutValue = { customer: string; phone: string; email: string; fulfil: Fulfil; city: string; address: string; note: string; pay: Payment };
 
 /** Checks the checkout form. Returns the cleaned order details, or the fields that are wrong. The city and the
-    address are asked only for delivery; "pickup" counts only when the store allows it (`pickup`). `pays`: the ways to
+    address are asked only for delivery; "pickup" counts only when the store allows it (`pickup`). A delivered or cash
+    order needs a phone number (needsPhone). `pays`: the ways to
     pay Dukkan offers now (platform settings in Diwan); one that is switched off is refused like one that does not exist. */
 export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] } } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
   const errors: CheckoutField[] = [];
@@ -213,8 +239,9 @@ export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boole
   const contact = typeof f.phone === "string" ? f.phone.trim() : "";
   const mobile = jordanMobile(contact);
   const email = mobile ? "" : visitorEmail(contact);
-  if (!mobile && !email) errors.push("phone");
   const fulfil: Fulfil = opts.pickup && f.fulfil === "pickup" ? "pickup" : "delivery";
+  /* delivery or cash on delivery: a Jordan mobile, never an email alone */
+  if (!mobile && (!email || needsPhone(fulfil, f.pay))) errors.push("phone");
   const delivered = fulfil === "delivery";
   const city = delivered && typeof f.city === "string" ? f.city : "";
   if (delivered && !isCity(city, opts.cities)) errors.push("city");

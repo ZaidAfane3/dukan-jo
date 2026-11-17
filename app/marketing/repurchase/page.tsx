@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Reminders } from "@/components/Reminders";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Repurchase reminders",
+  title: "دكان | تذكيرات إعادة الشراء",
   description: "Bring customers back to buy again.",
 };
 

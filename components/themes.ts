@@ -265,8 +265,10 @@ export type OwnedTheme = { id: string; at: number; paid: number };
 /* `from` is the theme (bought or free) a copy was made from. The one customized copy of a bought theme ("Customize") has no
    `copyOf`: it is never deleted, it can be reset to the original look. A copy made with "Make a copy" has `copyOf` (the name
    of the theme it was copied from, to show): it can be renamed and deleted like a design he saved, and deleting it never
-   touches the theme it came from. `from` is only ever the id of a theme he owns or a free one, so a copy of a bought theme is
-   no new purchase: the server still sees the bought theme (server/shops.ts themeOf), and ownsLook still asks seen-themes.owned. */
+   touches the theme it came from. `from` is the id of a theme he owns or a free one, so a copy of a bought theme is
+   no new purchase: the server still sees the bought theme (server/shops.ts themeOf), and ownsLook still asks seen-themes.owned.
+   The one exception is the draft kept when the store goes back to the free theme from a paid one it never bought
+   (leaveUnboughtTheme): it keeps that theme as `from`, so it can't go on the store until he buys it (unboughtBase). */
 export type CustomTheme = { id: string; name: string; at: number; look: ThemeLook; from?: string; copyOf?: string };
 /* names: the names he gave to Dukkan's and bought themes in My themes (his saved designs keep theirs in `custom`) */
 export type ThemeState = { owned: OwnedTheme[]; custom: CustomTheme[]; active: string; names?: Record<string, string> };
@@ -316,6 +318,84 @@ export const ownsLook = (themeId: string) => isOwnCopy() || isFreeTheme(themeId)
     components/themeLooks.ts; the server runs it again for the store's visitors, from the purchases it recorded). */
 export const withoutUnboughtLooks = (c: StorefrontConfig): StorefrontConfig => stripPaidLooks(c, ownsLook);
 
+/* ---------------- A paid theme needs a purchase (owner's decision, QA 94) ----------------
+   The server holds the rule (server/themeOwnership.ts themeOwner): a store uses a paid theme only once Dukkan recorded its
+   purchase. A save that puts one on the store anyway is refused (app/api/store PUT, "theme-not-bought"), and the public
+   store shows the free theme in its place. The pages ask first, with the same rule, so he is told before anything
+   changes: from the server's lists (/api/themes/access) once they are here, else from what this browser knows (the theme
+   store's prices and the themes he holds). Trying a paid theme in the designer's preview is always allowed. */
+let access: { paid: Set<string>; bought: Set<string> } | null = null;
+
+/** Asks the server which themes need a purchase and which ones this store bought. False when it could not be asked
+    (signed out, the platform tour, no connection): the pages then go on what this browser knows. */
+export async function refreshThemeAccess(): Promise<boolean> {
+  if (!onServer()) return false;
+  const r = await merchantCall("/api/themes/access", "GET");
+  if (!r || r.status !== 200 || !Array.isArray(r.data.paid) || !Array.isArray(r.data.bought)) return false;
+  access = { paid: new Set(r.data.paid.filter((x: unknown) => typeof x === "string")), bought: new Set(r.data.bought.filter((x: unknown) => typeof x === "string")) };
+  return true;
+}
+
+/** Whether a theme is a paid one this store has not bought (so it can't be put on the store, only tried in the preview) */
+export function notBought(themeId: string | null | undefined): boolean {
+  if (!themeId || themeId.startsWith("mine-") || isOwnCopy() || isFreeTheme(themeId)) return false;
+  if (access) return access.paid.has(themeId) && !access.bought.has(themeId);
+  const t = findTheme(themeId);
+  if (!t) return false;
+  /* for sale at a price now: live in the theme store's list at a price, or a theme of the code with no row there and a price */
+  const row = listing?.get(themeId);
+  const paid = row ? row.status === "live" && row.price > 0 : t.price > 0 && t.inStore !== false;
+  return paid && !loadThemeState().owned.some((o) => o.id === themeId);
+}
+
+/** The paid theme he has not bought that a theme of My themes is (or that his copy of one comes from, since using a copy or
+    an edit of a theme is using it), or null when it may go on the store */
+export function unboughtBase(id: string | null | undefined, s: ThemeState = loadThemeState()): string | null {
+  if (!id) return null;
+  const base = s.custom.find((c) => c.id === id)?.from ?? id;
+  return notBought(base) ? base : null;
+}
+
+/** The same for a saved seen-themes value (its text, as an undo would put it back): the paid theme it would put on the
+    store without a purchase, or null */
+export function unboughtIn(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const s = JSON.parse(raw) as Partial<ThemeState>;
+    if (!s || typeof s.active !== "string") return null;
+    return unboughtBase(s.active, { owned: [], active: s.active, custom: Array.isArray(s.custom) ? s.custom : [] });
+  } catch {
+    return null;
+  }
+}
+
+/** On the dashboard (ThemeAccessNotice.tsx): a store whose theme in use is a paid one it did not buy (from before the
+    rule, or bought nowhere but in this browser) goes back to Dukkan's free default theme, the normal way (applyTheme), so
+    it is saved like any change. His work is kept: when the theme in use is the paid theme itself, his design as it is now
+    is kept in My themes as his copy of it (the one a bought theme's "Customize" makes), a draft he can use once he buys
+    it; a copy of his own already keeps its design. No undo is offered (it would put the unbought theme back). Gives
+    the paid theme's id, or null when nothing had to change (or it could not be saved). */
+export async function leaveUnboughtTheme(lang: Lang): Promise<string | null> {
+  if (!onServer() || isOwnCopy()) return null;
+  await refreshThemeAccess();
+  const s = loadThemeState();
+  const base = unboughtBase(s.active, s);
+  if (!base) return null;
+  if (s.active === base && !s.custom.some((c) => c.from === base && !isOwnMade(c))) {
+    const t = findTheme(base);
+    const name = t ? t.name[lang] : base;
+    saveThemeState({ ...s, custom: [...s.custom, { id: newId(), name: `${name} ${lang === "ar" ? "(نسختي)" : "(my copy)"}`.slice(0, NAME_MAX), at: Date.now(), look: lookOf(loadConfig()), from: base }] });
+  }
+  return applyTheme(defaultTheme, lang) ? base : null;
+}
+
+/** After the designer saved a theme being tried (/design?theme=...) as the store design: that theme is now the one in
+    use, so the server holds the save to the same rule as "Use this theme" (a paid one needs a purchase). */
+export function markThemeInUse(id: string): boolean {
+  if (unboughtBase(id)) return false;
+  return saveThemeState({ ...loadThemeState(), active: id });
+}
+
 /** Adds the theme to the merchant's themes (prototype: no payment is taken). `method`: the way he chose to pay (one Diwan
     has on; the server checks it again). */
 export async function buyTheme(t: ThemeInfo, method?: string): Promise<{ ok: true; state: ThemeState } | { ok: false; why: "method-off" | "failed" }> {
@@ -330,6 +410,7 @@ export async function buyTheme(t: ThemeInfo, method?: string): Promise<{ ok: tru
       return { ok: false, why };
     }
   }
+  access?.bought.add(t.id);
   const s = loadThemeState();
   if (!s.owned.some((o) => o.id === t.id)) s.owned = [...s.owned, { id: t.id, at: Date.now(), paid: t.price }];
   saveThemeState(s);
@@ -484,8 +565,10 @@ export function adoptTheme(cur: StorefrontConfig, built: StorefrontConfig, pages
   }, list, sampleWords);
 }
 
-/** Makes the theme the store's design. */
+/** Makes the theme the store's design. A paid theme he has not bought (or a copy of one) is not put on: false, nothing
+    changes (the pages ask unboughtBase first, to say why). */
 export function applyTheme(t: ThemeInfo, lang: Lang): boolean {
+  if (unboughtBase(t.id)) return false;
   const look = t.look ?? lookOf(t.build(lang, { samples: demoActive(), storeName: loadSetup()?.name }));
   if (!saveConfig(composeDesign(loadConfig(), look))) return false;
   return saveThemeState({ ...loadThemeState(), active: t.id });
@@ -502,13 +585,19 @@ export function saveDesignAsTheme(name: string, cfg: StorefrontConfig = loadConf
 }
 
 /** Deletes a design the merchant saved himself, or a copy he made. A bought theme, and the customized copy of one, can never be
-    deleted (they can be reset). Deleting a copy never touches the theme it was copied from. */
-export function deleteSavedTheme(id: string): ThemeState {
+    deleted (they can be reset). Deleting a copy never touches the theme it was copied from.
+    When it is the store's design now, the store first really switches to Dukkan's default design, the same way "Use this
+    theme" puts it on (applyTheme: the store design and seen-themes.active both change), so the public store, the designer,
+    My themes and Diwan's "theme in use" agree. The changes he made in the deleted one go with it. If the switch cannot be
+    saved, nothing is deleted ("failed"). Deleting one not in use never touches the store design. */
+export function deleteSavedTheme(id: string, lang: Lang): "ok" | "failed" {
   const s = loadThemeState();
   const gone = s.custom.find((c) => c.id === id && isOwnMade(c));
-  const next: ThemeState = { ...s, custom: s.custom.filter((c) => c !== gone), active: gone && s.active === id ? "" : s.active };
-  saveThemeState(next);
-  return next;
+  if (!gone) return "failed";
+  if (s.active === id && !applyTheme(defaultTheme, lang)) return "failed";
+  /* read again: applyTheme just changed `active` */
+  const now = loadThemeState();
+  return saveThemeState({ ...now, custom: now.custom.filter((c) => c.id !== id) }) ? "ok" : "failed";
 }
 
 /** Renames a theme in My themes. An empty name gives a Dukkan or bought theme its own name back (a saved design keeps its old one). */
@@ -546,7 +635,9 @@ export function savedThemeInfo(c: CustomTheme): ThemeInfo {
 
 /** "Customize" on a bought theme: starts a copy of it in My themes (once), makes it the store design, and returns so the
     designer can open on it. The bought theme itself is never changed. */
-export function customizeTheme(t: ThemeInfo, lang: Lang): "ok" | "full" {
+export function customizeTheme(t: ThemeInfo, lang: Lang): "ok" | "full" | "not-bought" {
+  /* his copy goes on the store: a copy of a paid theme he has not bought can't */
+  if (unboughtBase(t.id)) return "not-bought";
   const s = loadThemeState();
   const mine = s.custom.find((c) => c.from === t.id && !isOwnMade(c));
   const look = mine ? mine.look : lookOf(t.build(lang, { samples: demoActive(), storeName: loadSetup()?.name }));

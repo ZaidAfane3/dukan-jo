@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { isStaffPage } from "./diwan/nav";
 import { merchantCall } from "./merchantApi";
-import { popupSlot } from "./MerchantPopup";
+import { onPopupSlot, popupSlot, popupSlotChanged, watchStarted } from "./MerchantPopup";
 import { serverMode } from "./notifications";
 import { usePrefs } from "./Prefs";
 
@@ -12,8 +12,10 @@ import { usePrefs } from "./Prefs";
    time a dashboard page opens: which document, the reason the team wrote, and what to do next (send a new one, or
    contact support). It shows once per rejection: closing it, or pressing either button, marks it read on the server
    (app/api/documents/[id] POST), and a new rejection of the same document shows again. It shares the tab's one pop-up
-   place with Dukkan's other pop-ups (MerchantPopup.tsx) and comes first. Signed in only; never in the platform tour,
-   never on staff pages. */
+   place with Dukkan's other pop-ups (MerchantPopup.tsx) and comes first: Dukkan's pop-up on the same page waits until
+   this one is closed or the answer has none. One of Dukkan's already open is not taken away: this one shows right
+   after it is closed. It never lands on something the merchant has started on the page (MerchantPopup.tsx
+   pageIsCalm, watchStarted): then it is told on a later page. Signed in only; never in the platform tour, never on staff pages. */
 
 type Doc = { id: string; kind: string; name: string; status: string; note: string; seq: number; rejectionSeen: boolean };
 
@@ -48,36 +50,70 @@ export function DocumentRejected() {
   const w = words[lang];
   const [doc, setDoc] = useState<Doc | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  /* whether this one holds the tab's pop-up place (read when the page goes away, after the state may have moved on) */
+  const holds = useRef({ on: false });
 
   /* asked once per page view, a moment after the page opens (before Dukkan's other pop-ups, which wait a little longer) */
   useEffect(() => {
     if (!serverMode() || isStaffPage(window.location.pathname, window.location.search)) return;
     let gone = false;
+    let stop = () => {};
+    const h = holds.current;
+    /* what the merchant starts on this page from its first draw */
+    const watch = watchStarted();
+    /* this page goes first until the answer is in: Dukkan's pop-up waits for it */
+    popupSlot.doc = true;
+    const none = () => {
+      popupSlot.doc = false;
+      popupSlotChanged();
+    };
     const timer = window.setTimeout(async () => {
-      if (popupSlot.open) return;
+      /* the 2-step one holds the place: told on a later page */
+      if (popupSlot.open) return none();
       const r = await merchantCall("/api/documents", "GET");
+      if (gone) return;
       const list = (r?.status === 200 && Array.isArray(r.data.documents) ? r.data.documents : []) as Doc[];
       /* the newest rejection not read yet */
       const d = list.filter((x) => x.status === "rejected" && !x.rejectionSeen).pop();
-      if (gone || !d || popupSlot.open) return;
-      popupSlot.open = true;
-      setDoc(d);
+      if (!d) return none();
+      const show = () => {
+        if (gone || popupSlot.open) return false;
+        stop();
+        /* the merchant started something here (or a dialog, checkout or drawer is open): told on a later page (it is not
+           marked read until it is shown and closed) */
+        if (watch.busy()) {
+          none();
+          return true;
+        }
+        popupSlot.open = true;
+        h.on = true;
+        setDoc(d);
+        return true;
+      };
+      /* Dukkan's pop-up open already (it stopped waiting) is not taken away mid-read: this one shows once it is closed */
+      if (!show()) stop = onPopupSlot(show);
     }, 700);
     return () => {
       gone = true;
       window.clearTimeout(timer);
+      stop();
+      watch.stop();
+      popupSlot.doc = false;
+      /* leaving the page while it is open (the browser's back) frees the tab for the next one */
+      if (h.on) popupSlot.open = false;
+      h.on = false;
     };
   }, []);
 
-  /* read: marked on the server, and the tab's pop-up place is free again */
+  /* read: marked on the server, the tab's pop-up place is free again, and Dukkan's pop-up waiting behind it shows now */
   const done = () => {
     if (doc) void merchantCall(`/api/documents/${doc.id}`, "POST", { action: "seen" });
+    holds.current.on = false;
+    popupSlot.doc = false;
     popupSlot.open = false;
     setDoc(null);
+    popupSlotChanged();
   };
-  useEffect(() => () => {
-    if (doc) popupSlot.open = false;
-  }, [doc]);
 
   /* while it is open: Esc closes it, Tab stays inside it, the page under it does not scroll, and the focus comes back after */
   useEffect(() => {
@@ -115,7 +151,7 @@ export function DocumentRejected() {
   const kindName = w.kinds[doc.kind] ?? w.kinds.other;
   const resend = RESEND[doc.kind];
   return (
-    <div className="dash fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]" onClick={done}>
+    <div data-dukkan-popup className="dash fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]" onClick={done}>
       <div
         ref={box}
         role="alertdialog"

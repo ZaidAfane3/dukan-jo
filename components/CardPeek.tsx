@@ -140,7 +140,7 @@ export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField
             </span>
             <span className="block p-2.5">
               <span className={`block text-[10px] text-black/55 ${mark(field === "category")}`}>{category}</span>
-              <span className="mt-0.5 block truncate text-[13px] font-bold">{name}</span>
+              <span dir="auto" className="mt-0.5 block truncate text-[13px] font-bold ltr:text-left rtl:text-right">{name}</span>
               {field === "notes" && <span className={`mt-0.5 block truncate text-[11px] text-black/60 ${mark(true)}`}>{notes}</span>}
               <span className="mt-1.5 flex items-baseline gap-1.5" dir="ltr">
                 <span className="text-[13px] font-extrabold">{money(sale ?? price)} <small className="text-[9px] font-semibold opacity-60">{w.currency}</small></span>
@@ -163,7 +163,7 @@ export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField
               <span className="block overflow-hidden rounded-lg">{photo("h-full min-h-[7.5rem]")}</span>
               <span className="block min-w-0">
                 <span className={`inline-block rounded-full bg-black/[0.06] px-1.5 py-px text-[8px] font-semibold text-black/60 ${mark(field === "badge" || field === "category")}`}>{field === "badge" ? badge : category}</span>
-                <span className="mt-1 block truncate text-[13px] font-extrabold">{name}</span>
+                <span dir="auto" className="mt-1 block truncate text-[13px] font-extrabold ltr:text-left rtl:text-right">{name}</span>
                 <span className="mt-0.5 flex items-baseline gap-1.5" dir="ltr">
                   <span className="text-[12px] font-extrabold">{money(sale ?? price)} <small className="text-[8px] font-semibold opacity-60">{w.currency}</small></span>
                   {sale !== null && <span className={`text-[10px] text-black/45 line-through ${mark(field === "sale")}`}>{money(price)}</span>}

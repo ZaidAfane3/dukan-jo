@@ -79,6 +79,9 @@ export const themeWords = {
       dupTag: "Copy",
       dupOf: "Copy of",
       deleteCopyAsk: "Delete this copy? The theme it was copied from stays as it is, and so does your store design.",
+      /* deleting the one in use: the store really switches to Dukkan's default design (deleteSavedTheme in themes.ts) */
+      deleteActiveAsk: (dflt: string) => `This theme is your store design now. If you delete it, your store will switch to ${dflt}, and the changes you made in it (colors, fonts, sections and the rest of its design) are deleted with it. Your logo, store name, menu links, announcement bar and footer details stay.`,
+      deletedSwitched: (dflt: string) => `Deleted. Your store design is now ${dflt}.`,
       rename: "Rename",
       renameTitle: "Rename theme",
       nameEmpty: "Give the theme a name.",
@@ -166,6 +169,8 @@ export const themeWords = {
       dupTag: "نسخة",
       dupOf: "نسخة من",
       deleteCopyAsk: "هل تريد حذف هذه النسخة؟ يبقى الثيم الذي نُسخت منه كما هو، ويبقى تصميم متجرك كما هو.",
+      deleteActiveAsk: (dflt: string) => `هذا الثيم هو تصميم متجرك الآن. إذا حذفته، سيتحوّل متجرك إلى ${dflt}، وتُحذف معه التعديلات التي أجريتها فيه (الألوان والخطوط والأقسام وباقي تصميمه). يبقى شعارك واسم متجرك وروابط القائمة والشريط الإعلاني وبيانات التذييل كما هي.`,
+      deletedSwitched: (dflt: string) => `تم الحذف. أصبح تصميم متجرك ${dflt}.`,
       rename: "إعادة التسمية",
       renameTitle: "إعادة تسمية الثيم",
       nameEmpty: "اكتب اسمًا للثيم.",

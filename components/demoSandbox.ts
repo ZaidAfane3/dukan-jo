@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Lang } from "./content";
 import { demoSeed, DEMO_SEED_VERSION } from "./demoData";
-import { queueSave } from "./serverSync";
+import { queueSave, storageFull } from "./serverSync";
 
 /* The platform tour. While it runs, the dashboard reads and writes a separate copy of the browser's
    storage that starts filled with made-up data. A visitor's (or merchant's) real saved data is never
@@ -134,13 +134,25 @@ export function installAccounts() {
   };
   /* the account's own data also goes to the server (serverSync.ts), so it is kept when this browser forgets it */
   const own = (s: Storage, k: string) => !!account && s === window.localStorage && !shared(k);
+  /* writing what is already there is no change: nothing is sent (a page saving its list again as it opens, with an older
+     copy than the server's, would otherwise put that copy over the newer one) */
   proto.setItem = function (this: Storage, k: string, v: string) {
-    o.set.call(this, scoped(this, k), v);
-    if (own(this, k)) queueSave(k, String(v));
+    const mine = own(this, k);
+    const same = mine && o.get.call(this, scoped(this, k)) === String(v);
+    try {
+      o.set.call(this, scoped(this, k), v);
+    } catch (e) {
+      /* the browser's storage is full: the page is told so once (the page's own catch carries on) */
+      if (mine) storageFull();
+      throw e;
+    }
+    if (mine && !same) queueSave(k, String(v));
   };
   proto.removeItem = function (this: Storage, k: string) {
+    const mine = own(this, k);
+    const had = mine && o.get.call(this, scoped(this, k)) !== null;
     o.remove.call(this, scoped(this, k));
-    if (own(this, k)) queueSave(k, null);
+    if (had) queueSave(k, null);
   };
 }
 

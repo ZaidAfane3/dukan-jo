@@ -83,7 +83,9 @@ export function refreshServerNotifications(): Promise<void> {
           kind: x.kind as ServerKind,
           /* shown as plain text only */
           params: Object.fromEntries(Object.entries(x.params ?? {}).map(([k, v]) => [k, typeof v === "boolean" ? (v ? "1" : "") : String(v ?? "")])),
-          ts: Number(x.ts) || 0,
+          /* the server dates an announcement from when it reached this store (never before the store joined); a
+             clock here behind the server's must not show it "in" the future either */
+          ts: Math.min(Number(x.ts) || 0, Date.now()),
           read: !!x.read,
         }));
       changed();

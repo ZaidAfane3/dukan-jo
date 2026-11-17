@@ -10,12 +10,18 @@ import { shipWords, usePublicSettings } from "./platformPublic";
 import { isJordanMobile, jordanMobile, phoneError, savedMobile, shownMobile, typedPhone } from "./phone";
 import { cleanDate, cleanLine, emailOf, isBlank, passwordProblem, visibleLength } from "./safe";
 import { ACCOUNT_LIMITS, cleanProfile, DOB_MIN, dobError, passwordError, type Profile } from "./safeAccount";
+import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { accountData, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
 import { merchantCall, onServer } from "./merchantApi";
 import { flushSaves } from "./serverSync";
 import { TwoStepSettings } from "./TwoStepSettings";
+import { dropUndos, offerUndo, sameJson } from "./undo";
+import type { Lang } from "./content";
+import { usePageTitle } from "./pageTitle";
 
 const PROFILE_KEY = "seen-account-profile";
+/* the undo note at the bottom (UndoToast.tsx) */
+const undoSaved: Record<Lang, string> = { en: "Account details saved", ar: "حُفظت بيانات الحساب" };
 
 /* A signed-in account saves to Dukkan's server (/api/account and /api/account/password); signed out or in the tour,
    the page keeps the profile in this tab only, as before. */
@@ -83,7 +89,7 @@ function loadProfile(): Profile {
   }
 }
 
-function Field({ label, children, error, id, required = false }: { label: string; children: React.ReactNode; error?: string; id?: string; required?: boolean }) {
+function Field({ label, children, error, id, required = false, below }: { label: string; children: React.ReactNode; error?: string; id?: string; required?: boolean; below?: React.ReactNode }) {
   return (
     <div>
       <label htmlFor={id} className="mb-2 block text-sm font-semibold">
@@ -92,6 +98,7 @@ function Field({ label, children, error, id, required = false }: { label: string
       </label>
       {children}
       {error && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}
+      {below}
     </div>
   );
 }
@@ -128,9 +135,7 @@ export function Settings() {
   const today = new Date().toISOString().slice(0, 10);
   const dirty = JSON.stringify(p) !== kept || current !== "" || next !== "" || confirm !== "";
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${s.tab}`;
-  }, [lang, s]);
+  usePageTitle(`${brandName(lang)} | ${s.tab}`);
 
   /* What he typed at signup, plus anything saved here before. */
   useEffect(() => {
@@ -176,11 +181,15 @@ export function Settings() {
   }, [dirty]);
 
   const set = <K extends keyof Profile>(key: K, value: Profile[K]) => setP((old) => ({ ...old, [key]: value }));
+  /* only this page can put its fields back: its undo goes when it closes */
+  useEffect(() => () => dropUndos("settings"), []);
 
   const save = async () => {
     if (saving) return;
     const e: Record<string, string> = {};
     if (visibleLength(p.name) < 2) e.name = s.errors.name;
+    /* a name over the limit is refused, never cut */
+    else if (lineLength(p.name) > ACCOUNT_LIMITS.name) e.name = nameTooLong(ACCOUNT_LIMITS.name)[lang];
     if (!emailOf(p.email)) e.email = s.errors.email;
     if (!isJordanMobile(p.phone)) e.phone = phoneError[lang];
     if (p.dob && p.dob > today) e.dob = s.errors.dob;
@@ -215,6 +224,8 @@ export function Settings() {
       window.setTimeout(() => setToast(""), ms);
     };
 
+    /* the profile as kept before this save, for its Undo */
+    const wasKept = loadProfile();
     /* what is kept: the name cleaned, the email in lower case and the mobile as +9627XXXXXXXX */
     let clean: Profile = { ...cleanProfile(p), name: cleanLine(p.name, ACCOUNT_LIMITS.name), email: emailOf(p.email), phone: savedMobile(p.phone) };
 
@@ -258,6 +269,33 @@ export function Settings() {
     setNext("");
     setConfirm("");
     flash(server ? (changing ? l.savedPassword : l.saved) : s.saved, server && changing ? 5000 : 3000);
+    /* An Undo puts the details kept before back, the same way (the server first, for a signed-in account), unless they
+       changed since. Not after a new password, email or mobile: those need the password again and sign other devices
+       out, so they are changed back by hand. */
+    const after = clean;
+    if (changing || identity || !wasKept.email || sameJson(wasKept) === sameJson(after)) return;
+    offerUndo({
+      scope: "settings",
+      label: (x) => undoSaved[x],
+      undo: async () => {
+        if (sameJson(loadProfile()) !== sameJson(after)) return false;
+        let back = wasKept;
+        if (server) {
+          /* the server's copy too: another device may have changed it since */
+          const now = await merchantCall("/api/account", "GET");
+          if (now?.status !== 200 || !now.data.profile || sameJson(cleanProfile(now.data.profile)) !== sameJson(after)) return false;
+          const r = await merchantCall("/api/account", "PUT", wasKept);
+          if (r?.status !== 200 || !r.data.profile) return false;
+          back = cleanProfile(r.data.profile);
+        }
+        keepProfile(back);
+        /* the fields follow, unless he has started typing again */
+        const shownAfter = JSON.stringify(forFields(after));
+        setP((cur) => (JSON.stringify(cur) === shownAfter ? forFields(back) : cur));
+        setKept(JSON.stringify(forFields(back)));
+        return true;
+      },
+    });
   };
 
   return (
@@ -284,8 +322,9 @@ export function Settings() {
         <section id="account" className={`${card} scroll-mt-24`}>
           <h2 className="text-xl font-bold">{s.account.title}</h2>
           <div className="mt-6 grid gap-5 md:grid-cols-2">
-            <Field label={s.account.name} error={errors.name} id="set-name" required>
-              <input id="set-name" aria-invalid={!!errors.name} maxLength={ACCOUNT_LIMITS.name * 2} value={p.name} onChange={(e) => set("name", e.target.value)} autoComplete="name" className={`${field} ${errors.name ? bad : ""}`} />
+            <Field label={s.account.name} error={errors.name} id="set-name" required below={<LengthCounter value={p.name} max={ACCOUNT_LIMITS.name} lang={lang} hideMessage={!!errors.name} />}>
+              {/* room past the limit, so a longer name is shown as too long instead of being stopped or cut */}
+              <input id="set-name" aria-invalid={!!errors.name} maxLength={ACCOUNT_LIMITS.name * 2} value={p.name} onChange={(e) => { set("name", e.target.value); if (errors.name) setErrors((x) => ({ ...x, name: "" })); }} autoComplete="name" className={`${field} ${errors.name ? bad : ""}`} />
             </Field>
             <Field label={s.account.phone} error={errors.phone} id="set-phone" required>
               <span dir="ltr" className={`flex h-12 items-center overflow-hidden rounded-xl border border-fg/15 bg-card text-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${errors.phone ? "!border-rose-500 focus-within:!ring-rose-500/25" : ""}`}>

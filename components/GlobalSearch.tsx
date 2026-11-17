@@ -2,11 +2,20 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { content } from "./content";
 import { useDemo } from "./demoSandbox";
+import { latin } from "./digits";
 import { usePrefs } from "./Prefs";
-import { cleanOrder, cleanProduct, parseList, productCategories } from "./records";
+import { cleanOrder, cleanProduct, couponName, parseList, productCategories, type Coupon, type Order } from "./records";
+import { findStoreOrder, loadStoreOrders, readCoupons, readInfoPages, useStoreOrders, type SearchPage } from "./searchSources";
 
-type Result = { id: string; group: 0 | 1 | 2; label: string; sub?: string; href: string };
+/* The groups, in the order they are shown: products, orders, coupons, his own info pages, the dashboard's pages */
+const GROUPS = [0, 1, 2, 3, 4] as const;
+type Group = (typeof GROUPS)[number];
+const ORDERS: Group = 1;
+const PER_GROUP: Record<Group, number> = { 0: 5, 1: 5, 2: 4, 3: 4, 4: 6 };
+
+type Result = { id: string; group: Group; label: string; sub?: string; href: string };
 
 /* Pages of the dashboard. Keywords let "pay", "invoice" or "shipping" find the right place. */
 const pages = [
@@ -32,13 +41,37 @@ const pages = [
 ];
 
 const copy = {
-  en: { ph: "Search orders, products, pages…", groups: ["Pages", "Orders", "Products"], none: "Nothing found for", hint: "Try an order number, a customer, a product or a page name.", label: "Search the dashboard" },
-  ar: { ph: "ابحث في الطلبات والمنتجات والصفحات…", groups: ["الصفحات", "الطلبات", "المنتجات"], none: "لا توجد نتائج لـ", hint: "جرّب رقم طلب أو اسم عميل أو منتج أو صفحة.", label: "ابحث في لوحة التحكم" },
+  en: {
+    ph: "Search orders, products, coupons, pages…",
+    groups: ["Products", "Orders", "Coupons", "Your pages", "Dashboard pages"],
+    none: "Nothing found for",
+    noneElse: "Nothing else found for",
+    hint: "Try an order number, a customer, a product, a coupon code or a page name.",
+    label: "Search the dashboard",
+    searching: "Searching…",
+    ordersFailed: "Orders couldn't be searched right now.",
+    pageTypes: ["General", "Return policy", "Terms and privacy"],
+    draft: "Draft",
+    untitled: "Untitled page",
+  },
+  ar: {
+    ph: "ابحث في الطلبات والمنتجات والكوبونات والصفحات…",
+    groups: ["المنتجات", "الطلبات", "الكوبونات", "صفحاتك", "صفحات لوحة التحكم"],
+    none: "لا توجد نتائج لـ",
+    noneElse: "لا توجد نتائج أخرى لـ",
+    hint: "جرّب رقم طلب أو اسم عميل أو منتج أو كود كوبون أو اسم صفحة.",
+    label: "ابحث في لوحة التحكم",
+    searching: "جارٍ البحث…",
+    ordersFailed: "تعذّر البحث في الطلبات الآن.",
+    pageTypes: ["عامة", "سياسة الاستبدال والاسترجاع", "الأحكام والخصوصية"],
+    draft: "مسودة",
+    untitled: "صفحة بدون عنوان",
+  },
 };
 
-/* Arabic spelling variants should match each other. */
+/* Arabic spelling variants should match each other, and Arabic-Indic digits the Latin ones. */
 const norm = (s: string) =>
-  s
+  latin(s)
     .toLowerCase()
     .replace(/[ً-ٟـ]/g, "")
     .replace(/[أإآ]/g, "ا")
@@ -56,60 +89,130 @@ function read(key: "seen-orders" | "seen-products"): Record<string, unknown>[] {
   }
 }
 
+type Local = { orders: Record<string, unknown>[]; products: Record<string, unknown>[]; coupons: Coupon[]; infoPages: SearchPage[] };
+const noLocal: Local = { orders: [], products: [], coupons: [], infoPages: [] };
+
+function Spinner() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+      <path d="M12 3a9 9 0 1 1-9 9" />
+    </svg>
+  );
+}
+
 export function GlobalSearch() {
   const { lang } = usePrefs();
   const tour = useDemo();
   const c = copy[lang];
+  const couponTypes = content[lang].coupons.types;
   const router = useRouter();
 
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const [data, setData] = useState<{ orders: Record<string, unknown>[]; products: Record<string, unknown>[] }>({ orders: [], products: [] });
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [data, setData] = useState<Local>(noLocal);
+  const store = useStoreOrders();
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
 
-  /* Fresh data every time the field is focused, since orders and products change on other pages. */
-  const refresh = () => setData({ orders: read("seen-orders"), products: read("seen-products") });
+  /* Fresh data every time the field is focused, since orders, products, coupons and pages change on other pages. The
+     store's orders start loading now (not on the first key), and the list fetched is used again for the rest of the
+     visit, refreshed in the background. */
+  const refresh = () => {
+    setData({ orders: read("seen-orders"), products: read("seen-products"), coupons: readCoupons(), infoPages: readInfoPages() });
+    loadStoreOrders();
+  };
+
+  /* Every record with the text it is searched by, worked out once per load and not on every key */
+  const index = useMemo(() => {
+    /* the store's orders and those asked for by their number; an order kept in this browser with the same number opens
+       the store's one anyway (Orders.tsx), so it is shown once */
+    const storeOrders = new Map<number, Order>();
+    store.orders.forEach((o) => storeOrders.set(o.id, o));
+    Object.values(store.numbers).forEach((o) => typeof o === "object" && storeOrders.set(o.id, o));
+    const orders = [
+      ...data.orders.filter((o) => !storeOrders.has(Number(o.id))).map((o) => ({ o, store: false })),
+      ...[...storeOrders.values()].map((o) => ({ o: o as unknown as Record<string, unknown>, store: true })),
+    ]
+      .slice(0, 1000)
+      .map(({ o, store }) => ({
+        key: `${store ? "s" : "l"}${o.id}`,
+        id: String(o.id),
+        name: String(o.customer ?? ""),
+        hay: norm(`${o.customer ?? ""}\n${o.email ?? ""}`),
+        phone: String(o.phone ?? "").replace(/\s/g, ""),
+      }));
+    const products = data.products
+      .filter((p) => !p.deletedAt)
+      .slice(0, 500)
+      .map((p) => {
+        const cats = productCategories(p).join(", ");
+        return { id: String(p.id), name: String(p.name ?? ""), cats, hay: norm(`${p.name ?? ""}\n${cats}\n${p.brand ?? ""}`) };
+      });
+    const coupons = data.coupons.map((x) => ({ x, hay: norm(`${x.code}\n${x.name}`) }));
+    const infoPages = data.infoPages.map((p) => ({ p, title: norm(`${p.title.en}\n${p.title.ar}`), body: norm(`${p.content.en}\n${p.content.ar}`) }));
+    return { orders, products, coupons, infoPages };
+  }, [data, store.orders, store.numbers]);
+
+  const t = norm(q);
+  /* a number typed (with or without "#"): an order older than those fetched is asked for by it */
+  const number = /^#?\d{1,12}$/.test(t) ? t.replace(/^#/, "") : "";
+  const asked = number ? store.numbers[number] : undefined;
+  /* The store's orders are still on their way, or failed: "Nothing found" is never said for them */
+  const ordersPending = store.status === "loading" || asked === "loading";
+  const ordersFailed = store.status === "failed" || asked === "failed";
+
+  useEffect(() => {
+    if (!number || store.status !== "ready") return;
+    const timer = setTimeout(() => findStoreOrder(number), 350);
+    return () => clearTimeout(timer);
+  }, [number, store.status, store.orders]);
 
   const results = useMemo<Result[]>(() => {
-    const t = norm(q);
     if (!t) return [];
     const out: Result[] = [];
-    const sym = (s: string) => (s.startsWith("#") ? s.slice(1) : s);
+    const sym = t.startsWith("#") ? t.slice(1) : t;
+    const digits = t.replace(/\s/g, "");
+    const by = (b: { en: string; ar: string }) => b[lang] || b[lang === "ar" ? "en" : "ar"];
+
+    index.products.forEach((p) => {
+      if (p.hay.includes(t)) out.push({ id: `p${p.id}`, group: 0, label: p.name, sub: p.cats, href: `/products?open=${p.id}` });
+    });
+
+    index.orders.forEach((o) => {
+      if ((sym && o.id.includes(sym)) || o.hay.includes(t) || (digits && o.phone.includes(digits))) {
+        out.push({ id: `o${o.key}`, group: 1, label: o.name, sub: `#${o.id}`, href: `/orders?open=${o.id}` });
+      }
+    });
+
+    index.coupons.forEach(({ x, hay }) => {
+      if (!hay.includes(t)) return;
+      const name = couponName(x);
+      out.push({ id: `c${x.id}`, group: 2, label: name, sub: name === x.code ? couponTypes[x.type]?.title : x.code, href: `/marketing/coupons?open=${encodeURIComponent(x.id)}` });
+    });
+
+    /* his pages whose title matches come before those where only the text does */
+    const titled = index.infoPages.filter((p) => p.title.includes(t));
+    const inText = index.infoPages.filter((p) => !p.title.includes(t) && p.body.includes(t));
+    [...titled, ...inText].forEach(({ p }) => {
+      const kind = c.pageTypes[p.type];
+      out.push({ id: `i${p.id}`, group: 3, label: by(p.title) || c.untitled, sub: p.published ? kind : `${kind} · ${c.draft}`, href: `/pages?open=${p.id}` });
+    });
 
     pages.forEach((p) => {
       if (tour && p.href === "/settings/notifications") return;
       const label = lang === "ar" ? p.ar : p.en;
-      if (norm(label).includes(t) || norm(p.en).includes(t) || norm(p.ar).includes(t) || norm(p.kw).includes(t)) out.push({ id: p.href, group: 0, label, href: p.href });
+      if (norm(p.en).includes(t) || norm(p.ar).includes(t) || norm(p.kw).includes(t)) out.push({ id: p.href, group: 4, label, href: p.href });
     });
 
-    data.orders.slice(0, 500).forEach((o) => {
-      const id = String(o.id);
-      const name = String(o.customer ?? "");
-      const phone = String(o.phone ?? "");
-      if (id.includes(sym(t)) || norm(name).includes(t) || phone.replace(/\s/g, "").includes(t.replace(/\s/g, ""))) {
-        out.push({ id: `o${id}`, group: 1, label: name, sub: `#${id}`, href: `/orders?open=${id}` });
-      }
-    });
+    const seen: Record<Group, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+    return out.filter((r) => ++seen[r.group] <= PER_GROUP[r.group]);
+  }, [t, index, lang, tour, c, couponTypes]);
 
-    data.products
-      .filter((p) => !p.deletedAt)
-      .slice(0, 500)
-      .forEach((p) => {
-        const name = String(p.name ?? "");
-        const cats = productCategories(p).join(", ");
-        if (norm(name).includes(t) || norm(cats).includes(t) || norm(String(p.brand ?? "")).includes(t)) {
-          out.push({ id: `p${p.id}`, group: 2, label: name, sub: cats, href: `/products?open=${p.id}` });
-        }
-      });
-
-    const perGroup = [6, 5, 5];
-    const seen = [0, 0, 0];
-    return out.filter((r) => ++seen[r.group] <= perGroup[r.group]);
-  }, [q, data, lang, tour]);
-
-  useEffect(() => setActive(0), [q]);
+  /* The highlighted result is kept by what it is, so results arriving later (store orders) don't move it */
+  const activeAt = Math.max(0, results.findIndex((r) => r.id === activeId));
+  const active = results[activeAt];
+  useEffect(() => setActiveId(null), [q]);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
@@ -140,17 +243,38 @@ export function GlobalSearch() {
       input.current?.blur();
     } else if (e.key === "ArrowDown" && results.length) {
       e.preventDefault();
-      setActive((a) => (a + 1) % results.length);
+      setActiveId(results[(activeAt + 1) % results.length].id);
     } else if (e.key === "ArrowUp" && results.length) {
       e.preventDefault();
-      setActive((a) => (a - 1 + results.length) % results.length);
-    } else if (e.key === "Enter" && results[active]) {
+      setActiveId(results[(activeAt - 1 + results.length) % results.length].id);
+    } else if (e.key === "Enter" && active) {
       e.preventDefault();
-      go(results[active]);
+      go(active);
     }
   };
 
   const showPanel = open && q.trim().length > 0;
+  const shown = `“${q.trim()}”`;
+  /* what a screen reader hears while the results change: only the waiting, a failure and an empty answer (the rows
+     showing them in the list are hidden from it, so nothing is read twice) */
+  const live = !showPanel
+    ? ""
+    : ordersPending
+      ? c.searching
+      : results.length
+        ? ordersFailed
+          ? c.ordersFailed
+          : ""
+        : ordersFailed
+          ? `${c.ordersFailed} ${c.noneElse} ${shown}`
+          : `${c.none} ${shown}`;
+
+  const statusRow = (pending: boolean) => (
+    <div aria-hidden className="flex items-center gap-2 px-3 py-2.5 text-xs text-muted">
+      {pending && <Spinner />}
+      <span>{pending ? c.searching : c.ordersFailed}</span>
+    </div>
+  );
 
   return (
     <div ref={box} className="relative order-last basis-full pb-3 md:order-none md:flex-1 md:basis-auto md:pb-0 md:max-w-3xl">
@@ -176,44 +300,69 @@ export function GlobalSearch() {
           role="combobox"
           aria-expanded={showPanel}
           aria-controls="global-search-list"
+          aria-activedescendant={showPanel && active ? `gs-${active.id}` : undefined}
           autoComplete="off"
           className="h-12 w-full rounded-xl border border-fg/15 bg-soft/60 ps-12 pe-4 text-sm outline-none transition placeholder:text-muted/80 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/25"
         />
       </div>
+      <p role="status" aria-live="polite" className="sr-only">
+        {live}
+      </p>
 
       {showPanel && (
-        <div id="global-search-list" role="listbox" className="absolute inset-x-0 top-[calc(100%-0.25rem)] z-50 mt-2 max-h-[min(28rem,70vh)] overflow-y-auto rounded-2xl bg-card p-2 shadow-2xl ring-1 ring-fg/10 md:top-full">
+        <div id="global-search-list" role="listbox" aria-label={c.label} className="absolute inset-x-0 top-[calc(100%-0.25rem)] z-50 mt-2 max-h-[min(28rem,70vh)] overflow-y-auto rounded-2xl bg-card p-2 shadow-2xl ring-1 ring-fg/10 md:top-full">
           {results.length === 0 ? (
-            <div className="px-4 py-8 text-center">
-              <p className="text-sm font-semibold">
-                {c.none} <span dir="auto">“{q.trim()}”</span>
-              </p>
-              <p className="mt-1 text-xs text-muted">{c.hint}</p>
-            </div>
+            ordersPending ? (
+              <div aria-hidden className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted">
+                <Spinner />
+                <span>{c.searching}</span>
+              </div>
+            ) : (
+              <div aria-hidden className="px-4 py-8 text-center">
+                {ordersFailed && <p className="mb-1 text-sm text-muted">{c.ordersFailed}</p>}
+                <p className="text-sm font-semibold">
+                  {ordersFailed ? c.noneElse : c.none} <span dir="auto">{shown}</span>
+                </p>
+                <p className="mt-1 text-xs text-muted">{c.hint}</p>
+              </div>
+            )
           ) : (
-            [0, 1, 2].map((g) => {
+            GROUPS.map((g) => {
               const items = results.filter((r) => r.group === g);
-              if (!items.length) return null;
+              const waiting = g === ORDERS && (ordersPending || ordersFailed);
+              if (!items.length && !waiting) return null;
               return (
-                <div key={g} className="py-1">
-                  <p className="px-3 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-muted">{c.groups[g]}</p>
+                <div key={g} role="group" aria-labelledby={`gs-group-${g}`} className="py-1">
+                  <p id={`gs-group-${g}`} className="px-3 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-muted">
+                    {c.groups[g]}
+                  </p>
                   {items.map((r) => {
-                    const i = results.indexOf(r);
+                    const on = r === active;
                     return (
                       <button
                         key={r.id}
+                        id={`gs-${r.id}`}
                         type="button"
                         role="option"
-                        aria-selected={i === active}
-                        onMouseEnter={() => setActive(i)}
+                        tabIndex={-1}
+                        aria-selected={on}
+                        onMouseEnter={() => setActiveId(r.id)}
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => go(r)}
-                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-start text-sm transition-colors ${i === active ? "bg-black/[0.07] dark:bg-white/[0.1]" : ""}`}
+                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-start text-sm transition-colors ${on ? "bg-black/[0.07] dark:bg-white/[0.1]" : ""}`}
                       >
-                        <span className="truncate font-semibold">{r.label}</span>
-                        {r.sub && <span dir="auto" className="shrink-0 text-xs text-muted">{r.sub}</span>}
+                        <span dir="auto" className="truncate font-semibold">
+                          {r.label}
+                        </span>
+                        {r.sub && (
+                          <span dir="auto" className="shrink-0 text-xs text-muted">
+                            {r.sub}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
+                  {waiting && statusRow(ordersPending)}
                 </div>
               );
             })

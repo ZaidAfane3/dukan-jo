@@ -167,7 +167,7 @@ export function ProfileMenu() {
         className="flex items-center gap-2 rounded-xl py-0.5 ps-1 pe-2 transition hover:bg-soft"
       >
         <Avatar logo={logo} name={store.name || brandName(lang)} color={store.color} size="h-9 w-9 text-sm" />
-        <span className="hidden max-w-[9rem] truncate text-sm font-semibold sm:block">{name}</span>
+        <span dir="auto" className="hidden max-w-[9rem] truncate text-sm font-semibold sm:block ltr:text-left rtl:text-right">{name}</span>
         <span className={`hidden text-muted transition-transform sm:block ${open ? "rotate-180" : ""}`}>{i.chevron}</span>
       </button>
 
@@ -176,7 +176,7 @@ export function ProfileMenu() {
           <div className="flex items-center gap-3 border-b border-fg/10 px-5 py-4">
             <Avatar logo={logo} name={store.name || brandName(lang)} color={store.color} size="h-14 w-14 text-xl" />
             <div className="min-w-0">
-              <p className="truncate text-base font-bold">{name}</p>
+              <p dir="auto" className="truncate text-base font-bold ltr:text-left rtl:text-right">{name}</p>
               {/* the store's address, written out: pressing it opens the store as visitors see it */}
               {link && (atAddress ? (
                 <a href={storeUrl(store.slug)} target="_blank" rel="noopener noreferrer" onClick={go} dir="ltr" className="mt-0.5 block truncate text-xs font-medium text-muted hover:text-primary hover:underline">{link}</a>

@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { brandName, content } from "./content";
+import { brandName, content, type Lang } from "./content";
+import { dropUndos, listUndo, offerUndo } from "./undo";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
 import { REMINDER_MAX, cleanReminder, parseList, type Reminder } from "./records";
 import { cleanLine, visibleLength } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
+import { usePageTitle } from "./pageTitle";
 
 
 const KEYS = { abandoned: "seen-reminders", repurchase: "seen-repurchase" };
@@ -46,6 +48,11 @@ const copy = {
     delete: "Delete",
     deleteAsk: "Delete this reminder?",
     deleteYes: "Yes, delete",
+    /* the undo note at the bottom (UndoToast.tsx) */
+    undoAdded: (n: string) => `Reminder “${n}” added`,
+    undoDeleted: (n: string) => `Reminder “${n}” deleted`,
+    undoPaused: (n: string) => `Reminder “${n}” paused`,
+    undoResumed: (n: string) => `Reminder “${n}” turned on`,
   },
   ar: {
     title: "التذكيرات التلقائية",
@@ -77,6 +84,10 @@ const copy = {
     delete: "حذف",
     deleteAsk: "هل تريد حذف هذا التذكير؟",
     deleteYes: "نعم، احذف",
+    undoAdded: (n: string) => `أُضيف التذكير «${n}»`,
+    undoDeleted: (n: string) => `حُذف التذكير «${n}»`,
+    undoPaused: (n: string) => `أُوقف التذكير «${n}»`,
+    undoResumed: (n: string) => `فُعّل التذكير «${n}»`,
   },
 };
 
@@ -124,18 +135,50 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
   const [discount, setDiscount] = useState("0");
   const [errors, setErrors] = useState<{ name?: string; amount?: string; discount?: string }>({});
   const nameRef = useRef<HTMLInputElement>(null);
+  /* the list as it is now, for an undo (it checks nothing changed since) */
+  const listNow = useRef<Reminder[]>([]);
+  /* the list as read from storage: not saved back (only a change he makes is), so opening the page on a device with an
+     older copy never sends that copy over a newer one */
+  const loadedList = useRef<Reminder[] | null>(null);
+  useEffect(() => {
+    listNow.current = list;
+  }, [list]);
+  /* only this page can put its list back: its undos go when it closes */
+  useEffect(() => () => dropUndos(KEY), [KEY]);
+  /** A change to the reminders, saved like any edit (below), with an Undo at the bottom that puts back exactly the
+      reminders it changed, unless one of them changed again since */
+  const change = (next: Reminder[], label: (l: Lang) => string) => {
+    const before = listNow.current;
+    listNow.current = next;
+    setList(next);
+    offerUndo({
+      scope: KEY,
+      label,
+      undo: listUndo({
+        before,
+        after: next,
+        key: (x) => x.id,
+        now: () => listNow.current,
+        put: (l) => {
+          listNow.current = l;
+          setList(l);
+          setConfirm(null);
+        },
+      }),
+    });
+  };
+
+  usePageTitle(`${brandName(lang)} | ${c.title}`);
 
   useEffect(() => {
-    document.title = `${brandName(lang)} | ${c.title}`;
-  }, [lang, c]);
-
-  useEffect(() => {
-    setList(load(KEY));
+    const l = load(KEY);
+    loadedList.current = l;
+    setList(l);
     setReady(true);
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || list === loadedList.current) return;
     try {
       localStorage.setItem(KEY, JSON.stringify(list));
     } catch {
@@ -167,8 +210,10 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
     setErrors(next);
     if (Object.keys(next).length) return;
 
-    const id = list.reduce((mx, r) => Math.max(mx, r.id), 0) + 1;
-    setList((l) => [...l, { id, name: cleanLine(name, REMINDER_MAX.name), amount: Math.floor(amt), unit, channel, discount: Math.floor(disc), active: true }]);
+    const l = listNow.current;
+    const id = l.reduce((mx, r) => Math.max(mx, r.id), 0) + 1;
+    const made = cleanLine(name, REMINDER_MAX.name);
+    change([...l, { id, name: made, amount: Math.floor(amt), unit, channel, discount: Math.floor(disc), active: true }], (x) => copy[x].undoAdded(made));
     setName("");
     setAmount("1");
     setUnit(0);
@@ -225,12 +270,12 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
                       {confirm === r.id ? (
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="text-xs text-rose-600">{c.deleteAsk}</span>
-                          <button type="button" onClick={() => { setList((l) => l.filter((x) => x.id !== r.id)); setConfirm(null); }} className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700">{c.deleteYes}</button>
+                          <button type="button" onClick={() => { change(listNow.current.filter((x) => x.id !== r.id), (x) => copy[x].undoDeleted(r.name)); setConfirm(null); }} className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700">{c.deleteYes}</button>
                           <button type="button" onClick={() => setConfirm(null)} className="rounded-lg border border-fg/20 px-3 py-1.5 text-xs font-semibold transition hover:bg-soft">{c.cancel}</button>
                         </span>
                       ) : (
                         <span className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => setList((l) => l.map((x) => (x.id === r.id ? { ...x, active: !x.active } : x)))} className="rounded-lg border border-primary/50 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white">
+                          <button type="button" onClick={() => change(listNow.current.map((x) => (x.id === r.id ? { ...x, active: !x.active } : x)), (x) => (r.active ? copy[x].undoPaused : copy[x].undoResumed)(r.name))} className="rounded-lg border border-primary/50 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white">
                             {r.active ? c.pause : c.resume}
                           </button>
                           <button type="button" onClick={() => setConfirm(r.id)} className="rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-500/10">{c.delete}</button>

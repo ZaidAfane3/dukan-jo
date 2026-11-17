@@ -9,6 +9,7 @@ import { usePrefs } from "./Prefs";
 import { cleanOrder, parseList } from "./records";
 import { initialOf } from "./safe";
 import { AnimatedNumber, Money, mulberry32 } from "./Reports";
+import { usePageTitle } from "./pageTitle";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
 const RANGE_SCALE = [1, 3.6, 2.4];
@@ -45,9 +46,7 @@ export function AbandonedCarts() {
   const [reminded, setReminded] = useState<Record<number, number>>({});
   const [toast, setToast] = useState("");
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${m.menu[0]}`;
-  }, [m]);
+  usePageTitle(`${brandName(lang)} | ${m.menu[0]}`);
 
   useEffect(() => {
     if (demoActive()) {
@@ -93,7 +92,11 @@ export function AbandonedCarts() {
   const recovered = count ? Math.round((rows.filter((x) => x.sent).length / count) * 1000) / 10 : 0;
   const average = count ? rows.reduce((a, b) => a + b.total, 0) / count : 0;
 
+  /* PLACEHOLDER (QA 70): nothing can send a reminder yet (no WhatsApp/email sending, no real cart tracking). Only the
+     platform tour acts it out; a real store sees the button as "coming soon" and nothing is said to be sent. When
+     sending exists: track carts on the server, send through the chosen channel here, then drop the `tour` check. */
   const remind = (id: number, name: string) => {
+    if (!tour) return;
     pushNotification("reminderSent", { name });
     setReminded((s) => ({ ...s, [id]: (s[id] ?? 0) + 1 }));
     setToast(m.notice);
@@ -131,6 +134,11 @@ export function AbandonedCarts() {
             <div>
               <h1 className="text-lg font-extrabold">{m.title}</h1>
               <p className="mt-1 text-sm text-muted">{m.sub}</p>
+              {!tour && (
+                <p className="mt-2 inline-flex rounded-lg bg-soft px-2.5 py-1 text-xs font-semibold text-muted">
+                  {lang === "ar" ? "قريبًا: تتبّع السلات المتروكة وإرسال تذكير للعميل عبر واتساب أو البريد." : "Coming soon: tracking abandoned carts and sending customers a reminder by WhatsApp or email."}
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <a href="/reports" className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">{m.viewFull}<svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg></a>
@@ -255,9 +263,11 @@ export function AbandonedCarts() {
                         <button
                           type="button"
                           onClick={() => remind(row.id, row.name)}
-                          className="rounded-lg border border-primary/50 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white"
+                          disabled={!tour}
+                          title={!tour ? (lang === "ar" ? "إرسال التذكير قريبًا" : "Sending reminders is coming soon") : undefined}
+                          className="rounded-lg border border-primary/50 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:border-fg/15 disabled:text-muted disabled:hover:bg-transparent"
                         >
-                          {sent ? (lang === "ar" ? "إرسال تذكير آخر" : "Send another reminder") : m.remind}
+                          {!tour ? (lang === "ar" ? "قريبًا" : "Coming soon") : sent ? (lang === "ar" ? "إرسال تذكير آخر" : "Send another reminder") : m.remind}
                         </button>
                       </td>
                     </tr>

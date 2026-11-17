@@ -62,7 +62,8 @@ function blocksOf(text: string): Block[] {
 /** A page's text, shown safely (React text only) */
 export function PageBody({ text, className = "" }: { text: string; className?: string }) {
   return (
-    <div className={`space-y-4 text-[15px] leading-relaxed ${className}`}>
+    /* a long word with no space (a link, a code) wraps instead of running out of the page */
+    <div className={`space-y-4 break-words text-[15px] leading-relaxed [overflow-wrap:anywhere] ${className}`}>
       {blocksOf(text).map((b, i) =>
         b.kind === "h" ? (
           <h2 key={i} className="pt-2 text-lg font-extrabold"><Inline text={b.text} /></h2>

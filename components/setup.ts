@@ -20,10 +20,12 @@ export type SavedSetup = {
   logo?: string;
   /* `quantity`: how many are for sale; left out when the stock is unlimited */
   /* `image`: its cropped picture (a small data URL); `id`: the product it became in the product list */
-  product: { type: number; name: string; price: string; quantity?: number; image?: string; id?: number } | null;
+  /* `description`: the product's description (optional, the same rule as the product editor's) */
+  product: { type: number; name: string; price: string; quantity?: number; image?: string; description?: string; id?: number } | null;
   /* `fee`: with his own courier, what a customer pays for delivery per order in JOD (left out or 0: free). Dukkan Ship
      has no fee of his: the price Dukkan's staff set in Diwan is charged */
-  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; city: string; address: string; fee?: number } | null;
+  /* `cities`: with his own courier, the cities he delivers to (English names of safeOrder KNOWN_CITIES); left out: all */
+  shipping: { mode: "own" | "seen"; kind: number; name: string; phone: string; city: string; address: string; fee?: number; cities?: string[] } | null;
 };
 
 const KEY = "seen-setup";
@@ -37,6 +39,10 @@ export function accountName(): string {
     return "";
   }
 }
+
+/* The name a store shows while he has not typed one: the designer's own default (designer/panels.tsx). Never his own
+   name from signup: that is the account's name, not the store's. */
+export const defaultStoreName = (lang: "en" | "ar") => (lang === "ar" ? "متجرك" : "Your store");
 
 /* The phone number he registered with (without +962), kept for this browser session by the sign-up page. */
 export function accountPhone(): string {
@@ -61,7 +67,7 @@ export function loadSetup(): SavedSetup | null {
 
 /** Puts the product made in setup into the product list (or updates the one it made before), through the same checks as a
     product saved on the Products page, so it shows in Products and in the store with its picture. Returns its id. */
-export function syncSetupProduct(p: { name: string; price: string; quantity?: number; image?: string | null }, id?: number): number | null {
+export function syncSetupProduct(p: { name: string; price: string; quantity?: number; image?: string | null; description?: string }, id?: number): number | null {
   try {
     const KEY_PRODUCTS = "seen-products";
     const items = parseList(localStorage.getItem(KEY_PRODUCTS), cleanProduct);
@@ -71,6 +77,8 @@ export function syncSetupProduct(p: { name: string; price: string; quantity?: nu
       id: old?.id ?? nextProductId(items),
       name: p.name,
       price: money(p.price),
+      /* the description written in setup; none given keeps the one the product has */
+      description: p.description ?? old?.description ?? "",
       /* no quantity in setup means the stock has no limit (said with `unlimited`, never with a made-up count) */
       quantity: p.quantity ?? old?.quantity ?? 0,
       unlimited: p.quantity === undefined,

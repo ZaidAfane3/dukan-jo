@@ -1,10 +1,10 @@
-import { useEffect, useSyncExternalStore } from "react";
-import { cleanSetting, PUBLIC_KEYS, SETTING_DEFAULTS, THEME_PAYS, type PayMethod, type PublicSettings, type ThemePay } from "./diwan/platformSettings";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { cleanSetting, PUBLIC_KEYS, SETTING_DEFAULTS, THEME_PAYS, type Bi, type PayMethod, type PublicSettings, type ThemePay } from "./diwan/platformSettings";
 
 export { THEME_PAYS, type ThemePay };
 
 /* The platform settings Dukkan's staff save in Diwan that the merchant pages and the stores read (GET
-   /api/platform/settings): the ways to pay, Dukkan Ship and the legal pages a new
+   /api/platform/settings): the ways to pay, Dukkan Ship, Dukkan support's contact and the legal pages a new
    store starts with. Diwan is where they are decided; the pages only show them, and the server checks again whatever is
    charged or paid (never trusting what a page sends).
 
@@ -110,17 +110,23 @@ export const storePays = (s: Pick<PublicSettings, "payment_methods">): StorePay[
 /** The ways a merchant can pay Dukkan for a theme now (the theme checkout's own three, the ones Diwan has on) */
 export const themePays = (s: Pick<PublicSettings, "payment_methods">): ThemePay[] => THEME_PAYS.filter((p) => s.payment_methods[p].on);
 
-/** The note Diwan wrote beside a way to pay ("" when none) */
-export const payNote = (s: Pick<PublicSettings, "payment_methods">, m: PayMethod): string => s.payment_methods[m].note;
+/** A note staff wrote in both languages, in the visitor's language; the other language when his is empty ("" when both are) */
+export const noteFor = (note: Bi, lang: "en" | "ar"): string => note[lang] || note[lang === "ar" ? "en" : "ar"];
+
+/** The note Diwan wrote beside a way to pay, in the page's language ("" when none) */
+export const payNote = (s: Pick<PublicSettings, "payment_methods">, m: PayMethod, lang: "en" | "ar" = "en"): string => noteFor(s.payment_methods[m].note, lang);
 
 /** A price in JOD as the shipping pages write it: "JOD 3" / "3 د.أ" */
 export const jod = (n: number, lang: "en" | "ar") => (lang === "ar" ? `${n} د.أ` : `JOD ${n}`);
 
-/** Dukkan Ship in the page's language: its price, the pickup cities, the line under the price and its points */
+/** Dukkan Ship in the page's language: its price, the pickup cities, the line under the price and its points. A price of 0
+    reads "Free", the word the store's customers see at checkout, and `free` tells the page to leave out "per order". */
 export function shipWords(s: Pick<PublicSettings, "dukkan_ship">, lang: "en" | "ar") {
   const d = s.dukkan_ship;
+  const free = !(d.price > 0);
   return {
-    price: jod(d.price, lang),
+    free,
+    price: free ? (lang === "ar" ? "مجاني" : "Free") : jod(d.price, lang),
     priceNote: d.policy[lang],
     cities: d.cities.map((c) => c[lang]),
     features: d.features.map((f) => f[lang]),
@@ -129,3 +135,42 @@ export function shipWords(s: Pick<PublicSettings, "dukkan_ship">, lang: "en" | "
 
 /** Dukkan Ship's pickup cities in both languages, for turning a saved city into the page's language */
 export const shipCityLists = (s: Pick<PublicSettings, "dukkan_ship">) => ({ en: s.dukkan_ship.cities.map((c) => c.en), ar: s.dukkan_ship.cities.map((c) => c.ar) });
+
+/** Whether Dukkan Ship still picks up from a saved city (in either language); "" is no city, not a removed one */
+export const shipServes = (s: Pick<PublicSettings, "dukkan_ship">, city: string) =>
+  !city || s.dukkan_ship.cities.some((c) => c.en === city || c.ar === city);
+
+/** A saved city as the city picker shows it: its name in the page's language from Dukkan Ship's list now, or "" when the
+    list no longer has it (the picker then asks for a city) */
+export const shipCityShown = (s: Pick<PublicSettings, "dukkan_ship">, city: string, lang: "en" | "ar") =>
+  s.dukkan_ship.cities.find((c) => c.en === city || c.ar === city)?.[lang] ?? "";
+
+/** True once this page heard the server's settings (or the ask failed), so a page never warns from the starting values
+    or an old copy in this browser (a city they still list may be gone, or the other way round) */
+export function useSettingsChecked(): boolean {
+  const [checked, setChecked] = useState(false);
+  useEffect(() => {
+    let on = true;
+    void refreshPublicSettings().then(() => on && setChecked(true));
+    return () => {
+      on = false;
+    };
+  }, []);
+  return checked;
+}
+
+/** A WhatsApp link for a number: wa.me wants the country code and digits only, so a local Jordanian 07... number gets 962
+    in front and a leading 00 is dropped; "" when it is too short to be a number */
+export function waLink(n: string): string {
+  let d = n.replace(/\D/g, "").replace(/^00/, "");
+  if (/^07\d{8}$/.test(d)) d = `962${d.slice(1)}`;
+  return d.length >= 8 ? `https://wa.me/${d}` : "";
+}
+
+/** Dukkan support's contact as Diwan has it now (platform setting support_contact), ready for links: each one "" when
+    staff left it empty, so the page leaves it out */
+export function supportLinks(s: Pick<PublicSettings, "support_contact">) {
+  const c = s.support_contact;
+  const tel = c.phone.replace(/[^\d+]/g, "");
+  return { phone: c.phone, tel: tel ? `tel:${tel}` : "", whatsapp: waLink(c.whatsapp), email: c.email, mailto: c.email ? `mailto:${c.email}` : "" };
+}

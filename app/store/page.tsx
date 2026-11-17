@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { StorePreview } from "./StorePreview";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Store preview",
+  title: "دكان | معاينة المتجر",
   description: "Preview of the starter storefront.",
 };
 

@@ -7,6 +7,7 @@ import { DashboardBar } from "./DashboardBar";
 import { PageBody, type MerchantPage } from "./dukkanPages";
 import { merchantCall, onServer } from "./merchantApi";
 import { usePrefs } from "./Prefs";
+import { usePageTitle } from "./pageTitle";
 
 /* "From Dukkan": the guides, news and rules Dukkan's team publishes for merchants (made in Diwan's marketing pages,
    /diwan/pages), read here in the dashboard. Only for a signed-in account: they come from Dukkan's server. */
@@ -49,9 +50,7 @@ function useMerchant<T>(path: string, pick: (d: Record<string, any>) => T, again
 function Frame({ children }: { children: React.ReactNode }) {
   const { lang } = usePrefs();
   const w = fromDukkanWords[lang];
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${w.title}`;
-  }, [lang, w.title]);
+  usePageTitle(`${brandName(lang)} | ${w.title}`);
   return (
     <div className="dash min-h-screen bg-page">
       <DashboardBar active="dukkan" subtabs={[w.title]} activeSub={0} />
@@ -102,7 +101,7 @@ export function PageListCard({ page: p, lang, href = `/from-dukkan/${p.slug}` }:
 export function PageArticle({ page, lang }: { page: MerchantPage; lang: "en" | "ar" }) {
   const x = pick(page, lang);
   return (
-    <article className="rounded-2xl bg-card p-6 shadow-sm ring-1 ring-fg/10 md:p-8">
+    <article className="min-w-0 rounded-2xl bg-card p-6 shadow-sm ring-1 ring-fg/10 [overflow-wrap:anywhere] md:p-8">
       <p className="text-xs text-muted">{dateOf(page.publishedAt, lang)}</p>
       <h1 className="mt-1 break-words text-2xl font-extrabold">{x.title}</h1>
       {x.summary && <p className="mt-2 break-words text-muted">{x.summary}</p>}

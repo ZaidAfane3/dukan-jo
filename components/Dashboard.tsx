@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { brandName, content, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
@@ -8,10 +8,19 @@ import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./Reports";
 import { demoActive } from "./demoSandbox";
 import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";
-import { cleanOrder, cleanProduct, money, parseList, typedMoney, type Order, type Product } from "./records";
-import { latestOrders, rangeSpan, salesFigures, salesSeries } from "./storeNumbers";
+import { cleanOrder, money, parseList, typedMoney } from "./records";
+import { Skeleton } from "./Skeleton";
+import { latestOrders, ordersReport, rangeSpan, salesFigures, salesSeries } from "./storeNumbers";
+import { useStoreOrders } from "./useStoreOrders";
 import { AnnouncementBanner } from "./AnnouncementBanner";
+import { ThemeAccessNotice } from "./ThemeAccessNotice";
 import { useStoreVisits } from "./storeVisits";
+import { dropUndos, offerUndo } from "./undo";
+import { storeIsLive } from "./storefront/storage";
+import { onServer } from "./merchantApi";
+import { storeAddress, storeUrl } from "./siteAddress";
+import { ShareMenu } from "./ShareMenu";
+import { usePageTitle } from "./pageTitle";
 
 const TOTAL_TASKS = 6;
 
@@ -35,13 +44,52 @@ const words = {
     notTracked: "Not tracked yet", visitsNote: "{brand} counts the visitors of a store that is signed in and open at its link.", cartsNote: "{brand} does not keep the carts customers leave yet.", avgOrder: "Average order", open: "Open order {id}",
     visitors: "Visitors", lastHour: "Visitors in the last hour", visitsViews: "{visits} visits · {views} page views",
     noVisitors: "No visitors yet", shareHint: "Share your store's link on WhatsApp or Instagram. Visitors show here within a minute.",
+    /* the server leaves out the merchant's own visits (signed in on that browser), Dukkan's staff and programs */
+    ownVisits: "Your own visits aren't counted",
+    /* the orders (his browser's and his store's) could not be read */
+    loadFailed: "Your orders couldn't be loaded. Check your connection and try again.", visitsFailed: "Your visitor numbers couldn't be loaded.", retry: "Try again",
+    expected: "Orders waiting for delivery: {n} · expected {amount}",
+    notCharged: "Card or CliQ test orders not counted (nothing was charged): {n}",
+    testOrders: "Test orders not counted: {n} (card or CliQ, nothing charged)",
+    liveTitle: "Your store is live", liveSub: "Customers can visit it now at", liveOpen: "Open your store", liveShare: "Share the link", liveHide: "Hide",
   },
   ar: {
     notTracked: "لا يُتتبّع بعد", visitsNote: "يحسب {brand} زوار المتجر المسجّل الدخول والمفتوح على رابطه.", cartsNote: "لا يحفظ {brand} السلات التي يتركها العملاء بعد.", avgOrder: "متوسط الطلب", open: "فتح الطلب {id}",
     visitors: "الزوار", lastHour: "الزوار في آخر ساعة", visitsViews: "{visits} زيارة · {views} مشاهدة صفحة",
     noVisitors: "لا زوار بعد", shareHint: "شارك رابط متجرك على واتساب أو إنستغرام. يظهر الزوار هنا خلال دقيقة.",
+    ownVisits: "زياراتك أنت لا تُحتسب",
+    loadFailed: "تعذّر تحميل طلباتك. تحقق من الاتصال وحاول مرة أخرى.", visitsFailed: "تعذّر تحميل أرقام الزوار.", retry: "حاول مرة أخرى",
+    expected: "طلبات بانتظار التوصيل: {n} · المتوقَّع {amount}",
+    notCharged: "طلبات تجريبية بالبطاقة أو كليك لا تُحتسب (لم يُخصم أي مبلغ): {n}",
+    testOrders: "طلبات تجريبية لا تُحتسب: {n} (بطاقة أو كليك، لم يُخصم أي مبلغ)",
+    liveTitle: "متجرك مفتوح الآن", liveSub: "يستطيع العملاء زيارته الآن على", liveOpen: "افتح متجرك", liveShare: "شارك الرابط", liveHide: "إخفاء",
   },
 };
+
+/* "Your store is live" on the home page, once every setup task is done: shown for a week from the first time, or until
+   he hides it. A "seen-" key, so it stays hidden on his other devices too */
+const LIVE_KEY = "seen-live-card";
+const LIVE_DAYS = 7;
+
+function liveCardShown(): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LIVE_KEY) ?? "null") as { since?: unknown; hidden?: unknown } | null;
+    const since = typeof raw?.since === "number" && Number.isFinite(raw.since) ? raw.since : Date.now();
+    if (!raw || typeof raw.since !== "number") localStorage.setItem(LIVE_KEY, JSON.stringify({ since }));
+    return raw?.hidden !== true && Date.now() - since < LIVE_DAYS * 86_400_000;
+  } catch {
+    return true;
+  }
+}
+
+function hideLiveCard() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LIVE_KEY) ?? "null") as { since?: unknown } | null;
+    localStorage.setItem(LIVE_KEY, JSON.stringify({ since: typeof raw?.since === "number" ? raw.since : Date.now(), hidden: true }));
+  } catch {
+    /* storage blocked: hidden until the page opens again */
+  }
+}
 
 /* The monthly sales goal he sets on the home page. A "seen-" key, so it is kept on the server with the rest of his store */
 const GOAL_KEY = "seen-goal";
@@ -104,6 +152,10 @@ export function Dashboard() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [name, setName] = useState("");
   const [doneCount, setDoneCount] = useState(0);
+  /* the saved setup was read (until then neither the setup card nor the live card shows, so neither flashes) */
+  const [setupRead, setSetupRead] = useState(false);
+  /* every task is done: his store's link and where "Open your store" goes, while the live card is still shown */
+  const [liveCard, setLiveCard] = useState<{ slug: string; href: string } | null>(null);
   const [goal, setGoal] = useState(0);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -111,28 +163,27 @@ export function Dashboard() {
   /* A signed-in store's visitors, from Dukkan's server (read again every minute); the tour keeps its made-up ones */
   const visitors = useStoreVisits();
   const realVisits = visitors.on && !sample ? visitors.stats : null;
-  /* A real store's own orders and products, read again by each refresh button */
-  const [data, setData] = useState<{ orders: Order[]; products: Product[] }>({ orders: [], products: [] });
+  /* A real store's orders (his browser's and, signed in, the ones customers placed on his store: the same list the
+     Orders page shows) and products: read when the page opens, every minute, when he comes back to the tab and by
+     each refresh button (useStoreOrders.ts) */
+  const data = useStoreOrders();
+  /* before the first answer the numbers are grey blocks, not zeros that read as "no sales" */
+  const numbersLoading = !sample && data.state === "loading";
+  const numbersFailed = !sample && data.state === "failed";
 
-  const readData = useCallback(() => {
-    try {
-      setData({ orders: parseList(localStorage.getItem("seen-orders"), cleanOrder), products: parseList(localStorage.getItem("seen-products"), cleanProduct) });
-    } catch {
-      /* storage blocked: nothing to count */
-    }
-    setNow(new Date());
-  }, []);
-
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${h.pageTitle}`;
-  }, [h]);
+  usePageTitle(`${brandName(lang)} | ${h.pageTitle}`);
 
   useEffect(() => {
     const s = loadSetup();
     if (s) {
       setName(s.name);
       setDoneCount(s.done.filter(Boolean).length);
+      /* the store opens to customers with the design's first save (the last task); signed in, it is at its own address,
+         otherwise "Open your store" shows it as customers would see it (as the profile menu does) */
+      if (s.done.filter(Boolean).length >= TOTAL_TASKS && s.slug && liveCardShown())
+        setLiveCard({ slug: s.slug, href: onServer() && storeIsLive() ? storeUrl(s.slug) : "/store" });
     }
+    setSetupRead(true);
     /* In the platform tour the home page starts with its sample numbers on, so it is not empty */
     if (demoActive()) {
       setSample(true);
@@ -148,24 +199,38 @@ export function Dashboard() {
       setNow(new Date());
     } else {
       setGoal(readGoal());
-      readData();
+      setNow(new Date());
     }
-  }, [readData]);
+  }, []);
 
   /* The tour draws a fresh set of sample numbers; a real store reads its orders (and its visitors) again */
   const reloadVisits = visitors.reload;
+  const reloadOrders = data.reload;
   const refresh = useCallback((id: string) => {
     setBusy((b) => ({ ...b, [id]: true }));
-    if (!demoActive()) void reloadVisits();
+    if (!demoActive()) {
+      void Promise.all([reloadVisits(), reloadOrders()]).finally(() => {
+        setNow(new Date());
+        setBusy((b) => ({ ...b, [id]: false }));
+      });
+      return;
+    }
     window.setTimeout(() => {
       setSeed((s) => s + 1);
-      if (!demoActive()) readData();
       setBusy((b) => ({ ...b, [id]: false }));
     }, 900);
-  }, [readData, reloadVisits]);
+  }, [reloadOrders, reloadVisits]);
 
+  /* the goal as it is now, for an undo (it checks the goal was not changed again since) */
+  const goalNow = useRef(0);
+  useEffect(() => {
+    goalNow.current = goal;
+  }, [goal]);
+  /* only this page shows the goal: its undo goes when it closes */
+  useEffect(() => () => dropUndos("home"), []);
   /* A real store's goal is kept, so it is still there tomorrow and on his other devices */
-  const keepGoal = (v: number) => {
+  const putGoal = (v: number) => {
+    goalNow.current = v;
     setGoal(v);
     if (tour) return;
     try {
@@ -174,9 +239,24 @@ export function Dashboard() {
       /* storage blocked: the goal lasts until the page closes */
     }
   };
+  /* with an Undo that puts the goal before back */
+  const keepGoal = (v: number) => {
+    const was = goalNow.current;
+    if (v === was) return;
+    putGoal(v);
+    offerUndo({
+      scope: "home",
+      label: (l) => (l === "ar" ? `تغيّر هدف المبيعات الشهري إلى ${v} د.أ` : `Monthly sales goal changed to ${v} JOD`),
+      undo: () => {
+        if (goalNow.current !== v) return false;
+        putGoal(was);
+      },
+    });
+  };
 
   /* ---------- Chart data (all zero for a new store) ---------- */
-  const today = now ?? new Date(2026, 0, 1);
+  /* a real store's "today" moves on with each read of its orders (every minute), so a page left open past midnight follows */
+  const today = (!sample && data.at) || now || new Date(2026, 0, 1);
   const year = today.getFullYear();
   const month = today.getMonth();
   const locale = dateLocale(lang);
@@ -199,7 +279,12 @@ export function Dashboard() {
      monthly one); the tour keeps adding up its chart */
   const thisMonth = sample ? null : salesFigures(data.orders, data.products, rangeSpan(2, today));
   const netSales = thisMonth ? thisMonth.sales : sales.reduce((a, b) => a + b, 0);
-  const orderTotal = thisMonth ? thisMonth.orders : orders.reduce((a, b) => a + b, 0);
+  /* every real order placed this month, whatever its status (as Reports counts orders): a new order shows at once. Card
+     or CliQ test orders (storeNumbers.ts isTestOrder: nothing was charged) are not his orders' count: a small note says
+     how many there were */
+  const monthOrders = thisMonth ? ordersReport(data.orders, rangeSpan(2, today)) : null;
+  const orderTotal = monthOrders ? monthOrders.all - monthOrders.test : orders.reduce((a, b) => a + b, 0);
+  const testOrders = monthOrders?.test ?? 0;
   const visits = sample ? Math.round(netSales * (6 + rnd() * 3)) + 1 + Math.floor(rnd() * 8) : 0;
   const peak = Math.max(...sales, 1);
   const shown = hover ?? current;
@@ -227,6 +312,8 @@ export function Dashboard() {
       <main data-lang-fade className="mx-auto max-w-[1720px] space-y-6 px-5 py-8 md:px-10">
         {/* Dukkan's announcements meant for this shop (signed in only) */}
         <AnnouncementBanner />
+        {/* a paid theme in use that was never bought: the store goes back to the free theme, and this says so once */}
+        <ThemeAccessNotice />
         {/* Greeting */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -235,11 +322,11 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Setup progress. The tour shows a store that is already running, so it has none. */}
-        {!tour && (
+        {/* Setup progress, until every task is done. The tour shows a store that is already running, so it has none. */}
+        {!tour && setupRead && doneCount < TOTAL_TASKS && (
           <section className={`${card} flex flex-wrap items-center justify-between gap-4`}>
             <div className="min-w-0 flex-1">
-              <h2 className="font-bold">{doneCount >= TOTAL_TASKS ? h.setupDone : h.setupTitle}</h2>
+              <h2 className="font-bold">{h.setupTitle}</h2>
               <p dir="auto" className="mt-1 text-sm text-muted">
                 {h.setupProgress.replace("{done}", String(doneCount)).replace("{total}", String(TOTAL_TASKS))}
               </p>
@@ -250,6 +337,32 @@ export function Dashboard() {
             <a href="/onboarding" className="rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep">
               {h.setupCta}
             </a>
+          </section>
+        )}
+
+        {/* Setup is done: the store is live. Open it or share its link (for a week, or until he hides it) */}
+        {!tour && liveCard && (
+          <section className={`${card} relative flex flex-wrap items-center justify-between gap-4 pe-12`}>
+            <div className="flex min-w-0 flex-1 items-center gap-4">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary text-white" aria-hidden>
+                <svg {...icon}><path d="m5 12 5 5 9-10" /></svg>
+              </span>
+              <div className="min-w-0">
+                <h2 className="font-bold">{w.liveTitle}</h2>
+                <p className="mt-1 text-sm text-muted">
+                  {w.liveSub} <span dir="ltr" className="break-all font-semibold text-fg">{storeAddress(liveCard.slug)}</span>
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <a href={liveCard.href} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep">
+                {w.liveOpen}
+              </a>
+              <ShareMenu url={storeUrl(liveCard.slug)} title={name || w.liveTitle} lang={lang} fileName={`${liveCard.slug}-qr`} label={w.liveShare} className="rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white" />
+            </div>
+            <button type="button" onClick={() => { hideLiveCard(); setLiveCard(null); }} aria-label={w.liveHide} title={w.liveHide} className="absolute end-3 top-3 grid h-8 w-8 place-items-center rounded-full text-muted transition hover:bg-soft hover:text-fg">
+              <svg {...icon} className="h-4 w-4"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
           </section>
         )}
 
@@ -281,7 +394,8 @@ export function Dashboard() {
                 <p className="mt-1 text-muted">{h.netSales}: <span dir="ltr" className="font-semibold text-fg">{fmt(sales[shown] ?? 0)} {cur}</span></p>
                 <p className="text-muted">{h.totalOrders}: <span className="font-semibold text-fg">{orders[shown] ?? 0}</span></p>
               </div>
-              <div dir="ltr" className="mt-4 flex h-32 items-end gap-1" role="img" aria-label={h.chartLabel}>
+              {numbersLoading && <Skeleton className="mt-4 h-32 w-full" />}
+              <div dir="ltr" className={`mt-4 flex h-32 items-end gap-1 ${numbersLoading ? "hidden" : ""}`} role="img" aria-label={h.chartLabel}>
                 {sales.map((v, i) => (
                   <button
                     key={i}
@@ -299,22 +413,58 @@ export function Dashboard() {
             </div>
 
             {/* Totals */}
-            <div dir={lang === "ar" ? "rtl" : "ltr"} className="space-y-5">
-              {[
+            <div dir={lang === "ar" ? "rtl" : "ltr"} className="space-y-5" aria-busy={numbersLoading || undefined}>
+              {numbersFailed && (
+                <div role="alert" className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm">
+                  <p className="text-rose-600 dark:text-rose-400">{w.loadFailed}</p>
+                  <button type="button" onClick={() => refresh("summary")} disabled={!!busy.summary} className="mt-2 rounded-lg border border-fg/15 bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-soft disabled:opacity-60">{w.retry}</button>
+                </div>
+              )}
+              {([
                 /* a signed-in store: this month's visitors (each day's visitors added up); a store that is not signed in has
                    no public store to count, so it says so rather than show a 0 */
                 visitors.on && !sample
-                  ? { title: w.visitors, node: <AnimatedNumber value={realVisits?.month.visitors ?? 0} />, ico: <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" /> }
+                  ? {
+                      title: w.visitors,
+                      node: <AnimatedNumber value={realVisits?.month.visitors ?? 0} />,
+                      ico: <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" />,
+                      loading: !visitors.loaded,
+                      failed: visitors.loaded && !realVisits,
+                      /* his own visits are left out on purpose (server/storeVisits.ts): a 0 after he opened his store says why */
+                      note: realVisits && realVisits.month.visitors === 0 ? w.ownVisits : undefined,
+                    }
                   : { title: h.visits, node: sample ? <AnimatedNumber value={visits} /> : <span className="text-base font-semibold text-muted">{w.notTracked}</span>, ico: <path d="M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" /> },
-                { title: h.netSales, node: <Money value={netSales} currency={cur} />, glyph: cur },
-                { title: h.orders, node: <AnimatedNumber value={orderTotal} />, ico: <path d="M4 7h16v13H4zM3 4h18v3H3zM10 11h4" /> },
-                ...(thisMonth ? [{ title: w.avgOrder, node: <Money value={thisMonth.average} currency={cur} />, ico: <path d="M4 19h16M7 15l3-4 3 2 4-6" /> }] : []),
-              ].map((m) => (
+                {
+                  title: h.netSales,
+                  node: <Money value={netSales} currency={cur} />,
+                  glyph: cur,
+                  loading: numbersLoading,
+                  failed: numbersFailed,
+                  /* the same rule as Reports (storeNumbers.ts saleState): a sale is a delivered order; orders on their way
+                     are shown apart, and card or CliQ test orders (nothing charged) are not counted */
+                  note: thisMonth && (thisMonth.expected.orders || thisMonth.notCharged)
+                    ? [
+                        thisMonth.expected.orders ? w.expected.replace("{n}", String(thisMonth.expected.orders)).replace("{amount}", `${fmt(thisMonth.expected.sales)} ${cur}`) : "",
+                        thisMonth.notCharged ? w.notCharged.replace("{n}", String(thisMonth.notCharged)) : "",
+                      ].filter(Boolean).join("\n")
+                    : undefined,
+                },
+                { title: h.orders, node: <AnimatedNumber value={orderTotal} />, ico: <path d="M4 7h16v13H4zM3 4h18v3H3zM10 11h4" />, loading: numbersLoading, failed: numbersFailed, note: testOrders ? w.testOrders.replace("{n}", String(testOrders)) : undefined },
+                ...(thisMonth ? [{ title: w.avgOrder, node: <Money value={thisMonth.average} currency={cur} />, ico: <path d="M4 19h16M7 15l3-4 3 2 4-6" />, loading: numbersLoading, failed: numbersFailed }] : []),
+              ] as { title: string; node: React.ReactNode; ico?: React.ReactNode; glyph?: string; loading?: boolean; failed?: boolean; note?: string }[]).map((m) => (
                 <div key={m.title} className="flex items-center gap-4">
-                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-card text-primary shadow-sm ring-1 ring-fg/10">{"glyph" in m ? <span className="text-sm font-bold leading-none">{m.glyph}</span> : <svg {...icon}>{m.ico}</svg>}</span>
-                  <div>
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-card text-primary shadow-sm ring-1 ring-fg/10">{m.glyph ? <span className="text-sm font-bold leading-none">{m.glyph}</span> : <svg {...icon}>{m.ico}</svg>}</span>
+                  <div className="min-w-0">
                     <p className="text-sm text-muted">{m.title}</p>
-                    <p className="text-2xl font-bold">{m.node}</p>
+                    {m.loading ? (
+                      <Skeleton className="mt-1 h-8 w-28" />
+                    ) : m.failed ? (
+                      /* not a 0: the number is not known */
+                      <p className="text-2xl font-bold text-muted">—</p>
+                    ) : (
+                      <p className="text-2xl font-bold">{m.node}</p>
+                    )}
+                    {!m.loading && !m.failed && m.note && <p dir="auto" className="mt-0.5 whitespace-pre-line text-xs text-muted">{m.note}</p>}
                   </div>
                 </div>
               ))}
@@ -400,9 +550,20 @@ export function Dashboard() {
               ) : visitors.on ? (
                 /* a signed-in store: its visitors in the last hour, in steps of 5 minutes */
                 visitors.loaded && realVisits && realVisits.days30.views === 0 && realVisits.lastHour.views === 0 ? (
-                  <EmptyState title={w.noVisitors} hint={w.shareHint} />
+                  <EmptyState title={w.noVisitors} hint={`${w.shareHint} ${w.ownVisits}.`} />
+                ) : visitors.loaded && !realVisits ? (
+                  <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 py-8 text-center">
+                    <p className="max-w-[16rem] text-sm text-rose-600 dark:text-rose-400">{w.visitsFailed}</p>
+                    <button type="button" onClick={() => refresh("hour")} disabled={!!busy.hour} className="rounded-lg border border-fg/15 px-3 py-1.5 text-xs font-semibold transition hover:bg-soft disabled:opacity-60">{w.retry}</button>
+                  </div>
+                ) : !realVisits ? (
+                  <div aria-busy="true" className="flex flex-1 flex-col">
+                    <Skeleton className="mt-4 h-9 w-16" />
+                    <Skeleton className="mt-2 h-4 w-40" />
+                    <Skeleton className="mt-4 h-32 w-full" />
+                  </div>
                 ) : (
-                  <div className={`flex flex-1 flex-col ${realVisits ? "" : "opacity-40"}`}>
+                  <div className="flex flex-1 flex-col">
                     <p className="mt-4 text-3xl font-bold"><AnimatedNumber value={realVisits?.lastHour.visitors ?? 0} /></p>
                     <p dir="auto" className="text-sm text-muted">
                       {w.visitsViews.replace("{visits}", (realVisits?.lastHour.visits ?? 0).toLocaleString("en-US")).replace("{views}", (realVisits?.lastHour.views ?? 0).toLocaleString("en-US"))}
@@ -433,12 +594,22 @@ export function Dashboard() {
               <RefreshButton busy={!!busy.orders} onClick={() => refresh("orders")} label={r.refresh} />
             </div>
             <div className={`flex flex-1 flex-col transition-opacity duration-300 ${busy.orders ? "opacity-40" : ""}`}>
-              {latest.length ? (
+              {numbersLoading ? (
+                <div aria-busy="true" className="mt-4 space-y-2">
+                  {[0, 1, 2].map((i) => <Skeleton key={i} className="h-11 w-full" />)}
+                </div>
+              ) : numbersFailed && !latest.length ? (
+                <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 py-8 text-center">
+                  <p className="max-w-[16rem] text-sm text-rose-600 dark:text-rose-400">{w.loadFailed}</p>
+                  <button type="button" onClick={() => refresh("orders")} disabled={!!busy.orders} className="rounded-lg border border-fg/15 px-3 py-1.5 text-xs font-semibold transition hover:bg-soft disabled:opacity-60">{w.retry}</button>
+                </div>
+              ) : latest.length ? (
                 <ul className="mt-4 space-y-2">
                   {latest.map((o) => {
                     const row = (
                       <>
-                        <span className="min-w-0 truncate font-semibold">{o.name}</span>
+                        {/* the name keeps its own direction, so an Arabic name in English (and the other way) is cut at its end, not its start */}
+                        <bdi dir="auto" title={o.name} className="block min-w-0 truncate font-semibold ltr:text-left rtl:text-right">{o.name}</bdi>
                         <span dir="ltr" className="shrink-0 text-muted">{o.total} {cur}</span>
                         <span className="shrink-0 rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-deep dark:text-primary">{o.status}</span>
                       </>

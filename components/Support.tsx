@@ -13,6 +13,7 @@ import {
   createTicket, fetchThread, fetchTickets, pictureUrl, replyTicket, sendable, setTicketOpen,
   type MerchantStatus, type Sent, type ServerTicket, type Thread,
 } from "./ticketsApi";
+import { usePageTitle } from "./pageTitle";
 
 /* Support tickets. Signed in (and not in the tour), tickets go to Dukkan (app/api/tickets): the list comes from the
    server, a ticket opens as a conversation with Dukkan's replies, and the merchant answers there. In the tour or signed
@@ -74,9 +75,7 @@ export function Support() {
   const fileRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${s.title}`;
-  }, [lang, s]);
+  usePageTitle(`${brandName(lang)} | ${s.title}`);
 
   const reload = useCallback(async () => {
     const r = await fetchTickets();
@@ -160,6 +159,11 @@ export function Support() {
       setBusy(false);
       if (!r.ok) return setFormError(failText(r));
       id = `#${r.data.number}`;
+      /* the new ticket is in the list at once (so nobody sends it twice while the list is fetched again), then the
+         server's copy replaces it */
+      const now = Date.now();
+      const sent: ServerTicket = { number: r.data.number, kind: "support", category, subject: cleanLine(subject, ACCOUNT_LIMITS.subject), status: "open", created: now, updated: now, preview: cleanLines(message, ACCOUNT_LIMITS.message).slice(0, 140), pictures: [], unread: false };
+      setRemote((list) => [sent, ...(list ?? []).filter((t) => t.number !== sent.number)]);
       void reload();
     } else {
       /* the next number after the highest one, so a number is never used twice */
@@ -177,9 +181,13 @@ export function Support() {
 
   const toggle = (id: string) => setTickets((list) => list.map((t) => (t.id === id ? { ...t, status: t.status === 0 ? 1 : 0 } : t)));
 
+  /* a close or reopen that was not saved: a message under that row's buttons; the status shown stays the server's */
+  const [rowError, setRowError] = useState<{ number: number; text: string } | null>(null);
   const toggleRemote = async (t: ServerTicket) => {
+    setRowError(null);
     const r = await setTicketOpen(t.number, t.status === "closed");
     if (r.ok) setRemote((list) => list?.map((x) => (x.number === t.number ? { ...x, status: r.data.status, updated: Date.now() } : x)) ?? list);
+    else setRowError({ number: t.number, text: r.why === "too-many" ? sv.tooMany : sv.saveFailed });
   };
 
   const kindOfRemote = (t: ServerTicket) => (t.kind === "support" ? undefined : t.kind);
@@ -210,9 +218,11 @@ export function Support() {
             <div role="radiogroup" aria-label={s.filterLabel} className="mt-4 flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-muted">{s.filterLabel}</span>
               {(["all", "bug", "idea"] as const).map((k) => (
-                <button key={k} type="button" role="radio" aria-checked={show === k} onClick={() => setShow(k)} className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${show === k ? "bg-ink text-onink" : "bg-soft text-fg hover:bg-fg/10"}`}>
+                <button key={k} type="button" role="radio" aria-checked={show === k} onClick={() => setShow(k)} className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${show === k ? "bg-ink text-onink" : "bg-soft text-fg hover:bg-fg/10"}`}>
+                  {/* the gap keeps the count apart from the word in both directions (a margin on the dir="ltr" count
+                      lands on its far side in Arabic: "الكل7") */}
                   {s.filters[k]}
-                  <span dir="ltr" className="ms-1.5 tabular-nums opacity-70">
+                  <span dir="ltr" className="tabular-nums opacity-70">
                     {k === "all" ? count : server ? (remote ?? []).filter((t) => kindOfRemote(t) === k).length : tickets.filter((t) => ticketKind(t) === k).length}
                   </span>
                 </button>
@@ -260,6 +270,7 @@ export function Support() {
                                 {t.status === "closed" ? s.reopen : s.close}
                               </button>
                             </div>
+                            {rowError?.number === t.number && <p role="alert" className="mt-1.5 text-xs text-rose-600">{rowError.text}</p>}
                           </td>
                         </tr>
                       );
@@ -328,7 +339,7 @@ export function Support() {
             <div className="mt-5 space-y-5">
               <div>
                 <label htmlFor="t-subject" className="mb-2 block text-sm font-semibold">{s.subject}<RequiredMark /></label>
-                <input id="t-subject" ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={s.subjectPh} maxLength={80} aria-required aria-invalid={!!errors.subject} className={`${field} h-11`} />
+                <input id="t-subject" ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={s.subjectPh} dir="auto" maxLength={80} aria-required aria-invalid={!!errors.subject} className={`${field} h-11`} />
                 {errors.subject && <p className="mt-1.5 text-xs text-rose-600">{errors.subject}</p>}
               </div>
               <div>
@@ -339,7 +350,7 @@ export function Support() {
               </div>
               <div>
                 <label htmlFor="t-message" className="mb-2 block text-sm font-semibold">{s.message}<RequiredMark /></label>
-                <textarea id="t-message" value={message} onChange={(e) => setMessage(e.target.value)} placeholder={s.messagePh} rows={5} maxLength={1000} aria-required aria-invalid={!!errors.message} className={`${field} resize-none py-3`} />
+                <textarea id="t-message" value={message} onChange={(e) => setMessage(e.target.value)} placeholder={s.messagePh} dir="auto" rows={5} maxLength={1000} aria-required aria-invalid={!!errors.message} className={`${field} resize-none py-3`} />
                 {errors.message && <p className="mt-1.5 text-xs text-rose-600">{errors.message}</p>}
               </div>
               <div>
@@ -401,6 +412,9 @@ export function Support() {
    One ticket as a conversation (signed in only)
    ==================================================================== */
 
+/** How often an open conversation asks for new messages (while the tab is in view) */
+const THREAD_REFRESH_MS = 15_000;
+
 function ThreadView({ number, onClose, onChanged }: { number: number; onClose: () => void; onChanged: () => void }) {
   const { lang } = usePrefs();
   const s = content[lang].support;
@@ -412,29 +426,57 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
   const [pics, setPics] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [toggleError, setToggleError] = useState("");
   const [busy, setBusy] = useState(false);
   const [big, setBig] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  /* only the newest answer is used; what the last one held, to tell the list only when something changed */
+  const asked = useRef(0);
+  const last = useRef<string | null>(null);
+  const atBottom = useRef(true);
 
+  /* Loads the conversation: on opening, after each change, and every few seconds while it is open and the tab is in
+     view (THREAD_REFRESH_MS), so Dukkan's replies show up without closing it. The text being written and its pictures
+     are never touched. Once the conversation shows, a failed load says nothing and the next one tries again. */
   const load = useCallback(async () => {
+    const n = ++asked.current;
     const r = await fetchThread(number);
+    if (n !== asked.current) return;
     if (r.ok) {
-      setT(r.data.ticket);
+      const next = r.data.ticket;
+      setT(next);
       setFailed("");
+      const mark = `${next.status}|${next.messages.length}|${next.messages[next.messages.length - 1]?.id ?? ""}`;
       /* opening it marks Dukkan's replies as seen: the list and the bell catch up */
-      onChanged();
-    } else setFailed(r.why === "none" ? "none" : "error");
+      if (mark !== last.current) onChanged();
+      last.current = mark;
+    } else if (last.current === null) setFailed(r.why === "none" ? "none" : "error");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [number]);
 
   useEffect(() => {
     setT(null);
+    last.current = null;
+    atBottom.current = true;
     void load();
+    const inView = () => document.visibilityState === "visible" && void load();
+    const timer = window.setInterval(inView, THREAD_REFRESH_MS);
+    document.addEventListener("visibilitychange", inView);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", inView);
+    };
   }, [load]);
 
+  /* follows each new message only while the conversation is scrolled to the bottom: reading higher up is left alone */
+  const onScroll = () => {
+    const el = listRef.current;
+    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    if (atBottom.current) endRef.current?.scrollIntoView({ block: "end" });
   }, [t?.messages.length]);
 
   useEffect(() => {
@@ -469,13 +511,18 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
     setText("");
     setPics([]);
     setNote("");
+    /* his own message is shown at the bottom, wherever he had scrolled */
+    atBottom.current = true;
     await load();
   };
 
   const toggle = async () => {
     if (!t) return;
+    setToggleError("");
     const r = await setTicketOpen(number, t.status === "closed");
-    if (r.ok) await load();
+    /* not saved: a message by the button, and the status shown stays the server's (loaded again, quietly) */
+    if (!r.ok) setToggleError(r.why === "too-many" ? sv.tooMany : sv.saveFailed);
+    await load();
   };
 
   const systemText = (body: string) =>
@@ -501,13 +548,14 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
                 </button>
               </div>
             )}
+            {toggleError && <p role="alert" className="mt-1.5 text-xs text-rose-600">{toggleError}</p>}
           </div>
           <button type="button" onClick={onClose} aria-label={sv.back} title={sv.back} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-soft hover:text-fg">
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
           </button>
         </header>
 
-        <div className="flex-1 space-y-4 overflow-y-auto bg-page/40 px-5 py-5">
+        <div ref={listRef} onScroll={onScroll} className="flex-1 space-y-4 overflow-y-auto bg-page/40 px-5 py-5">
           {!t && !failed && <p className="py-10 text-center text-sm text-muted">{sv.loading}</p>}
           {failed && <p role="alert" className="py-10 text-center text-sm text-rose-600">{failed === "none" ? sv.notFound : sv.loadFailed}</p>}
           {t?.where && <p className="rounded-xl bg-soft px-3 py-2 text-xs text-muted"><span className="font-semibold">{sv.where}:</span> {t.where}</p>}
@@ -549,7 +597,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
           <form onSubmit={send} className="border-t border-fg/10 px-5 py-4">
             {t.status === "closed" && <p className="mb-2 text-xs text-muted">{sv.closedNote}</p>}
             <label htmlFor="t-reply" className="sr-only">{sv.replyLabel}</label>
-            <textarea id="t-reply" value={text} onChange={(e) => setText(e.target.value)} placeholder={sv.replyPh} rows={3} maxLength={1000} className={`${field} resize-none py-3`} />
+            <textarea id="t-reply" value={text} onChange={(e) => setText(e.target.value)} placeholder={sv.replyPh} dir="auto" rows={3} maxLength={1000} className={`${field} resize-none py-3`} />
             {!!pics.length && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {pics.map((p, i) => (

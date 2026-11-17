@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ThemeStore } from "@/components/ThemeStore";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Theme store",
+  title: "دكان | متجر الثيمات",
   description: "Ready-made designs for your store.",
 };
 

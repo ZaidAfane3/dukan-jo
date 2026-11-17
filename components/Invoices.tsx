@@ -22,8 +22,13 @@ import { loadSetup } from "./setup";
 import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
 import { loadConfig } from "./storefront/storage";
 import type { LogoConfig } from "./storefront/config";
+import { dropUndos, offerUndo, valueUndo } from "./undo";
+import type { Lang } from "./content";
+import { usePageTitle } from "./pageTitle";
 
 const KEY = "seen-invoice";
+/* the undo note at the bottom (UndoToast.tsx) */
+const undoSaved: Record<Lang, string> = { en: "Invoice settings saved", ar: "حُفظت إعدادات الفاتورة" };
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
@@ -92,12 +97,13 @@ function Slider({ label, value, onChange, id }: { label: string; value: number; 
 function PosPicker({ value, onChange, labels, name, vertical }: { value: Pos; onChange: (p: Pos) => void; labels: Record<Pos, string>; name: string; vertical: "top" | "bottom" }) {
   const align: Record<Pos, string> = { left: "justify-start", center: "justify-center", right: "justify-end" };
   return (
-    <div className="flex flex-wrap gap-3">
-      {(["right", "center", "left"] as Pos[]).map((p) => (
+    /* drawn left to right in both languages, so each tile sits where its picture puts the logo: Left on the left */
+    <div dir="ltr" className="flex flex-wrap gap-3">
+      {(["left", "center", "right"] as Pos[]).map((p) => (
         <label key={p} className="cursor-pointer text-center text-xs">
           <input type="radio" name={name} checked={value === p} onChange={() => onChange(p)} className="peer sr-only" />
-          <span dir="ltr" className={`flex h-16 w-16 rounded-lg border bg-white p-1.5 transition peer-checked:border-primary peer-checked:ring-2 peer-checked:ring-primary/30 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 border-fg/20 ${vertical === "top" ? "items-start" : "items-end"} ${align[p]}`}>
-            <span className="h-3 w-3 rounded-sm bg-zinc-300" />
+          <span dir="ltr" className={`flex h-16 w-16 rounded-lg border bg-white p-1.5 transition dark:bg-white/[0.06] peer-checked:border-primary peer-checked:ring-2 peer-checked:ring-primary/30 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 border-fg/20 ${vertical === "top" ? "items-start" : "items-end"} ${align[p]}`}>
+            <span className="h-3 w-3 rounded-sm bg-zinc-300 dark:bg-white/40" />
           </span>
           <span className={`mt-1 block ${value === p ? "font-bold text-primary" : "text-muted"}`}>{labels[p]}</span>
         </label>
@@ -402,9 +408,7 @@ export function Invoices() {
   const [watermark, setWatermark] = useState("");
   const [stamp, setStamp] = useState("");
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${c.title}`;
-  }, [lang, c]);
+  usePageTitle(`${brandName(lang)} | ${c.title}`);
 
   useEffect(() => {
     const l = load();
@@ -417,9 +421,13 @@ export function Invoices() {
   const dirty = ready && JSON.stringify(s) !== JSON.stringify(saved);
   const set = <K extends keyof InvoiceSettings>(k: K, v: InvoiceSettings[K]) => setS((x) => ({ ...x, [k]: v }));
 
+  /* only this page can put its settings back: its undo goes when it closes */
+  useEffect(() => () => dropUndos("invoices"), []);
+
   const save = () => {
     /* saved the way it is read back: cleaned, so what he sees is what was kept */
     const kept = cleanInvoice(s);
+    const before = load();
     try {
       localStorage.setItem(KEY, JSON.stringify(kept));
     } catch {
@@ -429,6 +437,23 @@ export function Invoices() {
     setSaved(kept);
     setFlash(true);
     setTimeout(() => setFlash(false), 1800);
+    /* an Undo puts the settings saved before back, unless they were saved again since; changes typed since stay */
+    const after = load();
+    const undo = valueUndo({
+      before,
+      after,
+      now: load,
+      put: (v) => {
+        try {
+          localStorage.setItem(KEY, JSON.stringify(v));
+        } catch {
+          return false;
+        }
+        setS((cur) => (JSON.stringify(cur) === JSON.stringify(kept) ? v : cur));
+        setSaved(v);
+      },
+    });
+    if (undo) offerUndo({ scope: "invoices", label: (l) => undoSaved[l], undo });
   };
 
   const shopName = store || brandName(lang);

@@ -1,4 +1,5 @@
 import type { Lang } from "./content";
+import { arCount } from "./undo";
 
 export type FilterKey =
   | "all"
@@ -94,7 +95,8 @@ type Copy = {
   stock: string;
   quantity: string;
   quantityHint: string;
-  piece: string;
+  /* "1 piece", "5 pieces" (Arabic: قطعة واحدة، قطعتان، 5 قطع، 11 قطعة) */
+  pieces: (n: number) => string;
   alerts: string;
   lowAt: string;
   sendBy: string;
@@ -106,15 +108,14 @@ type Copy = {
   restockMin: string;
   restockMinHint: string;
   save: string;
-  saved: string;
   cancel: string;
   delete: string;
-  deleteAsk: string;
-  deleteYes: string;
   errName: string;
   errPrice: string;
   priceZero: string;
   discardAsk: string;
+  discardKeep: string;
+  discardYes: string;
   errSale: string;
   errImages: string;
   imagesUploading: string;
@@ -124,6 +125,8 @@ type Copy = {
   unlimited: string;
   unlimitedHint: string;
   unlimitedShort: string;
+  /* in the list, for a product with none left */
+  soldOutShort: string;
   otherCategory: string;
   requiredNote: string;
   untitled: string;
@@ -131,13 +134,19 @@ type Copy = {
   noPrice: string;
   edit: string;
   restore: string;
-  restored: string;
   deletedNote: string;
   deleteForever: string;
   foreverAsk: string;
   foreverYes: string;
   moveToTrash: string;
   unsavedPhoto: string;
+  /* the undo note at the bottom (UndoToast.tsx): what was just done; "Deleted products" is where deleted ones go */
+  undoBin: (n: number, name: string) => string;
+  undoRestored: (n: number, name: string) => string;
+  undoAdded: (name: string) => string;
+  undoEdited: (name: string) => string;
+  undoForever: (name: string) => string;
+  undoCat: (category: string) => string;
 };
 
 export const productsCopy: Record<Lang, Copy> = {
@@ -219,7 +228,7 @@ export const productsCopy: Record<Lang, Copy> = {
     stock: "Quantity",
     quantity: "Available quantity",
     quantityHint: "The number of pieces you have in stock. It goes down by itself with every order from your store.",
-    piece: "pcs",
+    pieces: (n) => (n === 1 ? "1 piece" : `${n.toLocaleString("en")} pieces`),
     alerts: "Alerts",
     lowAt: "Warn me when the quantity reaches",
     sendBy: "How the warning reaches you",
@@ -227,19 +236,18 @@ export const productsCopy: Record<Lang, Copy> = {
     byWhatsapp: "WhatsApp",
     byEmail: "Email",
     byBoth: "Both",
-    lowAtHint: "You get a notification before the product runs out.",
+    lowAtHint: "At this number or below, the product shows under low stock in Reports.",
     restockMin: "Notify subscribed customers when quantity is above",
     restockMinHint: "Avoids sending alerts when only a few pieces come back. Default 15.",
     save: "Save",
-    saved: "Saved",
     cancel: "Cancel",
     delete: "Delete product",
-    deleteAsk: "Delete this product? You can restore it from Deleted products.",
-    deleteYes: "Yes, delete",
     errName: "Enter the product name",
     errPrice: "Enter a valid price",
     priceZero: "The price is zero. Is this product free?",
     discardAsk: "You have changes that are not saved. Leave without saving?",
+    discardKeep: "Keep editing",
+    discardYes: "Leave without saving",
     errSale: "The discounted price must be lower than the price",
     errImages: "Add at least one product photo. Customers need to see what they are buying.",
     imagesUploading: "Wait for the photo to finish uploading, then save.",
@@ -249,6 +257,7 @@ export const productsCopy: Record<Lang, Copy> = {
     unlimited: "Unlimited quantity",
     unlimitedHint: "For products you can always make or order again. They never sell out in your store.",
     unlimitedShort: "Unlimited",
+    soldOutShort: "Sold out",
     otherCategory: "Other",
     requiredNote: "Fields with * must be filled",
     untitled: "Untitled product",
@@ -256,13 +265,18 @@ export const productsCopy: Record<Lang, Copy> = {
     noPrice: "No price",
     edit: "Edit product",
     restore: "Restore product",
-    restored: "Product restored",
     deletedNote: "This product is deleted. Restore it to bring it back with all its details.",
     deleteForever: "Delete permanently",
     foreverAsk: "Delete this product for good? It cannot be restored.",
     foreverYes: "Yes, delete for good",
     moveToTrash: "Delete product",
     unsavedPhoto: "Photos are not saved with the product in this prototype",
+    undoBin: (n, name) => (n === 1 ? `“${name}” moved to Deleted products` : `${n} products moved to Deleted products`),
+    undoRestored: (n, name) => (n === 1 ? `“${name}” restored` : `${n} products restored`),
+    undoAdded: (name) => `“${name}” added`,
+    undoEdited: (name) => `Changes to “${name}” saved`,
+    undoForever: (name) => `“${name}” deleted permanently`,
+    undoCat: (c) => `Category “${c}” removed`,
   },
   ar: {
     title: "المنتجات",
@@ -297,8 +311,8 @@ export const productsCopy: Record<Lang, Copy> = {
     name: "اسم المنتج",
     namePh: "مثال: قميص قطني",
     images: "صور المنتج",
-    imagesHint: "PNG أو JPG أو WebP، حتى 8 ميجابايت للصورة. تُصغَّر وتُحفظ مع المنتج، ويعرض متجرك الصورة الأولى.",
-    imagesBad: "تعذّرت إضافة بعض الملفات. استخدم صور PNG أو JPG أو WebP حتى 8 ميجابايت.",
+    imagesHint: "PNG أو JPG أو WebP، حتى 8 ميغابايت للصورة. تُصغَّر وتُحفظ مع المنتج، ويعرض متجرك الصورة الأولى.",
+    imagesBad: "تعذّرت إضافة بعض الملفات. استخدم صور PNG أو JPG أو WebP حتى 8 ميغابايت.",
     focusTitle: "الجزء الظاهر من الصورة",
     focusNote: "يقصّ متجرك الصورة لتناسب شكلها (طولية أو مربعة أو عريضة). اضغط على الجزء الذي يجب أن يظهر دائمًا من الصورة الرئيسية، مثل الغطاء أو الملصق. تظهر الصور الصغيرة الثلاث شكلها النهائي.",
     focusCenter: "العودة إلى المنتصف",
@@ -342,7 +356,7 @@ export const productsCopy: Record<Lang, Copy> = {
     stock: "الكميات",
     quantity: "الكمية المتوفرة",
     quantityHint: "عدد القطع الموجودة لديك في المخزون. تنقص تلقائيًا مع كل طلب من متجرك.",
-    piece: "قطعة",
+    pieces: (n) => arCount(n, { one: "قطعة واحدة", two: "قطعتان", few: "قطع", many: "قطعة" }),
     alerts: "الإشعارات",
     lowAt: "نبهني عند وصول كمية المنتج إلى",
     sendBy: "كيف يصلك التنبيه",
@@ -350,19 +364,18 @@ export const productsCopy: Record<Lang, Copy> = {
     byWhatsapp: "واتساب",
     byEmail: "البريد الإلكتروني",
     byBoth: "الاثنان",
-    lowAtHint: "سيصلك إشعار قبل نفاد كمية المنتج.",
+    lowAtHint: "عند هذا الرقم أو أقل يظهر المنتج ضمن المنتجات قليلة الكمية في التقارير.",
     restockMin: "إشعار العملاء المشتركين عند توفر كمية أكبر من",
     restockMinHint: "لتجنب إرسال الإشعارات عند توفر كمية محدودة من المنتج. القيمة الافتراضية 15.",
     save: "حفظ",
-    saved: "تم الحفظ",
     cancel: "إلغاء",
     delete: "حذف المنتج",
-    deleteAsk: "هل تريد حذف هذا المنتج؟ يمكنك استعادته من المنتجات المحذوفة.",
-    deleteYes: "نعم، احذف",
     errName: "أدخل اسم المنتج",
     errPrice: "أدخل سعرًا صحيحًا",
     priceZero: "السعر صفر، هل المنتج مجاني؟",
     discardAsk: "لديك تعديلات لم تُحفظ. هل تريد الخروج دون حفظ؟",
+    discardKeep: "متابعة التعديل",
+    discardYes: "الخروج دون حفظ",
     errSale: "يجب أن يكون السعر بعد الخصم أقل من السعر",
     errImages: "أضف صورة واحدة للمنتج على الأقل، ليرى العملاء ما يشترونه.",
     imagesUploading: "انتظر حتى ينتهي رفع الصورة، ثم احفظ.",
@@ -372,6 +385,7 @@ export const productsCopy: Record<Lang, Copy> = {
     unlimited: "كمية غير محدودة",
     unlimitedHint: "للمنتجات التي يمكنك دائمًا صنعها أو طلبها من جديد. لا تنفد أبدًا في متجرك.",
     unlimitedShort: "غير محدود",
+    soldOutShort: "نفدت الكمية",
     otherCategory: "أخرى",
     requiredNote: "الحقول التي عليها * مطلوبة",
     untitled: "منتج بدون اسم",
@@ -379,12 +393,18 @@ export const productsCopy: Record<Lang, Copy> = {
     noPrice: "بدون سعر",
     edit: "تعديل المنتج",
     restore: "استعادة المنتج",
-    restored: "تمت استعادة المنتج",
     deletedNote: "هذا المنتج محذوف. استعده ليعود بكل تفاصيله.",
     deleteForever: "حذف نهائي",
     foreverAsk: "هل تريد حذف المنتج نهائيًا؟ لا يمكن استعادته بعد ذلك.",
     foreverYes: "نعم، احذف نهائيًا",
     moveToTrash: "حذف المنتج",
     unsavedPhoto: "لا تُحفظ الصور مع المنتج في هذه النسخة التجريبية",
+    undoBin: (n, name) =>
+      n === 1 ? `نُقل «${name}» إلى المنتجات المحذوفة` : n % 100 >= 3 && n % 100 <= 10 ? `نُقلت ${n} منتجات إلى المنتجات المحذوفة` : `نُقل ${arCount(n, { one: "منتج", two: "منتجان", few: "منتجات", many: "منتجًا" })} إلى المنتجات المحذوفة`,
+    undoRestored: (n, name) => (n === 1 ? `تمت استعادة «${name}»` : `تمت استعادة ${arCount(n, { one: "منتج", two: "منتجين", few: "منتجات", many: "منتجًا" })}`),
+    undoAdded: (name) => `أُضيف «${name}»`,
+    undoEdited: (name) => `حُفظت تعديلات «${name}»`,
+    undoForever: (name) => `حُذف «${name}» نهائيًا`,
+    undoCat: (c) => `حُذف التصنيف «${c}»`,
   },
 };

@@ -10,13 +10,39 @@ import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { PreviewEye, PreviewWindow } from "./ThemePopup";
 import { ThemePreview } from "./ThemePreview";
+import { priceText } from "./ThemeStore";
 import { themeWords } from "./themesContent";
-import { applyTheme, copyName, copyTheme, customizeTheme, renameTheme, DEFAULT_THEME_ID, deleteSavedTheme, findTheme, freeThemes, isFreeTheme, loadThemeState, NAME_MAX, resetCopy, saveDesignAsTheme, savedThemeInfo, type ThemeInfo, type ThemeState } from "./themes";
+import { applyTheme, copyName, copyTheme, customizeTheme, renameTheme, DEFAULT_THEME_ID, defaultTheme, deleteSavedTheme, findTheme, freeThemes, isFreeTheme, loadThemeState, NAME_MAX, refreshThemeAccess, resetCopy, saveDesignAsTheme, savedThemeInfo, unboughtBase, unboughtIn, type ThemeInfo, type ThemeState } from "./themes";
+import { THEME_NOT_BOUGHT } from "./serverSync";
 import { input } from "./designer/controls";
+import { dropUndos, offerUndo, snapshot, storageUndo } from "./undo";
+import type { Lang } from "./content";
+import { usePageTitle } from "./pageTitle";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-6";
+/* what a change in My themes can write: the themes he has (seen-themes) and the store design (seen-storefront) */
+const STORED = ["seen-themes", "seen-storefront"];
+/* the undo note at the bottom (UndoToast.tsx) */
+const undoWords: Record<Lang, Record<"used" | "deleted" | "reset" | "copied" | "saved" | "renamed", (n: string) => string>> = {
+  en: {
+    used: (n) => `Theme in use: ${n}`,
+    deleted: (n) => `Theme deleted: ${n}`,
+    reset: (n) => `Theme reset to its original design: ${n}`,
+    copied: (n) => `Copy added: ${n}`,
+    saved: (n) => `Design saved as a theme: ${n}`,
+    renamed: (n) => `Theme renamed: ${n}`,
+  },
+  ar: {
+    used: (n) => `صار الثيم المستخدم: ${n}`,
+    deleted: (n) => `حُذف الثيم: ${n}`,
+    reset: (n) => `عاد الثيم إلى تصميمه الأصلي: ${n}`,
+    copied: (n) => `أُضيفت نسخة: ${n}`,
+    saved: (n) => `حُفظ التصميم كثيم: ${n}`,
+    renamed: (n) => `تغيّر اسم الثيم: ${n}`,
+  },
+};
 
-type Note = "" | "applied" | "failed" | "saved" | "full" | "limit" | "reset" | "copied";
+type Note = "" | "applied" | "failed" | "saved" | "full" | "limit" | "reset" | "copied" | "switched";
 type Kind = "default" | "bought" | "copy" | "saved" | "dup";
 
 /* What can be done with each kind of theme:
@@ -48,34 +74,66 @@ export function MyThemes() {
   /* the copy just made: marked for a moment so he sees where it went */
   const [fresh, setFresh] = useState("");
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${w.title}`;
-  }, [lang, w]);
+  usePageTitle(`${brandName(lang)} | ${w.title}`);
   useEffect(() => setState(loadThemeState()), []);
+  /* which paid themes the store really bought (the server's purchases): a copy of one he has not bought can't go on the store */
+  useEffect(() => void refreshThemeAccess(), []);
 
   /* a free design he "bought" in the theme store is already among the free ones */
-  const bought = (state?.owned ?? []).filter((o) => !isFreeTheme(o.id)).map((o) => ({ at: o.at, theme: findTheme(o.id) })).filter((x): x is { at: number; theme: ThemeInfo } => !!x.theme);
+  const bought = (state?.owned ?? []).filter((o) => !isFreeTheme(o.id)).map((o) => ({ at: o.at, paid: o.paid, theme: findTheme(o.id) })).filter((x): x is { at: number; paid: number; theme: ThemeInfo } => !!x.theme);
   const saved = (state?.custom ?? []).map((c) => ({ at: c.at, theme: savedThemeInfo(c) }));
   /* Drawn once the browser's state is read: the previews show his own store, which the server cannot know (no hydration mismatch) */
   /* the name he gave a theme, if he renamed it */
   const named = (t: ThemeInfo): ThemeInfo => (state?.names?.[t.id] ? { ...t, name: { en: state.names[t.id], ar: state.names[t.id] } } : t);
-  const all: { at: number; theme: ThemeInfo; kind: Kind }[] = !state ? [] : [...freeThemes().map((t) => ({ at: 0, theme: named(t), kind: "default" as const })), ...bought.map((x) => ({ ...x, theme: named(x.theme), kind: "bought" as const })), ...saved.map((x) => ({ ...x, kind: typeof x.theme.copyOf === "string" ? ("dup" as const) : x.theme.from ? ("copy" as const) : ("saved" as const) }))];
-  const saveName = (id: string, name: string) => {
-    setState(renameTheme(id, name));
-    setRenaming(null);
+  const all: { at: number; paid?: number; theme: ThemeInfo; kind: Kind }[] = !state ? [] : [...freeThemes().map((t) => ({ at: 0, theme: named(t), kind: "default" as const })), ...bought.map((x) => ({ ...x, theme: named(x.theme), kind: "bought" as const })), ...saved.map((x) => ({ ...x, kind: typeof x.theme.copyOf === "string" ? ("dup" as const) : x.theme.from ? ("copy" as const) : ("saved" as const) }))];
+  const refresh = () => setState(loadThemeState());
+  /* only this page can show its themes again after an undo: its undos go when it closes */
+  useEffect(() => () => dropUndos("themes"), []);
+  /** Runs a change of My themes with an Undo that puts his themes and the store design back as they were, unless one of
+      them changed since (the designer, another tab). `name`: the theme's name in each language, for the note. */
+  const undoable = <T,>(run: () => T, kind: keyof (typeof undoWords)["en"], name: (l: Lang) => string): T => {
+    const before = snapshot(STORED);
+    const out = run();
+    const undo = storageUndo(before, snapshot(STORED), () => {
+      refresh();
+      setAsking(null);
+      setRenaming(null);
+      setNote("");
+    });
+    /* an undo that would put a paid theme he has not bought back on the store is refused by the same rule as any change
+       (themes.ts unboughtIn): it says "changed", not an error, and the store stays as it is */
+    if (undo) offerUndo({ scope: "themes", label: (l) => undoWords[l][kind](name(l)), undo: () => (unboughtIn(before["seen-themes"]) ? false : undo()) });
+    return out;
+  };
+  /* a paid theme he has not bought (or his copy of one) can't go on the store: nothing changes, and the page says so
+     with a way to buy it (SaveNotice.tsx) */
+  const held = (t: ThemeInfo): boolean => {
+    const id = unboughtBase(t.id);
+    if (!id) return false;
+    setAsking(null);
+    setNote("");
+    window.dispatchEvent(new CustomEvent(THEME_NOT_BOUGHT, { detail: id }));
+    return true;
   };
 
-  const refresh = () => setState(loadThemeState());
+  const saveName = (id: string, name: string) => {
+    setState(undoable(() => renameTheme(id, name), "renamed", () => name.trim() || name));
+    setRenaming(null);
+  };
   const done = (n: Note) => {
     refresh();
     setAsking(null);
     setNote(n);
   };
 
-  const use = (t: ThemeInfo) => done(applyTheme(t, lang) ? "applied" : "failed");
+  const use = (t: ThemeInfo) => {
+    if (held(t)) return;
+    done(undoable(() => applyTheme(t, lang), "used", (l) => t.name[l]) ? "applied" : "failed");
+  };
 
   /* "Customize": a bought theme gets its own copy in My themes (once), then the designer opens on it */
   const customize = (t: ThemeInfo, kind: Kind) => {
+    if (held(t)) return;
     if (kind === "bought") {
       if (customizeTheme(t, lang) === "ok") router.push("/design");
       else done("full");
@@ -86,7 +144,8 @@ export function MyThemes() {
   };
 
   const saveCurrent = () => {
-    const r = saveDesignAsTheme((naming ?? "").trim() || w.defaultName);
+    const title = (naming ?? "").trim() || w.defaultName;
+    const r = undoable(() => saveDesignAsTheme(title), "saved", () => title);
     setNaming(null);
     done(r === "ok" ? "saved" : r);
   };
@@ -96,7 +155,8 @@ export function MyThemes() {
     setRenaming(null);
     setAsking(null);
     const shown = t.name[lang];
-    const r = copyTheme(t, copyName(shown, w.copySuffix, all.map((x) => x.theme.name[lang])), shown, lang);
+    const copied = copyName(shown, w.copySuffix, all.map((x) => x.theme.name[lang]));
+    const r = undoable(() => copyTheme(t, copied, shown, lang), "copied", () => copied);
     if (!r.ok) return done(r.why);
     done("copied");
     /* copies are with his own designs: a filter that hides them shows his designs instead */
@@ -106,8 +166,10 @@ export function MyThemes() {
     window.setTimeout(() => setFresh((f) => (f === r.id ? "" : f)), 4000);
   };
 
-  const noteText: Record<Exclude<Note, "">, string> = { applied: w.applied, failed: w.failed, saved: w.saved, full: w.full, limit: w.limit, reset: w.resetDone, copied: w.copied };
-  const good = note === "applied" || note === "saved" || note === "reset" || note === "copied";
+  /* the default design's name as My themes shows it (he may have renamed it): the one the store switches to when the theme in use is deleted */
+  const defaultName = named(defaultTheme).name[lang];
+  const noteText: Record<Exclude<Note, "">, string> = { applied: w.applied, failed: w.failed, saved: w.saved, full: w.full, limit: w.limit, reset: w.resetDone, copied: w.copied, switched: w.deletedSwitched(defaultName) };
+  const good = note === "applied" || note === "saved" || note === "reset" || note === "copied" || note === "switched";
 
   return (
     <div className="dash min-h-screen bg-page">
@@ -163,7 +225,7 @@ export function MyThemes() {
           );
         })()}
         <div className="grid items-stretch gap-6 sm:grid-cols-2 xl:grid-cols-3">
-        {all.filter((x) => show === "all" || (show === "default" ? x.kind === "default" : show === "mine" ? x.kind === "saved" || x.kind === "dup" : x.kind === "bought" || x.kind === "copy")).map(({ at, theme: t, kind }) => {
+        {all.filter((x) => show === "all" || (show === "default" ? x.kind === "default" : show === "mine" ? x.kind === "saved" || x.kind === "dup" : x.kind === "bought" || x.kind === "copy")).map(({ at, paid, theme: t, kind }) => {
           /* Dukkan's default design is the one in use until he picks another theme (or when the one he picked is gone) */
           const active = state?.active === t.id || (t.id === DEFAULT_THEME_ID && !all.some((x) => x.theme.id === state?.active));
           const ask = asking?.id === t.id ? asking.kind : null;
@@ -212,11 +274,13 @@ export function MyThemes() {
                 <p className="mt-1 text-sm text-muted">{kind === "dup" ? `${w.dupOf} ${t.copyOf}` : kind === "copy" && base ? `${w.copyOf} ${base.name[lang]}` : t.tagline[lang]}</p>
                 <p className="mt-2 text-xs text-muted">
                   {kind === "default" ? w.defaultNote : `${kind === "bought" ? w.boughtOn : w.savedOn}: ${new Date(at).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "long", year: "numeric" })}`}
+                  {/* what he paid, written as the theme store and Diwan write it (up to 3 decimals: JOD has fils) */}
+                  {kind === "bought" && typeof paid === "number" && Number.isFinite(paid) && <> · <span dir="ltr">{priceText(paid, lang, themeWords[lang].store.free)}</span></>}
                 </p>
 
                 {ask ? (
                   <div className={`mt-5 rounded-xl p-4 ${ask === "use" ? "bg-amber-500/12" : "bg-rose-500/10"}`}>
-                    <p className="text-sm">{ask === "use" ? w.applyAsk : ask === "reset" ? w.resetAsk : kind === "dup" ? w.deleteCopyAsk : w.deleteAsk}</p>
+                    <p className="text-sm">{ask === "use" ? w.applyAsk : ask === "reset" ? w.resetAsk : active ? w.deleteActiveAsk(defaultName) : kind === "dup" ? w.deleteCopyAsk : w.deleteAsk}</p>
                     {ask === "use" && (
                       <>
                         <p className="mt-2 text-sm font-semibold">{w.applyKeepsTitle}</p>
@@ -230,11 +294,10 @@ export function MyThemes() {
                         type="button"
                         onClick={() => {
                           if (ask === "use") use(t);
-                          else if (ask === "reset") done(resetCopy(t.id, lang) === "ok" ? "reset" : "failed");
-                          else {
-                            deleteSavedTheme(t.id);
-                            done("");
-                          }
+                          else if (ask === "reset") done(undoable(() => resetCopy(t.id, lang), "reset", (l) => t.name[l]) === "ok" ? "reset" : "failed");
+                          /* the one in use: the store switches to Dukkan's default design for real (themes.ts deleteSavedTheme) */
+                          else if (undoable(() => deleteSavedTheme(t.id, lang), "deleted", (l) => t.name[l]) !== "ok") done("failed");
+                          else done(active ? "switched" : "");
                         }}
                         className={`h-10 rounded-xl px-5 text-sm font-semibold text-white transition ${ask === "use" ? "bg-ink hover:bg-deep" : "bg-rose-600 hover:bg-rose-700"}`}
                       >
