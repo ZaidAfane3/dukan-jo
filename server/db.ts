@@ -3,6 +3,7 @@ import { isSealed, open } from "./crypto";
 import { encryptOldRows } from "./encryptData";
 import { moveOldPictures } from "./media";
 import { DIWAN_SCHEMA } from "./schema";
+import { recordSavedThemes } from "./themeOwnership";
 
 /* The database. Accounts, their sign-in sessions and every store's saved data live here, so a merchant can close the
    site, come back days later (on any device) and carry on. The tables are made on the first request, so a new server
@@ -89,6 +90,10 @@ const pool = (g.dukkanPool ??= (() => {
 export async function db(): Promise<Pool> {
   g.dukkanReady ??= pool.query(SCHEMA)
     .then(() => encryptOldRows(pool))
+    /* themes stores already hold get their purchase recorded, once (server/themeOwnership.ts): waited for, so no save
+       is checked against the purchases before they are there. If it fails the site still starts, nothing about themes is
+       held back meanwhile, and it runs again on the next start. */
+    .then(() => recordSavedThemes(pool).then(() => undefined, (e) => console.error("[themes] recording saved themes", e)))
     /* pictures saved inside the stores' data before files existed become files (server/media.ts). In the background:
        requests don't wait for it, and a failure only means it runs again on the next start. */
     .then(() => void moveOldPictures(pool).catch((e) => console.error("[media] moving old pictures", e)));

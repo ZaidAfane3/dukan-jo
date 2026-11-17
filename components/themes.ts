@@ -18,6 +18,7 @@ import type { ListingRow } from "./themeListing";
 import { defaultConfig } from "./storefront/config";
 import { sanitizeDesign } from "./safeDesign";
 import { toStoreProduct, type StoreProduct } from "./storefront/useStoreData";
+import { stripPaidLooks } from "./themeLooks";
 
 /* The theme store: ready-made store designs a merchant can buy and use. A theme is a function that builds a
    store design (the same plain JSON the store designer edits), so once it is in use everything in it can be
@@ -311,21 +312,9 @@ export function baseTheme(id: string): string {
 }
 export const ownsLook = (themeId: string) => isOwnCopy() || isFreeTheme(themeId) || findTheme(themeId)?.inStore === false || loadThemeState().owned.some((o) => o.id === themeId);
 
-/** The store design with every look of a theme he has not bought put back to the plain one. */
-/* Round category pictures belong to the free Mada design, so every store keeps them. The round-photo hero ("orbit"), the centered
-   statement text and the ornament titles came with a jewelry theme removed on 2026-10-28: no theme offers them any more, but a
-   design that already uses one keeps it (as it did before, when they were open to everyone); the designer no longer offers them. */
-export function withoutUnboughtLooks(c: StorefrontConfig): StorefrontConfig {
-  const lamma = ownsLook("lamma");
-  const sections = c.sections.map((s): StorefrontConfig["sections"][number] => {
-    if (s.type === "hero" && s.settings.layout === "pop" && !lamma) return { ...s, settings: { ...s.settings, layout: "banner" } };
-    if (s.type === "banners" && !lamma && s.settings.items.some((b) => b.variant === "card")) return { ...s, settings: { ...s.settings, items: s.settings.items.map((b) => (b.variant === "card" ? { ...b, variant: "photo" as const } : b)) } };
-    return s;
-  });
-  const ts = c.theme.titleStyle;
-  const titleStyle = ts === "pop" && !lamma ? "bold" : ts;
-  return { ...c, sections, theme: { ...c.theme, titleStyle } };
-}
+/** The store design with every look of a theme he has not bought put back to the plain one (the rule is in
+    components/themeLooks.ts; the server runs it again for the store's visitors, from the purchases it recorded). */
+export const withoutUnboughtLooks = (c: StorefrontConfig): StorefrontConfig => stripPaidLooks(c, ownsLook);
 
 /** Adds the theme to the merchant's themes (prototype: no payment is taken). `method`: the way he chose to pay (one Diwan
     has on; the server checks it again). */

@@ -4,7 +4,9 @@ import { money } from "@/components/records";
 import { cleanLines, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { sanitizeDesign, sanitizePages } from "@/components/safeDesign";
+import { stripPaidLooks } from "@/components/themeLooks";
 import { db } from "./db";
+import { themeOwner } from "./themeOwnership";
 
 /* A store as anyone sees it at its address (app/[slug] and GET /api/public/store/<slug>). The shop is found by its link
    name in the shops table; its saved data (store_data, opened by db()) is read only for the few keys a storefront
@@ -15,7 +17,8 @@ import { db } from "./db";
    - suspended by Dukkan: only "unavailable", nothing about the store
    - not published yet (its design was never saved): only its name, for a "not open yet" page
    - paused by the merchant: its name, logo, colour and his "back soon" message
-   - open: the store's public setup, design, visible products, published pages and free delivery offer */
+   - open: the store's public setup, design (without the looks of a paid theme it did not buy), visible products,
+     published pages and free delivery offer */
 
 /* the only keys of the merchant's saved data this file ever asks the database for */
 const READ_KEYS = ["seen-setup", "seen-storefront", "seen-products", "seen-pages", "seen-freedelivery", "seen-maintenance"];
@@ -65,15 +68,26 @@ export async function publicStore(slug: string): Promise<PublicStore | null> {
   if (shop.status === "suspended") return { status: "unavailable" };
   const saved = await pool.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [shop.account_id, READ_KEYS]);
   const data = new Map<string, string>(saved.rows.map((r: { key: string; value: string }) => [r.key, r.value]));
-  return shapePublicStore(shop, data, async () => {
-    const t = await pool.query(`SELECT value FROM platform_settings WHERE key = 'starter_template'`);
-    return t.rows[0]?.value ?? null;
-  });
+  return shapePublicStore(
+    shop,
+    data,
+    async () => {
+      const t = await pool.query(`SELECT value FROM platform_settings WHERE key = 'starter_template'`);
+      return t.rows[0]?.value ?? null;
+    },
+    /* asked only for a store that is open and has a design of its own */
+    () => themeOwner(pool, shop.account_id),
+  );
 }
 
 /** What a visitor may see of a shop, from its shops row and its saved data (only READ_KEYS are looked at). `starter`
     gives Dukkan's starter design, asked only when the store has no design of its own. */
-export async function shapePublicStore(shop: ShopRow, data: Map<string, string>, starter: () => Promise<unknown>): Promise<PublicStore> {
+export async function shapePublicStore(
+  shop: ShopRow,
+  data: Map<string, string>,
+  starter: () => Promise<unknown>,
+  owner?: () => Promise<(themeId: string) => boolean>,
+): Promise<PublicStore> {
   if (shop.status === "suspended") return { status: "unavailable" };
   const setup = cleanSetup(parse(data.get("seen-setup")));
   const storeName = setup?.name || shop.name || "";
@@ -99,7 +113,9 @@ export async function shapePublicStore(shop: ShopRow, data: Map<string, string>,
   };
 
   const rawDesign = parse(data.get("seen-storefront"));
-  const design = isObj(rawDesign) ? sanitizeDesign(rawDesign) : null;
+  /* the looks of a paid theme are shown only for a store that bought it, whatever its saved design says
+     (components/themeLooks.ts): the designer takes them out when it saves, and this holds for a design saved around it */
+  const design = isObj(rawDesign) ? (owner ? stripPaidLooks(sanitizeDesign(rawDesign), await owner()) : sanitizeDesign(rawDesign)) : null;
   /* a store with no design of its own shows Dukkan's starter design, like the merchant's own preview */
   let template: unknown = null;
   if (!design) {

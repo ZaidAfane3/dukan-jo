@@ -7,6 +7,7 @@ import { db } from "@/server/db";
 import { movePicturesOut } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
 import { mergeOnlineSales, ONLINE_KEYS, onlineRev, shopLock, type OnlineKey } from "@/server/storeOrders";
+import { cleanThemeState, themeOwner } from "@/server/themeOwnership";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,9 @@ export const dynamic = "force-dynamic";
    (server/media.ts) and replaced by its address. The answer then gives those keys as saved ("rewritten"), so the browser
    keeps the smaller copy too. The size limits below are checked after that, so they only count the merchant's words and
    numbers. Too big after that: 413 "too-big" with the key, and nothing is written.
+
+   Themes: the "seen-themes" key says which themes the store has. What it says about a paid theme is kept only when
+   Dukkan recorded the purchase (server/themeOwnership.ts); the corrected value comes back in "rewritten" too.
 
    Store orders: customers' orders on the public store take stock out of the saved products (and count coupon uses)
    on the server, and count them as online sales on each product and coupon (server/storeOrders.ts). A save of the
@@ -85,6 +89,16 @@ export const PUT = guarded(async (req: NextRequest) => {
     if (next !== null) {
       entry[1] = next;
       rewritten[entry[0]] = next;
+    }
+  }
+  /* what the browser says about its themes is checked against the purchases Dukkan recorded: a paid theme the store did
+     not buy leaves its "owned" list and is not counted as the theme in use (server/themeOwnership.ts) */
+  const themeState = set.find(([k]) => k === "seen-themes");
+  if (themeState) {
+    const kept = cleanThemeState(themeState[1] as string, await themeOwner(await db(), a.id));
+    if (kept !== null) {
+      themeState[1] = kept;
+      rewritten[themeState[0]] = kept;
     }
   }
   const tooLong = set.find(([, v]) => (v as string).length > MAX_VALUE);
