@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePrefs } from "../Prefs";
 import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, shopTarget, type LogoConfig, type StorefrontConfig } from "./config";
 import { copy, currency, icons, LogoMark, money, moneyIn, onColor, picFill, priceLang, priceOf, readableOn, resolveLogo, drawerHeading } from "./parts";
 import { patterns } from "./patterns";
-import { basketKey, linkProps, ProductPage, renderSection, type Ctx, type Design } from "./sections";
+import { basketKey, emptyForCustomers, linkProps, ProductPage, renderSection, SearchResults, type Ctx, type Design } from "./sections";
+import { storePays, usePublicSettings } from "../platformPublic";
+import { SEARCH_MAX, searchCopy, searchIndex, searchProducts } from "./search";
 import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
 import { fontFamily, headingFamily } from "./config";
-import { categoriesOf, sampleProducts, useStoreData, type StoreProduct } from "./useStoreData";
-import { cartQty } from "../safeOrder";
+import { categoriesOf, sampleProducts, storeDataReady, useStoreData, type StoreProduct } from "./useStoreData";
+import { cartQty, productId } from "../safeOrder";
 import { CartPanel } from "./Cart";
 import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
 import { shownMobile } from "../phone";
@@ -19,6 +21,32 @@ import { useSpots } from "./spotSignal";
 import { ReportStore } from "./ReportStore";
 import { useVisitorStore } from "./visitorStore";
 import { sendVisit } from "../storeVisits";
+import { basketStorageKey, readBasket, writeBasket } from "./visitorBasket";
+
+/* The public store gives each product and each page of the store its own address: /<store>?p=<product id> or
+   ?page=<page id>, and a search on the home page /<store>?q=<words>. A reload or a shared link opens it again, and the
+   browser's Back closes it. Only on the public store, never in the designer or a preview, whose address is the
+   merchant's own page. */
+type View = { product: number | null; page: number | null; q?: string };
+function viewInAddress(): View & { q: string } {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return { product: productId(q.get("p")), page: productId(q.get("page")), q: (q.get("q") ?? "").slice(0, SEARCH_MAX).trim() };
+  } catch {
+    return { product: null, page: null, q: "" };
+  }
+}
+function addressOf(v: View): string {
+  const u = new URL(window.location.href);
+  u.searchParams.delete("p");
+  u.searchParams.delete("page");
+  u.searchParams.delete("q");
+  u.hash = "";
+  if (v.product !== null) u.searchParams.set("p", String(v.product));
+  else if (v.page !== null) u.searchParams.set("page", String(v.page));
+  else if (v.q?.trim()) u.searchParams.set("q", v.q.trim());
+  return u.pathname + u.search;
+}
 
 /* In the designer: the open settings point at a part of the store that is empty or hidden. It gets a dashed place with what
    will show there, so he sees where his change goes (customers never see it). */
@@ -31,8 +59,8 @@ function SpotHole({ spot, text, className = "" }: { spot: string; text: string; 
 }
 /* the words of those places */
 const holeWords = {
-  en: { links: "Your links will show here", newLink: "New link", tagline: "Your short line will show here", bar: "The announcement bar is off: it will show here when you turn it on", column: "This column is hidden: it will show here when you show it", license: "Your license will show here", about: "Your store description will show here" },
-  ar: { links: "ستظهر روابطك هنا", newLink: "رابط جديد", tagline: "سيظهر سطرك القصير هنا", bar: "الشريط الإعلاني مخفي، وسيظهر هنا عند تفعيله", column: "هذا العمود مخفي، وسيظهر هنا عند إظهاره", license: "ستظهر رخصتك هنا", about: "سيظهر وصف متجرك هنا" },
+  en: { links: "Your links will show here", tagline: "Your short line will show here", bar: "The announcement bar is off: it will show here when you turn it on", column: "This column is hidden: it will show here when you show it", license: "Your license will show here", about: "Your store description will show here" },
+  ar: { links: "ستظهر روابطك هنا", tagline: "سيظهر سطرك القصير هنا", bar: "الشريط الإعلاني مخفي، وسيظهر هنا عند تفعيله", column: "هذا العمود مخفي، وسيظهر هنا عند إظهاره", license: "ستظهر رخصتك هنا", about: "سيظهر وصف متجرك هنا" },
 };
 
 type Props = {
@@ -85,6 +113,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const root = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1100);
   const [query, setQuery] = useState("");
+  /* the newest search, for the timers and the browser's events below */
+  const queryNow = useRef("");
+  /* where he was on the home page when he started searching from it: clearing the search takes him back there */
+  const homeY = useRef<number | null>(null);
+  /* where to scroll once the page is drawn: to the results (smoothly), to the top of the store, or back to a place */
+  const scrollNext = useRef<"results" | "top" | number | null>(null);
+  const searchTimers = useRef<{ leave?: ReturnType<typeof setTimeout>; url?: ReturnType<typeof setTimeout> }>({});
   const [menu, setMenu] = useState(false);
   /* the designer opens the sidebar while its settings are open, and closes it when he leaves them */
   useEffect(() => {
@@ -97,6 +132,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   useEffect(() => setFd(visitor ? visitor.freeDelivery : loadFreeDelivery()), [visitor]);
   /* by product id, or "id|size" for clothing and shoes (one entry per size) */
   const [qty, setQtyMap] = useState<Record<string, number>>({});
+  /* The public store only: the address follows the product or page open, and the basket is kept in the visitor's
+     browser for this store (visitorBasket.ts). Both are taken back once the store's products are in (`settled`); until
+     then the basket's count and total are not shown, so a kept basket never flashes as empty. */
+  const routed = !!visitor && !design;
+  const basketStore = routed && visitor ? basketStorageKey(visitor.setup.slug) : "";
+  const [settled, setSettled] = useState(!routed);
 
   useEffect(() => {
     const el = root.current;
@@ -181,23 +222,114 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* The page of a product: pressing a product card opens it (in the designer it is the first product, from the page menu) */
   const [ownProduct, setOwnProduct] = useState<number | null>(null);
   const productId = design ? (showProduct ? (products ?? data.products)[0]?.id ?? null : null) : ownProduct;
+  /* the public store: a new address for what opens (Back comes back here, to where he was on the page) */
+  const moveTo = (v: View) => {
+    if (!routed) return;
+    try {
+      const url = addressOf(v);
+      if (url === window.location.pathname + window.location.search) return;
+      window.history.replaceState({ ...window.history.state, sfY: window.scrollY }, "", window.location.href);
+      window.history.pushState({ sfY: 0 }, "", url);
+    } catch {
+      /* the address stays as it is; the store still works */
+    }
+  };
   const openPage = (id: number) => {
     if (design) return design.openPage?.(id);
+    /* a page of the store is not part of the search: the box empties (Back still comes back to the results) */
+    if (queryNow.current) endSearch(false);
     setOwnProduct(null);
     setPageId(id);
+    moveTo({ product: null, page: id });
     root.current?.scrollIntoView({ block: "start" });
   };
   const openProduct = (id: number) => {
     if (design) return;
     setPageId(null);
     setOwnProduct(id);
+    moveTo({ product: id, page: null });
     root.current?.scrollIntoView({ block: "start" });
   };
   const closePage = () => {
     setOwnProduct(null);
     if (design) design.openPage?.(null);
-    else setPageId(null);
+    else {
+      setPageId(null);
+      /* back to the results when the box still holds a search (a product opened from them), else the home page */
+      moveTo({ product: null, page: null, q: queryNow.current });
+    }
   };
+  /* The public store, once its products are in: the kept basket (checked against them) and the product or page of the
+     address. One the store does not have (any more) shows the store, and the address becomes the store's own. Before
+     the first paint, so neither the empty basket nor the home page flashes first. */
+  useLayoutEffect(() => {
+    if (settled || !storeDataReady(saved)) return;
+    setQtyMap(readBasket(basketStore, data.products));
+    const v = viewInAddress();
+    const product = v.product !== null && data.products.some((p) => p.id === v.product) ? v.product : null;
+    const page = product === null && v.page !== null && data.pages.some((p) => p.id === v.page) ? v.page : null;
+    /* a search in the address (only on the home page) is typed back into the box and its results shown */
+    const q = product === null && page === null ? v.q : "";
+    setOwnProduct(product);
+    setPageId(page);
+    if (q) {
+      queryNow.current = q;
+      setQuery(q);
+    }
+    if (product !== v.product || page !== v.page || q !== v.q) {
+      try {
+        window.history.replaceState(window.history.state, "", addressOf({ product, page, q }));
+      } catch {
+        /* the address stays as it is */
+      }
+    }
+    setSettled(true);
+  }, [settled, saved, basketStore, data.products, data.pages]);
+  /* the basket is kept on every change (an order placed empties it, so it is removed) */
+  useEffect(() => {
+    if (settled && basketStore) writeBasket(basketStore, qty);
+  }, [settled, basketStore, qty]);
+  /* the newest store data, for the browser's events below */
+  const dataNow = useRef(data);
+  dataNow.current = data;
+  /* another tab of the same store changed the basket: this one follows it */
+  useEffect(() => {
+    if (!settled || !basketStore) return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === basketStore) setQtyMap(readBasket(basketStore, dataNow.current.products));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [settled, basketStore]);
+  /* Back and Forward: the product or page of that address, at the place on the page he left it */
+  const [popAt, setPopAt] = useState<{ y: number | null } | null>(null);
+  useEffect(() => {
+    if (!routed) return;
+    const onPop = (e: PopStateEvent) => {
+      const v = viewInAddress();
+      const d = dataNow.current;
+      const product = v.product !== null && d.products.some((p) => p.id === v.product) ? v.product : null;
+      const page = product === null && v.page !== null && d.pages.some((p) => p.id === v.page) ? v.page : null;
+      setOwnProduct(product);
+      setPageId(page);
+      /* the search box follows the address too: the search of a results address, empty elsewhere */
+      clearTimeout(searchTimers.current.leave);
+      clearTimeout(searchTimers.current.url);
+      const q = product === null && page === null ? v.q : "";
+      queryNow.current = q;
+      homeY.current = null;
+      setQuery(q);
+      const y = (e.state as { sfY?: unknown } | null)?.sfY;
+      setPopAt({ y: typeof y === "number" ? y : null });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [routed]);
+  useLayoutEffect(() => {
+    if (!popAt) return;
+    if (popAt.y !== null) window.scrollTo(0, popAt.y);
+    else root.current?.scrollIntoView({ block: "start" });
+  }, [popAt]);
   const shownPage = pageId !== null ? data.pages.find((p) => p.id === pageId) : undefined;
   /* The public store only (never the merchant's preview, the designer or the tour): each page a visitor opens is counted
      for the merchant's visitor numbers (components/storeVisits.ts). Sent once per page: the same page drawn again is not
@@ -205,12 +337,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const visitSlug = visitor && !design ? visitor.setup.slug : "";
   const counted = useRef("");
   useEffect(() => {
-    if (!visitSlug) return;
+    /* counted once the address's product or page is open (a link to a product counts the product, not the home page) */
+    if (!visitSlug || !settled) return;
     const key = ownProduct !== null ? `product:${ownProduct}` : ownPage !== null ? `page:${ownPage}` : "home";
     if (counted.current === key) return;
     counted.current = key;
     sendVisit(visitSlug, ownProduct !== null ? "product" : ownPage !== null ? "page" : "home", ownProduct);
-  }, [visitSlug, ownPage, ownProduct]);
+  }, [visitSlug, settled, ownPage, ownProduct]);
   useEffect(() => {
     if (!visitSlug || !cartOpen) return;
     counted.current = "cart";
@@ -219,6 +352,140 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* the designer's product page with no products in the store: a sample product, so the page can still be designed */
   const sampleProduct = useMemo(() => (design && showProduct && !(products ?? data.products).length ? sampleProducts(lang)[0] : undefined), [design, showProduct, products, data.products, lang]);
   const shownProduct = (productId !== null ? data.products.find((x) => x.id === productId) : undefined) ?? sampleProduct;
+
+  /* The search. While the box holds words, the home page gives way to one block of results at the top of the store
+     (search.ts: name, categories and the merchant's words about the product; hidden products are never in the store's
+     list, so never found). Clearing it (the box's ×, Escape, an empty box or "Clear search") brings the home page back
+     as it was: its sections stay drawn underneath, only hidden, and the page goes back to where he was. */
+  const index = useMemo(() => searchIndex(data.products), [data.products]);
+  const searchQ = interactive ? query.trim() : "";
+  const found = useMemo(() => (searchQ ? searchProducts(index, searchQ) : []), [index, searchQ]);
+  /* what is open now, for the timers below */
+  const viewNow = useRef({ product: productId, page: pageId });
+  viewNow.current = { product: productId, page: pageId };
+  /* the public store's address follows the search on the home page, a moment after the last key (one entry: Back
+     does not step through every letter) */
+  const markQuery = (q: string, now: boolean) => {
+    if (!routed) return;
+    clearTimeout(searchTimers.current.url);
+    const put = () => {
+      try {
+        /* only while the home page is open (a product opened meanwhile has its own address) */
+        const v = viewInAddress();
+        if (v.product !== null || v.page !== null) return;
+        const url = addressOf({ product: null, page: null, q });
+        if (url !== window.location.pathname + window.location.search) window.history.replaceState(window.history.state, "", url);
+      } catch {
+        /* the address stays as it is; the search still works */
+      }
+    };
+    if (now) put();
+    else searchTimers.current.url = setTimeout(put, 300);
+  };
+  /* A search typed on a product or a page of the store: that page closes and the results show on the home page, as a
+     new address (Back comes back to the product). Not in the designer, whose page menu chooses what it shows. */
+  const leaveToResults = () => {
+    clearTimeout(searchTimers.current.leave);
+    const q = queryNow.current.trim();
+    if (!q || design || (viewNow.current.product === null && viewNow.current.page === null)) return;
+    homeY.current = null;
+    scrollNext.current = "top";
+    setOwnProduct(null);
+    setPageId(null);
+    moveTo({ product: null, page: null, q });
+  };
+  const typeQuery = (value: string) => {
+    if (!interactive) return;
+    const v = value.slice(0, SEARCH_MAX);
+    const was = queryNow.current.trim();
+    const now = v.trim();
+    queryNow.current = v;
+    setQuery(v);
+    if (design) return;
+    if (viewNow.current.product !== null || viewNow.current.page !== null) {
+      /* on a product or a page: the results open after a short pause in typing (or at once with Enter) */
+      clearTimeout(searchTimers.current.leave);
+      if (now) searchTimers.current.leave = setTimeout(leaveToResults, 450);
+      return;
+    }
+    if (!was && now) {
+      /* a search starts on the home page: kept where he was, and the results come into view */
+      homeY.current = window.scrollY;
+      scrollNext.current = "results";
+    } else if (was && !now) {
+      scrollNext.current = homeY.current ?? "top";
+      homeY.current = null;
+    }
+    markQuery(now, !now);
+  };
+  /* the search is over without going back anywhere (a page of the store or a part of the home page was chosen) */
+  /* `address`: the home page's address loses its search too; otherwise it keeps it (written now if it was still
+     waiting), so Back from the page he opens comes back to these results */
+  const endSearch = (address: boolean) => {
+    clearTimeout(searchTimers.current.leave);
+    markQuery(address ? "" : queryNow.current.trim(), true);
+    queryNow.current = "";
+    homeY.current = null;
+    setQuery("");
+  };
+  useEffect(() => () => {
+    clearTimeout(searchTimers.current.leave);
+    clearTimeout(searchTimers.current.url);
+  }, []);
+  /* after the drawing: to the results, to the top of the store, or back to his place on the home page */
+  useLayoutEffect(() => {
+    const go = scrollNext.current;
+    if (go === null) return;
+    scrollNext.current = null;
+    if (typeof go === "number") window.scrollTo(0, go);
+    else root.current?.scrollIntoView({ block: "start", behavior: go === "results" && !reduceMotion ? "smooth" : "auto" });
+  });
+  /* the keys of every search box: Escape clears it (a second one closes a search that opened from its icon), Enter shows
+     the results (on a product page at once) */
+  const searchKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape" && query) {
+      e.preventDefault();
+      e.stopPropagation();
+      typeQuery("");
+    } else if (e.key === "Enter" && query.trim() && !design) {
+      e.preventDefault();
+      if (viewNow.current.product !== null || viewNow.current.page !== null) leaveToResults();
+      else root.current?.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+      /* on a phone the keyboard goes away, so the results can be seen */
+      if (compact) e.currentTarget.blur();
+    }
+  };
+  /* the × in a search box: clears it and keeps the cursor in the box */
+  const clearX = (className: string) =>
+    query && interactive ? (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const field = e.currentTarget.parentElement?.querySelector("input");
+          typeQuery("");
+          field?.focus({ preventScroll: true });
+        }}
+        aria-label={searchCopy[lang].clear}
+        className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-sf-text/60 transition hover:bg-black/[0.06] hover:text-sf-text [&>svg]:h-4 [&>svg]:w-4 ${className}`}
+      >
+        {icons.close}
+      </button>
+    ) : null;
+  /* a category of the sidebar: its name becomes the search, so its products show in the results (search.ts looks
+     through categories), at once and in view, also from a product or a page of the store. Not in the designer. */
+  const searchFor = (words: string) => {
+    if (!interactive || design) return;
+    typeQuery(words);
+    if (viewNow.current.product !== null || viewNow.current.page !== null) leaveToResults();
+    else scrollNext.current = "results";
+  };
+  /* the results' own "Clear search": the cursor goes back to the search box when one is showing */
+  const clearFromResults = () => {
+    typeQuery("");
+    root.current?.querySelector<HTMLInputElement>("header input")?.focus({ preventScroll: true });
+  };
   /* What the sections are given. It stays the same object while nothing they use changes, so editing one section draws only that
      section again: the sections see only the look (theme, texts, cards) and the products, never the list of sections or the footer,
      and the actions below are stable and always call the newest version. */
@@ -233,8 +500,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const goods = useMemo(() => ({ products: data.products, categories: data.categories, color: data.color, isDemo: data.isDemo }), [data.products, data.categories, data.color, data.isDemo]);
   const shop = shopTarget(config);
   const ctx: Ctx = useMemo(
-    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, query, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS }),
-    [lang, compact, goods, look, shop, design, owner, visitor, query, interactive, qty, setQty, openPageS, openProductS, showSectionS],
+    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS }),
+    [lang, compact, goods, look, shop, design, owner, visitor, interactive, qty, setQty, openPageS, openProductS, showSectionS],
   );
 
   /* his text and title colors, unless they vanish on his background (the same color, or too close): then automatic ones that read */
@@ -299,14 +566,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         <span className={`flex min-w-0 flex-col ${centered ? "items-center" : nameEnd ? "items-end" : ""}`}>
           {/* his own size wins (a little smaller on a phone); without one, the theme's */}
           {!nameShown ? null : namePlace ?? (config.identity.nameFont ? (
-            <span className="max-w-full truncate font-bold leading-tight" style={{ fontFamily: heroTitleFamily(config.identity.nameFont), color: nameColor, fontSize: nameSizeOwn ?? (compact ? 30 : 40) }}><bdi>{data.name}</bdi></span>
+            <span dir="auto" className={`max-w-full truncate font-bold leading-tight ${centered ? "" : nameEnd ? "ltr:text-right rtl:text-left" : "ltr:text-left rtl:text-right"}`} style={{ fontFamily: heroTitleFamily(config.identity.nameFont), color: nameColor, fontSize: nameSizeOwn ?? (compact ? 30 : 40) }}><bdi>{data.name}</bdi></span>
           ) : (
-            <span className={`max-w-full truncate font-extrabold tracking-tight ${compact ? "text-lg" : "text-xl"}`} style={{ color: nameColor, fontSize: nameSizeOwn }}><bdi>{data.name}</bdi></span>
+            <span dir="auto" className={`max-w-full truncate font-extrabold tracking-tight ${centered ? "" : nameEnd ? "ltr:text-right rtl:text-left" : "ltr:text-left rtl:text-right"} ${compact ? "text-lg" : "text-xl"}`} style={{ color: nameColor, fontSize: nameSizeOwn }}><bdi>{data.name}</bdi></span>
           ))}
           {/* the small line under the name ("FINE JEWELRY"), in an elegant italic; Arabic is never slanted or spaced out (it breaks the joined letters) */}
           {taglineHole && <SpotHole spot="identity:tagline" text={holeWords[lang].tagline} className="mt-1" />}
           {tagline && (
-            <span data-spot="identity:tagline" className={`mt-1 max-w-full truncate text-sm ${config.identity.taglineFont || hasArabic(tagline) ? "" : "tracking-[0.2em]"}`} style={{ fontFamily: config.identity.taglineFont ? heroTitleFamily(config.identity.taglineFont) : "var(--font-elegant-latin), Georgia, serif", fontStyle: config.identity.taglineFont || hasArabic(tagline) ? undefined : "italic", color: taglineColor }}><bdi>{tagline}</bdi></span>
+            <span data-spot="identity:tagline" dir="auto" className={`mt-1 max-w-full truncate ${centered ? "" : nameEnd ? "ltr:text-right rtl:text-left" : "ltr:text-left rtl:text-right"} text-sm ${config.identity.taglineFont || hasArabic(tagline) ? "" : "tracking-[0.2em]"}`} style={{ fontFamily: config.identity.taglineFont ? heroTitleFamily(config.identity.taglineFont) : "var(--font-elegant-latin), Georgia, serif", fontStyle: config.identity.taglineFont || hasArabic(tagline) ? undefined : "italic", color: taglineColor }}><bdi>{tagline}</bdi></span>
           )}
         </span>
       )}
@@ -368,12 +635,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <input
             ref={searchField}
             value={query}
-            onChange={(e) => interactive && setQuery(e.target.value)}
+            onChange={(e) => typeQuery(e.target.value)}
+            onKeyDown={searchKeys}
             onClick={(e) => e.stopPropagation()}
+            maxLength={SEARCH_MAX}
+            enterKeyHint="search"
             placeholder={config.texts.search[lang] || c.search}
             aria-label={config.texts.search[lang] || c.search}
-            className="h-10 w-full rounded-full bg-white px-4 text-sm leading-[2] text-[#1c1a17] shadow-lg outline-none ring-1 ring-black/[0.12] transition placeholder:text-black/50 focus:ring-2 focus:ring-[var(--sf-primary)]"
+            className="h-10 w-full rounded-full bg-white ps-4 pe-10 text-sm leading-[2] text-[#1c1a17] shadow-lg outline-none ring-1 ring-black/[0.12] transition placeholder:text-black/50 focus:ring-2 focus:ring-[var(--sf-primary)]"
           />
+          {clearX("absolute end-1.5 top-1/2 -translate-y-1/2 !text-black/60")}
         </span>
       )}
     </span>
@@ -384,11 +655,15 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       <span className="pointer-events-none absolute start-4 top-1/2 -translate-y-1/2 text-sf-text/45">{icons.search}</span>
       <input
         value={query}
-        onChange={(e) => interactive && setQuery(e.target.value)}
+        onChange={(e) => typeQuery(e.target.value)}
+        onKeyDown={searchKeys}
+        maxLength={SEARCH_MAX}
+        enterKeyHint="search"
         placeholder={config.texts.search[lang] || c.search}
         aria-label={config.texts.search[lang] || c.search}
-        className="h-11 w-full rounded-full bg-white ps-12 pe-4 text-sm leading-[2] outline-none ring-1 ring-black/[0.08] transition placeholder:text-sf-text/70 focus:ring-2 focus:ring-[var(--sf-primary)]"
+        className="h-11 w-full rounded-full bg-white ps-12 pe-10 text-sm leading-[2] outline-none ring-1 ring-black/[0.08] transition placeholder:text-sf-text/70 focus:ring-2 focus:ring-[var(--sf-primary)]"
       />
+      {clearX("absolute end-2 top-1/2 -translate-y-1/2")}
     </label>
   );
 
@@ -422,7 +697,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
                     )}
                   </span>
                   {!compact && config.nav.cartTotal !== false && (
-                    <span dir="ltr">
+                    <span dir="ltr" className={settled ? undefined : "invisible"}>
                       {moneyIn(cart.total, priceLang(config.theme.prices, lang))} <small className="font-semibold opacity-60">{currency(priceLang(config.theme.prices, lang))}</small>
                     </span>
                   )}
@@ -441,15 +716,17 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   });
 
   /* The header with a row of links: logo | links | plain icons (account, saved, search, basket) */
-  /* a link to a part of the page that customers do not see (hidden, or with nothing in it yet: no reviews, no products picked)
-     is left out of their header; the designer keeps it, so he can still find and edit it */
-  /* customers only get links that have words and somewhere to go; the designer keeps a link he has just added (no words yet)
-     as a dashed "New link" in its place, so he sees where it lands */
+  /* Customers only get links that have words and somewhere to go, and never one to a part of the page they do not see
+     (hidden, or with nothing in it yet: no reviews, no products picked). The designer's preview draws the header the same
+     way, so a link customers never see does not take the header's room there (nor push the store name out); the designer's
+     link list says on such a link what it is missing. The preview draws an empty part as a dashed place, so there it asks
+     whether the part would show anything to customers (emptyForCustomers, the same conditions the parts check). */
   /* every navigation style has links: in the header row (links, pill) or in a bar under it (sidebar button) */
+  const livePays = storePays(usePublicSettings());
+  const hiddenPart = (to: string) => (design ? config.sections.some((s) => s.id === to && emptyForCustomers(s, data, lang, livePays)) : emptyParts.includes(to));
   const navOwn = config.nav.links
     .map((l, at) => ({ at, name: l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]?.trim(), to: l.to?.trim() || undefined, color: l.color as string | undefined, hole: false }))
-    .filter((l) => (design ? true : !!l.name && !!l.to && !emptyParts.includes(l.to)))
-    .map((l) => (l.name ? l : { ...l, name: holeWords[lang].newLink, hole: true }));
+    .filter((l) => !!l.name && !!l.to && !hiddenPart(l.to));
   /* in the designer, his navigation settings open with no links yet: the header is drawn as it will be, with one link that
      says where his links will show */
   const navLinks = navOwn.length || !spotted("nav") ? navOwn : [{ at: -1, name: holeWords[lang].links, to: undefined, color: undefined, hole: true }];
@@ -474,10 +751,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* From a page of the store back to the home page, then to its part */
   const showSection = (to: string) => {
     const scroll = () => root.current?.querySelector(`[data-sf="${CSS.escape(to)}"]`)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    /* a part of the home page: a search showing gives way to the home page first */
+    const searching = !!queryNow.current.trim();
+    if (searching) endSearch(pageId === null && productId === null);
     if (pageId !== null || productId !== null) {
       closePage();
       setTimeout(scroll, 60);
-    } else scroll();
+    } else if (searching) setTimeout(scroll, 60);
+    else scroll();
   };
   latest.current.showSection = showSection;
   /* The header rows in three columns. The buttons' columns keep their full width, so a long store name gives way (it ends
@@ -496,7 +777,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const pillBrand = (
     <a href="#" data-spot="identity" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className="inline-flex min-w-0 max-w-full items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: pillNameColor, fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
-      {namePlace ?? <span className="min-w-0 truncate" style={{ fontSize: nameSizeOwn }}>{data.name}</span>}
+      {namePlace ?? <span dir="auto" className="min-w-0 truncate ltr:text-left rtl:text-right" style={{ fontSize: nameSizeOwn }}>{data.name}</span>}
     </a>
   );
   /* With the search open, the pill of links turns into the search field in the same place, and the links are hidden until it closes */
@@ -506,12 +787,15 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       <input
         autoFocus={!design}
         value={query}
-        onChange={(e) => interactive && setQuery(e.target.value)}
+        onChange={(e) => typeQuery(e.target.value)}
+        onKeyDown={searchKeys}
+        maxLength={SEARCH_MAX}
+        enterKeyHint="search"
         placeholder={config.texts.search[lang] || c.search}
         aria-label={config.texts.search[lang] || c.search}
         className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-sf-text/50"
       />
-      <button type="button" onClick={() => { setSearchOpen(false); setQuery(""); }} aria-label={c.close} className="grid h-7 w-7 shrink-0 place-items-center rounded-full transition hover:bg-black/[0.06]">
+      <button type="button" onClick={() => { setSearchOpen(false); if (query) typeQuery(""); }} aria-label={c.close} className="grid h-7 w-7 shrink-0 place-items-center rounded-full transition hover:bg-black/[0.06]">
         {icons.close}
       </button>
     </label>
@@ -544,7 +828,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const pillBar = (
     <label className={`flex h-11 shrink-0 items-center gap-2 border-2 border-[var(--sf-text)] bg-white px-4 ${searchWidthMid}`} style={{ borderRadius: "var(--sf-pill)" }}>
       <span className="shrink-0 text-sf-text/60">{icons.search}</span>
-      <input value={query} onChange={(e) => interactive && setQuery(e.target.value)} placeholder={config.texts.search[lang] || c.search} aria-label={config.texts.search[lang] || c.search} className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-sf-text/50" />
+      <input value={query} onChange={(e) => typeQuery(e.target.value)} onKeyDown={searchKeys} maxLength={SEARCH_MAX} enterKeyHint="search" placeholder={config.texts.search[lang] || c.search} aria-label={config.texts.search[lang] || c.search} className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-sf-text/50" />
+      {clearX("-me-2")}
     </label>
   );
   const pillExtras = (
@@ -565,7 +850,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
   const plain = "relative grid h-11 w-11 shrink-0 place-items-center rounded-full text-[var(--sf-text)] transition hover:bg-black/[0.05]";
   const textCart = config.nav.cartLook === "text";
-  const digits = (n: number) => (lang === "ar" ? String(n).replace(/[0-9]/g, (d) => "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"[Number(d)]) : String(n));
+  /* the Latin digits in both languages, like every number of the store (see moneyIn) */
+  const digits = (n: number) => String(n);
   const wordBtn = "inline-flex min-h-[44px] items-center whitespace-nowrap text-sm font-light tracking-[0.04em] transition hover:opacity-70";
   /* the buttons' side of the row: the end, or the start when the name sits at the end (mirrored, the search nearest the middle) */
   const plainRow = nameEnd ? "flex-row-reverse justify-end" : "justify-end";
@@ -584,7 +870,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <span aria-hidden className="opacity-50">·</span>
         </>
       )}
-      {h.showCart && <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className={wordBtn}>{c.cart} <span className="ms-1" style={config.theme.saleColor ? { color: "var(--sf-sale)" } : undefined}>({digits(cart.count)})</span></button>}
+      {h.showCart && <button type="button" onClick={openCart} aria-label={`${c.cart}: ${cart.count}`} className={wordBtn}>{c.cart} <span className={`ms-1 ${settled ? "" : "invisible"}`} style={config.theme.saleColor ? { color: "var(--sf-sale)" } : undefined}>({digits(cart.count)})</span></button>}
     </div>
   ) : (
     <div className={`flex items-center ${plainRow}`}>
@@ -771,11 +1057,11 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       {design && showCart && (
         /* the cart drawn inside the preview where he is looking, filled with the first products when nothing was added */
         <div className={`absolute inset-x-0 z-[60] ${cartAt ? "" : "top-0 h-[min(100%,880px)]"}`} style={cartAt ? { top: cartAt.top, height: cartAt.height } : undefined}>
-          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} />
+          <CartPanel contained open onClose={onCartClose ?? (() => {})} lang={lang} lines={cartLines.length ? cartLines : data.products.filter((p) => p.quantity > 0).slice(0, 2).map((p) => ({ p, qty: 1 }))} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} look={config.cart?.style} />
         </div>
       )}
       {/* on the public store the order goes to Dukkan's server for the merchant (a test order: no payment yet), in his preview it is saved in his browser */}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
       <main>
         {shownProduct ? (
           <>
@@ -819,7 +1105,11 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             {lang === "ar" ? "الصفحة فارغة: أضف أول عنصر من «عناصر الصفحة» في القائمة الجانبية" : "This page is empty: add your first block from Page elements in the side panel"}
           </p>
         ) : (
-          config.sections.map((s) => renderSection(s, ctx))
+          <>
+            {searchQ && <SearchResults query={searchQ} items={found} ctx={ctx} onClear={clearFromResults} />}
+            {/* hidden, not taken away, while a search shows: its sliders and places are as he left them when it clears */}
+            <div style={{ display: searchQ ? "none" : "contents" }}>{config.sections.map((s) => renderSection(s, ctx))}</div>
+          </>
         )}
       </main>
 
@@ -840,7 +1130,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             {config.drawer.items.filter((it) => it.visible).map((it) => {
               const rows: { key: string | number; title: string; on: () => void; color?: string }[] =
                 it.kind === "categories"
-                  ? data.categories.map((name) => ({ key: name, title: name, on: () => setMenu(false) }))
+                  ? data.categories.map((name) => ({ key: name, title: name, on: () => { setMenu(false); searchFor(name); } }))
                   : it.kind === "pages"
                     ? data.links.map((l) => ({ key: l.id, title: l.title, on: () => { setMenu(false); openPage(l.id); } }))
                     : it.kind === "custom"

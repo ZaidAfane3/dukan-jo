@@ -7,7 +7,8 @@ import type { PublicStoreOpen } from "../publicStore";
    (server/publicStore.ts), not from this browser's storage. While this is set, the storefront (useStoreData,
    StorefrontTheme, the cart and the newsletter block) reads the store from here, and nothing about the store is
    read from or written to the visitor's own storage: a visitor who has a Dukkan store of their own never sees it
-   mixed in, and nothing they do lands in it. Null everywhere else (the merchant's own pages and the designer). */
+   mixed in, and nothing they do lands in it. The one thing kept there is the visitor's own basket for this store,
+   under its own key (visitorBasket.ts). Null everywhere else (the merchant's own pages and the designer). */
 export const VisitorStoreContext = createContext<PublicStoreOpen | null>(null);
 
 /** The store sent by the server when the storefront is the public store, else null */

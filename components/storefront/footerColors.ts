@@ -181,3 +181,9 @@ export function dimOn(text: string, bg: string | string[], pct: number, target =
 export function footerNameSize(cfg: StorefrontConfig, style: "full" | "simple" = cfg.footer.style): number {
   return cfg.footer.sizes?.name ?? (cfg.identity.nameFont ? 28 : style === "simple" ? 20 : 18);
 }
+
+/** What the words of a product card sit on: white, or `behind` (the page, or the box the card is in) for a flat card, which
+    has no background of its own. The store and the designer's price color warning use the same. */
+export function cardGround(cards: Pick<StorefrontConfig["cards"], "style">, behind: string): string {
+  return cards.style === "flat" ? behind : "#ffffff";
+}

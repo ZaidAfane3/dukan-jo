@@ -9,10 +9,12 @@ import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
 import { centsFor, copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
-import { bannerSurface, dimOn, inkOn, legibleOn, readsOn } from "./footerColors";
+import { productCount, searchCopy } from "./search";
+import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn } from "./footerColors";
 import { onShowSlide } from "./slideSignal";
 import { useSpots } from "./spotSignal";
 import { initialOf, isBlank } from "../safe";
+import { storePays, usePublicSettings, type StorePay } from "../platformPublic";
 
 /* Set only inside the store designer: clicking a part of the store selects it for editing. */
 export type Design = { selected: string | null; select: (id: string, field?: string) => void; /* clicking a product's picture opens its picture editor */ selectProduct?: (p: StoreProduct) => void; /* sliding a section's words or a picture sideways (null: back to its place) */ moveBit?: (sectionId: string, key: string, at: SectionMove | null) => void; /* a picture moved, stretched or turned inside its frame (null: as it was) */ editPic?: (sectionId: string, key: string, at: PicEdit | null) => void; /* dragging a colored button in the page moves it to another place in its row */ reorderChips?: (sectionId: string, from: number, to: number) => void; /* a button that leads to a page of the store shows that page in the preview (null: back to the home page) */ openPage?: (id: number | null) => void; /* the preview with sample products (only offered while the store has none; never saved) */ sampleProducts?: (on: boolean) => void };
@@ -29,7 +31,6 @@ export type Ctx = {
   owner?: boolean;
   /* the public store (app/[slug]): a visitor's browser, where nothing is kept for the merchant yet (no sign-ups, no orders) */
   visitor?: boolean;
-  query: string;
   interactive: boolean;
   /* The basket: how many of each product, and a way to change it */
   /* the basket: by product id, or "id|size" for a product in sizes (see basketKey) */
@@ -70,13 +71,14 @@ const linkHref = (l: string) => (/^https?:\/\//i.test(l.trim()) ? l.trim() : `ht
 const latinDinar = /(^|[^A-Za-z])(?:Jordanian\s+)?(?:JOD|JD|dinars?)(?![A-Za-z])/gi;
 const arabicDinar = /(^|[^ء-ي])(?:(?:دينار|دنانير)(?:ًا|ا)?(?:\s+أردني(?:ة|ًا|ا)?)?|د\s?\.\s?[أا])(?![ء-ي])/g;
 
-/* A price the merchant wrote himself ("290 JOD", "٢٩٠ د.أ", "٢٣ دينار"): its digits and currency follow the store's price setting like every other price.
-   Every way of writing the dinar, in either language, becomes the store's own: د.أ on Arabic prices, JOD on English ones. */
+/* A price the merchant wrote himself ("290 JOD", "٢٩٠ د.أ", "٢٣ دينار"): its digits are the Latin ones like every other number
+   of the store, and its currency follows the store's price setting like every other price. Every way of writing the dinar,
+   in either language, becomes the store's own: د.أ on Arabic prices, JOD on English ones. */
 const dinarAs = (cur: string) => (_: string, before: string) => `${before}${/[0-9٠-٩]/.test(before) ? " " : ""}${cur}`;
 const writtenPrice = (text: string, ctx: Ctx) => {
   const ar = priceLang(ctx.config.theme.prices, ctx.lang) === "ar";
   return ar
-    ? text.replace(/[0-9]/g, (d) => "٠١٢٣٤٥٦٧٨٩"[Number(d)]).replace(/([٠-٩]),(?=[٠-٩])/g, "$1٬").replace(/([٠-٩])\.(?=[٠-٩])/g, "$1٫").replace(latinDinar, dinarAs(currency("ar"))).replace(arabicDinar, dinarAs(currency("ar")))
+    ? text.replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/٬/g, ",").replace(/٫/g, ".").replace(latinDinar, dinarAs(currency("ar"))).replace(arabicDinar, dinarAs(currency("ar")))
     : text.replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/٬/g, ",").replace(/٫/g, ".").replace(arabicDinar, dinarAs(currency("en"))).replace(latinDinar, dinarAs(currency("en")));
 };
 /* It reads in its own direction, so "23 JOD" stays in that order on an Arabic page (and "٢٣ د.أ" on an English one) */
@@ -125,6 +127,22 @@ function HeroBtn({ link, ctx, children, ...rest }: { link?: string; ctx: Ctx; ch
 }
 
 const card = "rounded-[var(--sf-r)] bg-white ring-1 ring-black/[0.06]";
+
+/** Products the store picks by itself (the cover's cards, the featured row with none chosen, the deals): the ones that
+    can be bought now (in stock and priced) first, sold-out or unpriced ones only after them, each in the store's order.
+    Hidden products are never in the store's list. A pick the merchant made himself is kept as he made it. */
+const buyableFirst = (list: StoreProduct[]): StoreProduct[] => {
+  const ok = (p: StoreProduct) => p.quantity > 0 && p.price !== null;
+  return [...list.filter(ok), ...list.filter((p) => !ok(p))];
+};
+/** The store's own pick for a picture stack of `max` pictures (the cover's cards, in every layout): only the products that
+    can be bought now while there are at least `enough` of them, so a sold-out product never stands on the cover beside
+    buyable ones; too few buyable ones are topped up with the others, buyable first. */
+const buyablePick = (list: StoreProduct[], max: number, enough: number): StoreProduct[] => {
+  const all = buyableFirst(list);
+  const can = all.filter((p) => p.quantity > 0 && p.price !== null);
+  return (can.length >= Math.min(enough, list.length) ? can : all).slice(0, max);
+};
 /* The space above and below a section follows the store's spacing choice (--sf-sy above, --sf-sb below) */
 const section = (compact: boolean) => (compact ? "px-4 pt-[var(--sf-syc,1.75rem)] pb-[var(--sf-sbc,1.75rem)]" : "px-8 pt-[var(--sf-sy,2.5rem)] pb-[var(--sf-sb,2.5rem)]");
 
@@ -157,6 +175,11 @@ const emptyHint: Record<string, { en: string; ar: string }> = {
 /** Words the merchant wrote, in their own direction: "خصم 20%" in an English store (or "Sale!" in an Arabic one) reads as written,
     while the line keeps the page's side and alignment. Never his HTML: "<b>" shows as typed. */
 export const Say = ({ children }: { children: React.ReactNode }) => (blank(children) ? <>{children}</> : <bdi>{children}</bdi>);
+
+/** A text he writes in both languages, as every block shows it: the visitor's language, else the other one (only spaces
+    count as empty). Drawn through Say, whose <bdi> keeps Arabic right-to-left inside an English page and the other way. */
+export const inLang = (b: { en?: string; ar?: string } | undefined, lang: Lang): string =>
+  b?.[lang]?.trim() ? b[lang] ?? "" : b?.[lang === "ar" ? "en" : "ar"]?.trim() ? b[lang === "ar" ? "en" : "ar"] ?? "" : "";
 
 /** In the designer, a part of the store that can be clicked to edit it. Elsewhere it is just its children.
     In the designer an emptied text keeps its place with a faint hint in its own font and size; the store itself shows nothing. */
@@ -262,6 +285,26 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
 /* The page text where it reads on `on` (the card or the page), else a soft dark or light */
 const inkFor = (ctx: Ctx, on: string) => legibleOn(ctx.config.theme.text || "#1c1a17", on);
 
+/* His price color (product grid options), with the page text's rule: kept wherever it reads 3:1 on what it sits on
+   (`on`), otherwise the text color that reads there, so a white price on a white card never vanishes. The designer's
+   preview draws the same, so he sees what customers see. */
+const priceInk = (ctx: Ctx, on: string): React.CSSProperties =>
+  ctx.config.cards.priceColor ? { color: legibleOn(ctx.config.cards.priceColor, on, inkFor(ctx, on)) } : {};
+
+/* An icon (or initials) in the store color on a soft tint of it (`pct`% of the store color over white): the store color
+   where it reads 3:1 on that tint, otherwise the text color that reads there, with the page text's rule. A store color as
+   pale as the page (or white) no longer leaves an icon that vanishes. */
+const onTint = (ctx: Ctx, pct: number): React.CSSProperties => {
+  const p = hex(ctx.config.theme.primary || ctx.data.color);
+  if (!p) return { background: `color-mix(in srgb, var(--sf-primary) ${pct}%, white)`, color: "var(--sf-primary)" };
+  const bg = mix(p, "#ffffff", pct / 100);
+  return { background: bg, color: legibleOn(p, bg, inkFor(ctx, bg)) };
+};
+
+/* What a product card sits on when it has no background of its own (flat cards): the page, or the tinted box of the
+   Deals block */
+const CardBehind = createContext<string | undefined>(undefined);
+
 /* A discounted price shows in his discount color, when he picked one: on what it sits on (`on`), darkened toward the text
    just as far as it still reads 4.5:1 */
 const saleTint = (ctx: Ctx, p: StoreProduct, on: string): React.CSSProperties | undefined =>
@@ -300,8 +343,9 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
     pop: "rounded-[var(--sf-r2)] border-2 border-[var(--sf-text)] bg-white p-3 shadow-[5px_5px_0_var(--sf-text)]",
   }[k.style ?? "shadow"];
   const pop = k.style === "pop";
-  /* what the card's words sit on: white, or the page when the card has no background */
-  const cardOn = k.style === "flat" ? ctx.config.theme.background : "#ffffff";
+  /* what the card's words sit on: white, or what is behind the card when it has no background (the page, or a tinted box) */
+  const behind = useContext(CardBehind);
+  const cardOn = cardGround(k, behind ?? ctx.config.theme.background);
   /* the add-to-cart button (or the + button) shows unless he turned it off; the product page keeps its own */
   const withAdd = k.showAdd ?? true;
   const plus = withAdd && k.add === "plus";
@@ -352,15 +396,15 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
         <div className="min-w-0">
         {p.category && k.showCategory && <p className="text-xs text-sf-text/75">{p.category}</p>}
         {k.showName && (centered ? (
-          <h3 className="line-clamp-1 font-semibold" style={{ fontFamily: "var(--sf-heading)", fontSize: ctx.compact ? 18 : 22 }}><Say>{p.name}</Say></h3>
+          <h3 dir="auto" className="line-clamp-1 font-semibold" style={{ fontFamily: "var(--sf-heading)", fontSize: ctx.compact ? 18 : 22 }}><Say>{p.name}</Say></h3>
         ) : (
-          <h3 className={`mt-0.5 text-sm font-bold ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}><Say>{p.name}</Say></h3>
+          <h3 dir="auto" className={`mt-0.5 text-sm font-bold ltr:text-left rtl:text-right ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}><Say>{p.name}</Say></h3>
         ))}
         {/* the short line ("cotton · soft · light") is not on the card: it shows on the product page, under "Features" */}
         {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
         </div>
         {k.showPrice && (
-          <p dir="ltr" className={`${row ? "mt-0.5 max-w-[60%] shrink-0 justify-end" : centered ? "mt-2 justify-center" : `${pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} rtl:justify-end`} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-start`} style={{ ...(k.priceColor ? { color: k.priceColor } : {}), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
+          <p dir="ltr" className={`${row ? "mt-0.5 max-w-[60%] shrink-0 justify-end" : centered ? "mt-2 justify-center" : `${pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} rtl:justify-end`} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-start`} style={{ ...priceInk(ctx, cardOn), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
             {p.price === null ? (
               <span className="text-sm text-sf-text/55">{ctx.lang === "ar" ? "بدون سعر" : "No price"}</span>
             ) : (
@@ -665,6 +709,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   /* how many to add: chosen before adding; once it is in the basket the same buttons change the basket */
   const [pick, setPick] = useState(1);
   const [more, setMore] = useState(false);
+  const perkLine = usePerkLine();
   useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
   useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
@@ -703,8 +748,11 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   for (const x of promises.slice(0, 4)) {
     const t = x.title[ctx.lang] || x.title[other];
     if (isBlank(t)) continue;
+    /* the payment promise follows the ways to pay that are on (see usePerkLine) */
+    const d = perkLine(x.desc, ctx.lang);
+    if (d === null) continue;
     // eslint-disable-next-line @next/next/no-img-element
-    perks.push({ icon: x.icon === "image" && x.image ? <img src={x.image} alt="" className="h-5 w-5 object-contain" /> : perkIcon[x.icon as keyof typeof perkIcon] ?? icons.truck, t, d: x.desc[ctx.lang] || x.desc[other] || undefined });
+    perks.push({ icon: x.icon === "image" && x.image ? <img src={x.image} alt="" className="h-5 w-5 object-contain" /> : perkIcon[x.icon as keyof typeof perkIcon] ?? icons.truck, t, d: d || undefined });
   }
   /* only a WhatsApp chat gets the product's name written in the message */
   const askHref = ask ? (/wa\.me\//i.test(ask) ? `${ask}${ask.includes("?") ? "&" : "?"}text=${encodeURIComponent(w.askText(p.name))}` : ask) : "";
@@ -732,6 +780,10 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
     </div>
   );
 
+  /* what the price sits on: the page, or in the pop look its pill of the accent color (20% over the page) */
+  const pageBg = hex(ctx.config.theme.background);
+  const accentHex = hex(ctx.config.theme.accent || ctx.config.theme.primary || ctx.data.color);
+  const priceOn = pop && pageBg && accentHex ? mix(accentHex, pageBg, 0.2) : ctx.config.theme.background;
   const price = p.price === null ? (
     <p className="text-base font-semibold text-sf-text/72">{w.noPrice}</p>
   ) : (
@@ -739,7 +791,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
       <span
         dir="ltr"
         className={`inline-flex items-baseline gap-1.5 ${pop ? "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-4 py-2 shadow-[3px_3px_0_var(--sf-text)]" : ""}`}
-        style={{ ...(ctx.config.cards.priceColor ? { color: ctx.config.cards.priceColor } : {}), ...(pop ? { background: tint("--sf-accent", 20) } : {}) }}
+        style={{ ...priceInk(ctx, priceOn), ...(pop ? { background: tint("--sf-accent", 20) } : {}) }}
       >
         <span className={s.price} style={{ ...saleTint(ctx, p, ctx.config.theme.background), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{moneyIn(now, pl, centsFor(p))}</span>
         <span className={`text-sm font-semibold ${pop ? "text-[var(--sf-text)]" : "opacity-70"}`}>{currency(pl)}</span>
@@ -777,7 +829,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
       {inBasket > 0 && !out ? (
         <p role="status" className={`flex min-w-[12rem] flex-1 flex-wrap items-center justify-center gap-x-2 text-center ${s.added}`}>
           <span className="inline-flex items-center gap-1.5">{icons.check}{w.inCart(inBasket)}</span>
-          <span className="opacity-70">· {w.total} {amount(now * inBasket)}</span>
+          <span className="opacity-70">– {w.total} {amount(now * inBasket)}</span>
         </p>
       ) : (
         <button
@@ -788,7 +840,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         >
           {icons.bag}
           {out ? c.soldOut : needSize ? w.pickSize : c.add}
-          {!out && !needSize && p.price !== null && pick > 1 && <span className="opacity-80">· {amount(now * pick)}</span>}
+          {!out && !needSize && p.price !== null && pick > 1 && <span className="opacity-80">– {amount(now * pick)}</span>}
         </button>
       )}
     </div>
@@ -799,7 +851,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
     <div className={luxe ? "text-center" : ""}>
       <div className={`mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 ${luxe ? "justify-center" : "justify-between"}`}>
         <p className={editorial || luxe ? "text-[11px] font-semibold uppercase tracking-[0.24em] text-sf-text/70 rtl:tracking-normal rtl:text-xs" : "text-sm font-bold"}>
-          {w.size}{size ? <span className="font-normal opacity-70"> · <bdi>{size}</bdi></span> : null}
+          {w.size}{size ? <span className="font-normal opacity-70"> – <bdi>{size}</bdi></span> : null}
         </p>
         {p.sizeChart && (
           <button type="button" onClick={() => setChartOpen(true)} className="inline-flex items-center gap-1.5 text-sm font-semibold underline underline-offset-4 transition hover:opacity-70">
@@ -885,7 +937,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
 
   const aboutText = about && (
     <div>
-      <p className={`whitespace-pre-line text-[15px] text-sf-text/80 [overflow-wrap:anywhere] ${luxe ? "leading-8" : "leading-relaxed"} ${long && !more ? "line-clamp-6" : ""}`}>{about}</p>
+      <p dir="auto" className={`whitespace-pre-line ltr:text-left rtl:text-right text-[15px] text-sf-text/80 [overflow-wrap:anywhere] ${luxe ? "leading-8" : "leading-relaxed"} ${long && !more ? "line-clamp-6" : ""}`}>{about}</p>
       {long && (
         <button type="button" onClick={() => setMore((v) => !v)} aria-expanded={more} className="mt-2 text-sm font-bold underline underline-offset-4 hover:opacity-70">
           {more ? w.less2 : w.more2}
@@ -931,11 +983,11 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
           {p.category && (
             <>
               <span aria-hidden className="text-sf-text/35">/</span>
-              <span className="max-w-[40%] shrink-0 truncate text-sf-text/70"><Say>{p.category}</Say></span>
+              <span dir="auto" className="max-w-[40%] shrink-0 truncate text-sf-text/70 ltr:text-left rtl:text-right"><Say>{p.category}</Say></span>
             </>
           )}
           <span aria-hidden className="text-sf-text/35">/</span>
-          <span aria-current="page" className="min-w-0 truncate text-sf-text/70"><Say>{p.name}</Say></span>
+          <span aria-current="page" dir="auto" className="min-w-0 truncate text-sf-text/70 ltr:text-left rtl:text-right"><Say>{p.name}</Say></span>
         </nav>
 
         <div className={`mt-5 grid items-start ${ctx.compact ? "gap-7" : s.grid}`}>
@@ -1088,6 +1140,20 @@ function useRail(count: number, cols: number, ctx: Ctx) {
   return { rail, measure, arrows };
 }
 
+/** A grid of product cards in rows of `cols`: fewer products than one row holds (one or two deals, a search with one
+    result) keep the cards' usual width and sit together in the middle of the row, so it never looks half empty */
+const cardRows = (count: number, cols: number, gap: number): { className: string; style: React.CSSProperties } => {
+  const few = count > 0 && count < cols;
+  return {
+    className: `grid ${few ? "mx-auto" : ""}`,
+    style: {
+      gap,
+      gridTemplateColumns: `repeat(${few ? count : cols}, minmax(0, 1fr))`,
+      ...(few ? { maxWidth: `calc((100% - ${(cols - 1) * gap}px) / ${cols} * ${count} + ${(count - 1) * gap}px)` } : {}),
+    },
+  };
+};
+
 /* Products in one row of `columns`; more than fit slide sideways. The arrows are in the section's title line (the end of it: the left in
    Arabic) when the section gives its own `rail`, otherwise they sit just above the row. */
 function Grid({ items, ctx, columns, rail }: { items: StoreProduct[]; ctx: Ctx; columns: number; rail?: ReturnType<typeof useRail> }) {
@@ -1097,8 +1163,9 @@ function Grid({ items, ctx, columns, rail }: { items: StoreProduct[]; ctx: Ctx; 
   const r = rail ?? own;
 
   if (items.length <= cols) {
+    /* fewer products than the row holds (one or two deals): centered like every short row (cardRows) */
     return (
-      <div className="grid" style={{ gap, gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      <div {...cardRows(items.length, cols, gap)}>
         {items.map((p) => (
           <ProductCard key={p.id} p={p} ctx={ctx} />
         ))}
@@ -1124,7 +1191,7 @@ function Grid({ items, ctx, columns, rail }: { items: StoreProduct[]; ctx: Ctx; 
 function DesignEmpty({ ctx, hint, add, quote }: { ctx: Ctx; hint: string; add?: boolean; /* a quote mark instead of the bag (for reviews) */ quote?: boolean }) {
   return (
     <div className="grid place-items-center rounded-[var(--sf-r)] border-2 border-dashed px-6 py-12 text-center" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
-      <span className="grid h-20 w-20 place-items-center rounded-full text-sf-primary/70" style={{ background: "color-mix(in srgb, var(--sf-primary) 9%, white)" }}>
+      <span className="grid h-20 w-20 place-items-center rounded-full" style={onTint(ctx, 9)}>
         {quote ? (
           <svg aria-hidden viewBox="0 0 32 32" className="h-9 w-9 fill-current">
             <path d="M10 8C6 9.500 4 13 4 17v7h9v-9H8c0-3 1.500-5 4-6L10 8Zm14 0c-4 1.500-6 5-6 9v7h9v-9h-5c0-3 1.500-5 4-6L24 8Z" />
@@ -1251,7 +1318,9 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
      (the designer shows a dashed place for them) */
   const chosen = Array.isArray(s.cardIds);
   const picked = (s.cardIds ?? []).map((pid) => ctx.data.products.find((p) => p.id === pid)).filter((p): p is StoreProduct => !!p);
-  const real = (chosen ? picked : ctx.data.products).slice(0, 3);
+  /* one big picture needs one buyable product; a fan or a row needs two to look like a stack */
+  const enough = (s.cardLook?.arrange ?? "fan") === "single" ? 1 : 2;
+  const real = chosen ? picked.slice(0, 3) : buyablePick(ctx.data.products, 3, enough);
   /* With no products yet, neutral cards keep the banner from looking bare */
   const tiles: StoreProduct[] = real.length || chosen ? real : [0, 1, 2].map((i) => ({ id: -i - 1, name: "", category: "", price: null, sale: null, featured: false, quantity: 0, hue: 175 + i * 25 }));
   const primary = ctx.config.theme.primary || ctx.data.color;
@@ -1274,10 +1343,16 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   const pageInk = legibleOn(ctx.config.theme.text, pageBg);
   /* the most lines the title takes before it is made smaller (see FitTitle) */
   const titleLines = ctx.compact ? 5 : 4;
-  /* A button's words in this language. Empty (or only spaces): the button is not shown, in every language and layout (never
-     the other language's words, never an empty pill); the designer keeps a faint place to click for the main one. */
-  const btnText = (b?: { en: string; ar: string }) => b?.[ctx.lang]?.trim() || "";
-  const button1 = btnText(s.button);
+  /* A button's words: in this language, else the other one, like every text of the store (a cover written only in Arabic
+     keeps its button in English). Empty in both (or only spaces): no button, never an empty pill; the designer keeps a
+     faint place to click for the main one. */
+  const btnText = (b?: { en: string; ar: string }) => inLang(b, ctx.lang).trim();
+  /* A button shows only with somewhere to go, like a header link: the main one leads to the products when he never chose
+     (a cleared choice too); the second one needs its own, or it is hidden, to customers and in the preview alike (the
+     designer says so on the button's settings). */
+  const link1 = s.link?.trim() || ctx.shop || "";
+  const button1 = link1 ? btnText(s.button) : "";
+  const button2 = s.link2?.trim() ? btnText(s.button2) : "";
 
   /* The backgrounds change by themselves, one after the other, in the order the merchant set. */
   useEffect(() => {
@@ -1318,7 +1393,6 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
     const stickerC = pc.sticker || "#ffe36e";
     const eyebrow = pick(s.eyebrow);
     const sticker = pick(s.sticker);
-    const button2 = btnText(s.button2);
     const accentWords = pick(s.accentWord).split(/\s+/).filter(Boolean);
     const words = (s.title[l] || s.title[other] || "").split(/\s+/).filter(Boolean);
     const open = (field: string) => (ctx.design ? (e: React.MouseEvent) => { e.stopPropagation(); ctx.design!.select(id, field); } : undefined);
@@ -1348,7 +1422,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
             </Pick>
             <div className={`flex flex-wrap items-center gap-3 ${ctx.compact ? "justify-center" : ""}`}>
               <Pick ctx={ctx} id={id} field="button">
-                {button1 && <HeroBtn ctx={ctx} link={s.link ?? ctx.shop} style={{ fontSize: sz("button", 16), background: ink, borderColor: ink, color: colorOn("button", pageInk) || "var(--sf-bg)", boxShadow: `4px 4px 0 ${accentC}`, borderRadius: "var(--sf-pill)" }} className={btn}><Say>{button1}</Say></HeroBtn>}
+                {button1 && <HeroBtn ctx={ctx} link={link1} style={{ fontSize: sz("button", 16), background: ink, borderColor: ink, color: colorOn("button", pageInk) || "var(--sf-bg)", boxShadow: `4px 4px 0 ${accentC}`, borderRadius: "var(--sf-pill)" }} className={btn}><Say>{button1}</Say></HeroBtn>}
               </Pick>
               {button2 && (
                 <Pick ctx={ctx} id={id} field="button2">
@@ -1392,7 +1466,6 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
     const pc = s.popColors ?? {};
     const gold = pc.accent || "var(--sf-primary)";
     const kicker = pick(s.eyebrow);
-    const button2 = btnText(s.button2);
     const label = pick(s.size);
     const accentWords = pick(s.accentWord).split(/\s+/).filter(Boolean);
     const lines = (s.title[l] || s.title[other] || "").split("\n");
@@ -1426,7 +1499,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
             </Pick>
             <div className={`flex flex-wrap items-center gap-4 ${ctx.compact ? "justify-center" : ""}`}>
               <Pick ctx={ctx} id={id} field="button">
-                {button1 && <HeroBtn ctx={ctx} link={s.link ?? ctx.shop} className={btn} style={{ fontSize: sz("button", 15), background: gold, color: colorOn("button", pc.accent || primary) || "var(--sf-bg)" }}><Say>{button1}</Say></HeroBtn>}
+                {button1 && <HeroBtn ctx={ctx} link={link1} className={btn} style={{ fontSize: sz("button", 15), background: gold, color: colorOn("button", pc.accent || primary) || "var(--sf-bg)" }}><Say>{button1}</Say></HeroBtn>}
               </Pick>
               {button2 && (
                 <Pick ctx={ctx} id={id} field="button2">
@@ -1471,7 +1544,6 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
     const full = !!s.fullWidth;
     const eyebrow = pick(s.eyebrow);
     const size = pick(s.size);
-    const button2 = btnText(s.button2);
     const head = { fontFamily: "var(--sf-heading)" };
     const solid = light ? "bg-[var(--sf-primary)] text-[var(--sf-on)]" : "bg-white text-[#12262b]";
     return (
@@ -1497,10 +1569,10 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
               </Pick>
             )}
             <Pick ctx={ctx} id={id} field="title" block>
-              <FitTitle size={sz("title", full ? 100 : 48)} lines={titleLines} className="whitespace-pre-line font-bold leading-none tracking-[-0.01em]" style={{ ...head, fontFamily: heroTitleFamily(s.titleFont), color: colorOn("title", panel) , ...tx(s.styles?.title) }}>{s.title[l]}</FitTitle>
+              <FitTitle size={sz("title", full ? 100 : 48)} lines={titleLines} className="whitespace-pre-line font-bold leading-none tracking-[-0.01em]" style={{ ...head, fontFamily: heroTitleFamily(s.titleFont), color: colorOn("title", panel) , ...tx(s.styles?.title) }}><Say>{pick(s.title)}</Say></FitTitle>
             </Pick>
             <Pick ctx={ctx} id={id} field="subtitle" block>
-              <p data-sub className="max-w-[460px] whitespace-pre-line font-medium leading-[1.7] opacity-85" style={{ fontSize: sz("subtitle", full ? 24 : 15), color: colorOn("subtitle", panel) , ...tx(s.styles?.subtitle) }}><Say>{s.subtitle[l]}</Say></p>
+              <p data-sub className="max-w-[460px] whitespace-pre-line font-medium leading-[1.7] opacity-85" style={{ fontSize: sz("subtitle", full ? 24 : 15), color: colorOn("subtitle", panel) , ...tx(s.styles?.subtitle) }}><Say>{pick(s.subtitle)}</Say></p>
             </Pick>
             {(s.price || size) && (
               <p className="flex items-baseline gap-2.5">
@@ -1510,7 +1582,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
             )}
             <div className={`flex flex-wrap items-center gap-3 ${ctx.compact ? "justify-center" : ""}`}>
               <Pick ctx={ctx} id={id} field="button">
-                {button1 && <HeroBtn ctx={ctx} link={s.link ?? ctx.shop} style={{ fontSize: sz("button", 15), color: colorOn("button", light ? primary : "#ffffff") }} className={`inline-flex items-center gap-2 rounded-full px-9 py-4 font-semibold shadow-md transition hover:-translate-y-0.5 ${solid}`}>
+                {button1 && <HeroBtn ctx={ctx} link={link1} style={{ fontSize: sz("button", 15), color: colorOn("button", light ? primary : "#ffffff") }} className={`inline-flex items-center gap-2 rounded-full px-9 py-4 font-semibold shadow-md transition hover:-translate-y-0.5 ${solid}`}>
                   <Say>{button1}</Say>
                 </HeroBtn>}
               </Pick>
@@ -1533,9 +1605,13 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   /* what the words sit on now: the picture's color ("" for a picture, which has its own dark fade) */
   const slideBg = current.kind === "image" && current.image ? "" : current.color || primary;
   /* the words of the picture that shows now, or the cover's main words where it has none */
-  const own = (b: { en: string; ar: string } | undefined, main: { en: string; ar: string }) => b?.[ctx.lang]?.trim() || main[ctx.lang];
-  const words = { title: own(current.title, s.title), subtitle: own(current.subtitle, s.subtitle), button: (own(current.button, s.button) || "").trim(), link: current.link?.trim() || (s.link ?? ctx.shop) };
-  const changes = bgs.some((b) => b.title?.[ctx.lang]?.trim() || b.subtitle?.[ctx.lang]?.trim() || b.button?.[ctx.lang]?.trim());
+  /* in the visitor's language first (the picture's own, then the cover's), else the other language's (a cover written only
+     in Arabic still shows its words and button in English) */
+  const own = (b: { en: string; ar: string } | undefined, main: { en: string; ar: string }) =>
+    b?.[ctx.lang]?.trim() ? b[ctx.lang] : main[ctx.lang]?.trim() ? main[ctx.lang] : inLang(b, ctx.lang) || inLang(main, ctx.lang);
+  const slideLink = current.link?.trim() || link1;
+  const words = { title: own(current.title, s.title), subtitle: own(current.subtitle, s.subtitle), button: slideLink ? (own(current.button, s.button) || "").trim() : "", link: slideLink };
+  const changes = bgs.some((b) => inLang(b.title, ctx.lang).trim() || inLang(b.subtitle, ctx.lang).trim() || inLang(b.button, ctx.lang).trim());
   const slideColor = (c: string) => c || primary;
   /* where the words sit (the middle by default, or at the bottom), how tall the cover is, and whether it reaches the page edges */
   const pos = s.textPos ?? "center";
@@ -1548,7 +1624,6 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   const tall = s.height === "tall" && !boxH;
   const full = !!s.fullWidth;
   const l = ctx.lang;
-  const button2 = btnText(s.button2);
   /* the small line above the title (empty: none); letter-spaced, but only lightly for Arabic so its letters stay joined */
   const eyebrow = s.eyebrow?.[l]?.trim() || s.eyebrow?.[l === "ar" ? "en" : "ar"]?.trim() || "";
   return (
@@ -1592,7 +1667,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
           {/* when the pictures have words of their own, the words fade in again with each picture */}
           <div key={changes ? idx : "same"} className={`${ctx.compact ? "" : mid ? "mx-auto max-w-2xl" : tall || full ? "max-w-xl" : "max-w-md"} ${changes ? "animate-[fadeIn_0.6s_ease]" : ""}`}>
             {eyebrow && <Pick ctx={ctx} id={id} field="eyebrow" block><p className={`mb-3 font-bold opacity-90 ${/[؀-ۿ]/.test(eyebrow) ? "tracking-[0.04em]" : "uppercase tracking-[0.18em]"}`} style={{ fontSize: sz("eyebrow", 13), color: colorOn("eyebrow", slideBg) , ...tx(s.styles?.eyebrow) }}><Say>{eyebrow}</Say></p></Pick>}
-            <Pick ctx={ctx} id={id} field="title" block><FitTitle size={sz("title", tall ? 56 : 36)} lines={titleLines} className="whitespace-pre-line font-extrabold leading-[1.1] tracking-tight" style={{ fontFamily: s.titleFont ? heroTitleFamily(s.titleFont) : "var(--sf-heading)", color: colorOn("title", slideBg) , ...tx(s.styles?.title) }}>{words.title}</FitTitle></Pick>
+            <Pick ctx={ctx} id={id} field="title" block><FitTitle size={sz("title", tall ? 56 : 36)} lines={titleLines} className="whitespace-pre-line font-extrabold leading-[1.1] tracking-tight" style={{ fontFamily: s.titleFont ? heroTitleFamily(s.titleFont) : "var(--sf-heading)", color: colorOn("title", slideBg) , ...tx(s.styles?.title) }}><Say>{words.title}</Say></FitTitle></Pick>
             <Pick ctx={ctx} id={id} field="subtitle" block><p data-sub className="mt-4 whitespace-pre-line leading-relaxed opacity-85" style={{ fontSize: sz("subtitle", tall ? 17 : 15), color: colorOn("subtitle", slideBg) , ...tx(s.styles?.subtitle) }}><Say>{words.subtitle}</Say></p></Pick>
             <div className={`mt-7 flex flex-wrap items-center gap-3 ${ctx.compact || mid ? "justify-center" : ""}`}>
               <Pick ctx={ctx} id={id} field="button">{words.button && <HeroBtn ctx={ctx} link={words.link} style={{ fontSize: sz("button", 14), color: colorOn("button", "#ffffff"), borderRadius: "var(--sf-pill)" }} className="inline-flex items-center gap-2 bg-white px-6 py-3 font-extrabold text-[#12262b] shadow-lg transition hover:-translate-y-0.5">
@@ -1640,7 +1715,7 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
             const one = (p: StoreProduct, withName = named, pill = false) => (
               <>
                 <ProductImage p={p} className={pic} />
-                {withName && (p.name ? <p className={`mt-2 line-clamp-1 px-1 text-[11px] font-bold ${bare ? "text-center" : "text-[#12262b]"}`}>{pill ? <span className="rounded-full bg-black/55 px-2 py-0.5 text-white"><Say>{p.name}</Say></span> : <Say>{p.name}</Say>}</p> : <span className={`mt-2 block h-2 w-16 rounded-full ${bare ? "mx-auto bg-white/30" : "bg-black/10"}`} />)}
+                {withName && (p.name ? <p dir="auto" className={`mt-2 line-clamp-1 px-1 text-[11px] font-bold ${bare ? "text-center" : "text-[#12262b] ltr:text-left rtl:text-right"}`}>{pill ? <span className="rounded-full bg-black/55 px-2 py-0.5 text-white"><Say>{p.name}</Say></span> : <Say>{p.name}</Say>}</p> : <span className={`mt-2 block h-2 w-16 rounded-full ${bare ? "mx-auto bg-white/30" : "bg-black/10"}`} />)}
               </>
             );
             const frame = bare ? "" : "rounded-2xl bg-white p-2 shadow-2xl";
@@ -1699,8 +1774,36 @@ function Hero({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "h
   );
 }
 
+/* The payment line the themes start a perk with ("Cards, CliQ or cash"...) promises ways to pay, so it is written from
+   the ways the checkout offers now (Dukkan turns them on and off in Diwan), the same live list. With none on, the perk
+   is not shown. A line the merchant wrote himself stays his own words. */
+const STOCK_PAY_LINES = new Set(["cards, cliq or cash", "بطاقة أو كليك أو نقدًا", "or cash on delivery", "أو عند الاستلام"]);
+const payNames = { en: { card: "cards", cliq: "CliQ", cash: "cash" }, ar: { card: "بطاقة", cliq: "كليك", cash: "نقدًا" } };
+const payOnly = { en: { card: "By card", cliq: "By CliQ", cash: "Cash on delivery" }, ar: { card: "بالبطاقة", cliq: "عبر كليك", cash: "الدفع عند الاستلام" } };
+function payLine(pays: StorePay[], lang: Lang): string {
+  /* cards first, then CliQ, then cash, as the line always read */
+  const on = (["card", "cliq", "cash"] as const).filter((p) => pays.includes(p));
+  if (on.length === 1) return payOnly[lang][on[0]];
+  const names = on.map((p) => payNames[lang][p]);
+  const line = lang === "ar" ? names.join(" أو ") : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}
+/** A perk's line as shown in `lang`: the live payment line in place of a stock one; null hides the perk (no way to pay) */
+const perkLineWith = (pays: StorePay[]) => (desc: Partial<Record<Lang, string>>, lang: Lang): string | null => {
+  const shown = desc[lang] || desc[lang === "ar" ? "en" : "ar"] || "";
+  if (!STOCK_PAY_LINES.has(shown.trim().toLowerCase())) return shown;
+  return pays.length ? payLine(pays, lang) : null;
+};
+function usePerkLine() {
+  return perkLineWith(storePays(usePublicSettings()));
+}
+
 function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["settings"]; ctx: Ctx }) {
-  const items = s.items ?? [];
+  const perkLine = usePerkLine();
+  const items = (s.items ?? []).flatMap((p) => {
+    const d = perkLine(p.desc, ctx.lang);
+    return d === null ? [] : [{ ...p, desc: { en: d, ar: d } }];
+  });
   if (!items.length) return null;
   const ic = { truck: icons.truck, shield: icons.shield, returns: icons.returns, gift: icons.gift, clock: icons.clock, chat: icons.chat };
   /* his background (the words turn white on a dark one) and border; the box shadow takes the place of the faint ring */
@@ -1721,7 +1824,7 @@ function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["setti
       <div className={`grid gap-3 ${ctx.compact ? "" : ""}`} style={ctx.compact ? undefined : { gridTemplateColumns: `repeat(${Math.min(items.length, 4)}, minmax(0, 1fr))` }}>
         {items.map((p, i) => (
           <div key={i} className={`flex items-center ${lay} ${card} px-5`} style={box}>
-            <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl text-[var(--sf-primary)]" style={{ background: "color-mix(in srgb, var(--sf-primary) 11%, white)" }}>
+            <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl" style={onTint(ctx, 11)}>
               {p.icon === "image" && p.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={p.image} alt="" className="h-full w-full object-cover" />
@@ -1742,9 +1845,7 @@ function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["setti
 
 /** A product collection the merchant built: the products he picked, with his name for it, up to the count he set. */
 function Collection({ s, ctx }: { s: Extract<SectionConfig, { type: "collection" }>["settings"]; ctx: Ctx }) {
-  const picked = (s.productIds ?? []).map((id) => ctx.data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
-  /* While styling with sample products, an empty collection shows some samples */
-  const items = (picked.length ? picked : ctx.data.isDemo ? ctx.data.products : []).slice(0, s.count);
+  const items = collectionItems(s, ctx.data);
   if (!items.length) {
     if (!ctx.design) return null;
     return (
@@ -1886,7 +1987,8 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const pickText = (v?: { en: string; ar: string }) => v?.[ctx.lang] || v?.[other] || "";
           const title = pickText(b.title);
           const text = pickText(b.text);
-          const button = pickText(b.button);
+          /* words with nowhere to go: no button (customers and the preview alike; the designer says so on the banner) */
+          const button = b.link?.trim() ? pickText(b.button) : "";
           const eyebrow = pickText(b.eyebrow);
           const go = b.link && !ctx.design;
           const dgo = ctx.design && pageOf(b.link ?? "") !== null ? (e: React.MouseEvent) => { if (e.ctrlKey || e.metaKey) ctx.design?.openPage?.(pageOf(b.link)!); } : undefined;
@@ -2217,7 +2319,7 @@ function Reviews({ s, ctx }: { s: Extract<SectionConfig, { type: "reviews" }>["s
               ))}
             </div>
             <figcaption className="mt-3 flex items-center gap-2.5">
-              <span className="grid h-9 w-9 place-items-center rounded-full text-sm font-extrabold" style={{ background: "color-mix(in srgb, var(--sf-primary) 14%, white)", color: "var(--sf-primary)" }}>
+              <span className="grid h-9 w-9 place-items-center rounded-full text-sm font-extrabold" style={onTint(ctx, 14)}>
                 {initialOf(r.name) || "?"}
               </span>
               <span className="text-sm font-bold"><Say>{r.name}</Say></span>
@@ -2245,7 +2347,8 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
   if (s.style === "statement") {
     const pick = (b?: { en: string; ar: string }) => b?.[ctx.lang] || b?.[other] || "";
     const eyebrow = pick(s.eyebrow);
-    const button = pick(s.button);
+    /* words with nowhere to go: no button (customers and the preview alike; the designer says so on the button) */
+    const button = s.link?.trim() ? pick(s.button) : "";
     const trust = (s.trust ?? []).map(pick).filter(Boolean);
     const btn = "inline-flex min-h-[44px] items-center px-9 py-4 text-[15px] font-bold transition hover:opacity-90";
     const btnStyle = { background: "var(--sf-primary)", color: col("button") || "var(--sf-on)", fontSize: s.sizes?.button || undefined };
@@ -2311,34 +2414,37 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
 }
 
 function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>["settings"]; ctx: Ctx }) {
-  /* the products he picked for this section, in his order; none picked: the ones marked featured (or, with none, all) */
-  const picked = (s.productIds ?? []).map((id) => ctx.data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
-  const featured = ctx.data.products.filter((p) => p.featured);
-  const items = (picked.length ? picked : featured.length ? featured : ctx.data.products).slice(0, s.count);
+  const items = featuredItems(s, ctx.data);
   if (!items.length) {
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <Heading title={s.title[ctx.lang]} ctx={ctx} moreHole />
+        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} moreHole />
         <DesignEmpty ctx={ctx} add hint={ctx.lang === "ar" ? "اختر منتجات هذا القسم من إعداداته، أو علّم منتجاتك كمميزة" : "Pick products in this section's settings, or mark products as featured"} />
       </section>
     );
   }
   return (
     <section className={section(ctx.compact)}>
-      <Heading title={s.title[ctx.lang]} ctx={ctx} more />
+      <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more />
       <Grid items={items} ctx={ctx} columns={4} />
     </section>
   );
 }
 
+/* the Deals block's box: the store color, 8% over the page (as its style draws it) */
+const dealsBox = (ctx: Ctx): string | undefined => {
+  const bg = hex(ctx.config.theme.background), primary = hex(ctx.config.theme.primary || ctx.data.color);
+  return bg && primary ? mix(primary, bg, 0.08) : undefined;
+};
+
 function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }>["settings"]; ctx: Ctx }) {
-  const items = ctx.data.products.filter((p) => p.sale !== null).slice(0, s.count);
+  const items = discountItems(s, ctx.data);
   if (!items.length) {
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <Heading title={s.title[ctx.lang]} ctx={ctx} moreHole />
+        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} moreHole />
         <DesignEmpty ctx={ctx} add hint={ctx.lang === "ar" ? "المنتجات التي لها سعر مخفّض تظهر هنا" : "Products with a discounted price show here"} />
       </section>
     );
@@ -2346,8 +2452,10 @@ function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }
   return (
     <section className={section(ctx.compact)}>
       <div className="rounded-[var(--sf-r)] p-5" style={{ background: "color-mix(in srgb, var(--sf-primary) 8%, var(--sf-bg))" }}>
-        <Heading title={s.title[ctx.lang]} ctx={ctx} more />
-        <Grid items={items} ctx={ctx} columns={4} />
+        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more />
+        <CardBehind.Provider value={dealsBox(ctx)}>
+          <Grid items={items} ctx={ctx} columns={4} />
+        </CardBehind.Provider>
       </div>
     </section>
   );
@@ -2356,24 +2464,23 @@ function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }
 function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>["settings"]; ctx: Ctx }) {
   const c = copy[ctx.lang];
   /* the row of category buttons above the grid was taken out (showFilters is still kept in saved designs, unused) */
-  const q = ctx.query.trim().toLowerCase();
   /* Which products it holds: the ones he picked (in his order), the ones in his chosen categories, or all.
      A choice that matches nothing (a category emptied, every picked product deleted) shows all his products:
-     this grid is where the store's links lead, so it never goes empty. A search always looks through every product. */
+     this grid is where the store's links lead, so it never goes empty. A search shows its own results in place of the
+     home page (SearchResults), so this grid never changes with it. */
   const cats = (s.categories ?? []).filter((x) => x.trim());
   const chosen =
     s.source === "picked" ? (s.productIds ?? []).map((id) => ctx.data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p)
     : s.source === "categories" && cats.length ? ctx.data.products.filter((p) => cats.some((x) => inCategory(p, x)))
     : null;
   const narrowed = s.source === "picked" || (s.source === "categories" && cats.length > 0);
-  const base = !q && chosen?.length ? chosen : ctx.data.products;
-  const all = base.filter((p) => !q || p.name.toLowerCase().includes(q));
+  const all = chosen?.length ? chosen : ctx.data.products;
   /* He chose how many products the section holds; they sit in one row that slides when there are more than fit */
   const items = s.limit ? all.slice(0, s.limit) : all;
   const cols = ctx.compact ? 2 : s.columns;
   const railCtl = useRail(items.length, cols, ctx);
   /* in the designer only: why the grid shows something else than his choice */
-  const note = !ctx.design || !narrowed || q || !ctx.data.products.length ? "" : ctx.data.isDemo
+  const note = !ctx.design || !narrowed || !ctx.data.products.length ? "" : ctx.data.isDemo
     ? (ctx.lang === "ar" ? "تظهر منتجات تجريبية الآن، واختيارك للمنتجات ينطبق على منتجاتك الحقيقية." : "Sample products are showing now. Your choice of products applies to your real products.")
     : !chosen?.length
       ? (ctx.lang === "ar" ? "لا يطابق اختيارك أي منتج، فيرى العملاء كل منتجاتك. غيّر الاختيار من إعدادات هذا القسم." : "Your choice matches no product, so customers see all your products. Change it in this section's settings.")
@@ -2381,7 +2488,7 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
 
   return (
     <section className={section(ctx.compact)}>
-      <Heading title={s.title[ctx.lang]} ctx={ctx} right={items.length > cols ? railCtl.arrows : null} />
+      <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} right={items.length > cols ? railCtl.arrows : null} />
       {note && (
         <p className="mb-4 rounded-xl border-2 border-dashed px-4 py-3 text-center text-sm font-semibold text-[var(--sf-primary)]" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
           {note}
@@ -2392,13 +2499,13 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
         <Grid items={items} ctx={ctx} columns={s.columns} rail={railCtl} />
       ) : (
         <div className="grid place-items-center py-16 text-center">
-          <span className="grid h-24 w-24 place-items-center rounded-full text-sf-primary/70" style={{ background: "color-mix(in srgb, var(--sf-primary) 9%, white)" }}>
+          <span className="grid h-24 w-24 place-items-center rounded-full" style={onTint(ctx, 9)}>
             <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M5 8h14l-1 12H6L5 8Z" />
               <path d="M9 8V6a3 3 0 0 1 6 0v2" />
             </svg>
           </span>
-          {ctx.owner && !q ? (
+          {ctx.owner ? (
             /* In the designer the dashboard opens in a new tab, so unsaved design changes are not lost */
             <a
               href="/products"
@@ -2411,9 +2518,53 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
               {c.addHere}
             </a>
           ) : (
-            <p className="mt-4 text-sm font-semibold text-sf-text/60">{q ? c.noMatch : ctx.config.texts.noProducts[ctx.lang] || c.noProducts}</p>
+            <p className="mt-4 text-sm font-semibold text-sf-text/60">{ctx.config.texts.noProducts[ctx.lang] || c.noProducts}</p>
           )}
-          {!q && <SampleButton ctx={ctx} />}
+          <SampleButton ctx={ctx} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ---------------- Search results: in place of the home page while the customer searches ---------------- */
+
+/** What a search found, at the top of the store in place of its home page: a title with the search, how many products,
+    every product found in a grid, and a way to clear it (the home page comes back as it was). */
+export function SearchResults({ query, items, ctx, onClear }: { query: string; items: StoreProduct[]; ctx: Ctx; onClear: () => void }) {
+  const t = searchCopy[ctx.lang];
+  const q = query.trim();
+  const cols = ctx.compact ? 2 : 4;
+  const clearBtn = "inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sf-primary)]";
+  return (
+    <section data-search-results aria-label={t.results(q)} className={section(ctx.compact)}>
+      <Heading title={t.results(q)} ctx={ctx} />
+      <div className="-mt-2 mb-5 flex flex-wrap items-center justify-between gap-3">
+        {/* read out as he types: how many he found, or that nothing matches */}
+        <p role="status" className={items.length ? "text-sm font-semibold text-sf-text/65" : "sr-only"}>{items.length ? productCount(items.length, ctx.lang) : t.none(q)}</p>
+        {items.length > 0 && (
+          <button type="button" onClick={onClear} className={`${clearBtn} ring-1 ring-black/[0.12] hover:ring-black/30`}>
+            {icons.close}
+            {t.clear}
+          </button>
+        )}
+      </div>
+      {items.length ? (
+        /* one or two results sit in the middle of the row, like every short row of cards */
+        <div {...cardRows(items.length, cols, ctx.compact ? 12 : 20)}>
+          {items.map((p) => (
+            <ProductCard key={p.id} p={p} ctx={ctx} />
+          ))}
+        </div>
+      ) : (
+        <div className="grid place-items-center py-14 text-center">
+          <span className="grid h-24 w-24 place-items-center rounded-full" style={onTint(ctx, 9)}>
+            <span className="scale-[1.8]">{icons.search}</span>
+          </span>
+          <p aria-hidden className="mt-5 max-w-md text-base font-bold [overflow-wrap:anywhere]">{t.none(q)}</p>
+          <button type="button" onClick={onClear} className={`${clearBtn} mt-5 bg-[var(--sf-primary)] px-6 text-[var(--sf-on)] shadow-md hover:-translate-y-0.5`}>
+            {t.clear}
+          </button>
         </div>
       )}
     </section>
@@ -2460,7 +2611,9 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
   const [off, setOff] = useState({ x: 0, y: 0 });
   const canDrag = !!ctx.design?.reorderChips;
   const other = ctx.lang === "ar" ? "en" : "ar";
-  const items = (s.items ?? []).filter((x) => (x.label[ctx.lang] || x.label[other] || "").trim());
+  /* a chip shows with words and somewhere to go (customers and the preview alike; the designer says so on the chip); `at`
+     is its place in his list, so dragging one in the preview moves the right one */
+  const items = (s.items ?? []).map((x, at) => ({ ...x, at })).filter((x) => (x.label[ctx.lang] || x.label[other] || "").trim() && x.link?.trim());
   if (!items.length) {
     if (!ctx.design) return null;
     return (
@@ -2529,7 +2682,7 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
                 return e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom;
               });
               if (over >= 0) {
-                ctx.design?.reorderChips?.(id, g.cur, over);
+                ctx.design?.reorderChips?.(id, items[g.cur].at, items[over].at);
                 g.cur = over;
                 g.x = e.clientX;
                 g.y = e.clientY;
@@ -2770,6 +2923,67 @@ function SelFrame({ on, onSelect, name, children }: { on: boolean; onSelect: () 
       <span aria-hidden style={tagAt} className={`pointer-events-none absolute ${box ? "" : "start-3 top-0"} z-20 -translate-y-1/2 rounded-md bg-[#14b8a6] px-2.5 py-1 text-[11px] font-bold text-white shadow transition ${on ? "opacity-100" : "opacity-0 group-hover/sel:opacity-100"}`}>{name}</span>
     </div>
   );
+}
+
+/* ---------------- What a part holds ---------------- */
+/* Shared by each part and by emptyForCustomers, so "it shows nothing" is worked out one way only */
+type PartData = Pick<StoreData, "products" | "isDemo">;
+type Settings<T extends SectionConfig["type"]> = Extract<SectionConfig, { type: T }>["settings"];
+/** Pinned products: the ones he picked, in his order; while styling with sample products, an empty one shows some samples */
+function collectionItems(s: Settings<"collection">, data: PartData): StoreProduct[] {
+  const picked = (s.productIds ?? []).map((id) => data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
+  return (picked.length ? picked : data.isDemo ? data.products : []).slice(0, s.count);
+}
+/** Featured products: the ones he picked for it, in his order; none picked: the ones marked featured (or, with none, all),
+    those that can be bought now first */
+function featuredItems(s: Settings<"featured">, data: PartData): StoreProduct[] {
+  const picked = (s.productIds ?? []).map((id) => data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
+  const featured = data.products.filter((p) => p.featured);
+  return (picked.length ? picked : buyableFirst(featured.length ? featured : data.products)).slice(0, s.count);
+}
+/** Deals: the products with a discounted price, those that can be bought now first */
+function discountItems(s: Settings<"discounts">, data: PartData): StoreProduct[] {
+  return buyableFirst(data.products.filter((p) => p.sale !== null)).slice(0, s.count);
+}
+
+/** Whether a part of the home page shows nothing to customers: hidden, or with nothing in it (no products to show, no
+    reviews, no pictures, no words...), where the designer draws a dashed place instead. The same conditions each part
+    checks before drawing itself; the header leaves out a link to such a part (in the designer's preview too, which
+    cannot tell it from what it draws) and the designer's link list says why. `pays`: the ways to pay that are on (a perk
+    about paying shows only with one). */
+export function emptyForCustomers(sec: SectionConfig, data: PartData, lang: Lang, pays: StorePay[]): boolean {
+  if (!sec.visible) return true;
+  const other: Lang = lang === "ar" ? "en" : "ar";
+  const said = (x?: Partial<Record<Lang, string>>) => !!(x?.[lang] || x?.[other] || "").trim();
+  switch (sec.type) {
+    case "perks": {
+      const line = perkLineWith(pays);
+      return !(sec.settings.items ?? []).some((p) => line(p.desc, lang) !== null);
+    }
+    case "featured":
+      return featuredItems(sec.settings, data).length === 0;
+    case "discounts":
+      return discountItems(sec.settings, data).length === 0;
+    case "collection":
+      return collectionItems(sec.settings, data).length === 0;
+    case "slides":
+      return !(sec.settings.slides ?? []).some((x) => x.image);
+    case "tiles":
+      return !(sec.settings.items ?? []).some((x) => x.image);
+    case "banners":
+      return !(sec.settings.items ?? []).length;
+    case "reviews":
+      return !data.isDemo && !(sec.settings.items ?? []).some((r) => r.text.trim());
+    case "text":
+      return !said(sec.settings.title) && !said(sec.settings.body);
+    case "ribbon":
+      return !(sec.settings.items ?? []).some((x) => !!(x[lang] || x[other]));
+    case "chips":
+      return !(sec.settings.items ?? []).some((x) => said(x.label) && !!x.link?.trim());
+    default:
+      /* the cover, the product grid and the newsletter always show */
+      return false;
+  }
 }
 
 const sectionNames = {

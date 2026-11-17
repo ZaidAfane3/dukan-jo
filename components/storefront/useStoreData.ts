@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Lang } from "../content";
-import { accountName, accountPhone, loadSetup } from "../setup";
+import { accountPhone, defaultStoreName, loadSetup } from "../setup";
 import { load as loadPages, pagesScope, starterPages } from "../InfoPages";
 import type { PublicStoreOpen } from "../publicStore";
 import { useVisitorStore } from "./visitorStore";
@@ -66,9 +66,12 @@ export type StoreData = {
   pages: { id: number; title: string; content: string; sections: SectionConfig[] }[];
   /* The merchant lets customers collect orders themselves (set on the delivery page) */
   pickup: boolean;
-  /* With his own courier: his delivery fee per order (0 is free). null with Dukkan Ship or no choice yet: the checkout
+  /* With his own courier: his delivery fee per order (0 is free, his choice), or "ask" when he never set one (the
+     checkout then says the store confirms the fee, never "Free"). null with Dukkan Ship or no choice yet: the checkout
      charges Dukkan Ship's price from Diwan */
-  ownFee: number | null;
+  ownFee: number | "ask" | null;
+  /* With his own courier: the cities he delivers to as saved (safeOrder deliveryCities reads them; none saved: all) */
+  ownCities?: string[];
   isDemo: boolean;
 };
 
@@ -200,7 +203,7 @@ function build(lang: Lang, sample: boolean, visitor: PublicStoreOpen | null = nu
   const pageList = allPages.map((p) => ({ id: p.id, title: p.title[lang] || p.title[other], content: p.content?.[lang] || p.content?.[other] || "", sections: Array.isArray(p.sections) ? p.sections : [] }));
 
   return {
-    name: setup?.name?.trim() || (visitor ? "" : accountName()) || (lang === "ar" ? "متجرك" : "Your store"),
+    name: setup?.name?.trim() || defaultStoreName(lang),
     description: setup?.description?.trim() || "",
     color: setup?.color || "#e67726",
     /* the phone is optional once the contact step is answered (it has a WhatsApp then): empty stays empty */
@@ -217,16 +220,20 @@ function build(lang: Lang, sample: boolean, visitor: PublicStoreOpen | null = nu
     links: pages,
     pages: pageList,
     pickup: setup?.pickup === true,
-    /* read through the setup's own checks (a fee that is not a valid amount is dropped, so delivery is free) */
+    /* read through the setup's own checks (a fee that is not a valid amount is dropped: the store confirms it) */
     ownFee: (() => {
       const ship = visitor ? visitor.setup.shipping : loadSetup()?.shipping;
-      return ship?.mode === "own" ? ship.fee ?? 0 : null;
+      return ship?.mode === "own" ? ship.fee ?? "ask" : null;
     })(),
+    ownCities: (visitor ? visitor.setup.shipping : loadSetup()?.shipping)?.cities,
     isDemo,
   };
 }
 
 const empty: StoreData = { name: "", description: "", color: "#e67726", phone: "", whatsapp: "", slug: "", logo: "", products: [], categories: [], links: [], pages: [], pickup: false, ownFee: null, isDemo: true };
+
+/** The store's data has been read (the first draw has none yet: it is read after the page is in the browser) */
+export const storeDataReady = (d: StoreData) => d !== empty;
 
 export function useStoreData(lang: Lang, sample = false): StoreData {
   const [data, setData] = useState<StoreData>(empty);

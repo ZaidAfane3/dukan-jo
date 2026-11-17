@@ -6,10 +6,10 @@ import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
 import { payNote, shipCityLists, storePayKey, storePays, usePublicSettings } from "../platformPublic";
 import { jordanMobile } from "../phone";
-import { checkCheckout, ORDER_LIMITS, priceCart, productSizes, sellableStock, takeStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
+import { checkCheckout, deliveryCities, needsPhone, ORDER_LIMITS, priceCart, productSizes, sellableStock, takeStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type CouponRefusal } from "../records";
 import type { CartStyle } from "./config";
-import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
+import { currency, hasFils, icons, moneyIn, priceOf, ProductImage } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
 
 /* The customer's basket: what is in it, the free delivery progress and a few suggestions, then the checkout (who, where,
@@ -20,6 +20,8 @@ import { categoriesOf, type StoreProduct } from "./useStoreData";
 const words = {
   en: {
     title: "Your cart",
+    /* the panel's title once the order is placed (until it closes; it opens on the cart again) */
+    headPlaced: "Order placed",
     close: "Close",
     empty: "Your cart is empty",
     emptyHint: "Add products and they show here.",
@@ -30,6 +32,10 @@ const words = {
     subtotal: "Subtotal",
     delivery: "Delivery",
     free: "Free",
+    /* his own courier and no fee set yet: the store tells the customer the fee, the total has none */
+    deliveryFee: "Delivery fee",
+    feeByStore: "Confirmed by the store",
+    totalBeforeDelivery: "Total before delivery",
     total: "Total",
     checkout: "Checkout",
     suggest: "You may also like",
@@ -40,8 +46,12 @@ const words = {
     details: "Your details",
     name: "Full name",
     phone: "Email or phone number",
-    contactHint: "Your receipt will be sent here.",
+    contactHint: "The store uses this to contact you about your order.",
     errContact: "Enter a mobile number (07X XXX XXXX) or an email address.",
+    /* delivery or cash on delivery: a phone number, never an email alone (safeOrder needsPhone) */
+    phoneOnly: "Phone number",
+    errPhoneNeeded: "Add a phone number so the store can reach you about delivery.",
+    errMobile: "Enter a mobile number (07X XXX XXXX).",
     city: "City",
     address: "Area, street and building",
     note: "Note for the store (Optional)",
@@ -53,18 +63,22 @@ const words = {
     payCliq: "CliQ",
     payCash: "Cash on delivery",
     payCard: "Card",
-    cardNote: "Prototype: no card details are asked and nothing is charged.",
-    noPay: "This store can't take orders right now: no way to pay is open. Please try again later.",
-    testNote: "Test order: payment is not open yet, so nothing is charged. The store receives your order and will contact you.",
+    cardNote: "No card details are asked and nothing is charged now. The store will contact you about payment.",
+    noPay: "This store can't take orders right now: no way to pay is available. Please try again later.",
     placing: "Placing your order…",
+    stillPlacing: "Still sending your order. Keep this page open, it can take a few seconds.",
     errNet: "Your order couldn't be sent. Check your connection and try again.",
     errSlow: "Too many orders were sent from here. Please wait a few minutes and try again.",
     errClosed: "This store isn't taking orders right now. Please try again later.",
     errPay: "This way to pay is no longer available. Choose another one.",
+    errSave: "Your order couldn't be saved in this browser. Check that site storage is allowed, then try again.",
+    errCheck: "Some of your details couldn't be accepted. Check them, then try again.",
     couponFail: "The code couldn't be checked. Try again.",
     placedTitle: "Thank you, your order is in",
-    placedText: "Order #{id}. The store will contact you on {phone} to confirm it.",
-    placedTest: "This is a test order: nothing was charged.",
+    /* "on" a phone number, "at" an email address */
+    placedPhone: "Order #{id}. The store will contact you on {contact} to confirm it.",
+    placedEmail: "Order #{id}. The store will contact you at {contact} to confirm it.",
+    placedCard: "Nothing was charged to your card.",
     yourOrder: "Your order",
     place: "Place the order",
     errName: "Enter your name.",
@@ -72,8 +86,14 @@ const words = {
     errAddress: "Write where to deliver.",
     required: "Fields with * must be filled",
     changed: "Some products in your cart changed (stock or price). Check your cart, then place the order.",
+    /* the public store: what the server found changed since the page opened */
+    changedDelivery: "The delivery price changed to {fee}. Check the new total and place the order again.",
+    changedFree: "Delivery is now free. Check the new total and place the order again.",
+    changedAsk: "The store will now confirm the delivery fee with you. Check the new total and place the order again.",
+    changedBoth: "Some products in your cart and the delivery price changed. Check your cart and the new total, then place the order.",
+    changedTotal: "Your order's total changed. Check the new total and place the order again.",
     doneTitle: "Thank you, your order is in",
-    doneText: "Order #{id}. Your receipt is sent to {phone}, and the store will contact you to confirm it.",
+    doneText: "Order #{id}. The store will contact you to confirm it.",
     done: "Back to the store",
     summary: "Order summary",
     stepCart: "Cart",
@@ -93,6 +113,7 @@ const words = {
   },
   ar: {
     title: "سلتك",
+    headPlaced: "تم الطلب",
     close: "إغلاق",
     empty: "سلتك فارغة",
     emptyHint: "أضف منتجات لتظهر هنا.",
@@ -103,6 +124,9 @@ const words = {
     subtotal: "المجموع",
     delivery: "التوصيل",
     free: "مجاني",
+    deliveryFee: "رسوم التوصيل",
+    feeByStore: "يؤكدها المتجر",
+    totalBeforeDelivery: "الإجمالي قبل التوصيل",
     total: "الإجمالي",
     checkout: "إتمام الطلب",
     suggest: "قد يعجبك أيضًا",
@@ -113,8 +137,11 @@ const words = {
     details: "معلوماتك",
     name: "الاسم الكامل",
     phone: "البريد الإلكتروني أو رقم الهاتف",
-    contactHint: "سنرسل إيصال طلبك إلى هنا.",
+    contactHint: "يستخدمه المتجر للتواصل معك بخصوص طلبك.",
     errContact: "اكتب رقم جوال (07X XXX XXXX) أو بريدًا إلكترونيًا.",
+    phoneOnly: "رقم الهاتف",
+    errPhoneNeeded: "أضف رقم هاتف ليتواصل معك المتجر بخصوص التوصيل.",
+    errMobile: "اكتب رقم جوال (07X XXX XXXX).",
     city: "المدينة",
     address: "المنطقة والشارع والبناية",
     note: "ملاحظة للمتجر (اختياري)",
@@ -126,18 +153,21 @@ const words = {
     payCliq: "كليك CliQ",
     payCash: "الدفع عند الاستلام",
     payCard: "بطاقة",
-    cardNote: "نسخة تجريبية: لا تُطلب بيانات البطاقة ولا يُخصم أي مبلغ.",
+    cardNote: "لا تُطلب بيانات البطاقة ولا يُخصم أي مبلغ الآن. سيتواصل معك المتجر بخصوص الدفع.",
     noPay: "لا يستقبل هذا المتجر طلبات الآن: لا توجد طريقة دفع متاحة. حاول مرة أخرى لاحقًا.",
-    testNote: "طلب تجريبي: الدفع غير مفعّل بعد، لذلك لا يُخصم أي مبلغ. يصل طلبك إلى المتجر وسيتواصل معك.",
     placing: "جارٍ إرسال طلبك…",
+    stillPlacing: "ما زلنا نرسل طلبك. أبقِ هذه الصفحة مفتوحة، قد يستغرق ذلك بضع ثوانٍ.",
     errNet: "تعذّر إرسال طلبك. تأكد من اتصالك وحاول مرة أخرى.",
     errSlow: "أُرسلت طلبات كثيرة من هنا. انتظر بضع دقائق ثم حاول مرة أخرى.",
     errClosed: "لا يستقبل هذا المتجر طلبات الآن. حاول مرة أخرى لاحقًا.",
     errPay: "طريقة الدفع هذه لم تعد متاحة. اختر طريقة أخرى.",
+    errSave: "تعذّر حفظ طلبك في هذا المتصفح. تأكد من السماح بتخزين بيانات الموقع، ثم حاول مرة أخرى.",
+    errCheck: "تعذّر قبول بعض معلوماتك. راجعها، ثم حاول مرة أخرى.",
     couponFail: "تعذّر التحقق من الكود. حاول مرة أخرى.",
     placedTitle: "شكرًا لك، وصلنا طلبك",
-    placedText: "طلب رقم {id}. سيتواصل معك المتجر على {phone} لتأكيده.",
-    placedTest: "هذا طلب تجريبي: لم يُخصم أي مبلغ.",
+    placedPhone: "طلب رقم {id}. سيتواصل معك المتجر على رقمك {contact} لتأكيده.",
+    placedEmail: "طلب رقم {id}. سيتواصل معك المتجر على بريدك الإلكتروني {contact} لتأكيده.",
+    placedCard: "لم يُخصم أي مبلغ من بطاقتك.",
     yourOrder: "طلبك",
     place: "تأكيد الطلب",
     errName: "اكتب اسمك.",
@@ -145,8 +175,13 @@ const words = {
     errAddress: "اكتب عنوان التوصيل.",
     required: "الحقول التي عليها * مطلوبة",
     changed: "تغيّرت بعض المنتجات في سلتك (الكمية المتوفرة أو السعر). راجع سلتك ثم أكّد الطلب.",
+    changedDelivery: "تغيّر سعر التوصيل إلى {fee}. راجع المجموع الجديد ثم أكّد الطلب.",
+    changedFree: "أصبح التوصيل مجانيًا. راجع المجموع الجديد ثم أكّد الطلب.",
+    changedAsk: "سيؤكد المتجر رسوم التوصيل معك الآن. راجع المجموع الجديد ثم أكّد الطلب.",
+    changedBoth: "تغيّرت بعض المنتجات في سلتك وتغيّر سعر التوصيل. راجع سلتك والمجموع الجديد ثم أكّد الطلب.",
+    changedTotal: "تغيّر مجموع طلبك. راجع المجموع الجديد ثم أكّد الطلب.",
     doneTitle: "شكرًا لك، وصلنا طلبك",
-    doneText: "طلب رقم {id}. أُرسل الإيصال إلى {phone}، وسيتواصل معك المتجر لتأكيده.",
+    doneText: "طلب رقم {id}. سيتواصل معك المتجر لتأكيده.",
     done: "العودة إلى المتجر",
     summary: "ملخص الطلب",
     stepCart: "السلة",
@@ -170,7 +205,8 @@ const words = {
 export function suggestFor(all: StoreProduct[], base: StoreProduct[], n: number): StoreProduct[] {
   const taken = new Set(base.map((p) => p.id));
   const cats = new Set(base.flatMap(categoriesOf).filter(Boolean));
-  const left = all.filter((p) => !taken.has(p.id) && p.quantity > 0);
+  /* only what can be bought now: in stock and priced */
+  const left = all.filter((p) => !taken.has(p.id) && p.quantity > 0 && p.price !== null);
   const rank = (p: StoreProduct) => (categoriesOf(p).some((c) => cats.has(c)) ? 0 : p.featured ? 1 : 2);
   return [...left].sort((a, b) => rank(a) - rank(b)).slice(0, n);
 }
@@ -236,11 +272,13 @@ function checkoutKey(): string {
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
 /* `orderTo`: the public store (app/[slug]) at this link name. The order is sent to Dukkan's server
    (POST /api/public/store/<link>/orders), which prices it again from the store's saved products, takes the stock and
-   keeps it for the merchant; coupons are checked by the server too. Nothing is read from or written to the visitor's
-   own storage, and no payment is taken: the checkout says it is a test order. Without it (the merchant's own preview)
-   the order is saved in his browser, as before. */
-/* `ownFee`: the merchant delivers with his own courier and charges this per order; null means Dukkan Ship's price */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fdIn, priceLanguage, onCleared, pickup = false, ownFee = null, look = "drawer", contained = false, orderTo }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | null; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string }) {
+   keeps it for the merchant; coupons are checked by the server too. Nothing of the store is read from the visitor's
+   own storage (only his basket is kept there, by the storefront: visitorBasket.ts), and no payment is taken: the
+   card option says nothing is charged (no "test order" wording reaches the customer). Without it (the merchant's own preview) the order is saved in his browser, as
+   before. */
+/* `ownFee`: the merchant delivers with his own courier and charges this per order ("ask": he never set a fee, so the
+   checkout says the store confirms it and charges none); null means Dukkan Ship's price */
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fdIn, priceLanguage, onCleared, pickup = false, ownFee = null, ownCities, look = "drawer", contained = false, orderTo }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | "ask" | null; /* his own courier's cities as saved (none: all) */ ownCities?: string[]; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string }) {
   const w = words[lang];
   /* the public store: prices the server answered with when they changed since the page opened (by product id) */
   const [priceFix, setPriceFix] = useState<Record<number, number>>({});
@@ -249,11 +287,21 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const [remoteCoupon, setRemoteCoupon] = useState<Coupon | null>(null);
   const [couponFail, setCouponFail] = useState(false);
   const [sending, setSending] = useState(false);
+  /* a send that takes long says it is still working, so the customer doesn't think the button did nothing */
+  const [slowSend, setSlowSend] = useState(false);
+  useEffect(() => {
+    if (!sending) return setSlowSend(false);
+    const id = window.setTimeout(() => setSlowSend(true), 3000);
+    return () => window.clearTimeout(id);
+  }, [sending]);
   const [sendErr, setSendErr] = useState("");
-  const [placed, setPlaced] = useState<{ number: number; items: PricedLine[]; total: number; contact: string } | null>(null);
+  /* (the receipt's lines as the server worked them out: the subtotal, the coupon's discount and the delivery, so they add
+     up to the total; `feeOpen`: his own courier with no fee set, the store confirms it) */
+  const [placed, setPlaced] = useState<{ number: number; items: PricedLine[]; subtotal: number; discount: number; coupon: string | null; delivery: number; fulfil: Fulfil; feeOpen: boolean; total: number; contact: string; byPhone: boolean; pay: Pay | null } | null>(null);
   /* the public store: the delivery fee and free delivery offer as the server answered them, when they changed since the
      page opened (the cart then works its total out from these, as the server does) */
-  const [termsFix, setTermsFix] = useState<{ fee: number; fd: FreeDelivery } | null>(null);
+  /* (`fee` null: his own courier with no fee set, the store confirms it) */
+  const [termsFix, setTermsFix] = useState<{ fee: number | null; fd: FreeDelivery } | null>(null);
   const fd = termsFix?.fd ?? fdIn;
   /* the public store: this checkout's own key, kept until the order is in, so sending it again (its answer was lost)
      gets the same order back instead of a second one */
@@ -265,9 +313,12 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
      free delivery amount pay nothing either way */
   const platform = usePublicSettings();
   const pays = storePays(platform);
-  const DELIVERY_FEE = termsFix?.fee ?? ownFee ?? platform.dukkan_ship.price;
-  /* the cities Dukkan Ship delivers to, as set in Diwan */
-  const cities = shipCityLists(platform);
+  /* his own courier and no fee ever set: no fee is charged and the cart says the store confirms it (never a false "Free") */
+  const feeAsk = termsFix ? termsFix.fee === null : ownFee === "ask";
+  const DELIVERY_FEE = feeAsk ? 0 : termsFix?.fee ?? (typeof ownFee === "number" ? ownFee : platform.dukkan_ship.price);
+  /* the cities the store delivers to: Dukkan Ship's as set in Diwan, or the ones he chose for his own courier
+     (the server takes the same list: safeOrder deliveryCities) */
+  const cities = deliveryCities(ownFee !== null ? "own" : "seen", shipCityLists(platform), ownCities);
   const [payPicked, setPay] = useState<Pay>("cliq");
   /* a way to pay switched off in Diwan while the page is open is never kept: the first one still on is chosen */
   const pay: Pay | null = pays.includes(payPicked) ? payPicked : pays[0] ?? null;
@@ -276,8 +327,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const fulfil: Fulfil = pickup ? fulfilRaw : "delivery";
   const [errors, setErrors] = useState<Partial<Record<"name" | "phone" | "city" | "address", string>>>({});
   const [doneId, setDoneId] = useState(0);
-  /* the cart had to change at checkout (stock ran out or a price changed): he sees it before ordering */
-  const [changed, setChanged] = useState(false);
+  /* the cart had to change at checkout: he sees what changed before ordering. "items": stock or a product's price,
+     "delivery": the delivery price (to `fee`), "both", or "total": something else in the total (a coupon's terms) */
+  const [changedRaw, setChanged] = useState<false | true | { why: "items" | "delivery" | "both" | "total"; fee?: number; ask?: boolean }>(false);
+  const changed = changedRaw === true ? { why: "items" as const } : changedRaw || null;
   /* one order per press, even when the button is pressed again before the page updates */
   const placing = useRef(false);
   const panel = useRef<HTMLDivElement>(null);
@@ -300,7 +353,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const [coupon, setCoupon] = useState("");
   const [couponErr, setCouponErr] = useState<CouponRefusal | null>(null);
 
-  const amount = (n: number) => `${moneyIn(n, priceLanguage)} ${currency(priceLanguage)}`;
+  /* every amount of the panel the same way: when any of them has fils, all of them show two decimals (18.50 next to 22.00);
+     a basket of whole prices shows them whole (22), as the product cards do. The receipt of a placed order counts its own
+     amounts (doneCents). */
+  const amount = (n: number, cents = panelCents) => `${moneyIn(n, priceLanguage, cents)} ${currency(priceLanguage)}`;
   const subtotal = lines.reduce((s, l) => s + l.qty * priceAt(l.p), 0);
   const freeNow = fd.on && subtotal >= fd.min;
   /* the coupons: the merchant's own as saved in his browser, or on the public store only the one the server accepted */
@@ -309,6 +365,11 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const cp = coupon ? checkCoupon(coupon, couponList(), subtotal) : null;
   const discount = cp?.ok ? cp.discount : 0;
   const delivery = lines.length === 0 || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery) ? 0 : DELIVERY_FEE;
+  /* a delivery that is not free by an offer, a coupon or pickup, with no fee set: the store confirms the fee */
+  const feeOpen = feeAsk && !(lines.length === 0 || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery));
+  /* delivery or cash on delivery: the store needs a phone number to reach him (an email alone is refused, here and on the server) */
+  const phoneNeeded = needsPhone(fulfil, pay);
+  const phoneErr = () => (!phoneNeeded ? w.errContact : !form.phone.trim() || form.phone.includes("@") ? w.errPhoneNeeded : w.errMobile);
   const total = toFils(subtotal - discount + delivery);
   const applyCoupon = () => {
     if (!couponText.trim()) return;
@@ -351,7 +412,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     placing.current = true;
     setSending(true);
     setSendErr("");
-    let j: { result?: string; order?: { number: number; items: PricedLine[]; total: number }; items?: PricedLine[]; why?: CouponRefusal; fields?: string[]; terms?: { fee?: unknown; freeDelivery?: { on?: unknown; min?: unknown }; coupon?: unknown } } = {};
+    let j: { result?: string; order?: { number: number; items: PricedLine[]; total: number; subtotal?: number; discount?: number; delivery?: number; coupon?: string | null; fulfil?: string; feeOpen?: boolean }; items?: PricedLine[]; why?: CouponRefusal; fields?: string[]; terms?: { fee?: unknown; freeDelivery?: { on?: unknown; min?: unknown }; coupon?: unknown } } = {};
     let status = 0;
     attemptKey.current ??= checkoutKey();
     try {
@@ -375,8 +436,26 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     placing.current = false;
     setSending(false);
     if (j.result === "ok" && j.order) {
-      const contact = jordanMobile(form.phone) ? `0${jordanMobile(form.phone)}` : form.phone.trim().toLowerCase();
-      setPlaced({ number: j.order.number, items: j.order.items ?? [], total: j.order.total, contact });
+      const mobile = jordanMobile(form.phone);
+      const contact = mobile ? `0${mobile}` : form.phone.trim().toLowerCase();
+      const got = j.order;
+      const items = got.items ?? [];
+      const num = (v: unknown, or: number) => (typeof v === "number" && Number.isFinite(v) ? v : or);
+      /* an older answer without the lines: what this cart showed */
+      setPlaced({
+        number: got.number,
+        items,
+        subtotal: num(got.subtotal, toFils(items.reduce((n, it) => n + it.qty * it.price, 0))),
+        discount: num(got.discount, discount),
+        coupon: typeof got.coupon === "string" && got.coupon ? got.coupon : got.coupon === null ? null : cp?.ok ? cp.coupon.code : null,
+        delivery: num(got.delivery, delivery),
+        fulfil: got.fulfil === "pickup" || got.fulfil === "delivery" ? got.fulfil : fulfil,
+        feeOpen: typeof got.feeOpen === "boolean" ? got.feeOpen : feeOpen,
+        total: got.total,
+        contact,
+        byPhone: !!mobile,
+        pay,
+      });
       /* the next checkout is a new one */
       attemptKey.current = null;
       setTermsFix(null);
@@ -397,10 +476,29 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       /* and the store's delivery fee, free delivery offer and coupon as they are now, so the total shown is the one the
          server charges and the next try goes through */
       const t = j.terms;
-      if (t && typeof t.fee === "number" && t.freeDelivery && typeof t.freeDelivery.min === "number") setTermsFix({ fee: t.fee, fd: { on: t.freeDelivery.on === true, min: t.freeDelivery.min } });
+      /* (a fee of null: his own courier with no fee set) */
+      if (t && (typeof t.fee === "number" || t.fee === null) && t.freeDelivery && typeof t.freeDelivery.min === "number") setTermsFix({ fee: t.fee, fd: { on: t.freeDelivery.on === true, min: t.freeDelivery.min } });
       const c = t?.coupon && typeof t.coupon === "object" ? cleanCoupon(t.coupon as Record<string, unknown>) : null;
       if (c) setRemoteCoupon(c);
-      setChanged(true);
+      /* What changed, so he is told the right thing: a product (one gone, fewer in stock, or a new price) and/or the
+         delivery price. The delivery is worked out for the new basket twice, with the terms the page had and with the
+         store's terms now: only a difference between those two is the delivery price changing (a basket that falls
+         under the free delivery amount because a product changed is a product change). */
+      const items = j.items;
+      const goods = items.length !== lines.length || lines.some((l) => {
+        const it = items.find((x) => x.id === l.p.id && (x.size ?? "") === (l.size ?? ""));
+        return !it || it.qty !== l.qty || Math.abs(it.price - priceAt(l.p)) > 0.0005;
+      });
+      const newSub = items.reduce((n, it) => n + it.qty * it.price, 0);
+      const cNow = c ?? (cp?.ok ? cp.coupon : null);
+      const cpNew = cNow ? checkCoupon(cNow.code, [cNow], newSub) : null;
+      const deliveryWith = (fee: number, free: FreeDelivery) => (items.length === 0 || (free.on && newSub >= free.min) || fulfil === "pickup" || (cpNew?.ok && cpNew.freeDelivery) ? 0 : fee);
+      const termsNow = t && (typeof t.fee === "number" || t.fee === null) && t.freeDelivery && typeof t.freeDelivery.min === "number" ? { fee: t.fee, fd: { on: t.freeDelivery.on === true, min: t.freeDelivery.min } } : null;
+      const feeNow = termsNow ? deliveryWith(termsNow.fee ?? 0, termsNow.fd) : null;
+      /* the store now confirms the fee itself (none set any more), on a delivery that is not free anyway */
+      const askNow = !!termsNow && termsNow.fee === null && deliveryWith(1, termsNow.fd) > 0;
+      const shipping = feeNow !== null && (Math.abs(feeNow - deliveryWith(DELIVERY_FEE, fd)) > 0.0005 || askNow !== (feeAsk && deliveryWith(1, fd) > 0));
+      setChanged(goods && shipping ? { why: "both" } : shipping ? { why: "delivery", fee: feeNow ?? 0, ask: askNow } : goods ? { why: "items" } : { why: "total" });
       setStep("cart");
       return;
     }
@@ -415,21 +513,29 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       const f = new Set(j.fields ?? []);
       const next: typeof errors = {};
       if (f.has("name")) next.name = w.errName;
-      if (f.has("phone")) next.phone = w.errContact;
+      if (f.has("phone")) next.phone = phoneErr();
       if (f.has("city")) next.city = w.errCity;
       if (f.has("address")) next.address = w.errAddress;
       setErrors(next);
-      if (f.has("pay")) setSendErr(w.errPay);
+      const first = (["name", "phone", "city", "address"] as const).find((k) => next[k]);
+      if (f.has("pay")) setSendErr(pays.length ? w.errPay : w.noPay);
       else if (f.has("lines")) {
         setChanged(true);
         setStep("cart");
-      }
+      } else if (!first) setSendErr(w.errCheck);
+      /* the first field to fix gets the cursor, with its message under it */
+      if (first) document.getElementById(`co-${first}`)?.focus();
       return;
     }
     setSendErr(status === 429 ? w.errSlow : j.result === "closed" ? w.errClosed : w.errNet);
   };
 
   const suggestions = suggestFor(products, lines.map((l) => l.p), 3);
+  /* the amounts of the basket and the details: its lines and its sums. An earlier order's receipt never counts (it made a
+     basket of whole prices show 22.00 after an order with 18.50 in it); a suggestion is a product's own price, shown like
+     its card (whole: 22) */
+  const panelCents = [subtotal, discount, delivery, total, ...lines.flatMap((l) => [priceAt(l.p), l.qty * priceAt(l.p)])].some(hasFils);
+  const doneCents = placed ? [placed.subtotal, placed.discount, placed.delivery, placed.total, ...placed.items.flatMap((it) => [it.price, it.qty * it.price])].some(hasFils) : false;
   const field = (bad?: string) => { const k = skins[look] ?? skins.drawer; return `${k.field} ${bad ? k.fieldBad : k.fieldOk}`; };
   const set = (k: keyof typeof form, v: string) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -438,11 +544,14 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
 
   const place = () => {
     if (placing.current) return;
+    /* a press never does nothing: whatever stops the order is said next to the button or under its field */
+    setSendErr("");
+    if (!pays.length) return setSendErr(w.noPay);
     const checked = checkCheckout({ ...form, pay, fulfil }, { pickup, pays, cities });
     const bad = new Set<CheckoutField>(checked.ok ? [] : checked.errors);
     const next: typeof errors = {};
     if (bad.has("name")) next.name = w.errName;
-    if (bad.has("phone")) next.phone = w.errContact;
+    if (bad.has("phone")) next.phone = phoneErr();
     if (bad.has("city")) next.city = w.errCity;
     if (bad.has("address")) next.address = w.errAddress;
     setErrors(next);
@@ -451,7 +560,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       document.getElementById(`co-${first}`)?.focus();
       return;
     }
-    if (!checked.ok) return;
+    if (!checked.ok) return setSendErr(bad.has("pay") ? w.errPay : w.errCheck);
     /* the public store: the server prices it, takes the stock and keeps it for the merchant */
     if (orderTo) return void placeRemote(total);
     /* The prices, the stock and the total come from the catalog, never from what is on screen */
@@ -484,7 +593,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     });
     if (id === null) {
       placing.current = false;
-      return;
+      return setSendErr(w.errSave);
     }
     pushNotification("orderCreated", { id: String(id), name: checked.value.customer, total: amount(sum) });
     setDoneId(id);
@@ -503,6 +612,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const count = lines.reduce((n, l) => n + l.qty, 0);
   const progress = fd.on && fd.min > 0 ? Math.min(100, (subtotal / fd.min) * 100) : 100;
   const next = () => (step === "cart" ? setStep("details") : place());
+  /* every way to pay is off (Dukkan's settings in Diwan): no order can be placed, and the button shows it */
+  const noWayToPay = !pays.length && lines.length > 0 && step !== "done";
+  const blocked = noWayToPay && step === "details";
   const heading: CSSProperties = { fontFamily: "var(--sf-heading)" };
 
   const freeLine = fd.on && lines.length > 0 && (
@@ -532,7 +644,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       <ProductImage p={p} className={`shrink-0 ${s.img}`} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-start justify-between gap-2">
-          <p className={s.name} style={luxe ? heading : undefined}><bdi>{p.name}</bdi></p>
+          {/* a product's name keeps its own direction, so a long Arabic name in English (or the other way) is cut at its end */}
+          <p dir="auto" className={`${s.name} ltr:text-left rtl:text-right`} style={luxe ? heading : undefined}>{p.name}</p>
           {iconRemove && (
             <button type="button" onClick={() => setQty(p, 0, size)} aria-label={`${w.remove}: ${p.name}`} title={w.remove} className={s.remove}>
               {look === "pop" ? cross : trash}
@@ -564,8 +677,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
                 <button type="button" onClick={() => setQty(p, 1)} aria-label={`${w.add}: ${p.name}`} className={s.sPlus}>+</button>
               )}
             </div>
-            <p className={s.sName}><bdi>{p.name}</bdi></p>
-            <p className={s.sPrice} dir="auto">{amount(priceOf(p))}</p>
+            <p dir="auto" className={`${s.sName} ltr:text-left rtl:text-right`}>{p.name}</p>
+            <p className={s.sPrice} dir="auto">{amount(priceOf(p), false)}</p>
             {!iconRemove && <button type="button" onClick={() => setQty(p, 1)} className={s.sAdd}>+ {w.add}</button>}
           </div>
         ))}
@@ -577,18 +690,24 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     <div className={s.sums}>
       <p className="flex justify-between gap-3"><span className="opacity-70">{w.subtotal}</span><span dir="auto">{amount(subtotal)}</span></p>
       {cp?.ok && discount > 0 && <p className="flex justify-between gap-3 text-emerald-700 dark:text-emerald-500"><span>{w.discount} <span dir="ltr" className="font-bold">{cp.coupon.code}</span></span><span dir="auto">−{amount(discount)}</span></p>}
-      <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span dir="auto">{delivery === 0 ? w.free : amount(delivery)}</span></p>
-      <p className={s.totalRow}><span>{w.total}</span><span dir="auto">{amount(total)}</span></p>
+      {feeOpen ? (
+        <p className="flex justify-between gap-3"><span className="opacity-70">{w.deliveryFee}</span><span>{w.feeByStore}</span></p>
+      ) : (
+        <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span dir="auto">{delivery === 0 ? w.free : amount(delivery)}</span></p>
+      )}
+      <p className={s.totalRow}><span>{feeOpen ? w.totalBeforeDelivery : w.total}</span><span dir="auto">{amount(total)}</span></p>
     </div>
   );
   const cta = (
     <>
-      {/* the public store: why the order was not sent (connection, too many, store closed) */}
-      {sendErr && step === "details" && <p role="alert" className="mb-2 text-center text-xs font-semibold text-rose-600">{sendErr}</p>}
-      <button type="button" onClick={next} disabled={sending} aria-busy={sending} className={`${s.cta} disabled:cursor-wait disabled:opacity-70`} style={s.ctaStyle}>
-        <span>{step === "cart" ? w.checkout : sending ? w.placing : `${w.place} · ${amount(total)}`}</span>
-        <span aria-hidden>{icons.arrow}</span>
+      {/* why the order can't go or was not sent (no way to pay, connection, too many, store closed); with no way to pay
+          it is said here from the basket on, so he knows before filling in his details */}
+      {(noWayToPay || (sendErr && step === "details")) && <p role="alert" className="mb-2 text-center text-xs font-semibold text-rose-600">{noWayToPay ? w.noPay : sendErr}</p>}
+      <button type="button" onClick={next} disabled={sending || blocked} aria-disabled={sending || blocked} aria-busy={sending} className={`${s.cta} ${blocked ? "disabled:cursor-not-allowed disabled:opacity-40 disabled:saturate-0" : "disabled:cursor-wait disabled:opacity-70"}`} style={s.ctaStyle}>
+        <span>{step === "cart" ? w.checkout : sending ? w.placing : `${w.place} – ${amount(total)}`}</span>
+        {sending ? <span aria-hidden className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" /> : <span aria-hidden>{icons.arrow}</span>}
       </button>
+      {sending && slowSend && <p role="status" className="mt-2 text-center text-xs opacity-70">{w.stillPlacing}</p>}
     </>
   );
 
@@ -622,7 +741,11 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
 
   const cartView = (
     <div className={s.stack}>
-      {changed && <p role="alert" className="rounded-[var(--sf-ri,10px)] bg-amber-500/15 px-3 py-2.5 text-xs font-semibold">{w.changed}</p>}
+      {changed && (
+        <p role="alert" className="rounded-[var(--sf-ri,10px)] bg-amber-500/15 px-3 py-2.5 text-xs font-semibold">
+          {changed.why === "delivery" ? (changed.ask ? w.changedAsk : changed.fee ? w.changedDelivery.replace("{fee}", amount(changed.fee)) : w.changedFree) : changed.why === "both" ? w.changedBoth : changed.why === "total" ? w.changedTotal : w.changed}
+        </p>
+      )}
       {!luxe && freeLine}
       <ul className={s.list}>{lines.map(item)}</ul>
       {!luxe && couponBox}
@@ -640,8 +763,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       <div className={luxe ? "grid gap-3 sm:grid-cols-2" : "space-y-3"}>
         {(["name", "phone"] as const).map((k) => (
           <div key={k}>
-            <label htmlFor={`co-${k}`} className={s.label}>{w[k]} <span className="text-rose-600">*</span></label>
-            <input id={`co-${k}`} value={form[k]} maxLength={k === "phone" ? ORDER_LIMITS.email : ORDER_LIMITS.name} onChange={(e) => set(k, e.target.value)} dir={k === "phone" ? "ltr" : undefined} autoComplete={k === "phone" ? "email" : "name"} placeholder={k === "phone" ? "07X XXX XXXX · name@email.com" : undefined} aria-invalid={!!errors[k]} aria-describedby={k === "phone" ? "co-phone-hint" : undefined} className={`${field(errors[k])} ${k === "phone" ? "text-start" : ""}`} />
+            {/* delivery or cash on delivery asks a phone number; pickup paid another way takes a phone or an email */}
+            <label htmlFor={`co-${k}`} className={s.label}>{k === "phone" && phoneNeeded ? w.phoneOnly : w[k]} <span className="text-rose-600">*</span></label>
+            <input id={`co-${k}`} value={form[k]} maxLength={k === "phone" ? ORDER_LIMITS.email : ORDER_LIMITS.name} onChange={(e) => set(k, e.target.value)} dir={k === "phone" ? "ltr" : undefined} autoComplete={k === "phone" ? (phoneNeeded ? "tel" : "email") : "name"} inputMode={k === "phone" && phoneNeeded ? "tel" : undefined} placeholder={k === "phone" ? (phoneNeeded ? "07X XXX XXXX" : "07X XXX XXXX · name@email.com") : undefined} aria-invalid={!!errors[k]} aria-describedby={k === "phone" ? "co-phone-hint" : undefined} className={`${field(errors[k])} ${k === "phone" ? "text-start" : ""}`} />
             {k === "phone" && !errors.phone && <p id="co-phone-hint" className="mt-1 text-xs opacity-60">{w.contactHint}</p>}
             {errors[k] && <p id={k === "phone" ? "co-phone-hint" : undefined} className="mt-1 text-xs text-rose-600">{errors[k]}</p>}
           </div>
@@ -691,10 +815,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
             </button>
           ))}
         </div>
-        {pay && payNote(platform, storePayKey(pay)) && <p dir="auto" className="mt-2 text-xs opacity-70">{payNote(platform, storePayKey(pay))}</p>}
-        {pay === "card" && !orderTo && <p className="mt-2 text-xs opacity-70">{w.cardNote}</p>}
-        {/* the public store takes no payment yet: every order is a test order, and the customer is told before placing it */}
-        {orderTo && <p role="note" className="mt-3 rounded-[var(--sf-ri,10px)] bg-amber-500/15 px-3 py-2.5 text-xs font-semibold leading-relaxed">{w.testNote}</p>}
+        {pay && payNote(platform, storePayKey(pay), lang) && <p dir="auto" className="mt-2 text-xs opacity-70">{payNote(platform, storePayKey(pay), lang)}</p>}
+        {/* no payment is taken yet: only a card says so (cash and CliQ have nothing to charge online); no "test order" wording reaches the customer */}
+        {pay === "card" && <p className="mt-2 text-xs opacity-70">{w.cardNote}</p>}
       </div>
     </div>
   );
@@ -715,19 +838,37 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       <div className="w-full max-w-sm">
         <span className={s.badge} style={s.badgeStyle}>{check}</span>
         <h3 className={s.stateTitle} style={heading}>{w.placedTitle}</h3>
-        <p className="mt-1.5 text-sm leading-relaxed opacity-70">{w.placedText.replace("{id}", String(placed.number)).replace("{phone}", placed.contact)}</p>
-        <p className="mt-1 text-xs font-semibold opacity-70">{w.placedTest}</p>
+        {/* the number or address kept in its own direction inside an Arabic sentence */}
+        <p className="mt-1.5 text-sm leading-relaxed opacity-70">
+          {(() => {
+            const [before, after = ""] = (placed.byPhone ? w.placedPhone : w.placedEmail).replace("{id}", String(placed.number)).split("{contact}");
+            return <>{before}<bdi dir="ltr">{placed.contact}</bdi>{after}</>;
+          })()}
+        </p>
+        {placed.pay === "card" && <p className="mt-1 text-xs font-semibold opacity-70">{w.placedCard}</p>}
         <div className="mt-5 rounded-[var(--sf-ri,10px)] bg-sf-text/[0.04] p-4 text-start">
           <p className="text-sm font-bold">{w.yourOrder} <span dir="ltr">#{placed.number}</span></p>
           <ul className="mt-2 space-y-1.5 text-sm">
             {placed.items.map((it) => (
               <li key={`${it.id}|${it.size ?? ""}`} className="flex justify-between gap-3">
-                <span className="min-w-0"><bdi>{it.name}</bdi>{it.size && <span className="opacity-60"> · <bdi>{it.size}</bdi></span>} <span dir="ltr" className="opacity-60">×{it.qty}</span></span>
-                <span dir="auto" className="shrink-0">{amount(it.qty * it.price)}</span>
+                <span className="min-w-0"><bdi>{it.name}</bdi>{it.size && <span className="opacity-60"> – <bdi>{it.size}</bdi></span>} <span dir="ltr" className="opacity-60">×{it.qty}</span></span>
+                <span dir="auto" className="shrink-0">{amount(it.qty * it.price, doneCents)}</span>
               </li>
             ))}
           </ul>
-          <p className="mt-3 flex justify-between gap-3 border-t border-sf-text/10 pt-3 text-sm font-bold"><span>{w.total}</span><span dir="auto">{amount(placed.total)}</span></p>
+          {/* the subtotal, the coupon and the delivery, so the lines add up to the total */}
+          <div className="mt-3 space-y-1.5 border-t border-sf-text/10 pt-3 text-sm">
+            <p className="flex justify-between gap-3"><span className="opacity-70">{w.subtotal}</span><span dir="auto">{amount(placed.subtotal, doneCents)}</span></p>
+            {placed.discount > 0 && (
+              <p className="flex justify-between gap-3 text-emerald-700 dark:text-emerald-500"><span>{w.discount}{placed.coupon && <> <span dir="ltr" className="font-bold">{placed.coupon}</span></>}</span><span dir="auto">−{amount(placed.discount, doneCents)}</span></p>
+            )}
+            {placed.fulfil === "delivery" && (placed.feeOpen ? (
+              <p className="flex justify-between gap-3"><span className="opacity-70">{w.deliveryFee}</span><span>{w.feeByStore}</span></p>
+            ) : (
+              <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span dir="auto">{placed.delivery === 0 ? w.free : amount(placed.delivery, doneCents)}</span></p>
+            ))}
+          </div>
+          <p className="mt-3 flex justify-between gap-3 border-t border-sf-text/10 pt-3 text-sm font-bold"><span>{placed.feeOpen ? w.totalBeforeDelivery : w.total}</span><span dir="auto">{amount(placed.total, doneCents)}</span></p>
         </div>
         <button type="button" onClick={onClose} className={`${s.cta} mx-auto mt-5 !w-auto px-7`} style={s.ctaStyle}>{w.done}</button>
       </div>
@@ -743,7 +884,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   );
   const title = (
     <h2 className={s.title} style={heading}>
-      {w.title}
+      {step === "done" ? w.headPlaced : w.title}
       {step === "cart" && count > 0 && <span className={s.count} style={s.countStyle}>{count}</span>}
     </h2>
   );
@@ -772,7 +913,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
         ref={panel}
         role="dialog"
         aria-modal="true"
-        aria-label={w.title}
+        aria-label={step === "done" ? w.headPlaced : w.title}
         tabIndex={-1}
         className={`absolute flex flex-col bg-[var(--sf-bg)] text-[var(--sf-text)] outline-none transition duration-300 ease-out ${s.shell} ${open ? s.shown : s.hidden}`}
         style={s.shellStyle}
@@ -815,7 +956,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
                     {lines.map(({ p, qty }) => (
                       <li key={p.id} className="flex items-center gap-2.5 text-sm">
                         <ProductImage p={p} className="h-11 w-11 shrink-0 rounded-[var(--sf-ri,8px)]" />
-                        <span className="min-w-0 flex-1 truncate"><bdi>{p.name}</bdi> <span className="opacity-60">× {qty}</span></span>
+                        <span dir="auto" className="min-w-0 flex-1 truncate ltr:text-left rtl:text-right"><bdi>{p.name}</bdi> <span className="opacity-60">× {qty}</span></span>
                         <span dir="auto" className="shrink-0 font-semibold">{amount(qty * priceAt(p))}</span>
                       </li>
                     ))}
