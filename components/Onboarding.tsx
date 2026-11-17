@@ -26,6 +26,7 @@ import { keepPicture } from "./media";
 import { merchantCall, onServer } from "./merchantApi";
 import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
 import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
+import { ProductPhoto } from "./storefront/NoPhoto";
 import { dropUndos, offerUndo } from "./undo";
 import { PRODUCT_MAX, typedMoney } from "./records";
 import { RudeNote } from "./RudeNote";
@@ -1200,9 +1201,9 @@ function ProductStep({ store, onSave }: StepProps) {
                           <span className="flex-1 rounded-md bg-ink px-2 py-2 text-center text-[11px] font-semibold text-onink">{p.buyNow}</span>
                         </div>
                       </div>
-                      <div className={`grid shrink-0 place-items-center overflow-hidden rounded-xl bg-fg/10 ${device === "mobile" ? "aspect-square w-full" : "h-32 w-32"}`} style={{ transform: "translateZ(40px)" }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {imageLive || image ? <img src={imageLive ?? image!} alt="" className="h-full w-full object-cover" /> : <span className="text-muted/60">{productIcons[type]}</span>}
+                      {/* no photo yet: the store's own placeholder, as his store will show it */}
+                      <div className={`shrink-0 overflow-hidden rounded-xl ${device === "mobile" ? "aspect-square w-full" : "h-32 w-32"}`} style={{ transform: "translateZ(40px)" }}>
+                        <ProductPhoto src={imageLive ?? image} className="h-full w-full" />
                       </div>
                     </div>
                   </div>

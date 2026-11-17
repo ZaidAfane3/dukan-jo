@@ -9,6 +9,7 @@ import { useVisitorStore } from "./visitorStore";
 import type { SectionConfig } from "./config";
 import { isUnlimited, money, productId, productSizes, salePrice, sellableStock, type Payment, type SizeStock } from "../safeOrder";
 import { safeStoredImage } from "../safe";
+import { noPhotoHue } from "./NoPhoto";
 import { productCategories } from "../records";
 import { shownMobile } from "../phone";
 
@@ -140,7 +141,8 @@ export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
     ...(productSizes(p).length ? { sizes: productSizes(p) } : {}),
     ...(productSizes(p).length && safeStoredImage(p.sizeChart) ? { sizeChart: safeStoredImage(p.sizeChart) } : {}),
     ...(isUnlimited(p) ? { unlimited: true } : {}),
-    hue: (Number(p.id) * 47) % 360,
+    /* the color of its placeholder when it has no photo, the same one the dashboard shows */
+    hue: noPhotoHue(Number(p.id)),
     /* a picture saved in this browser, never a link to another site (it could track the visitors) */
     image: Array.isArray(p.images) ? safeStoredImage(p.images[0]) || undefined : undefined,
     ...(() => {

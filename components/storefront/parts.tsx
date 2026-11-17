@@ -1,6 +1,7 @@
 "use client";
 
 import { focusStyle } from "../FocusPicker";
+import { noPhotoHue, ProductPhoto } from "./NoPhoto";
 import { initialOf } from "../safe";
 import { unitPrice } from "../safeOrder";
 import type { Lang } from "../content";
@@ -142,41 +143,10 @@ export const icons = {
   ],
 };
 
-/** The picture of a product. Without a real photo it is a soft color wash with a bag. */
-export function ProductImage({ p, className = "", flat = false }: { p: StoreProduct; className?: string; flat?: boolean }) {
-  const h = p.hue ?? 190;
-  /* flat: one soft color and a bag, no circles and no gradient (the playful stores). A bag, not a garment: any store can use it. */
-  if (flat) {
-    return (
-      <div className={`relative grid place-items-center overflow-hidden ${className}`} style={{ background: `hsl(${h} 75% 86%)` }}>
-        <svg viewBox="0 0 24 24" className="relative h-1/2 w-1/2" fill={`hsl(${h} 70% 96%)`} stroke={`hsl(${h} 40% 30%)`} strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M5 8h14l-1 12H6L5 8Z" />
-          <path d="M9 8V6a3 3 0 0 1 6 0v2" fill="none" />
-        </svg>
-        {p.image && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={focusStyle(p.focus)} />
-        )}
-      </div>
-    );
-  }
-  return (
-    <div
-      className={`relative grid place-items-center overflow-hidden ${className}`}
-      style={{ background: `linear-gradient(145deg, hsl(${h} 70% 93%), hsl(${h} 55% 80%))` }}
-    >
-      <span aria-hidden className="absolute -end-6 -top-6 h-24 w-24 rounded-full opacity-50" style={{ background: `hsl(${h} 80% 97%)` }} />
-      <span aria-hidden className="absolute -bottom-8 -start-6 h-28 w-28 rounded-full opacity-30" style={{ background: `hsl(${h} 60% 62%)` }} />
-      <svg viewBox="0 0 24 24" className="relative h-1/3 w-1/3 drop-shadow-sm" fill="none" stroke={`hsl(${h} 45% 32%)`} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M5 8h14l-1 12H6L5 8Z" />
-        <path d="M9 8V6a3 3 0 0 1 6 0v2" />
-      </svg>
-      {p.image && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={focusStyle(p.focus)} />
-      )}
-    </div>
-  );
+/** The picture of a product. Without a real photo (or when it fails to load) it is the one placeholder every page uses (NoPhoto):
+    a soft wash in the product's color with a bag. */
+export function ProductImage({ p, className = "" }: { p: StoreProduct; className?: string }) {
+  return <ProductPhoto src={p.image} hue={p.hue ?? noPhotoHue(p.id)} alt={p.name} className={className} imgStyle={focusStyle(p.focus)} />;
 }
 
 /** The style that puts a picture where he dragged it inside its frame (nothing when he never moved it) */

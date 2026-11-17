@@ -21,6 +21,7 @@ import { dropUndos, listUndo, offerUndo } from "./undo";
 import { serverRows, type StoreOrderRow } from "./useStoreOrders";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
+import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
 
 
 /* Kept in this browser so orders are still there when he comes back. */
@@ -711,10 +712,8 @@ export function Orders() {
                       {current.items.map((it, n) => (
                         <li key={n} className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
                           <span className="flex min-w-0 items-center gap-3 font-semibold">
-                            {it.image && (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={it.image} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-black/10" />
-                            )}
+                            {/* the store's own placeholder when the product has no photo */}
+                            <ProductPhoto src={it.image} hue={noPhotoHue(it.id)} className="h-12 w-12 shrink-0 rounded-lg ring-1 ring-black/10" />
                             <span className="min-w-0">
                               {it.name} <span dir="ltr" className="whitespace-nowrap font-bold text-muted">×{it.qty}</span>
                               {/* the size the customer chose (clothing and shoes) */}

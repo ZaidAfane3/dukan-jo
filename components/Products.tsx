@@ -20,6 +20,7 @@ import { RudeNote } from "./RudeNote";
 import { StockChoice, stockNeedsAnswer, stockOverMax } from "./StockChoice";
 import { Blocked } from "./designer/controls";
 import { CardPeek, type PeekField } from "./CardPeek";
+import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
 import { PRODUCT_KINDS, SIZE_MAX, kindHasSizes, kindShips, sizeName, type ProductKind } from "./safeOrder";
 import type { Lang } from "./content";
 import { dropUndos, listUndo, offerUndo } from "./undo";
@@ -655,7 +656,7 @@ export function Products() {
 
   const kw = kindWords[lang];
   /* the "!" beside a field that shows on the product card: the card filled with what he typed */
-  const peek = (f: PeekField) => <CardPeek lang={lang} field={f} values={{ name: draft.name, notes: draft.notes, badge: draft.badge, category: draft.categories[0] ?? typedCat.current, price: draft.price, sale: draft.sale, photo: photos[0] }} />;
+  const peek = (f: PeekField) => <CardPeek lang={lang} field={f} values={{ name: draft.name, notes: draft.notes, badge: draft.badge, category: draft.categories[0] ?? typedCat.current, price: draft.price, sale: draft.sale, photo: photos[0], id: typeof editing === "number" ? editing : undefined }} />;
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
@@ -866,16 +867,8 @@ export function Products() {
                   <li key={x.id} className={`flex items-center gap-3 px-4 py-3 transition-colors ${editing === x.id ? "bg-black/[0.07] dark:bg-white/[0.1]" : "hover:bg-fg/[0.05]"}`}>
                     <input type="checkbox" checked={picked.includes(x.id)} onChange={() => togglePick(x.id)} aria-label={x.name} className="h-4 w-4 shrink-0 accent-[rgb(var(--primary))]" />
                     <button type="button" onClick={() => x.id !== editing && leave(() => openEdit(x))} className="flex min-w-0 flex-1 items-center gap-3 text-start">
-                      <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-soft text-muted">
-                        {x.images?.[0] ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={x.images[0]} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                            <path d="M9 3 3.5 6 5.5 10.5 8 9.5V20.5H16V9.5l2.5 1L20.5 6 15 3a3 3 0 0 1-6 0Z" />
-                          </svg>
-                        )}
-                      </span>
+                      {/* the store's own placeholder when there is no photo, so the product looks the same here as in the store */}
+                      <ProductPhoto src={x.images?.[0]} hue={noPhotoHue(x.id)} className="h-12 w-12 shrink-0 rounded-lg" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
                           <span dir="auto" className="truncate text-sm font-semibold ltr:text-left rtl:text-right">{x.name}</span>
