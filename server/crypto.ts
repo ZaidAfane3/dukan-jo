@@ -137,11 +137,16 @@ export function plainText(v: string | null | undefined): string | null {
   return v.startsWith(MARK) ? seal(v) : v;
 }
 
+/** How deep db.ts opens sealed texts in an answer, counted from its rows list: the list, a row, a column, then the
+    column's JSON. plainDeep counts from the column's value, which db.ts reaches two levels down. */
+export const OPEN_DEPTH = 8;
+const DEEPEST_SEALED = OPEN_DEPTH - 2;
+
 /** The same for every text inside a JSON value kept unsealed (an order's lines, a design, a setting). Below the depth
     db.ts opens to, a text starting with the mark gets an invisible character in front instead, so it is never taken for
-    a sealed one. */
+    a sealed one (sealed there, it would come back unopened). */
 export function plainDeep<T>(v: T, depth = 0): T {
-  if (typeof v === "string") return (v.startsWith(MARK) ? (depth > 8 ? `\u200b${v}` : seal(v)) : v) as unknown as T;
+  if (typeof v === "string") return (v.startsWith(MARK) ? (depth > DEEPEST_SEALED ? `\u200b${v}` : seal(v)) : v) as unknown as T;
   if (v == null || typeof v !== "object" || v instanceof Date || Buffer.isBuffer(v)) return v;
   if (Array.isArray(v)) return v.map((x) => plainDeep(x, depth + 1)) as unknown as T;
   return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, plainDeep(x, depth + 1)])) as T;
