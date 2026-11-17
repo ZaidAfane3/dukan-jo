@@ -6,6 +6,7 @@ import { roleName, ROLES, type Role } from "@/components/diwan/perms";
 import { PasswordField, ShowPasswordOnce, usePasswordProblem } from "@/components/diwan/StaffPassword";
 import { passwordWords, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { StaffSkeleton } from "@/components/diwan/skeletons";
 
 /* Dukkan's staff (owners only): who they are, their role, whether they can sign in and use a 2-step code. Owners add staff
    with a temporary password, change roles, take access away (which signs them out everywhere), reset a lost 2-step code
@@ -121,7 +122,7 @@ export default function StaffPage() {
           }}
         />
       )}
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<StaffSkeleton />}>
         {(d) => (
           <>
             <DataTable
@@ -140,7 +141,7 @@ export default function StaffPage() {
                       {/* someone who already has a role that is not open yet keeps it (shown, greyed); they can be made an owner */}
                       <select
                         aria-label={t("Role", "الدور")}
-                        className={`${field} h-9 w-auto`}
+                        className={`${field} h-9 w-auto min-w-[15rem]`}
                         value={m.role}
                         disabled={self || busy === m.id}
                         onChange={(e) =>
@@ -207,7 +208,7 @@ export default function StaffPage() {
               })}
             </DataTable>
             <p className="mt-3 text-xs text-muted">
-              {t("Owners can do everything. Support can see stores and tickets, and handle papers and store reports; not payments, settings or staff.", "المالك يستطيع كل شيء. الدعم يرى المتاجر والتذاكر، ويتابع المستندات والبلاغات؛ دون المدفوعات والإعدادات والفريق.")}
+              {t("Owners can do everything. Support can see stores and tickets, and handle papers and store reports; not payments, settings or staff.", "المالك يستطيع كل شيء. الدعم يرى المتاجر والتذاكر، ويتابع المستندات والبلاغات؛ دون المدفوعات والإعدادات والفريق.")}{" "}
               {t("For now every staff member is an owner; the other roles come later.", "حاليًا كل أعضاء الفريق مُلّاك؛ الأدوار الأخرى قريبًا.")}
             </p>
           </>

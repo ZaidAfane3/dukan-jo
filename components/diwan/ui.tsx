@@ -58,19 +58,29 @@ export function useApi<T>(url: string | null): ApiState<T> {
   return { data, error, loading, reload: () => setN((x) => x + 1) };
 }
 
-/** Sends a change to a Diwan API route. Resolves to the JSON answer and whether it worked. */
+/** Sends a change to a Diwan API route. Resolves to the JSON answer and whether it worked. It never throws: with no
+    connection it resolves to status 0 (like the sign-in form), so every page ends its "Saving…" and shows its message. */
 export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<{ ok: boolean; status: number; data: any }> {
-  const r = await fetch(url, {
-    method,
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let r: Response;
+  try {
+    r = await fetch(url, {
+      method,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
   if (r.status === 401) window.location.href = "/diwan/login";
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
 }
 
 /* ---------------- formatting ---------------- */
+
+/** The Arabic forms of a counted noun for f.count: one and two are whole phrases (no number), few (3–10, and 0) and many
+    (11 and more) follow the number */
+export type ArForms = { one: string; two: string; few: string; many: string };
 
 export function useFmt() {
   const { lang } = usePrefs();
@@ -83,6 +93,18 @@ export function useFmt() {
     jod: (v: number | string | null | undefined) =>
       `${Number(v ?? 0).toLocaleString(loc, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ${lang === "ar" ? "د.أ" : "JOD"}`,
     num: (v: number | string | null | undefined) => Number(v ?? 0).toLocaleString(loc),
+    /** A counted noun in the page's language, the one way every Diwan count is written: English "1 store" / "2 stores";
+        Arabic by its own forms, 1 «متجر واحد», 2 «متجران», 3–10 «3 متاجر», 11 and more «11 متجرًا», 0 «0 متاجر» (the
+        rule of components/undo.ts arCount, with the number written as f.num writes it). A form can carry the words
+        that go with it ("store matches" / "stores match", «متجر واحد مطابق» …). */
+    count: (n: number, en: readonly [one: string, many: string], ar: ArForms) => {
+      const num = Number(n).toLocaleString(loc);
+      if (lang !== "ar") return `${n === 1 ? "1" : num} ${n === 1 ? en[0] : en[1]}`;
+      if (n === 1) return ar.one;
+      if (n === 2) return ar.two;
+      const r = Math.abs(n) % 100;
+      return `${num} ${n === 0 || (r >= 3 && r <= 10) ? ar.few : ar.many}`;
+    },
     ago: (v: string | number | null | undefined) => {
       if (!v) return "—";
       const s = (Date.now() - new Date(v).getTime()) / 1000;
@@ -209,14 +231,17 @@ export function Btn({
 }
 
 /** A table that scrolls sideways on its own on small screens, never the page. Airy rows, soft lines between them. */
-export function DataTable({ head, children, empty }: { head: React.ReactNode[]; children: React.ReactNode; empty?: string | false }) {
+/** dense: narrower cell padding (use tdDense in its rows), for a table with many columns that must fit its card */
+/** fit: no smallest width, for a small table in a narrow column (a few rows on the overview): its cells truncate
+    instead, so it never scrolls sideways */
+export function DataTable({ head, children, empty, dense = false, fit = false }: { head: React.ReactNode[]; children: React.ReactNode; empty?: string | false; dense?: boolean; fit?: boolean }) {
   return (
     <div className={`${card} overflow-x-auto p-0`}>
-      <table className="w-full min-w-[640px] text-sm">
+      <table className={`w-full text-sm ${fit ? "" : "min-w-[640px]"}`}>
         <thead>
           <tr className="border-b border-fg/10 text-start text-[13px] text-muted [font-variant-caps:all-small-caps] tracking-[0.04em]">
             {head.map((h, i) => (
-              <th key={i} className="px-5 py-3.5 text-start font-medium">
+              <th key={i} className={`${dense ? "whitespace-nowrap px-3" : "px-5"} py-3.5 text-start font-medium`}>
                 {h}
               </th>
             ))}
@@ -230,27 +255,231 @@ export function DataTable({ head, children, empty }: { head: React.ReactNode[]; 
 }
 
 export const td = "px-5 py-4 align-top";
+export const tdDense = "px-3 py-3.5 align-top";
 
-/** Loading / error / content, the same way on every page */
-export function Loaded<T>({ s, children }: { s: ApiState<T>; children: (d: T) => React.ReactNode }) {
+/** Loading / error / content, the same way on every page. `skeleton`: the page's own shape while it loads (built from the
+    pieces below: SkelTable, SkelCards, SkelList, SkelForm, SkelFigures...), so nothing jumps when the data arrives;
+    without one, a plain block (never number boxes a page doesn't have). */
+export function Loaded<T>({ s, children, skeleton }: { s: ApiState<T>; children: (d: T) => React.ReactNode; skeleton?: React.ReactNode }) {
   const t = useT();
   if (s.error === "not-allowed") return <p className={`${card} text-sm text-muted`}>{t("Your role can't open this page. Ask an owner if you need it.", "دورك لا يسمح بفتح هذه الصفحة. اطلب من المالك إن احتجت إليها.")}</p>;
   if (s.error) return <p className={`${card} text-sm text-red-600`}>{t("Could not load this: ", "تعذر التحميل: ")}{s.error}</p>;
-  if (!s.data)
-    return (
-      <div role="status" aria-label={t("Loading…", "جارٍ التحميل…")} className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  if (!s.data) return <Busy>{skeleton ?? <SkelBlock />}</Busy>;
+  return <>{children(s.data)}</>;
+}
+
+/* ---------------- skeletons: a loading page shaped like itself ----------------
+   Grey bars (bg-fg/10) where the words and numbers will be, pulsing gently (not at all with reduced motion). Loaded
+   shows a page's own skeleton while its data loads, and each Diwan route's loading.tsx shows the same one (SkelPage,
+   in place of the page's heading) while the route itself loads, so the page keeps one shape from the first frame. */
+
+/** One grey bar */
+export function Bone({ className = "" }: { className?: string }) {
+  return <span aria-hidden className={`block rounded-full bg-fg/10 ${className}`} />;
+}
+
+/** Marks a skeleton as loading for screen readers, and makes it pulse */
+export function Busy({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  const t = useT();
+  return (
+    <div role="status" aria-label={t("Loading…", "جارٍ التحميل…")} className={`animate-pulse motion-reduce:animate-none ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/** The place of a page's heading (PageHead): its group, its title, the line under it, and a button's place (`actions`) */
+export function SkelHead({ actions = false }: { actions?: boolean }) {
+  return (
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0 flex-1">
+        <Bone className="mb-2 h-3 w-20" />
+        <Bone className="h-8 w-56 max-w-full" />
+        <Bone className="mt-3 h-3.5 w-80 max-w-full" />
+      </div>
+      {actions && <Bone className="h-10 w-32 !rounded-lg" />}
+    </div>
+  );
+}
+
+/** A whole page while its route loads (a route's loading.tsx): the heading's place, a row of filters when the page has
+    them, then the page's own skeleton, the same one its Loaded shows */
+export function SkelPage({ children, filters = false, actions = false, head = true }: { children?: React.ReactNode; filters?: boolean; actions?: boolean; head?: boolean }) {
+  return (
+    <Busy>
+      {head && <SkelHead actions={actions} />}
+      {filters && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          <Bone className="h-10 w-64 max-w-full !rounded-xl" />
+          <Bone className="h-10 w-28 !rounded-xl" />
+          <Bone className="h-10 w-28 !rounded-xl" />
+        </div>
+      )}
+      {children ?? <SkelBlock />}
+    </Busy>
+  );
+}
+
+/** A conversation (a ticket, a bug report): the heading, messages from both sides and the reply box, and the side panel */
+export function SkelChat() {
+  return (
+    <>
+      <SkelHead />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        <div className={`${card} space-y-5`}>
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className={`${card} h-28 animate-pulse motion-reduce:animate-none`}>
-              <div className="h-3 w-1/2 rounded-full bg-fg/10" />
-              <div className="mt-4 h-6 w-1/3 rounded-full bg-fg/10" />
+            <div key={i} className={`flex ${i % 2 ? "justify-end" : ""}`}>
+              <div aria-hidden className={`h-16 rounded-2xl bg-fg/10 ${i % 2 ? "w-1/2" : "w-2/3"}`} />
             </div>
           ))}
+          <div aria-hidden className="h-24 w-full rounded-xl bg-fg/10" />
         </div>
-        <div className={`${card} h-48 animate-pulse motion-reduce:animate-none`} />
+        <aside className="space-y-4">
+          <SkelBlock lines={3} />
+          <SkelBlock lines={2} />
+        </aside>
       </div>
-    );
-  return <>{children(s.data)}</>;
+    </>
+  );
+}
+
+/** A plain block of lines, for a page with no better shape */
+export function SkelBlock({ lines = 5 }: { lines?: number }) {
+  return (
+    <div className={`${card} space-y-3`}>
+      <Bone className="h-4 w-1/3" />
+      {Array.from({ length: lines }, (_, i) => (
+        <Bone key={i} className={`h-3 ${i % 3 === 2 ? "w-2/3" : "w-full"}`} />
+      ))}
+    </div>
+  );
+}
+
+/** The row of big figures (Figures) */
+export function SkelFigures({ n = 4 }: { n?: number }) {
+  return (
+    <div className="grid grid-cols-2 gap-y-6 border-y border-fg/10 py-6 sm:grid-cols-3 lg:flex lg:divide-x lg:divide-fg/10 lg:py-7 rtl:lg:divide-x-reverse">
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className="min-w-0 px-1 sm:px-4 lg:flex-1 lg:px-6 lg:first:ps-0 lg:last:pe-0">
+          <Bone className="h-3 w-20" />
+          <Bone className="mt-2 h-9 w-16" />
+          <Bone className="mt-3 h-2.5 w-28" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Number boxes (Stat cards), only for a page that has them */
+export function SkelStats({ n = 4, className = "grid gap-4 sm:grid-cols-2 xl:grid-cols-4" }: { n?: number; className?: string }) {
+  return (
+    <div className={className}>
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className={card}>
+          <Bone className="h-3 w-1/2" />
+          <Bone className="mt-3 h-8 w-1/3" />
+          <Bone className="mt-3 h-2.5 w-2/3" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A DataTable with its columns: the heading's labels when given (they don't change while it loads), and `rows` rows */
+export function SkelTable({ cols, rows = 8, dense = false }: { cols: number | React.ReactNode[]; rows?: number; dense?: boolean }) {
+  const head = typeof cols === "number" ? null : cols;
+  const n = typeof cols === "number" ? cols : cols.length;
+  const cell = dense ? "px-3 py-3.5" : "px-5 py-4";
+  return (
+    <div className={`${card} overflow-x-auto p-0`}>
+      <table className="w-full min-w-[640px] text-sm">
+        <thead>
+          <tr className="border-b border-fg/10 text-start text-[13px] text-muted [font-variant-caps:all-small-caps] tracking-[0.04em]">
+            {Array.from({ length: n }, (_, i) => (
+              <th key={i} className={`${dense ? "whitespace-nowrap px-3" : "px-5"} py-3.5 text-start font-medium`}>
+                {head ? head[i] : <Bone className="h-3 w-16" />}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-fg/[0.06]">
+          {Array.from({ length: rows }, (_, r) => (
+            <tr key={r}>
+              {Array.from({ length: n }, (_, c) => (
+                <td key={c} className={`${cell} align-top`}>
+                  <Bone className={`h-3.5 ${c === 0 ? "w-28" : (r + c) % 3 === 0 ? "w-12" : "w-20"}`} />
+                  {c === 0 && <Bone className="mt-2 h-2.5 w-20" />}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Cards in a grid (themes, feedback, the ways to pay...): a title line and `lines` lines each; `picture`: a preview
+    picture on top (theme cards) */
+export function SkelCards({ n = 6, lines = 3, className = "grid gap-4 md:grid-cols-2 xl:grid-cols-3", picture = false }: { n?: number; lines?: number; className?: string; picture?: boolean }) {
+  return (
+    <div className={className}>
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className={`${card} space-y-3`}>
+          {picture && <div aria-hidden className="aspect-[4/3] w-full rounded-lg bg-fg/10" />}
+          <div className="flex items-center gap-2">
+            <Bone className="h-3 w-16" />
+            <Bone className="ms-auto h-3 w-12" />
+          </div>
+          <Bone className="h-4 w-2/3" />
+          {Array.from({ length: lines }, (_, l) => (
+            <Bone key={l} className={`h-3 ${l === lines - 1 ? "w-1/2" : "w-full"}`} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Cards one under the other (announcements, documents, reports...): a title, lines, and room for its buttons (`side`) */
+export function SkelList({ n = 4, lines = 2, side = false }: { n?: number; lines?: number; side?: boolean }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className={`${card} flex flex-wrap items-start gap-3`}>
+          <div className="min-w-0 flex-1 space-y-3">
+            <Bone className="h-3 w-24" />
+            <Bone className="h-4 w-1/2" />
+            {Array.from({ length: lines }, (_, l) => (
+              <Bone key={l} className={`h-3 ${l === lines - 1 ? "w-2/3" : "w-full"}`} />
+            ))}
+          </div>
+          {side && <Bone className="h-9 w-24 !rounded-lg" />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A settings form: cards with a title and labelled fields */
+export function SkelForm({ cards = 2, fields = 3, className = "grid items-start gap-6 xl:grid-cols-2" }: { cards?: number; fields?: number; className?: string }) {
+  return (
+    <div className={className}>
+      {Array.from({ length: cards }, (_, i) => (
+        <div key={i} className={`${card} space-y-4 p-6`}>
+          <Bone className="h-4 w-40" />
+          <Bone className="h-3 w-2/3" />
+          {Array.from({ length: fields }, (_, f) => (
+            <div key={f} className="space-y-2">
+              <Bone className="h-3 w-24" />
+              <div aria-hidden className="h-10 w-full rounded-xl bg-fg/10" />
+            </div>
+          ))}
+          <Bone className="h-10 w-28 !rounded-lg" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /* ---------------- long lists: "Load more" instead of pages ---------------- */
@@ -332,4 +561,93 @@ export function downloadCsv(name: string, rows: (string | number | null | undefi
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------------- right after a save: the saved row in the list at once ---------------- */
+
+export type SavedNoteState = { id: string; text: string; step: 0 | 1 | 2; n: number };
+
+/** For a list a form saves into (announcements, pop-ups, pages). After the server confirms a save, `show` puts the saved
+    row in the list at once (the row the server answered with, or one built from what was sent), until the list's next
+    load (started with the save) brings the server's copy in its place: same key, so nothing flickers or jumps. The row is
+    lit for a moment (`ring`, on an element with id `row-<id>`), brought into view if the closed form left it off screen,
+    and a line above the list (SavedNote) says what happened. `data` is the list's useApi data. */
+export function useJustSaved<D, R extends { id: string }>(data: D | null) {
+  const [fresh, setFresh] = useState<{ base: D | null; row: R; names?: Record<string, { name: string; email: string }> } | null>(null);
+  const [note, setNote] = useState<SavedNoteState | null>(null);
+  const n = note?.n;
+  const id = note?.id;
+  useEffect(() => {
+    if (n === undefined || id === undefined) return;
+    const frame = requestAnimationFrame(() => {
+      const el = document.getElementById(`row-${id}`);
+      const box = el?.getBoundingClientRect();
+      if (el && box && (box.top < 72 || box.bottom > window.innerHeight))
+        el.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    });
+    /* lit, then the light fades (its transition), then the line fades and goes */
+    const at = (ms: number, step: SavedNoteState["step"] | null) =>
+      setTimeout(() => setNote((x) => (!x || x.n !== n ? x : step === null ? null : { ...x, step })), ms);
+    const timers = [at(1600, 1), at(4000, 2), at(4600, null)];
+    return () => {
+      cancelAnimationFrame(frame);
+      timers.forEach(clearTimeout);
+    };
+  }, [n, id]);
+  const now = fresh && fresh.base === data ? fresh : null;
+  return {
+    /** the saved row, the confirmation's words, and the names of shops chosen in it that the list may not know yet */
+    show: (row: R, text: string, names?: Record<string, { name: string; email: string }>) => {
+      setFresh({ base: data, row, names });
+      setNote((x) => ({ id: row.id, text, step: 0, n: (x?.n ?? 0) + 1 }));
+    },
+    /** the list with the saved row in it (in place on an edit, else first, then in `order` when given) */
+    rows: (rows: R[], order?: (a: R, b: R) => number) => {
+      const r = now?.row;
+      if (!r) return rows;
+      const out = rows.some((x) => x.id === r.id) ? rows.map((x) => (x.id === r.id ? r : x)) : [r, ...rows];
+      return order ? out.sort(order) : out;
+    },
+    /** the list's shop names with the saved row's */
+    names: <N extends Record<string, { name: string; email: string }>>(base: N): N => (now?.names ? { ...base, ...now.names } : base),
+    /** the classes of a row: a soft ring while it is lit, fading in and out (no fade with reduced motion) */
+    ring: (rowId: string) => `transition-shadow duration-700 motion-reduce:transition-none ${note?.id === rowId && note.step === 0 ? "!ring-2 !ring-primary/45" : ""}`,
+    note,
+  };
+}
+
+/** The line above the list after a save, inside an element with `relative` around the list. It takes no room (it sits in
+    the space above the list), so nothing moves when it comes and goes. */
+export function SavedNote({ note }: { note: SavedNoteState | null }) {
+  return (
+    <p
+      role="status"
+      className={`pointer-events-none absolute bottom-full start-0 mb-2 flex items-center gap-1.5 whitespace-nowrap text-sm font-semibold text-emerald-700 transition-opacity duration-500 motion-reduce:transition-none dark:text-emerald-300 ${note && note.step < 2 ? "opacity-100" : "opacity-0"}`}
+    >
+      {note && (
+        <>
+          <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+          {note.text}
+        </>
+      )}
+    </p>
+  );
+}
+
+type SavedAudience = { all: true } | { newStores: true } | { accounts: (number | string)[] };
+
+/** How many stores a row built in the page after a save reaches, until the server counts it: as before when its audience
+    did not change, the stores chosen, every store (as any row for everyone says), none yet for new stores from a time
+    still to come; null when only the server can tell. `since` is when it goes out (a start, or a page's first publish). */
+export function reachOf(
+  a: SavedAudience, since: string | null, rows: { audience: SavedAudience; reach: number | null }[],
+  prev?: { audience: SavedAudience; reach: number | null }, prevSince?: string | null,
+): number | null {
+  const key = (x: SavedAudience | undefined) =>
+    !x || typeof x !== "object" ? "" : "accounts" in x && Array.isArray(x.accounts) ? `a:${x.accounts.map(String).sort().join(",")}` : "newStores" in x ? "new" : "all" in x ? "all" : "";
+  const time = (v: string | null | undefined) => (v ? new Date(v).getTime() : null);
+  if (prev && key(prev.audience) === key(a) && (key(a) !== "new" || time(since) === time(prevSince))) return prev.reach;
+  if ("accounts" in a) return new Set(a.accounts.map(String)).size;
+  if ("all" in a) return rows.find((r) => key(r.audience) === "all")?.reach ?? null;
+  return !since || new Date(since).getTime() >= Date.now() - 60_000 ? 0 : null;
 }

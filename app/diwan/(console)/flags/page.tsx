@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { askConfirm } from "@/components/diwan/dialogs";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { FlagsSkeleton } from "@/components/diwan/skeletons";
 
 /* Feature flags: a new feature can be off, on for some shops (to try it with a few merchants first) or on for all. The
    merchant's pages ask GET /api/features which keys are on for them (components/features.ts, useFeature). */
@@ -31,7 +32,7 @@ export default function FlagsPage() {
         actions={editing === null && <Btn onClick={() => setEditing("")}>{t("New flag", "ميزة جديدة")}</Btn>}
       />
       {editing === "" && <FlagForm start={blank} isNew onDone={() => { setEditing(null); s.reload(); }} />}
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<FlagsSkeleton />}>
         {(d) =>
           d.flags.length === 0 ? (
             <p className={`${card} text-center text-sm text-muted`}>{t("No feature flags yet.", "لا توجد ميزات بعد.")}</p>

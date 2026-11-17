@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { shaped, typedText, useListScroll, useListState } from "@/components/diwan/useListState";
 import { METHODS, MethodBadge, methodText, PayLogo, Select, ShopAndOwner, ShopOnly, todayJo, useUrlParam } from "@/components/diwan/shopBits";
 import { Btn, card, DataTable, downloadCsv, field, Loaded, LoadMore, PageHead, td, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { PaymentsSkeleton } from "@/components/diwan/skeletons";
 import { FilterBar } from "@/components/diwan/Filters";
 import type { Bi } from "@/components/storefront/config";
 import { findTheme } from "@/components/themes";
@@ -58,6 +60,11 @@ const themeLabel = (t: (en: string, ar: string) => string, r: Pay) => {
    payments staff marked received (a store's page, "Mark as paid"), together, newest first. At the top, how stores pay:
    for each method the payments, the JOD and how many stores used it, over the kind, dates and search chosen; a method's
    card also filters the list to it. A marked payment stands on its own; theme purchases come from the theme store. */
+/* the method, dates and search, kept in the address so Back from a store brings the list back as it was (the tab and
+   the store are in it already: ?tab=, ?shop=) */
+const DAY = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
+const LIST = { method: shaped(/^[a-z_-]{1,30}$/), from: shaped(DAY), to: shaped(DAY), q: typedText(100) };
+
 export default function PaymentsPage() {
   const t = useT();
   const f = useFmt();
@@ -67,12 +74,15 @@ export default function PaymentsPage() {
   /* one store only, from its page's "See all" (?shop=) */
   const [shopParam, setShop] = useUrlParam("shop");
   const shop = /^\d+$/.test(shopParam) ? shopParam : "";
-  const [method, setMethod] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [q, setQ] = useState("");
+  const [list, setList] = useListState(LIST);
+  const { method, from, to, q } = list;
+  const setMethod = (x: string) => setList({ method: x });
+  const setFrom = (x: string) => setList({ from: x });
+  const setTo = (x: string) => setList({ to: x });
+  const setQ = (x: string) => setList({ q: x });
   const params = new URLSearchParams({ ...(kind ? { kind } : {}), ...(shop ? { shop } : {}), ...(method ? { method } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}), ...(q.trim() ? { q: q.trim() } : {}) });
   const s = useMore<Data>(`/api/diwan/payments?${params}`, (d, n) => (n < d.pages ? `page=${n + 1}` : null));
+  useListScroll(s);
   const pickMethod = (m: string) => setMethod(m);
   const whatFor = (r: Pay) => (r.kind === "theme" ? t(`Theme: ${themeLabel(t, r)}`, `ثيم: ${themeLabel(t, r)}`) : t("Payment", "دفعة"));
 
@@ -142,7 +152,7 @@ export default function PaymentsPage() {
 
       <ShopOnly id={shop} name={s.data?.shopName} onClear={() => setShop("")} />
 
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<PaymentsSkeleton />}>
         {(d) => (
           <div className="space-y-6">
             <section aria-labelledby="pay-methods">
@@ -151,11 +161,13 @@ export default function PaymentsPage() {
                   {t("How stores paid", "كيف دفعت المتاجر")}
                 </h2>
                 <p className="text-sm text-muted">
-                  {t("All methods", "كل الطرق")}: <b className="text-fg">{f.jod(d.all.total)}</b> · {t(`${f.num(d.all.count)} payments`, `${f.num(d.all.count)} دفعة`)} ·{" "}
-                  {t(`${f.num(d.all.stores)} stores`, `${f.num(d.all.stores)} متجر`)}
+                  {t("All methods", "كل الطرق")}: <b className="text-fg">{f.jod(d.all.total)}</b> · {f.count(d.all.count, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} ·{" "}
+                  {f.count(d.all.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              {/* the cards fill the row whatever the number of methods: two by two on narrow screens, then one row of
+                  equal columns (wrapping when they would get too narrow) */}
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
                 {d.methods.map((m) => {
                   const on = method === m.method;
                   return (
@@ -171,10 +183,10 @@ export default function PaymentsPage() {
                         <PayLogo method={m.method} className="h-9 w-14" />
                         {methodText(t, m.method)}
                       </span>
-                      <p className="mt-3 text-2xl font-extrabold tabular-nums tracking-tight">{f.jod(m.total)}</p>
-                      <p className="mt-1 text-xs text-muted">
-                        {t(`${f.num(m.count)} payments`, `${f.num(m.count)} دفعة`)} · {t(`${f.num(m.stores)} stores`, `${f.num(m.stores)} متجر`)}
-                      </p>
+                      <span className="mt-3 block text-2xl font-extrabold tabular-nums tracking-tight">{f.jod(m.total)}</span>
+                      <span className="mt-1 block text-xs text-muted">
+                        {f.count(m.count, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} · {f.count(m.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}
+                      </span>
                     </button>
                   );
                 })}
@@ -212,7 +224,7 @@ export default function PaymentsPage() {
                   options={[{ value: "", label: t("Every method", "كل الطرق") }, ...METHODS.map((m) => ({ value: m, label: methodText(t, m) }))]}
                 />
                 <p className="text-sm text-muted">
-                  {t(`${f.num(d.count)} payments`, `${f.num(d.count)} دفعة`)} · {t("total", "المجموع")} <b className="text-fg">{f.jod(d.total)}</b>
+                  {f.count(d.count, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} · {t("total", "المجموع")} <b className="text-fg">{f.jod(d.total)}</b>
                 </p>
               </div>
               {tab === "themes" ? (
@@ -224,16 +236,17 @@ export default function PaymentsPage() {
                   {d.rows.map((r) => (
                     <tr key={`${r.kind}-${r.id}`}>
                       <td className={`${td} whitespace-nowrap`}>{f.date(r.paid_on)}</td>
-                      <td className={td}>
-                        <ShopAndOwner id={r.shop_id} shop={r.shop} owner={r.owner} />
+                      {/* the store gets the room it needs: a long name or owner ends in "…" (full on hover) instead of wrapping */}
+                      <td className={`${td} min-w-[12rem] max-w-[18rem]`}>
+                        <ShopAndOwner id={r.shop_id} shop={r.shop} owner={r.owner} truncate />
                       </td>
-                      <td className={`${td} font-medium`}>{themeLabel(t, r)}</td>
+                      <td className={`${td} min-w-[10rem] font-medium`}>{themeLabel(t, r)}</td>
                       <td className={`${td} whitespace-nowrap tabular-nums`}>{f.jod(r.amount)}</td>
                       <td className={td}>
                         <MethodBadge method={r.method} />
                       </td>
-                      <td className={`${td} text-muted`}>
-                        {r.method ? t("The merchant, at the theme store's checkout", "التاجر، عند الدفع في متجر الثيمات") : t("Before the way to pay was recorded", "قبل تسجيل طريقة الدفع")}
+                      <td className={`${td} whitespace-nowrap text-muted`}>
+                        {r.method ? t("Theme store checkout", "الدفع في متجر الثيمات") : t("Not recorded", "غير مسجّلة")}
                       </td>
                     </tr>
                   ))}
@@ -255,19 +268,20 @@ export default function PaymentsPage() {
                   {d.rows.map((r) => (
                     <tr key={`${r.kind}-${r.id}`}>
                       <td className={`${td} whitespace-nowrap`}>{f.date(r.paid_on)}</td>
-                      <td className={td}>
-                        <ShopAndOwner id={r.shop_id} shop={r.shop} owner={r.owner} />
+                      {/* the store gets the room it needs: a long name or owner ends in "…" (full on hover) instead of wrapping */}
+                      <td className={`${td} min-w-[12rem] max-w-[18rem]`}>
+                        <ShopAndOwner id={r.shop_id} shop={r.shop} owner={r.owner} truncate />
                       </td>
                       {tab === "" && <td className={td}>{whatFor(r)}</td>}
                       <td className={`${td} whitespace-nowrap tabular-nums`}>{f.jod(r.amount)}</td>
                       <td className={td}>
                         <MethodBadge method={r.method} />
                       </td>
-                      <td className={td} dir="ltr">
+                      <td className={`${td} whitespace-nowrap`} dir="ltr">
                         {r.reference || "—"}
                       </td>
-                      <td className={td}>{r.marked_by ?? (r.kind === "theme" ? t("Theme store", "متجر الثيمات") : "—")}</td>
-                      <td className={td}>{r.note || "—"}</td>
+                      <td className={`${td} whitespace-nowrap`}>{r.marked_by ?? (r.kind === "theme" ? t("Theme store", "متجر الثيمات") : "—")}</td>
+                      <td className={`${td} min-w-[10rem] max-w-[18rem] break-words`} dir="auto">{r.note || "—"}</td>
                     </tr>
                   ))}
                 </DataTable>

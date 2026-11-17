@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { AudiencePicker, audienceBody, audienceForm, blankAudience, useAudienceText, type Audience, type AudienceForm, type ShopNames } from "@/components/diwan/AudiencePicker";
 import { HomeSketch, MockDashboard, PageSketch, PreviewPanel, type Look } from "@/components/diwan/MerchantPreview";
 import { THEME_CATALOG } from "@/components/diwan/themeCatalog";
-import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { area, Badge, Btn, card, field, Loaded, PageHead, reachOf, SavedNote, send, useApi, useFmt, useJustSaved, useStaff, useT, type Tone } from "@/components/diwan/ui";
+import { PopupsSkeleton } from "@/components/diwan/skeletons";
 import { content } from "@/components/content";
 import { menuEntries } from "@/components/DashboardBar";
 import { POPUP_IMAGE_MAX, POPUP_NEXT, type PopupStatus } from "@/components/popupRules";
@@ -28,9 +29,12 @@ type Row = {
   id: string; template: TemplateId; slots: SlotValues; placement: PopupPlacement; titleEn: string; titleAr: string;
   status: PopupStatus; shown: Shown; audience: Audience; priority: number;
   startsAt: string; endsAt: string | null; createdAt: string; updatedAt: string; by: string | null;
-  reach: number; seen: number; clicked: number;
+  /* reach is null only for a row just saved, until the server has counted it */
+  reach: number | null; seen: number; clicked: number;
 };
 type Data = { popups: Row[]; shops: ShopNames };
+/** What the form sends */
+type Body = { template: TemplateId; slots: SlotValues; placement: PopupPlacement; audience: Audience; startsAt: string | null; endsAt: string | null; priority: number };
 type Form = {
   id: string | null; template: TemplateId; slots: SlotValues; placement: PopupPlacement;
   audience: AudienceForm; startsAt: string; endsAt: string; priority: string;
@@ -56,6 +60,34 @@ export default function PopupsPage() {
   const t = useT();
   const s = useApi<Data>("/api/diwan/popups");
   const [form, setForm] = useState<Form | null>(null);
+  const staff = useStaff();
+  const js = useJustSaved<Data, Row>(s.data);
+
+  /* the saved pop-up as the list will show it (the server's copy replaces it when the list has loaded again) */
+  const saved = (d: Data, id: string | null, b: Body, answered: Row | null) => {
+    const wasEdit = !!form?.id;
+    setForm(null);
+    s.reload();
+    if (!id) return;
+    const prev = d.popups.find((x) => x.id === id);
+    const now = new Date();
+    const startsAt = b.startsAt ?? now.toISOString();
+    const status: PopupStatus = prev?.status ?? "draft";
+    /* as the list's own query works it out */
+    const shown: Shown = status !== "live" ? status : new Date(startsAt) > now ? "scheduled" : b.endsAt && new Date(b.endsAt) <= now ? "expired" : "showing";
+    const title = biOf(b.slots, templateRule(b.template).title);
+    const built: Row = {
+      id, template: b.template, slots: b.slots, placement: b.placement, titleEn: title.en.trim(), titleAr: title.ar.trim(),
+      status, shown, audience: b.audience, priority: b.priority, startsAt, endsAt: b.endsAt,
+      createdAt: prev?.createdAt ?? now.toISOString(), updatedAt: now.toISOString(), by: prev ? prev.by : (staff?.name ?? null),
+      reach: reachOf(b.audience, startsAt, d.popups, prev, prev?.startsAt), seen: prev?.seen ?? 0, clicked: prev?.clicked ?? 0,
+    };
+    /* the server's copy when it answered with one, else the row built from what was sent */
+    const row = answered?.id === id ? answered : built;
+    /* the names of the shops chosen in it, which the list may not know until it has loaded again */
+    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
+    js.show(row, wasEdit ? t("Saved", "تم الحفظ") : t("Saved as draft", "حُفظت كمسودة"), names);
+  };
 
   const edit = (r: Row, d: Data) => {
     setForm({
@@ -72,27 +104,33 @@ export default function PopupsPage() {
         sub={t("A box in the middle of the merchants' dashboard: an offer, a new feature, a gift. Each store sees it once.", "نافذة في وسط لوحة تحكم التجار: عرض، ميزة جديدة، هدية. يراها كل متجر مرة واحدة.")}
         actions={!form && <Btn onClick={() => setForm(blank())}>{t("New pop-up", "نافذة جديدة")}</Btn>}
       />
-      <Loaded s={s}>
-        {(d) => (
-          <>
-            {form && <Editor form={form} setForm={setForm} onSaved={() => { setForm(null); s.reload(); }} />}
-            <div className="space-y-3">
-              {d.popups.length === 0 && !form && (
-                <div className={`${card} text-center`}>
-                  <p className="font-semibold">{t("No pop-ups yet.", "لا توجد نوافذ بعد.")}</p>
-                  <p className="mt-1 text-sm text-muted">{t("Make one to tell merchants about an offer or something new.", "أنشئ واحدة لتخبر التجار بعرض أو بشيء جديد.")}</p>
+      <Loaded s={s} skeleton={<PopupsSkeleton />}>
+        {(raw) => {
+          const d = { ...raw, shops: js.names(raw.shops) };
+          return (
+            <>
+              {form && <Editor form={form} setForm={setForm} onSaved={(id, b, row) => saved(d, id, b, row)} />}
+              <div className="relative">
+                <SavedNote note={form ? null : js.note} />
+                <div className="space-y-3">
+                  {js.rows(d.popups).length === 0 && !form && (
+                    <div className={`${card} text-center`}>
+                      <p className="font-semibold">{t("No pop-ups yet.", "لا توجد نوافذ بعد.")}</p>
+                      <p className="mt-1 text-sm text-muted">{t("Make one to tell merchants about an offer or something new.", "أنشئ واحدة لتخبر التجار بعرض أو بشيء جديد.")}</p>
+                    </div>
+                  )}
+                  {js.rows(d.popups).map((r) => <PopupRow key={r.id} r={r} d={d} ring={js.ring(r.id)} onEdit={() => edit(r, d)} reload={s.reload} />)}
                 </div>
-              )}
-              {d.popups.map((r) => <PopupRow key={r.id} r={r} d={d} onEdit={() => edit(r, d)} reload={s.reload} />)}
-            </div>
-          </>
-        )}
+              </div>
+            </>
+          );
+        }}
       </Loaded>
     </div>
   );
 }
 
-function PopupRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => void; reload: () => void }) {
+function PopupRow({ r, d, ring, onEdit, reload }: { r: Row; d: Data; ring: string; onEdit: () => void; reload: () => void }) {
   const t = useT();
   const f = useFmt();
   const audienceText = useAudienceText();
@@ -126,7 +164,7 @@ function PopupRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => voi
   const rule = POPUP_TEMPLATE_RULES[r.template] as (typeof POPUP_TEMPLATE_RULES)[TemplateId] | undefined;
   const text = biOf(r.slots ?? {}, "body").en ? biOf(r.slots, "body") : biOf(r.slots ?? {}, "intro");
   return (
-    <article className={`${card} !p-0 overflow-hidden`}>
+    <article id={`row-${r.id}`} className={`${card} !p-0 overflow-hidden ${ring}`}>
       <div className="flex flex-col gap-4 p-4 sm:flex-row">
         <div className="h-28 w-full shrink-0 overflow-hidden rounded-xl bg-soft sm:w-40">
           {pic ? (
@@ -147,23 +185,25 @@ function PopupRow({ r, d, onEdit, reload }: { r: Row; d: Data; onEdit: () => voi
               {audienceText(r.audience, d.shops)} · {r.placement === "any" ? t("any merchant page", "أي صفحة للتاجر") : t("dashboard home", "الصفحة الرئيسية")}
             </span>
           </div>
-          <h2 className="mt-2 break-words font-bold">{t(r.titleEn, r.titleAr)}</h2>
-          {t(text.en, text.ar) && <p className="mt-1 line-clamp-2 whitespace-pre-line break-words text-sm text-muted">{t(text.en, text.ar)}</p>}
+          <h2 dir="auto" className="mt-2 break-words font-bold ltr:text-left rtl:text-right">{t(r.titleEn, r.titleAr)}</h2>
+          {t(text.en, text.ar) && <p dir="auto" className="mt-1 line-clamp-2 whitespace-pre-line break-words text-sm text-muted ltr:text-left rtl:text-right">{t(text.en, text.ar)}</p>}
           <p className="mt-2 text-xs text-muted">
             {f.dateTime(r.startsAt)} → {r.endsAt ? f.dateTime(r.endsAt) : t("no end", "بلا نهاية")}
             {r.by ? ` · ${t("by", "بواسطة")} ${r.by}` : ""}
           </p>
         </div>
-        <div className="grid shrink-0 grid-cols-4 gap-2 text-center sm:w-72">
+        {/* four boxes of one width (the widest label's), as tall as their words, the number over its label like the
+            Themes page's figures */}
+        <div className="grid shrink-0 grid-cols-4 gap-2 self-stretch text-center sm:self-start">
           {[
-            [f.num(r.reach), t("for", "موجهة لـ")],
+            [r.reach == null ? "—" : f.num(r.reach), t("for", "موجهة لـ")],
             [f.num(r.seen), t("saw it", "شاهدها")],
             [f.num(r.clicked), t("pressed", "ضغط الزر")],
             [r.seen ? `${f.num(rate)}%` : "—", t("press rate", "نسبة الضغط")],
           ].map(([v, l], i) => (
-            <div key={i} className="rounded-xl bg-soft px-1 py-2">
-              <p className="text-base font-bold tabular-nums">{v}</p>
-              <p className="text-[11px] text-muted">{l}</p>
+            <div key={i} className="min-w-[4.5rem] rounded-xl bg-soft px-2 py-3">
+              <p className="text-lg font-bold leading-tight tabular-nums">{v}</p>
+              <p className="mt-0.5 whitespace-nowrap text-[11px] text-muted">{l}</p>
             </div>
           ))}
         </div>
@@ -314,10 +354,12 @@ function SlotField({ def, value, onChange, onLang }: { def: SlotDef; value: Slot
   );
 }
 
-function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: () => void }) {
+function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: (id: string | null, body: Body, row: Row | null) => void }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  /* a message about the form goes as soon as the form is changed: it may be fixed now, and Publish checks again */
+  useEffect(() => setErr(""), [form]);
   const [look, setLook] = useState<Look>({ lang: "ar", phone: false });
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm({ ...form, [k]: v });
   const rule = templateRule(form.template);
@@ -368,7 +410,7 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
       if (v === undefined) continue;
       slots[s.key] = s.kind === "list" && typeof v === "object" ? { en: ((v as BiList).en ?? []).filter((x) => x.trim()), ar: ((v as BiList).ar ?? []).filter((x) => x.trim()) } : v;
     }
-    const body = {
+    const body: Body = {
       template: form.template, slots, placement: form.placement, audience: audienceBody(form.audience),
       startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : null,
       endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
@@ -378,7 +420,8 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
     const r = form.id ? await send(`/api/diwan/popups/${form.id}`, "PATCH", body) : await send("/api/diwan/popups", "POST", body);
     setBusy(false);
     if (!r.ok) return setErr(r.data?.field ? messageFor(r.data.field) : t("It was not saved. Try again.", "لم يُحفظ. حاول مرة أخرى."));
-    onSaved();
+    /* an edit keeps its id; a new one has the id the server answered with */
+    onSaved(form.id ?? (r.data?.id ? String(r.data.id) : null), body, (r.data?.row as Row | undefined) ?? null);
   };
 
   /* the preview shows a title even before one is written */

@@ -52,6 +52,12 @@ export function LoginForm() {
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState("");
 
+  /* the tab's title in the staff's language, again on a language switch */
+  const tabTitle = t("Diwan | Sign in", "ديوان | تسجيل الدخول");
+  useEffect(() => {
+    document.title = tabTitle;
+  }, [tabTitle]);
+
   useEffect(() => {
     fetch("/api/diwan/setup", { cache: "no-store" })
       .then((r) => r.json())
@@ -168,6 +174,7 @@ export function LoginForm() {
         dir="ltr"
         inputMode="numeric"
         autoComplete="one-time-code"
+        placeholder="______"
         maxLength={7}
         required
         value={code}

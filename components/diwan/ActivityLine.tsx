@@ -2,19 +2,27 @@
 
 import Link from "next/link";
 import { REASON_WORDS, type ReportReason } from "../storeReports";
-import { actionWords } from "./activityWords";
+import { actionWords, documentKindWords, documentNumber } from "./activityWords";
 import { can, roleName } from "./perms";
 import { methodText } from "./shopBits";
 import { PRIORITY, STATUS, type TPriority, type TStatus } from "./ticketWords";
 import { useFmt, useStaff, useT } from "./ui";
 
 /* One activity-log line in full words: what was done, to which ticket (a link to it), and what changed from what to
-   what ("Changed ticket #1001 priority: Normal → High", "Assigned ticket #1001 to Sara"). The facts come from the
+   what ("Changed ticket #1001 priority: Normal → High", "Assigned ticket #1001 to Sara", "Rejected Proof of delivery
+   #002"). The facts come from the
    server (server/activityDetail.ts), which sends only safe ones; this file only puts them into words, with the same
    names for statuses and priorities as the pages they belong to. Shared by the activity page and a store's page. */
 
 export type Change = { field: string; from: string | null; to: string | null };
-export type Detail = { changes?: Change[]; title?: string; amount?: string; method?: string; member?: string; count?: number; changedFields?: string[] };
+/* the document a review was about: its kind, its number among its store's documents of that kind, and whether the
+   merchant has removed it since */
+export type DocumentFacts = { kind: string; seq: number | null; removed: boolean };
+export type Detail = {
+  changes?: Change[]; title?: string; amount?: string; method?: string; member?: string; count?: number; changedFields?: string[];
+  /* a document review: the status it left (said even when only the note changed) and the document, when it is still known */
+  status?: string; document?: DocumentFacts;
+};
 export type ActivityRow = {
   id: string;
   at: string;
@@ -119,6 +127,38 @@ function TicketRef({ n }: { n: string }) {
   );
 }
 
+/** A document by its kind and number ("Proof of delivery #002", as its card says), a link to the store's documents
+    for staff who may open them, and a word when the merchant has removed it since */
+function DocumentRef({ doc, id, shopId }: { doc: DocumentFacts; id: string | null; shopId: string | null }) {
+  const t = useT();
+  const staff = useStaff();
+  const label = (
+    <>
+      {documentKindWords(t, doc.kind)}
+      {doc.seq != null && (
+        <>
+          {" "}
+          <span dir="ltr">{documentNumber(doc.seq)}</span>
+        </>
+      )}
+    </>
+  );
+  /* every status, so an approved or rejected one shows too; the page scrolls to the card (#doc-<id>) */
+  const href = `/diwan/documents?${shopId ? `shop=${shopId}&` : ""}status=all${id && /^\d+$/.test(id) ? `#doc-${id}` : ""}`;
+  return (
+    <>
+      {staff && can(staff, "documents") ? (
+        <Link href={href} className="font-semibold text-primary hover:underline">
+          {label}
+        </Link>
+      ) : (
+        <b>{label}</b>
+      )}
+      {doc.removed && <span className="text-muted">{t(" (removed by the merchant)", " (حذفه التاجر)")}</span>}
+    </>
+  );
+}
+
 /** One line of the log, in words */
 export function ActivityText({ row }: { row: ActivityRow }) {
   const t = useT();
@@ -175,18 +215,41 @@ export function ActivityText({ row }: { row: ActivityRow }) {
       </>
     );
 
+  /* a document review names the document; an old line whose document is gone keeps the plain words below */
+  if (row.action === "document.review" && d.document) {
+    const status = changes.find((c) => c.field === "status");
+    const noteOnly = !status && !!d.changedFields?.includes("note");
+    const verb =
+      status?.to === "approved"
+        ? t("Approved ", "قبِل ")
+        : status?.to === "rejected"
+          ? t("Rejected ", "رفض ")
+          : noteOnly && d.status === "rejected"
+            ? t("Changed the rejection note on ", "غيّر ملاحظة الرفض على ")
+            : noteOnly
+              ? t("Changed the note on ", "غيّر الملاحظة على ")
+              : t("Reviewed ", "راجع ");
+    return (
+      <>
+        {verb}
+        <DocumentRef doc={d.document} id={row.targetId} shopId={row.shop?.id ?? null} />
+        {status && <span className="block text-[13px] font-normal text-muted">{changeWords(t, row.action, status, false)}</span>}
+      </>
+    );
+  }
+
   /* every other line: what was done, on what, then what changed */
   const bits: string[] = [];
   if (d.member) bits.push(d.member);
   if (d.title) bits.push(`“${d.title}”`);
-  if (row.action === "shop.payment" && d.amount) bits.push(`${f.jod(d.amount)}${d.method ? `, ${methodText(t, d.method)}` : ""}`);
+  if (row.action === "shop.payment" && d.amount) bits.push(`${f.jod(d.amount)}${d.method ? `${t(", ", "، ")}${methodText(t, d.method)}` : ""}`);
   if (row.action === "settings.change" && row.targetId) bits.push(row.targetId);
   const said = [
     ...changes.map((c) => changeWords(t, row.action, c, !(row.action === "document.review" || (row.action === "staff.role" && c.field === "role")))),
     ...(more ? [more] : []),
   ];
-  if (typeof d.count === "number" && (row.action === "shops.export" || row.action === "payments.export")) said.push(t(`${f.num(d.count)} rows`, `${f.num(d.count)} صف`));
-  if (typeof d.count === "number" && row.action === "tickets.canned.save") said.push(t(`${f.num(d.count)} ready replies`, `${f.num(d.count)} رد جاهز`));
+  if (typeof d.count === "number" && (row.action === "shops.export" || row.action === "payments.export")) said.push(f.count(d.count, ["row", "rows"], { one: "صف واحد", two: "صفّان", few: "صفوف", many: "صفًا" }));
+  if (typeof d.count === "number" && row.action === "tickets.canned.save") said.push(f.count(d.count, ["ready reply", "ready replies"], { one: "رد جاهز واحد", two: "ردّان جاهزان", few: "ردود جاهزة", many: "ردًا جاهزًا" }));
   return (
     <>
       {actionWords(t, row.action)}

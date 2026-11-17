@@ -94,5 +94,21 @@ export const actionWords = (t: (en: string, ar: string) => string, action: strin
   return w ? t(w[0], w[1]) : action;
 };
 
+/* A document's kind, in the same words as the cards on Diwan's Documents page, so a log line and its card match */
+const DOCUMENT_KIND: Record<string, [en: string, ar: string]> = {
+  courier_proof: ["Proof of delivery", "إثبات التوصيل"],
+  commercial_registration: ["Commercial registration", "السجل التجاري"],
+  other: ["Other document", "مستند آخر"],
+};
+
+/** A document's kind in words (a kind without words reads as "Document") */
+export const documentKindWords = (t: (en: string, ar: string) => string, kind: string) => {
+  const w = DOCUMENT_KIND[kind];
+  return w ? t(w[0], w[1]) : t("Document", "مستند");
+};
+
+/** A document's number among its store's documents of its kind, as the cards show it ("#002") */
+export const documentNumber = (seq: number) => `#${String(seq).padStart(3, "0")}`;
+
 /** Sign-in lines, for the "Sign-ins only" filter */
 export const SIGN_IN_ACTIONS = ["staff.login", "staff.logout", "staff.login_failed", "staff.code_failed", "staff.setup_wrong_key"];

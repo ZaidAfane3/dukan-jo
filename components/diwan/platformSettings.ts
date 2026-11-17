@@ -1,4 +1,5 @@
-import { cleanLine, cleanLines, cleanMoney, visibleLength } from "../safe";
+import { latin } from "../digits";
+import { cleanEmail, cleanLine, cleanLines, cleanMoney, visibleLength } from "../safe";
 
 /* The platform settings Diwan can change (platform_settings rows), their starting values and the rules each value must pass.
    Plain TypeScript with no browser APIs: the settings route runs the same clean functions on every value it is sent, and the
@@ -7,7 +8,9 @@ import { cleanLine, cleanLines, cleanMoney, visibleLength } from "../safe";
 /* Dukkan takes no PayPal (removed 2026-11-16): a saved setting that still has it is read without it */
 export const PAY_METHODS = ["cod", "cliq", "card"] as const;
 export type PayMethod = (typeof PAY_METHODS)[number];
-export type PaymentMethods = Record<PayMethod, { on: boolean; note: string }>;
+/* note: the line shown under the way to pay at checkout, in English and Arabic (either may be empty; components/platformPublic.ts
+   noteFor shows the other language when the visitor's is empty) */
+export type PaymentMethods = Record<PayMethod, { on: boolean; note: Bi }>;
 /** The ways the theme checkout can take a merchant's payment (it has no cash): only the ones Diwan has on are offered */
 export const THEME_PAYS = ["card", "cliq"] as const satisfies readonly PayMethod[];
 export type ThemePay = (typeof THEME_PAYS)[number];
@@ -20,11 +23,15 @@ export type LegalTemplate = { title: Bi; body: Bi };
 export const LEGAL_PAGES = ["returns", "terms", "privacy"] as const;
 export type LegalPage = (typeof LEGAL_PAGES)[number];
 export type StoreLegalTemplates = Record<LegalPage, LegalTemplate>;
+/* How a merchant reaches Dukkan's own support team: shown on the suspended-store page and the website's contact lines.
+   An empty field is left out wherever it would be shown. */
+export type SupportContact = { phone: string; whatsapp: string; email: string };
 
 export type PlatformSettings = {
   payment_methods: PaymentMethods;
   dukkan_ship: DukkanShip;
   store_legal_templates: StoreLegalTemplates;
+  support_contact: SupportContact;
 };
 export type SettingKey = keyof PlatformSettings;
 
@@ -33,10 +40,11 @@ export type SettingKey = keyof PlatformSettings;
    Removed on 2026-11-16: "shipping_companies" (a list of couriers nothing outside this settings page ever read: a merchant
    names his own delivery partner), and "default_themes" and "seo_defaults", which are now set in the code
    (components/platformDefaults.ts). A row still saved under any of these keys is never read, sent or shown. */
-export const SETTING_KEYS: SettingKey[] = ["payment_methods", "dukkan_ship", "store_legal_templates"];
+export const SETTING_KEYS: SettingKey[] = ["payment_methods", "dukkan_ship", "store_legal_templates", "support_contact"];
 /* What any visitor's page may read (GET /api/platform/settings): prices, ways to pay and texts every store shows anyway.
-   Today that is every setting; a setting only Diwan should see would be left out of this list. */
-export const PUBLIC_KEYS = ["payment_methods", "dukkan_ship", "store_legal_templates"] as const satisfies readonly SettingKey[];
+   Today that is every setting; a setting only Diwan should see would be left out of this list. Dukkan's support contact is
+   public on purpose: a suspended merchant reads it without being signed in. */
+export const PUBLIC_KEYS = ["payment_methods", "dukkan_ship", "store_legal_templates", "support_contact"] as const satisfies readonly SettingKey[];
 export type PublicKey = (typeof PUBLIC_KEYS)[number];
 export type PublicSettings = Pick<PlatformSettings, PublicKey>;
 
@@ -70,9 +78,9 @@ const LEGAL_DEFAULTS: StoreLegalTemplates = {
 export const SETTING_DEFAULTS: PlatformSettings = {
   payment_methods: {
     /* the store checkout offers cash, CliQ and card, and the theme checkout card and CliQ */
-    cod: { on: true, note: "" },
-    cliq: { on: true, note: "" },
-    card: { on: true, note: "" },
+    cod: { on: true, note: { en: "", ar: "" } },
+    cliq: { on: true, note: { en: "", ar: "" } },
+    card: { on: true, note: { en: "", ar: "" } },
   },
   dukkan_ship: {
     price: 3,
@@ -89,12 +97,27 @@ export const SETTING_DEFAULTS: PlatformSettings = {
     ],
   },
   store_legal_templates: LEGAL_DEFAULTS,
+  /* the email the website gave before; no phone or WhatsApp until staff write a real one (the old +962 6 000 0000 was a placeholder) */
+  support_contact: { phone: "", whatsapp: "", email: "hello@dukkan.store" },
 };
 
 export const LIMITS = {
   city: 40, note: 200,
   shipPrice: 100, shipCities: 30, shipPolicy: 200, shipFeatures: 8, shipFeature: 80, legalTitle: 80, legalBody: 6000,
+  supportNumber: 20, supportEmail: 120,
 };
+
+/** A support phone or WhatsApp number as staff write it: empty, or 8 to 15 digits with only spaces, dashes, brackets and
+    a leading + around them. Kept as written, so it shows the way staff spaced it. */
+export function okSupportNumber(v: string): boolean {
+  const t = latin(v).trim();
+  if (!t) return true;
+  const digits = t.replace(/\D/g, "").length;
+  return /^\+?[\d\s\-()]+$/.test(t) && digits >= 8 && digits <= 15;
+}
+
+/** A support email: empty, or one that looks like an address */
+export const okSupportEmail = (v: string): boolean => !v.trim() || !!cleanEmail(v);
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
@@ -119,6 +142,18 @@ function biList(v: unknown, maxItems: number, max: number): Bi[] | null {
   return out;
 }
 
+/* A checkout note: { en, ar }, each one optional. Before 2026-11-17 it was one plain string; such a saved note still reads,
+   put in the box of the language it is written in (Arabic letters: Arabic), so nothing staff wrote is lost and the page
+   shows it in both languages until staff write the other one. */
+function payNoteOf(v: unknown): Bi {
+  if (typeof v === "string") {
+    const t = cleanLine(v, LIMITS.note);
+    return /[؀-ۿ]/.test(t) ? { en: "", ar: t } : { en: t, ar: "" };
+  }
+  if (!isObj(v)) return { en: "", ar: "" };
+  return { en: cleanLine(v.en ?? "", LIMITS.note), ar: cleanLine(v.ar ?? "", LIMITS.note) };
+}
+
 /** Checks one setting against its rules (null when the value can't be used) */
 export function cleanSetting(key: SettingKey, v: unknown): PlatformSettings[SettingKey] | null {
   switch (key) {
@@ -128,7 +163,7 @@ export function cleanSetting(key: SettingKey, v: unknown): PlatformSettings[Sett
       for (const m of PAY_METHODS) {
         const x = v[m];
         if (!isObj(x) || typeof x.on !== "boolean") return null;
-        out[m] = { on: x.on, note: cleanLine(x.note ?? "", LIMITS.note) };
+        out[m] = { on: x.on, note: payNoteOf(x.note) };
       }
       return out;
     }
@@ -156,6 +191,18 @@ export function cleanSetting(key: SettingKey, v: unknown): PlatformSettings[Sett
         out[k] = { title, body };
       }
       return out;
+    }
+
+    case "support_contact": {
+      if (!isObj(v)) return null;
+      /* a number with letters in it or a half-written email is refused, never saved cut down to something else */
+      const line = (x: unknown, max: number) => (typeof x === "string" && x.trim().length > max ? null : cleanLine(latin(typeof x === "string" ? x : ""), max));
+      const phone = line(v.phone, LIMITS.supportNumber);
+      const whatsapp = line(v.whatsapp, LIMITS.supportNumber);
+      const email = line(v.email, LIMITS.supportEmail);
+      if (phone === null || whatsapp === null || email === null) return null;
+      if (!okSupportNumber(phone) || !okSupportNumber(whatsapp) || !okSupportEmail(email)) return null;
+      return { phone, whatsapp, email: email ? cleanEmail(email) : "" };
     }
   }
   return null;

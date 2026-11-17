@@ -83,7 +83,8 @@ function unlockScroll() {
 }
 
 /** A dialog on a dim backdrop: labelled by its title and described by its text, focus moves in (to the field or
-    button marked data-autofocus, else the first one) and goes back to what opened it, Tab stays inside, Escape and a
+    button marked data-autofocus, else the first one; in a "danger" dialog never its submit button, so Enter on opening
+    can't delete or remove anything) and goes back to what opened it, Tab stays inside, Escape and a
     click on the backdrop call onClose, and the page behind doesn't scroll. The content is a form, so Enter submits
     (onSubmit). While `busy`, it can't be closed. */
 export function Dialog({
@@ -103,7 +104,13 @@ export function Dialog({
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const box = panel.current;
-    const first = box?.querySelector<HTMLElement>("[data-autofocus]") ?? box?.querySelector<HTMLElement>(FOCUSABLE) ?? box;
+    const marked = box?.querySelector<HTMLElement>("[data-autofocus]");
+    const all = box ? Array.from(box.querySelectorAll<HTMLElement>(FOCUSABLE)) : [];
+    const isSubmit = (el: HTMLElement | null | undefined) => el instanceof HTMLButtonElement && el.type === "submit";
+    const first =
+      tone === "danger"
+        ? (marked && !isSubmit(marked) ? marked : all.find((el) => !isSubmit(el))) ?? box
+        : marked ?? all[0] ?? box;
     first?.focus();
     if (first instanceof HTMLInputElement) first.select();
     lockScroll();
@@ -210,8 +217,9 @@ function ConfirmDialog({ a }: { a: Extract<Ask, { kind: "confirm" }> }) {
       onSubmit={() => answer(true)}
       footer={
         <>
-          <Btn type="button" kind="ghost" onClick={() => answer(false)}>{a.o.cancel ?? t("Cancel", "إلغاء")}</Btn>
-          <Btn type="submit" kind={a.o.danger ? "danger" : "primary"} data-autofocus>{a.o.confirm ?? t("Continue", "متابعة")}</Btn>
+          {/* a dangerous question starts on Cancel: Enter then cancels, and deleting takes moving to the red button */}
+          <Btn type="button" kind="ghost" onClick={() => answer(false)} data-autofocus={a.o.danger || undefined}>{a.o.cancel ?? t("Cancel", "إلغاء")}</Btn>
+          <Btn type="submit" kind={a.o.danger ? "danger" : "primary"} data-autofocus={!a.o.danger || undefined}>{a.o.confirm ?? t("Continue", "متابعة")}</Btn>
         </>
       }
     />
@@ -265,6 +273,7 @@ function TextDialog({ a }: { a: Extract<Ask, { kind: "text" }> }) {
       </label>
       {o.multiline ? (
         <textarea
+          dir="auto"
           {...props}
           rows={4}
           className={area}
@@ -273,7 +282,7 @@ function TextDialog({ a }: { a: Extract<Ask, { kind: "text" }> }) {
           onKeyDown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && (e.preventDefault(), submit())}
         />
       ) : (
-        <input {...props} type="text" className={field} onChange={(e) => (setV(e.target.value), setErr(""))} />
+        <input {...props} type="text" dir="auto" className={field} onChange={(e) => (setV(e.target.value), setErr(""))} />
       )}
       <div className="mt-1 flex justify-between gap-3 text-xs">
         <span id={errId} role={err ? "alert" : undefined} className="text-red-600">{err}</span>

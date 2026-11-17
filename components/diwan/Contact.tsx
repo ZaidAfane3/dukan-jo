@@ -11,7 +11,7 @@ import { Btn, useT } from "./ui";
 export type ContactInfo = { owner?: string | null; email?: string | null; phone?: string | null; storePhone?: string | null };
 
 /** A WhatsApp link for a mobile: Jordan's 07… becomes 962…, a leading 00 is dropped (the same rule as
-    components/SuspendedNotice.tsx); "" when it is too short to be a number */
+    waLink in components/platformPublic.ts); "" when it is too short to be a number */
 export function waLink(n: string): string {
   let d = n.replace(/\D/g, "").replace(/^00/, "");
   if (/^07\d{8}$/.test(d)) d = `962${d.slice(1)}`;

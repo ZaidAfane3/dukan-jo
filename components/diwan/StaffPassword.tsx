@@ -145,7 +145,7 @@ export function ShowPasswordOnce({ name, password, onClose }: { name: string; pa
   };
   return (
     <Dialog
-      title={t(`The temporary password for ${name}`, `كلمة المرور المؤقتة لـ ${name}`)}
+      title={t(`The temporary password for ${name}`, `كلمة مرور ${name} المؤقتة`)}
       body={t(
         "It is shown only this once. Hand it over privately, in person or in a direct message, never in a group chat or a shared inbox. They choose their own at the next sign-in.",
         "تظهر مرة واحدة فقط. سلّمها له على انفراد، شخصيًا أو برسالة خاصة، لا في مجموعة ولا في بريد مشترك. سيختار كلمته عند الدخول التالي.",
