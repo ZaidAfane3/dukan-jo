@@ -146,8 +146,9 @@ export function mergeList(key: string, base: ItemMarks, mineText: string, theirs
       const th = mark(t);
       if (b === undefined) {
         /* this side's own earlier addition, which reached the server though its reply was lost (and maybe was edited
-           since, or had its pictures made files there): the same item, this side's newer copy kept, not a second one */
-        if (mh === th || sameMaking(m, t)) out.push(m);
+           since, or had its pictures made files there): the same item, not a second one. Merged as one both sides
+           changed: this side's newer copy, but a delete into the bin carries the other side's edit */
+        if (mh === th || sameMaking(m, t)) out.push(bothChanged(m, t, bin));
         else {
           out.push(t);
           const again = renamed(m);
