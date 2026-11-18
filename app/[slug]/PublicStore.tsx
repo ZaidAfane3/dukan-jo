@@ -14,7 +14,9 @@ import { VisitorStoreContext } from "@/components/storefront/visitorStore";
 
 /* A merchant's store at its address, for its visitors (app/[slug]/page.tsx). Everything shown comes from what the server
    sent; the visitor's own browser storage is never read or written for it (see storefront/visitorStore.ts), so a visitor
-   who has a Dukkan store of their own sees this store only. The language is the visitor's own choice. */
+   who has a Dukkan store of their own sees this store only. Only the visitor's basket is kept there, per store
+   (storefront/visitorBasket.ts). A product or page open has its own address (?p=<id>, ?page=<id>, see StorefrontTheme).
+   The language is the visitor's own choice. */
 
 /* An open store: its design is put together in the browser (like the merchant's own preview, app/store), then drawn */
 function OpenStore({ store }: { store: PublicStoreOpen }) {

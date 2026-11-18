@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Logo } from "./Nav";
+import { supportLinks, usePublicSettings } from "./platformPublic";
 import { FlagJO } from "./Flag";
 import { brandName } from "./content";
 import { linkAttrs, SOCIAL_NAMES, type IndustryIcon, type SiteView } from "./siteContent";
@@ -952,6 +953,8 @@ export function Trust() {
   const w = s.legal;
   const reg = s.legal;
   const contact = s.contact;
+  /* the phone and email as staff set them in Diwan (Platform settings > Support contact); an empty one is left out */
+  const support = supportLinks(usePublicSettings());
   /* the registration links to the ministry's register when components/siteContent.ts gives its address */
   const regLink = reg.url ? linkAttrs(reg.url) : null;
   const icons = [
@@ -1020,13 +1023,13 @@ export function Trust() {
                 )}
                 {i === 2 && (
                   <div className="relative mt-4 space-y-2 text-sm font-bold">
-                    {contact.phone && <a href={`tel:${contact.phone.replace(/\s/g, "")}`} dir="ltr" className="flex w-fit items-center gap-2 transition-colors hover:text-primary">
+                    {support.tel && <a href={support.tel} dir="ltr" className="flex w-fit items-center gap-2 transition-colors hover:text-primary">
                       <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{icons[2]}</svg>
-                      {contact.phone}
+                      {support.phone}
                     </a>}
-                    {contact.email && <a href={`mailto:${contact.email}`} dir="ltr" className="flex w-fit items-center gap-2 transition-colors hover:text-primary">
+                    {support.mailto && <a href={support.mailto} dir="ltr" className="flex w-fit items-center gap-2 transition-colors hover:text-primary">
                       <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-primary" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>
-                      {contact.email}
+                      {support.email}
                     </a>}
                   </div>
                 )}
@@ -1121,6 +1124,8 @@ export function Footer() {
   const placed = cols.length <= 3;
   const social = s.social.filter((x) => x.href);
   const contact = s.contact;
+  /* the phone and email as staff set them in Diwan (Platform settings > Support contact); an empty one is left out */
+  const support = supportLinks(usePublicSettings());
   const pin = (
     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M12 21s7-6.100 7-11.500A7 7 0 0 0 5 9.500C5 14.900 12 21 12 21Z" />
@@ -1213,9 +1218,9 @@ export function Footer() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-8 gap-y-3 px-5 py-5 text-sm text-muted">
           <p>{c.legal}</p>
           <ul className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            {contact.phone && <li><a href={`tel:${contact.phone.replace(/\s/g, "")}`} className="flex items-center gap-2 transition-colors hover:text-primary">{phone}<span dir="ltr">{contact.phone}</span></a></li>}
+            {support.tel && <li><a href={support.tel} className="flex items-center gap-2 transition-colors hover:text-primary">{phone}<span dir="ltr">{support.phone}</span></a></li>}
             {contact.place && <li className="flex items-center gap-2">{pin}{contact.place}</li>}
-            {contact.email && <li><a href={`mailto:${contact.email}`} className="flex items-center gap-2 transition-colors hover:text-primary">{mail}<span dir="ltr">{contact.email}</span></a></li>}
+            {support.mailto && <li><a href={support.mailto} className="flex items-center gap-2 transition-colors hover:text-primary">{mail}<span dir="ltr">{support.email}</span></a></li>}
           </ul>
         </div>
       </div>

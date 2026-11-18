@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Lang } from "./content";
+import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
 import { loadConfig } from "./storefront/storage";
 
 /* A field of the product form that shows on the store's product card */
@@ -50,7 +51,7 @@ const words = {
  * A small "!" beside a field's title. Pointing at it (or pressing it) shows a product card with that field marked, filled with
  * what he typed (or an example), so he sees exactly where it lands in his store.
  */
-export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField; values: { name: string; notes: string; badge: string; category: string; price: string; sale: string; photo?: string } }) {
+export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField; values: { name: string; notes: string; badge: string; category: string; price: string; sale: string; photo?: string; /* the product being edited (its placeholder's color) */ id?: number } }) {
   const w = words[lang];
   const [open, setOpen] = useState(false);
   /* whether the store's card shows this field (his saved design, or the template) */
@@ -104,12 +105,8 @@ export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField
   /* the short line as the product page shows it: each word in its own chip */
   const chips = notes.split(/\s*[·•،,|]\s*/).map((x) => x.trim()).filter(Boolean).slice(0, 6);
   const photo = (h: string) => (
-    <span className={`relative block ${h} bg-gradient-to-br from-[#e8dccb] to-[#b9a58a]`}>
-      {values.photo && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={values.photo} alt="" className="absolute inset-0 h-full w-full object-cover" />
-      )}
-    </span>
+    /* no photo: the store's own placeholder, as the card will really show it */
+    <ProductPhoto src={values.photo} hue={noPhotoHue(values.id)} className={h} />
   );
   const money = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
@@ -140,7 +137,7 @@ export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField
             </span>
             <span className="block p-2.5">
               <span className={`block text-[10px] text-black/55 ${mark(field === "category")}`}>{category}</span>
-              <span className="mt-0.5 block truncate text-[13px] font-bold">{name}</span>
+              <span dir="auto" className="mt-0.5 block truncate text-[13px] font-bold ltr:text-left rtl:text-right">{name}</span>
               {field === "notes" && <span className={`mt-0.5 block truncate text-[11px] text-black/60 ${mark(true)}`}>{notes}</span>}
               <span className="mt-1.5 flex items-baseline gap-1.5" dir="ltr">
                 <span className="text-[13px] font-extrabold">{money(sale ?? price)} <small className="text-[9px] font-semibold opacity-60">{w.currency}</small></span>
@@ -163,7 +160,7 @@ export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField
               <span className="block overflow-hidden rounded-lg">{photo("h-full min-h-[7.5rem]")}</span>
               <span className="block min-w-0">
                 <span className={`inline-block rounded-full bg-black/[0.06] px-1.5 py-px text-[8px] font-semibold text-black/60 ${mark(field === "badge" || field === "category")}`}>{field === "badge" ? badge : category}</span>
-                <span className="mt-1 block truncate text-[13px] font-extrabold">{name}</span>
+                <span dir="auto" className="mt-1 block truncate text-[13px] font-extrabold ltr:text-left rtl:text-right">{name}</span>
                 <span className="mt-0.5 flex items-baseline gap-1.5" dir="ltr">
                   <span className="text-[12px] font-extrabold">{money(sale ?? price)} <small className="text-[8px] font-semibold opacity-60">{w.currency}</small></span>
                   {sale !== null && <span className={`text-[10px] text-black/45 line-through ${mark(field === "sale")}`}>{money(price)}</span>}

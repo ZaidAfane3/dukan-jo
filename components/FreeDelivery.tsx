@@ -8,6 +8,9 @@ import { loadFreeDelivery, saveFreeDelivery } from "./freeDeliveryStore";
 import { jod, usePublicSettings } from "./platformPublic";
 import { usePrefs } from "./Prefs";
 import { RequiredMark } from "./Required";
+import { dropUndos, offerUndo, valueUndo } from "./undo";
+import type { FreeDelivery as Offer } from "./freeDeliveryStore";
+import { usePageTitle } from "./pageTitle";
 
 const copy = {
   en: {
@@ -24,6 +27,12 @@ const copy = {
     err: "Enter an amount above zero.",
     /* fee: Dukkan Ship's price per order, as Dukkan's staff set it in Diwan */
     shipNote: (fee: string) => `If you deliver with Dukkan Ship, the delivery fee (${fee}) of each free-delivery order is paid by you: it is deducted from the order amount that is paid out to you. The customer pays nothing for delivery.`,
+    /* the same note while Dukkan Ship costs nothing (its price set to 0 in Diwan) */
+    shipFreeNote: "Dukkan Ship is free right now, so a free-delivery order costs you nothing for delivery either.",
+    /* the undo note at the bottom (UndoToast.tsx) */
+    undoOn: "Free delivery turned on",
+    undoOff: "Free delivery turned off",
+    undoMin: (n: string) => `Free delivery minimum changed to ${n} JOD`,
   },
   ar: {
     title: "التوصيل المجاني",
@@ -38,6 +47,10 @@ const copy = {
     saved: "تم الحفظ",
     err: "أدخل مبلغًا أكبر من صفر.",
     shipNote: (fee: string) => `إذا كنت توصّل عبر شحن دكان، فإن رسوم التوصيل (${fee}) لكل طلب مشمول بالتوصيل المجاني يتحمّلها المتجر: تُخصم من مبلغ الطلب المستحق لك، ولا يدفع العميل أي رسوم توصيل.`,
+    shipFreeNote: "شحن دكان مجاني حاليًا، لذلك لا يكلّفك الطلب المشمول بالتوصيل المجاني أي رسوم توصيل أيضًا.",
+    undoOn: "فُعّل التوصيل المجاني",
+    undoOff: "أُوقف التوصيل المجاني",
+    undoMin: (n: string) => `تغيّر الحد الأدنى للتوصيل المجاني إلى ${n} د.أ`,
   },
 };
 
@@ -54,15 +67,15 @@ export function FreeDelivery() {
   const [flash, setFlash] = useState(false);
   const [error, setError] = useState(false);
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${c.title}`;
-  }, [lang, c]);
+  usePageTitle(`${brandName(lang)} | ${c.title}`);
 
   useEffect(() => {
     const v = loadFreeDelivery();
     setOn(v.on);
     setMin(String(v.min));
   }, []);
+  /* only this page shows the offer: its undo goes when it closes */
+  useEffect(() => () => dropUndos("free-delivery"), []);
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,9 +84,24 @@ export function FreeDelivery() {
     const good = n !== null && n > 0;
     if (on && !good) return setError(true);
     setError(false);
-    if (saveFreeDelivery({ on, min: good ? n : loadFreeDelivery().min })) {
+    const before = loadFreeDelivery();
+    const after: Offer = { on, min: good ? n : before.min };
+    if (saveFreeDelivery(after)) {
       setFlash(true);
       setTimeout(() => setFlash(false), 2000);
+      /* an Undo puts the offer back as it was, unless it was saved again since (another tab) */
+      const undo = valueUndo({
+        before,
+        after: loadFreeDelivery(),
+        now: loadFreeDelivery,
+        put: (v) => {
+          if (!saveFreeDelivery(v)) return false;
+          setOn(v.on);
+          setMin(String(v.min));
+          setError(false);
+        },
+      });
+      if (undo) offerUndo({ scope: "free-delivery", label: (l) => (before.on !== after.on ? (after.on ? copy[l].undoOn : copy[l].undoOff) : copy[l].undoMin(String(after.min))), undo });
     }
   };
 
@@ -101,7 +129,7 @@ export function FreeDelivery() {
 
           <p className="mt-5 rounded-xl bg-primary/10 px-4 py-3 text-sm text-deep dark:text-primary">{on && Number(min) > 0 ? c.preview(min) : c.off}</p>
 
-          <p className="mt-3 rounded-xl border border-fg/10 px-4 py-3 text-xs leading-relaxed text-muted">{c.shipNote(jod(ship.price, lang))}</p>
+          <p className="mt-3 rounded-xl border border-fg/10 px-4 py-3 text-xs leading-relaxed text-muted">{ship.price > 0 ? c.shipNote(jod(ship.price, lang)) : c.shipFreeNote}</p>
 
           <div className="mt-6 flex items-center gap-3">
             <button type="submit" className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{c.save}</button>

@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { FromDukkanPage } from "@/components/FromDukkan";
 
 export const metadata: Metadata = {
-  title: "Dukkan | From Dukkan",
+  title: "دكان | من دكان",
 };
 
-export default function DukkanPage({ params }: { params: { slug: string } }) {
+export default async function DukkanPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   return <FromDukkanPage slug={params.slug} />;
 }

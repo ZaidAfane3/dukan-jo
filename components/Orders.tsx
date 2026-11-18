@@ -6,14 +6,23 @@ import { DashboardBar } from "./DashboardBar";
 import { STATUS_DOT, STATUS_KEYS, ordersCopy, type StatusKey } from "./ordersContent";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
-import { isJordanMobile, phoneError, savedMobile, typedAnyPhone } from "./phone";
+import { isJordanMobile, jordanMobile, jordanNumber, phoneError, savedMobile, typedAnyPhone } from "./phone";
 import { ORDER_MAX, cleanOrder, money, parseList, typedMoney, type Order } from "./records";
 import { cleanLine, visibleLength } from "./safe";
-import { CITIES, KNOWN_CITIES, ORDER_LIMITS, inLang, isCity, type Fulfil } from "./safeOrder";
+import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, inLang, isCity, type Fulfil } from "./safeOrder";
+import { shipCityLists, usePublicSettings } from "./platformPublic";
+import { loadSetup } from "./setup";
+import { loadFreeDelivery } from "./freeDeliveryStore";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion } from "./orderDeletions";
 import { serverMode } from "./notifications";
 import { onlineRev, pullOnlineKeys } from "./serverSync";
+import { dropUndos, listUndo, offerUndo } from "./undo";
+import { serverRows, type StoreOrderRow } from "./useStoreOrders";
+import type { Lang } from "./content";
+import { usePageTitle } from "./pageTitle";
+import { Skeleton } from "./Skeleton";
+import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
 
 
 /* Kept in this browser so orders are still there when he comes back. */
@@ -23,27 +32,66 @@ const field =
   "w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
 /* a field with a mistake in it */
 const bad = "!border-rose-500 focus:!ring-rose-500/25";
+/* the undo note at the bottom (UndoToast.tsx); {status} is the status's name as the page shows it */
+const undoWords: Record<Lang, { added: (n: number) => string; deleted: (n: number) => string; status: (n: number, st: string) => string }> = {
+  en: {
+    added: (n) => `Order #${n} added`,
+    deleted: (n) => `Order #${n} deleted`,
+    status: (n, st) => `Order #${n} marked “${st}”`,
+  },
+  ar: {
+    added: (n) => `أُضيف الطلب #${n}`,
+    deleted: (n) => `حُذف الطلب #${n}`,
+    status: (n, st) => `صارت حالة الطلب #${n}: «${st}»`,
+  },
+};
 /* Changing to these statuses is asked first */
 const ASK_FIRST: StatusKey[] = ["cancelled", "refunded"];
 
 /* An order on the list: one kept in this browser (added by hand, or from his own store preview), or one a customer
    placed on his public store, kept on the server (serverId: its id there; payment "test": no payment is taken yet).
-   Both look the same; the server's carry a "Test order, not paid" mark and their status changes go to the server. */
-type Row = Order & { serverId?: string; payment?: "test" | "unpaid" };
+   Both look the same; a store order says how it is paid (payLine below) and the server's status changes go there.
+   The server's answer is checked like the orders read from storage (serverRows, shared with the home page and Reports). */
+type Row = StoreOrderRow;
 const keyOf = (x: Row) => (x.serverId ? `s:${x.serverId}` : `l:${x.id}`);
 
-/* The server's answer, checked like the orders read from storage (cleanOrder) */
-function serverRows(list: unknown): Row[] {
-  if (!Array.isArray(list)) return [];
-  const out: Row[] = [];
-  for (const x of list) {
-    if (!x || typeof x !== "object") continue;
-    const r = x as Record<string, unknown>;
-    const o = cleanOrder(r);
-    if (o && typeof r.serverId === "string" && /^\d+$/.test(r.serverId)) out.push({ ...o, channel: 1, serverId: r.serverId, payment: r.payment === "unpaid" ? "unpaid" : "test" });
-  }
-  return out;
+type Copy = (typeof ordersCopy)[Lang];
+/* a store order (from his public store or his own preview of it) is paid the way the customer chose at checkout */
+const fromStore = (x: Row) => !!x.pay && (x.channel === 1 || x.payment === "test");
+
+/** How a store order is paid, worked out from its way to pay and its status (nothing is kept for it in the browser):
+    cash is "Cash on delivery" (or on pickup) until it is delivered, then "Paid (cash)", the same rule the home page and
+    Reports count a sale by (storeNumbers.ts saleState); card and CliQ take no money yet, so they say nothing was charged.
+    Null for an order he added himself. */
+function payLine(x: Row, o: Copy): { text: string; hint?: string; tone: "paid" | "due" | "test" | "off" } | null {
+  if (!fromStore(x)) return null;
+  if (x.pay === "card" || x.pay === "cliq") return { text: x.pay === "card" ? o.testCard : o.testCliq, hint: o.testOrderHint, tone: "test" };
+  if (x.status === "delivered") return { text: o.paidCash, tone: "paid" };
+  if (x.status === "cancelled") return { text: o.cancelledPay, tone: "off" };
+  if (x.status === "refunded") return { text: o.refundedPay, tone: "off" };
+  const pickup = x.fulfil === "pickup";
+  return { text: pickup ? o.cashPickup : o.payNames.cash, hint: pickup ? o.cashPickupHint : o.cashHint, tone: "due" };
 }
+
+/** A status as the page names it for this order: a new cash order says how it is paid ("Cash on delivery"), not just "New" */
+const statusName = (x: Pick<Row, "status" | "pay" | "channel" | "payment" | "fulfil">, k: StatusKey, o: Copy) =>
+  k === "pending" && x.pay === "cash" && (x.channel === 1 || x.payment === "test") ? (x.fulfil === "pickup" ? o.cashPickup : o.payNames.cash) : o.statuses[k];
+
+/* the customer's phone as links: a call (any Jordan number, or an international one) and WhatsApp (a mobile, as
+   international digits: 9627XXXXXXXX). Null when it is not a number that can be dialled. */
+function dialOf(phone: string): { tel: string; wa: string } | null {
+  const mobile = jordanMobile(phone);
+  if (mobile) return { tel: `+962${mobile}`, wa: `962${mobile}` };
+  const jo = jordanNumber(phone);
+  if (jo) return { tel: `+962${jo}`, wa: "" };
+  const d = latin(phone).replace(/[^\d+]/g, "");
+  const intl = d.startsWith("+") ? d.slice(1) : d.startsWith("00") ? d.slice(2) : "";
+  if (/^[1-9]\d{7,14}$/.test(intl)) return { tel: `+${intl}`, wa: intl };
+  return /^\d{6,15}$/.test(d) ? { tel: d, wa: "" } : null;
+}
+const EMAIL_LINK = /^[^\s@?&#<>"]+@[^\s@?&#<>"]+\.[^\s@?&#<>"]+$/;
+const contactBtn =
+  "inline-flex items-center rounded-lg border border-fg/20 px-3 py-1 text-xs font-semibold text-fg transition hover:bg-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40";
 
 /* The server's rows added to those already loaded: a row loaded again replaces its older copy, and none is ever dropped
    (the newest page moves on as new orders come in, and the older pages loaded stay) */
@@ -73,7 +121,14 @@ export function Orders() {
   const [selected, setSelected] = useState<string | null>(null);
   /* the orders customers placed on his public store (never in the tour), and whether a status change of one failed */
   const [serverOrders, setServerOrders] = useState<Row[]>([]);
-  const [serverReady, setServerReady] = useState(false);
+  /* the first list from the server: on its way, in (even an empty one), or it did not come (shown with "Try again").
+     Once a list is in, a later check that fails keeps it ("ready"). */
+  const [serverState, setServerState] = useState<"loading" | "ready" | "failed">("loading");
+  const serverReady = serverState !== "loading";
+  /* "Try again" after the first list did not come: set by the effect that loads the store orders */
+  const retryServer = useRef<() => void>(() => {});
+  /* the "Load more" request on its way (one at a time, aborted when the page closes or the list starts again) */
+  const moreReq = useRef<AbortController | null>(null);
   /* a page at a time: how many store orders there are, where the next older page starts (null: none), and the
      "Load more" button's state */
   const [serverTotal, setServerTotal] = useState(0);
@@ -98,19 +153,67 @@ export function Orders() {
   const [source, setSource] = useState(0);
   const [fulfil, setFulfil] = useState<Fulfil>("delivery");
   const [city, setCity] = useState("");
+  /* the cities this store delivers to, the same list its checkout and the server take (safeOrder deliveryCities):
+     Dukkan Ship's from Diwan, or the ones he chose for his own courier. No delivery choice yet: every city (he types
+     his own order, so nothing stops him). Read when the form opens */
+  const platform = usePublicSettings();
+  const cityList = useMemo(() => {
+    const ship = creating ? loadSetup()?.shipping : null;
+    return ship ? deliveryCities(ship.mode, shipCityLists(platform), ship.cities) : KNOWN_CITIES;
+  }, [creating, platform]);
   const [address, setAddress] = useState("");
   const [errors, setErrors] = useState<{ name?: string; phone?: string; city?: string; address?: string; total?: string }>({});
   const nameRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${o.title}`;
-  }, [lang, o]);
+  usePageTitle(`${brandName(lang)} | ${o.title}`);
 
+  /* the orders kept in this browser as they are now, for an undo (it checks nothing changed since) */
+  const ordersNow = useRef<Order[]>([]);
   useEffect(() => {
-    setOrders(loadOrders());
+    ordersNow.current = orders;
+  }, [orders]);
+  /* the store orders as they are now: an undo of a status sends the old one back only while the order still has the new one */
+  const serverNow = useRef<Row[]>([]);
+  useEffect(() => {
+    serverNow.current = serverOrders;
+  }, [serverOrders]);
+  /* only this page can put its orders back: its undos go when it closes */
+  useEffect(() => () => dropUndos("orders"), []);
+  /** A change to the orders kept in this browser, saved like any edit (below), with an Undo at the bottom that puts back
+      exactly the orders it changed, unless one of them changed again since */
+  const change = (next: Order[], label: (l: Lang) => string) => {
+    const before = ordersNow.current;
+    ordersNow.current = next;
+    setOrders(next);
+    offerUndo({
+      scope: "orders",
+      label,
+      undo: listUndo({
+        before,
+        after: next,
+        key: (x) => x.id,
+        now: () => ordersNow.current,
+        put: (list) => {
+          ordersNow.current = list;
+          setOrders(list);
+        },
+      }),
+    });
+  };
+
+  /* the list as read from storage: not saved back (only a change he makes is), so opening the page on a device with an
+     older copy never sends that copy over a newer one */
+  const loadedList = useRef<Order[] | null>(null);
+  useEffect(() => {
+    const read = () => {
+      const list = loadOrders();
+      loadedList.current = list;
+      setOrders(list);
+    };
+    read();
     setReady(true);
     /* A new order from the store, or a change in another tab: take that list, so this tab never writes back an old one */
-    const onStorage = (e: StorageEvent) => e.key === KEY && setOrders(loadOrders());
+    const onStorage = (e: StorageEvent) => e.key === KEY && read();
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
@@ -119,7 +222,7 @@ export function Orders() {
      back to it. Signed in only, never in the tour (serverMode). */
   useEffect(() => {
     if (!serverMode()) {
-      setServerReady(true);
+      setServerState("ready");
       return;
     }
     let stop = false;
@@ -127,7 +230,17 @@ export function Orders() {
        first list came in, even an empty one: from then on every check goes back as far as it must */
     const known = new Set<string>();
     let loaded = false;
-    const load = async () => {
+    /* the check on its way, with its own AbortController: one at a time (the minute timer and coming back to the tab
+       never pile requests up behind a slow server), aborted when the page closes or "Try again" starts a new one. An
+       answer that is no longer the current check's is dropped, and only the current check ends the loading. */
+    let live: AbortController | null = null;
+    const load = async (fresh = false) => {
+      if (live && !fresh) return;
+      live?.abort();
+      const req = new AbortController();
+      live = req;
+      const current = () => !stop && live === req;
+      let ok = false;
       try {
         let url = "/api/orders";
         let j: { orders?: unknown; rev?: unknown; next?: unknown; total?: unknown } = {};
@@ -136,10 +249,10 @@ export function Orders() {
            list starts again from what was just read, and "Load more" goes on from there, so it never has a hole */
         const fetched: Row[] = [];
         for (let page = 0; ; page++) {
-          const r = await fetch(url, { credentials: "same-origin", cache: "no-store" });
-          if (!r.ok || stop) return;
+          const r = await fetch(url, { credentials: "same-origin", cache: "no-store", signal: req.signal });
+          if (!r.ok || !current()) return;
           const got = (await r.json()) as typeof j;
-          if (stop) return;
+          if (!current()) return;
           if (page === 0) j = got;
           const rows = serverRows(got.orders);
           const first = !loaded;
@@ -149,6 +262,10 @@ export function Orders() {
           if (!first && !meets && typeof got.next === "string" && page === 19) {
             known.clear();
             fetched.forEach((x) => x.serverId && known.add(x.serverId));
+            /* a "Load more" on its way belongs to the list being replaced: it is stopped, its button ends loading */
+            moreReq.current?.abort();
+            moreReq.current = null;
+            setMoreLoading(false);
             setServerOrders(fetched.slice());
             setCursor(got.next);
             break;
@@ -160,15 +277,24 @@ export function Orders() {
           if (first || meets || typeof got.next !== "string") break;
           url = `/api/orders?before=${encodeURIComponent(got.next)}`;
         }
+        ok = true;
         if (typeof j.total === "number") setServerTotal(j.total);
         /* those orders took stock on the server: this browser's copy of the products is brought up to date */
         const mine = onlineRev();
         if (typeof j.rev === "number" && (mine === null || j.rev > mine)) void pullOnlineKeys();
       } catch {
-        /* offline: the list keeps what it has */
+        /* offline or aborted: the list keeps what it has */
       } finally {
-        if (!stop) setServerReady(true);
+        const still = current();
+        if (live === req) live = null;
+        /* the loading always ends with the current check's answer: the list (or its empty state), or, when no list
+           came in yet, the error with "Try again" */
+        if (still) setServerState((s) => (ok || loaded ? "ready" : s === "ready" ? s : "failed"));
       }
+    };
+    retryServer.current = () => {
+      setServerState("loading");
+      void load(true);
     };
     void load();
     const inView = () => document.visibilityState === "visible" && void load();
@@ -176,10 +302,22 @@ export function Orders() {
     document.addEventListener("visibilitychange", inView);
     return () => {
       stop = true;
+      live?.abort();
+      live = null;
+      retryServer.current = () => {};
       clearInterval(timer);
       document.removeEventListener("visibilitychange", inView);
     };
   }, []);
+
+  /* the page closes: a "Load more" on its way is stopped */
+  useEffect(
+    () => () => {
+      moreReq.current?.abort();
+      moreReq.current = null;
+    },
+    [],
+  );
 
   /* A search result or a notification links here with ?open=ID (once both lists are in) */
   const opened = useRef(false);
@@ -206,7 +344,7 @@ export function Orders() {
   }, [ready, serverReady]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || orders === loadedList.current) return;
     try {
       localStorage.setItem(KEY, JSON.stringify(orders));
     } catch {
@@ -259,19 +397,28 @@ export function Orders() {
 
   /* "Load more": the next older page of his store orders, added below */
   const loadMore = () => {
-    if (!cursor || moreLoading) return;
+    if (!cursor || moreReq.current) return;
+    /* its own AbortController: an answer for a list that was replaced meanwhile (or after the page closed) is dropped */
+    const req = new AbortController();
+    moreReq.current = req;
+    const current = () => moreReq.current === req;
     setMoreLoading(true);
     setMoreFailed(false);
-    fetch(`/api/orders?before=${encodeURIComponent(cursor)}`, { credentials: "same-origin", cache: "no-store" })
+    fetch(`/api/orders?before=${encodeURIComponent(cursor)}`, { credentials: "same-origin", cache: "no-store", signal: req.signal })
       .then(async (r) => {
         const j = (r.ok ? await r.json() : null) as { orders?: unknown; next?: unknown; total?: unknown } | null;
+        if (!current()) return;
         if (!j || !Array.isArray(j.orders)) return setMoreFailed(true);
         setServerOrders((list) => upsert(list, serverRows(j.orders)));
         if (typeof j.total === "number") setServerTotal(j.total);
         setCursor(typeof j.next === "string" ? j.next : null);
       })
-      .catch(() => setMoreFailed(true))
-      .finally(() => setMoreLoading(false));
+      .catch(() => current() && setMoreFailed(true))
+      .finally(() => {
+        if (!current()) return;
+        moreReq.current = null;
+        setMoreLoading(false);
+      });
   };
   const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const dateOf = (t: number, time = false) => {
@@ -289,7 +436,7 @@ export function Orders() {
     /* In Jordan the mobile is how an order is confirmed, delivered and paid in cash, so it is required */
     if (!isJordanMobile(phone)) next.phone = phoneError[lang];
     /* where to deliver, unless the customer collects it */
-    if (fulfil === "delivery" && !isCity(city)) next.city = o.errCity;
+    if (fulfil === "delivery" && !isCity(city, cityList)) next.city = o.errCity;
     if (fulfil === "delivery" && visibleLength(address) < 3) next.address = o.errAddress;
     if (!(amount > 0)) next.total = o.errTotal;
     setErrors(next);
@@ -302,7 +449,7 @@ export function Orders() {
 
     /* after every number in use, his store's orders too */
     const id = 1001 + all.reduce((m, x) => Math.max(m, x.id - 1000), 0);
-    setOrders((list) => [{ id, customer: cleanLine(name, ORDER_MAX.customer), phone: savedMobile(phone), total: amount, status, channel: 0, source, fulfil, ...(fulfil === "delivery" ? { city, address: cleanLine(address, ORDER_LIMITS.address) } : {}), created: Date.now() }, ...list]);
+    change([{ id, customer: cleanLine(name, ORDER_MAX.customer), phone: savedMobile(phone), total: amount, status, channel: 0, source, fulfil, ...(fulfil === "delivery" ? { city, address: cleanLine(address, ORDER_LIMITS.address) } : {}), created: Date.now() }, ...ordersNow.current], (l) => undoWords[l].added(id));
     setSelected(`l:${id}`);
     setName("");
     setPhone("");
@@ -315,18 +462,42 @@ export function Orders() {
     setCreating(false);
   };
 
+  const statusLabel = (n: number, st: StatusKey) => (l: Lang) => undoWords[l].status(n, ordersCopy[l].statuses[st]);
   const setOrderStatus = (row: Row, s: StatusKey) => {
+    if (row.status === s) return;
     const serverId = row.serverId;
-    if (!serverId) return setOrders((list) => list.map((x) => (x.id === row.id ? { ...x, status: s } : x)));
+    if (!serverId) return change(ordersNow.current.map((x) => (x.id === row.id ? { ...x, status: s } : x)), statusLabel(row.id, s));
     /* an order from his public store: shown at once, saved on the server, and put back if the server did not take it */
     const was = row.status;
-    const put = (st: StatusKey) => setServerOrders((list) => list.map((x) => (x.serverId === serverId ? { ...x, status: st } : x)));
+    const put = (st: StatusKey) => {
+      serverNow.current = serverNow.current.map((x) => (x.serverId === serverId ? { ...x, status: st } : x));
+      setServerOrders((list) => list.map((x) => (x.serverId === serverId ? { ...x, status: st } : x)));
+    };
+    /* `from`: the server changes it only while the order still has that status (an undo never overwrites a newer change) */
+    const send = (st: StatusKey, from?: StatusKey) =>
+      fetch(`/api/orders/${serverId}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(from ? { status: st, from } : { status: st }) }).then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+      });
     put(s);
     setStatusErr(false);
-    fetch(`/api/orders/${serverId}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: s }) })
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status));
-      })
+    send(s)
+      .then(() =>
+        /* a status change sends the customer nothing, so it can be undone: the old status goes back the same way */
+        offerUndo({
+          scope: "orders",
+          label: statusLabel(row.id, s),
+          undo: async () => {
+            if (serverNow.current.find((x) => x.serverId === serverId)?.status !== s) return false;
+            try {
+              await send(was, s);
+            } catch {
+              return false;
+            }
+            put(was);
+            return true;
+          },
+        }),
+      )
       .catch(() => {
         put(was);
         setStatusErr(true);
@@ -345,7 +516,7 @@ export function Orders() {
     if (deleting.current || !deleteReasonOk(reason)) return;
     deleting.current = true;
     logDeletion(id, cleanDeleteReason(reason));
-    setOrders((list) => list.filter((x) => x.id !== id));
+    change(ordersNow.current.filter((x) => x.id !== id), (l) => undoWords[l].deleted(id));
     setSelected(null);
     setConfirmDelete(false);
   };
@@ -391,7 +562,8 @@ export function Orders() {
                   >
                     {s.dot ? <span className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} /> : <span className="h-2 w-2 shrink-0" />}
                     <span className="flex-1 text-start">{s.label}</span>
-                    <span dir="ltr" className="text-xs">{s.count}</span>
+                    {/* the counts wait for the store's orders: never a count of the hand-added ones alone */}
+                    {serverState === "loading" ? <Skeleton className="h-3 w-5 !rounded" /> : <span dir="ltr" className="text-xs">{s.count}</span>}
                   </button>
                 </li>
               ))}
@@ -400,7 +572,29 @@ export function Orders() {
 
           {/* Orders */}
           <section className={`${card} overflow-hidden`}>
-            {shown.length === 0 ? (
+            {/* the first list of his store orders did not come: said, with "Try again" (above the orders kept in this
+                browser when there are some, in place of "No orders yet" when there are none) */}
+            {serverState === "failed" && (
+              <p role="alert" className={`px-5 text-center text-sm text-rose-600 ${all.length === 0 ? "py-14" : "border-b border-fg/10 py-4"}`}>
+                {o.loadFailed}{" "}
+                <button type="button" onClick={() => retryServer.current()} className="font-semibold underline">{o.retry}</button>
+              </p>
+            )}
+            {all.length === 0 && serverState === "failed" ? null : serverState === "loading" ? (
+              /* the store's orders are still on their way: the loading look, never "No orders yet" nor only the orders
+                 kept in this browser before the server answered */
+              <div role="status" aria-label={o.loadingMore} className="divide-y divide-fg/10">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex items-center gap-3 px-5 py-4">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-3 w-1/3" />
+                    </div>
+                    <Skeleton className="h-6 w-16" />
+                  </div>
+                ))}
+              </div>
+            ) : shown.length === 0 ? (
               <div className="px-5 py-14 text-center">
                 <p className="font-bold">{all.length === 0 ? o.listEmpty : o.noMatch}</p>
                 {all.length === 0 && <p className="mx-auto mt-1 max-w-xs text-sm text-muted">{o.listEmptyHint}</p>}
@@ -421,13 +615,13 @@ export function Orders() {
                       className={`w-full px-5 py-4 text-start transition-colors ${selected === keyOf(x) ? "bg-black/[0.07] dark:bg-white/[0.1]" : "hover:bg-fg/[0.05]"}`}
                     >
                       <span className="flex items-center justify-between gap-3">
-                        <span className="truncate font-semibold">{x.customer}</span>
+                        <span dir="auto" className="truncate font-semibold ltr:text-left rtl:text-right">{x.customer}</span>
                         <span dir="ltr" className="shrink-0 text-xs text-muted">#{x.id}</span>
                       </span>
                       <span className="mt-1.5 flex items-center justify-between gap-3 text-xs text-muted">
                         <span className="inline-flex items-center gap-2">
                           <span className={`h-2 w-2 rounded-full ${STATUS_DOT[x.status]}`} />
-                          {o.statuses[x.status]}
+                          {statusName(x, x.status, o)}
                         </span>
                         <span>{dateOf(x.created)}</span>
                       </span>
@@ -435,7 +629,14 @@ export function Orders() {
                         <span dir="ltr" className="text-sm font-bold">
                           {fmt(x.total)} <small className="font-semibold opacity-70">{o.currency}</small>
                         </span>
-                        {x.payment === "test" && <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-400">{o.testOrder}</span>}
+                        {/* how a store order is paid; a new cash order already says it in its status, a cancelled one needs none */}
+                        {(() => {
+                          const p = payLine(x, o);
+                          if (!p) return x.payment === "test" ? <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-400">{o.testOrder}</span> : null;
+                          if (p.tone === "off" || (p.tone === "due" && x.status === "pending")) return null;
+                          const tone = p.tone === "paid" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : p.tone === "test" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "bg-fg/10 text-fg";
+                          return <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${tone}`}>{p.text}</span>;
+                        })()}
                       </span>
                     </button>
                   </li>
@@ -466,12 +667,33 @@ export function Orders() {
                   <div>
                     <h2 className="text-lg font-extrabold">{o.details}</h2>
                     <p className="mt-1 text-2xl font-extrabold">{current.customer}</p>
-                    {(current.phone || current.email) && <p dir="ltr" className="mt-1 text-start text-sm text-muted">{current.phone || current.email}</p>}
+                    {/* reaching the customer: a call or WhatsApp (with a first message about this order), or an email */}
+                    {current.phone && (() => {
+                      const dial = dialOf(current.phone);
+                      const store = loadSetup()?.name?.trim() ?? "";
+                      const text = (store ? o.waText.replace("{store}", store) : o.waTextNoStore).replace("{n}", String(current.id));
+                      return (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
+                          <bdi dir="ltr">{current.phone}</bdi>
+                          {dial && <a href={`tel:${dial.tel}`} className={contactBtn}>{o.call}</a>}
+                          {dial?.wa && <a href={`https://wa.me/${dial.wa}?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer" className={contactBtn}>{o.whatsapp}</a>}
+                        </div>
+                      );
+                    })()}
+                    {current.email && (
+                      <p className="mt-1 text-start text-sm text-muted">
+                        {EMAIL_LINK.test(current.email) ? (
+                          <a href={`mailto:${current.email}`} className="rounded underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"><bdi dir="ltr">{current.email}</bdi></a>
+                        ) : (
+                          <bdi dir="ltr">{current.email}</bdi>
+                        )}
+                      </p>
+                    )}
                     {current.fulfil === "pickup" ? <p className="mt-1 text-sm text-muted">{o.pickedUp}</p> : (current.city || current.address) && <p dir="auto" className="mt-1 text-sm text-muted">{[current.city && inLang(current.city, KNOWN_CITIES, lang), current.address].filter(Boolean).join(" · ")}</p>}
                   </div>
                   <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${current.status === "pending" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "bg-fg/10 text-fg"}`}>
                     <span className={`h-2 w-2 rounded-full ${STATUS_DOT[current.status]}`} />
-                    {o.statuses[current.status]}
+                    {statusName(current, current.status, o)}
                   </span>
                 </div>
 
@@ -503,10 +725,8 @@ export function Orders() {
                       {current.items.map((it, n) => (
                         <li key={n} className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
                           <span className="flex min-w-0 items-center gap-3 font-semibold">
-                            {it.image && (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={it.image} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-black/10" />
-                            )}
+                            {/* the store's own placeholder when the product has no photo */}
+                            <ProductPhoto src={it.image} hue={noPhotoHue(it.id)} className="h-12 w-12 shrink-0 rounded-lg ring-1 ring-black/10" />
                             <span className="min-w-0">
                               {it.name} <span dir="ltr" className="whitespace-nowrap font-bold text-muted">×{it.qty}</span>
                               {/* the size the customer chose (clothing and shoes) */}
@@ -518,6 +738,14 @@ export function Orders() {
                           </span>
                         </li>
                       ))}
+                      {/* the subtotal before the coupon and the delivery, as on the customer's receipt, so the lines add up
+                          to the total */}
+                      {(current.coupon || (current.delivery !== undefined && current.fulfil !== "pickup")) && (
+                        <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold">
+                          <span>{lang === "ar" ? "المجموع" : "Subtotal"}</span>
+                          <span dir="ltr" className="shrink-0 font-bold">{fmt(current.items.reduce((n, it) => n + it.qty * it.price, 0))} <small className="text-xs opacity-70">{o.currency}</small></span>
+                        </li>
+                      )}
                       {/* the coupon the customer used at checkout (the total is already after it) */}
                       {current.coupon && (
                         <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
@@ -525,6 +753,23 @@ export function Orders() {
                           <span dir="ltr" className="shrink-0 font-bold">−{fmt(current.coupon.discount)} <small className="text-xs opacity-70">{o.currency}</small></span>
                         </li>
                       )}
+                      {/* an order from his store: the delivery it was charged (in the total), so the lines add up to it.
+                          Nothing charged: "Free", or, delivered by his own courier with no fee set (not free by his offer
+                          or a free delivery coupon), the store confirms the fee, as the customer was told */}
+                      {current.delivery !== undefined && current.fulfil !== "pickup" && (() => {
+                        const ship = current.delivery === 0 ? loadSetup()?.shipping : null;
+                        const fd = ship ? loadFreeDelivery() : null;
+                        const sub = (current.items ?? []).reduce((n, it) => n + it.qty * it.price, 0);
+                        const open = !!ship && ship.mode === "own" && ship.fee === undefined && !(current.coupon && current.coupon.discount === 0) && !(fd?.on && sub >= fd.min);
+                        return (
+                          <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold">
+                            <span>{lang === "ar" ? "التوصيل" : "Delivery"}</span>
+                            <span dir={current.delivery > 0 ? "ltr" : "auto"} className="shrink-0 font-bold">
+                              {current.delivery > 0 ? <>{fmt(current.delivery)} <small className="text-xs opacity-70">{o.currency}</small></> : open ? (lang === "ar" ? "يؤكدها المتجر" : "Confirmed by the store") : lang === "ar" ? "مجاني" : "Free"}
+                            </span>
+                          </li>
+                        );
+                      })()}
                     </ul>
                   </div>
                 )}
@@ -532,10 +777,23 @@ export function Orders() {
                 <div className="mt-6 flex items-center justify-between gap-4 rounded-xl bg-soft/70 px-4 py-4">
                   <div>
                     {/* A cancelled order was never paid, a refunded one was paid back */}
-                    {/* an order from his public store: no payment is taken yet, whatever its status */}
-                    <p className="text-sm font-bold">{current.payment === "test" ? o.testOrder : current.status === "pending" ? o.unpaid : current.status === "cancelled" ? o.cancelledPay : current.status === "refunded" ? o.refundedPay : o.paid}</p>
-                    {current.payment === "test" ? <p className="mt-0.5 text-xs text-muted">{o.testOrderHint}</p> : current.status === "pending" && <p className="mt-0.5 text-xs text-muted">{o.paymentHint}</p>}
-                    {current.payment === "test" && current.pay && <p className="mt-0.5 text-xs text-muted">{o.payWith}: {o.payNames[current.pay]}</p>}
+                    {/* an order from his store: how the customer pays (payLine): cash on delivery or pickup, "Paid (cash)" once
+                        delivered; card and CliQ take nothing yet */}
+                    {(() => {
+                      const p = payLine(current, o);
+                      if (p) return (
+                        <>
+                          <p className={`text-sm font-bold ${p.tone === "paid" ? "text-emerald-700 dark:text-emerald-400" : ""}`}>{p.text}</p>
+                          {p.hint && <p className="mt-0.5 text-xs text-muted">{p.hint}</p>}
+                        </>
+                      );
+                      return (
+                        <>
+                          <p className="text-sm font-bold">{current.payment === "test" ? o.testOrder : current.status === "pending" ? o.unpaid : current.status === "cancelled" ? o.cancelledPay : current.status === "refunded" ? o.refundedPay : o.paid}</p>
+                          {current.payment === "test" ? <p className="mt-0.5 text-xs text-muted">{o.testOrderHint}</p> : current.status === "pending" && <p className="mt-0.5 text-xs text-muted">{o.paymentHint}</p>}
+                        </>
+                      );
+                    })()}
                   </div>
                   <p dir="ltr" className="text-xl font-extrabold">
                     {fmt(current.total)} <small className="text-xs font-bold opacity-70">{o.currency}</small>
@@ -545,7 +803,7 @@ export function Orders() {
                 <div className="mt-6 max-w-xs">
                   <label htmlFor="o-status" className="mb-2 block text-sm font-semibold">{o.changeStatus}</label>
                   <select id="o-status" value={askStatus ?? current.status} onChange={(e) => pickStatus(current, e.target.value as StatusKey)} className={`${field} h-11`}>
-                    {STATUS_KEYS.map((k) => <option key={k} value={k}>{o.statuses[k]}</option>)}
+                    {STATUS_KEYS.map((k) => <option key={k} value={k}>{statusName(current, k, o)}</option>)}
                   </select>
                 </div>
                 {askStatus && (
@@ -653,7 +911,7 @@ export function Orders() {
                     <label htmlFor="n-city" className="mb-2 block text-sm font-semibold">{o.city}<RequiredMark /></label>
                     <select id="n-city" aria-required aria-invalid={!!errors.city} value={city} onChange={(e) => { setCity(e.target.value); setErrors((x) => ({ ...x, city: undefined })); }} className={`${field} h-11 ${errors.city ? bad : ""}`}>
                       <option value="">{o.cityPh}</option>
-                      {CITIES[lang].map((c) => <option key={c} value={c}>{c}</option>)}
+                      {cityList[lang].map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                     {errors.city && <p className="mt-1.5 text-xs text-rose-600">{errors.city}</p>}
                   </div>

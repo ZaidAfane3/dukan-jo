@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { SignupForm } from "@/components/SignupForm";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Create account",
+  title: "دكان | إنشاء حساب",
   description: "Create your Dukkan account and launch your online store in minutes.",
 };
 

@@ -27,6 +27,7 @@ import { ordersCopy } from "./ordersContent";
 import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
 import { TwoStepPrompt } from "./TwoStepPrompt";
+import { UndoToast } from "./UndoToast";
 
 export type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
@@ -562,7 +563,8 @@ export function DashboardBar({
               {icons.menu}
             </button>
             <div className="flex gap-6 overflow-x-auto text-sm font-medium [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {subtabs.map((t, i) => (inSidebar.has(t) ? null : { t, i })).filter((x): x is { t: string; i: number } => !!x).map(({ t, i }) => {
+              {/* a tab the side menu already lists is left out, except the page you are on: the bar always names it */}
+              {subtabs.map((t, i) => (inSidebar.has(t) && i !== activeSub ? null : { t, i })).filter((x): x is { t: string; i: number } => !!x).map(({ t, i }) => {
                 const cls = `shrink-0 border-b-2 py-5 ${i === activeSub ? "border-primary font-semibold text-fg" : "border-transparent text-muted"}`;
                 const href = subHrefs?.[i];
                 return href && i !== activeSub ? (
@@ -595,14 +597,16 @@ export function DashboardBar({
       </header>
       {/* Outside the sticky header, so it scrolls away with the page and is there again at the top */}
       <DemoStrip />
-      {/* right after signing in or up without a 2-step code: a pop-up over the whole page asking to turn it on. It takes
-          the tab's pop-up place first, before the two below (TwoStepPrompt.tsx) */}
+      {/* right after signing in or up without a 2-step code: a full page over the dashboard asking to turn it on, only as
+          a page opens and never over something already started. It takes the tab's pop-up place first, before the two
+          below (TwoStepPrompt.tsx) */}
       <TwoStepPrompt />
       {/* Dukkan's pop-ups (Diwan: /diwan/popups): every merchant page draws this bar, so a pop-up for "any page" can show on
           any of them, and one for the home page on /dashboard */}
       <MerchantPopup />
       {/* a document Dukkan's team rejected: told once, with the reason (DocumentRejected.tsx) */}
       <DocumentRejected />
+      <UndoToast />
     </>
   );
 }

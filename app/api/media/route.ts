@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { answer, currentAccount, guarded, sameOrigin, tooMany } from "@/server/auth";
+import { answer, currentAccount, guarded, otherAccount, sameOrigin, tooMany } from "@/server/auth";
 import { db } from "@/server/db";
 import { putMedia } from "@/server/media";
 import { isMediaKind, MEDIA_LIMITS } from "@/components/mediaRules";
@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
    ("/media/<id>") in place of the picture (components/media.ts). Sending the same bytes again gives the same file.
 
    Refused like saving the store (app/api/store): 401 signed out, 403 "forbidden" (not from Dukkan's own pages),
-   423 "suspended". Also 400 "invalid" (not a picture or video this kind takes, read from its bytes), 413 "too-big" (over the file's limit), 409 "full" (the
+   423 "suspended", 409 "other-account" (the page names another account than the session's, server/auth.ts
+   otherAccount). Also 400 "invalid" (not a picture or video this kind takes, read from its bytes), 413 "too-big" (over the file's limit), 409 "full" (the
    store's space for files is used up) and 429 "slow-down". */
 
 /** Reads the body, stopping as soon as it is longer than max (a missing or false Content-Length can't get past it) */
@@ -44,6 +45,8 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   const a = await currentAccount(req);
   if (!a) return answer({ result: "none" }, 401);
+  /* a tab still on the account signed in before must not store its pictures under this one */
+  if (otherAccount(req, a)) return answer({ result: "other-account" }, 409);
   if (a.suspended) return answer({ result: "suspended" }, 423);
   /* a big store's first save sends many pictures at once (each its own request), so the limit is generous */
   if (tooMany(req, `media:${a.id}`, 400, 10)) return answer({ result: "slow-down" }, 429);

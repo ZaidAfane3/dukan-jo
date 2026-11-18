@@ -1,10 +1,10 @@
 import type { NextRequest } from "next/server";
 import { answer, readJson } from "@/server/auth";
-import { AUDIENCE_HAS, PAGE_SINCE } from "@/server/announce";
 import { db } from "@/server/db";
 import { cleanPage } from "@/server/dukkanPages";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { onePage, pageRow, pageRowsSql } from "./rows";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +17,7 @@ const MAX = 120_000;
 export const GET = staffRoute("announce", async () => {
   const pool = await db();
   const list = await pool.query(
-      `SELECT a.*, st.name AS by,
-              (SELECT count(*)::int FROM dukkan_page_views v WHERE v.page_id = a.id) AS views,
-              (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id", PAGE_SINCE)}) AS reach
-         FROM dukkan_pages a LEFT JOIN staff st ON st.id = a.updated_by
-        ORDER BY CASE a.status WHEN 'live' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, a.sort, a.updated_at DESC
-        LIMIT 500`,
+    `${pageRowsSql()} ORDER BY CASE a.status WHEN 'live' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, a.sort, a.updated_at DESC LIMIT 500`,
   );
   const ids = Array.from(new Set(list.rows.flatMap((r) => (Array.isArray(r.audience?.accounts) ? r.audience.accounts : []).map(String))));
   const shops = ids.length
@@ -31,13 +26,7 @@ export const GET = staffRoute("announce", async () => {
   return answer({
     result: "ok",
     shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, email: s.email }])),
-    pages: list.rows.map((r) => ({
-      id: String(r.id), slug: r.slug,
-      titleEn: r.title_en, titleAr: r.title_ar, summaryEn: r.summary_en, summaryAr: r.summary_ar, bodyEn: r.body_en, bodyAr: r.body_ar,
-      status: r.status, inMenu: r.in_menu, sort: r.sort, audience: r.audience,
-      publishedAt: r.published_at, updatedAt: r.updated_at, createdAt: r.created_at, by: r.by,
-      views: r.views, reach: r.reach,
-    })),
+    pages: list.rows.map(pageRow),
   });
 });
 
@@ -56,6 +45,7 @@ export const POST = staffRoute("announce", async (req: NextRequest, me) => {
   );
   if (!rows[0]) return answer({ result: "taken", field: "slug" }, 409);
   const id = String(rows[0].id);
-  await audit(req, me.id, "page.create", { type: "page", id }, null, { slug: p.slug, title: p.titleEn });
-  return answer({ result: "ok", id });
+  await audit(req, me.id, "page.create", { type: "page", id }, null, { slug: p.slug, title: p.titleEn, titleEn: p.titleEn, titleAr: p.titleAr });
+  /* the new row as the list shows it, so Diwan can put it in the list at once */
+  return answer({ result: "ok", id, row: await onePage(id) });
 });

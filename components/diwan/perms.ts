@@ -8,13 +8,13 @@ export const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES
 export type Perm =
   | "shops.read" | "shops.status" | "shops.export"
   | "billing" | "tickets" | "documents" | "complaints"
-  | "announce" | "settings" | "flags" | "marketplace" | "staff" | "audit.read" | "delete";
+  | "announce" | "settings" | "marketplace" | "staff" | "audit.read" | "delete";
 
 /* Owner: everything. Support: see shops and tickets; no payments, deleting or settings.
    Developer (shown as "Marketing"; the stored name stays developer): the marketing pages only (what merchants see in their dashboard: themes, pages, pop-ups, announcements,
-   the outside developers' work), the feature switches and the activity log; no shops, payments, tickets or staff. */
+   the outside developers' work) and the activity log; no shops, payments, tickets or staff. */
 const SUPPORT: Perm[] = ["shops.read", "tickets", "documents", "complaints", "audit.read"];
-const DEVELOPER: Perm[] = ["announce", "marketplace", "flags", "audit.read"];
+const DEVELOPER: Perm[] = ["announce", "marketplace", "audit.read"];
 
 export const can = (s: { role: Role }, p: Perm) => s.role === "owner" || (s.role === "developer" ? DEVELOPER : SUPPORT).includes(p);
 

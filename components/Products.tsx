@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
-import { FILTER_KEYS, productsCopy, type FilterKey } from "./productsContent";
+import { FILTER_KEYS, kindWords, productsCopy, type FilterKey } from "./productsContent";
+import { SizesEditor } from "./SizesEditor";
 import { usePrefs } from "./Prefs";
-import { latin } from "./digits";
 import { readPhoto } from "./designer/image";
 import { demoActive } from "./demoSandbox";
 import { nextProductId } from "./productIds";
@@ -14,89 +14,18 @@ import { cutKeptAs, ImageCropper } from "./ImageCropper";
 import { keepPicture, uploadImage } from "./media";
 import { onServer } from "./merchantApi";
 import { PRODUCT_MAX, cleanCategory, cleanProduct, productCategories, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
-import { cleanLine, cleanLines } from "./safe";
+import { cleanLine, cleanLines, imageRules } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote } from "./Required";
 import { RudeNote } from "./RudeNote";
-import { StockChoice, stockNeedsAnswer } from "./StockChoice";
+import { StockChoice, stockNeedsAnswer, stockOverMax } from "./StockChoice";
 import { Blocked } from "./designer/controls";
 import { CardPeek, type PeekField } from "./CardPeek";
-import { PRODUCT_KINDS, SIZE_MAX, kindHasSizes, kindShips, sizeName, type ProductKind } from "./safeOrder";
+import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
+import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, type ProductKind } from "./safeOrder";
 import type { Lang } from "./content";
+import { dropUndos, listUndo, offerUndo } from "./undo";
+import { usePageTitle } from "./pageTitle";
 
-/* What kind of product it is, and the sizes of clothing and shoes */
-const kindWords: Record<Lang, { kind: string; kindHint: string; names: Record<ProductKind, string>; about: Record<ProductKind, string>; chart: string; optional: string; chartHint: string; chartUpload: string; chartBusy: string; chartChange: string; chartRemove: string; chartBad: string; sizes: string; sizesHint: string; quick: string; addSize: string; sizeName: string; sizeQty: string; removeSize: string; total: string; pieces: string; errSizes: string; sizesOff: (k: string) => string; stockBySize: string; shipOff: (k: string) => string }> = {
-  ar: {
-    kind: "نوع المنتج",
-    kindHint: "يحدد ما يحتاجه المنتج: المقاسات والشحن والكمية.",
-    names: { standard: "منتج عادي", clothing: "ملابس", shoes: "أحذية", digital: "منتج رقمي", service: "خدمة" },
-    about: {
-      standard: "كمية واحدة للمنتج، مثل العطور والإكسسوارات والأجهزة.",
-      clothing: "مقاسات مثل S وM وL، ولكل مقاس كميته.",
-      shoes: "مقاسات بالأرقام مثل 40 و41، ولكل مقاس كميته.",
-      digital: "أكواد وبطاقات هدايا واشتراكات، تصل للعميل بلا شحن.",
-      service: "حجوزات وتصميم وتعليم وغيرها، بلا شحن ولا مقاسات.",
-    },
-    chart: "جدول المقاسات",
-    optional: "(اختياري)",
-    chartHint: "صورة لجدول مقاساتك، يفتحها العميل من صفحة المنتج بجانب المقاسات.",
-    chartUpload: "ارفع صورة الجدول",
-    chartBusy: "جارٍ الرفع…",
-    chartChange: "تغيير",
-    chartRemove: "حذف",
-    chartBad: "هذا الملف ليس صورة أو أكبر من 8 ميجابايت. استخدم PNG أو JPG أو WebP.",
-    sizes: "المقاسات",
-    sizesHint: "أضف المقاسات المتوفرة وكمية كل مقاس. المقاس الذي كميته صفر يظهر للعميل «نفد».",
-    quick: "إضافة سريعة:",
-    addSize: "+ مقاس آخر",
-    sizeName: "المقاس",
-    sizeQty: "الكمية",
-    removeSize: "حذف المقاس",
-    total: "مجموع الكمية",
-    pieces: "قطعة",
-    errSizes: "أضف مقاسًا واحدًا على الأقل واكتب اسمه.",
-    sizesOff: (k) => `غير متاح لأن نوع المنتج «${k}». المقاسات للملابس والأحذية فقط.`,
-    stockBySize: "غير متاح لأن الكمية تُحدَّد لكل مقاس في «المقاسات».",
-    shipOff: (k) => `غير متاح لأن نوع المنتج «${k}» لا يُشحن.`,
-  },
-  en: {
-    kind: "Product type",
-    kindHint: "Decides what the product needs: sizes, shipping and quantity.",
-    names: { standard: "Regular product", clothing: "Clothing", shoes: "Shoes", digital: "Digital product", service: "Service" },
-    about: {
-      standard: "One quantity for the product, like perfumes, accessories and devices.",
-      clothing: "Sizes like S, M and L, each with its own quantity.",
-      shoes: "Number sizes like 40 and 41, each with its own quantity.",
-      digital: "Codes, gift cards and subscriptions, delivered without shipping.",
-      service: "Bookings, design, lessons and more, with no shipping or sizes.",
-    },
-    chart: "Size chart",
-    optional: "(optional)",
-    chartHint: "A picture of your size chart. Customers open it from the product page, beside the sizes.",
-    chartUpload: "Upload the chart picture",
-    chartBusy: "Uploading…",
-    chartChange: "Change",
-    chartRemove: "Remove",
-    chartBad: "This file is not a picture, or it is bigger than 8 MB. Use PNG, JPG or WebP.",
-    sizes: "Sizes",
-    sizesHint: "Add the sizes you have and how many of each. A size with 0 shows to customers as sold out.",
-    quick: "Quick add:",
-    addSize: "+ Another size",
-    sizeName: "Size",
-    sizeQty: "Quantity",
-    removeSize: "Remove size",
-    total: "Total quantity",
-    pieces: "pieces",
-    errSizes: "Add at least one size and write its name.",
-    sizesOff: (k) => `Not available because the product type is “${k}”. Sizes are for clothing and shoes only.`,
-    stockBySize: "Not available because the quantity is set for each size in “Sizes”.",
-    shipOff: (k) => `Not available because a “${k}” is not shipped.`,
-  },
-};
-/* the usual sizes, one press each */
-const sizePresets: Partial<Record<ProductKind, string[]>> = {
-  clothing: ["XS", "S", "M", "L", "XL", "XXL", "3XL"],
-  shoes: ["36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46"],
-};
 
 
 type Draft = {
@@ -147,7 +76,8 @@ const blank: Draft = {
   description: "",
   notes: "",
   badge: "",
-  quantity: "1",
+  /* empty until he types how many he has: no made-up "1" */
+  quantity: "",
   unlimited: false,
   hidden: false,
   featured: false,
@@ -206,91 +136,6 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
   );
 }
 
-/** The sizes of a piece of clothing or a pair of shoes: one press adds a usual size, each size has its own quantity */
-function SizesEditor({ lang, kind, sizes, onChange, chart, onChart, error, inputClass }: { lang: Lang; kind: ProductKind; sizes: { name: string; quantity: string }[]; onChange: (v: { name: string; quantity: string }[]) => void; chart: string; onChart: (v: string) => void; error?: string; inputClass: string }) {
-  const w = kindWords[lang];
-  /* the size chart: a picture he uploads (a file that is not a picture says so) */
-  const chartInput = useRef<HTMLInputElement>(null);
-  const [chartBad, setChartBad] = useState(false);
-  const [chartBusy, setChartBusy] = useState(false);
-  const pickChart = async (f?: File) => {
-    if (!f) return;
-    setChartBusy(true);
-    const read = f.size <= 8_000_000 ? await readPhoto(f, 1400) : null;
-    /* a signed-in store keeps it on the server (components/media.ts); otherwise, or if it can't be sent now, it stays here */
-    const url = read && (await keepPicture(read, "product"));
-    setChartBusy(false);
-    setChartBad(!url);
-    if (url) onChart(url);
-  };
-  const has = (n: string) => sizes.some((z) => z.name.trim().toLowerCase() === n.toLowerCase());
-  const presets = (sizePresets[kind] ?? sizePresets.clothing ?? []).filter((n) => !has(n));
-  const total = sizes.reduce((n, z) => n + Math.max(0, Math.floor(Number(z.quantity) || 0)), 0);
-  const edit = (i: number, patch: Partial<{ name: string; quantity: string }>) => onChange(sizes.map((z, j) => (j === i ? { ...z, ...patch } : z)));
-  return (
-    <div id="p-sizes" tabIndex={-1} className="space-y-3 outline-none">
-      <div>
-        <p className="text-sm font-semibold">{w.sizes}<RequiredMark /></p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted">{w.sizesHint}</p>
-      </div>
-      {presets.length > 0 && sizes.length < SIZE_MAX.count && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs font-semibold text-muted">{w.quick}</span>
-          {presets.map((n) => (
-            <button key={n} type="button" onClick={() => onChange([...sizes, { name: n, quantity: "0" }])} className="h-8 min-w-[2.5rem] rounded-lg border border-fg/15 px-2.5 text-xs font-bold transition hover:border-primary hover:bg-primary/10" dir="ltr">
-              {n}
-            </button>
-          ))}
-        </div>
-      )}
-      {sizes.length > 0 && (
-        <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_1fr_2.25rem] gap-2 text-xs font-semibold text-muted">
-            <span>{w.sizeName}</span>
-            <span>{w.sizeQty}</span>
-            <span />
-          </div>
-          {sizes.map((z, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_2.25rem] items-center gap-2">
-              <input value={z.name} onChange={(e) => edit(i, { name: e.target.value })} maxLength={SIZE_MAX.name} aria-label={w.sizeName} dir="auto" className={`${inputClass} h-10`} />
-              <input value={z.quantity} onChange={(e) => edit(i, { quantity: latin(e.target.value).replace(/[^0-9]/g, "").slice(0, 6) })} inputMode="numeric" dir="ltr" aria-label={`${w.sizeQty} ${z.name}`} className={`${inputClass} h-10 text-start`} />
-              <button type="button" onClick={() => onChange(sizes.filter((_, j) => j !== i))} aria-label={`${w.removeSize} ${z.name}`} title={w.removeSize} className="grid h-9 w-9 place-items-center rounded-lg text-muted transition hover:bg-rose-500/10 hover:text-rose-600">
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {sizes.length < SIZE_MAX.count && (
-        <button type="button" onClick={() => onChange([...sizes, { name: "", quantity: "0" }])} className="text-sm font-semibold text-primary hover:underline">{w.addSize}</button>
-      )}
-      {sizes.length > 0 && <p className="text-xs font-semibold">{w.total}: <span dir="ltr">{total}</span> {w.pieces}</p>}
-      {error && <p role="alert" className="text-xs font-semibold text-rose-600">{error}</p>}
-      {/* the size chart: optional, a picture customers open from the product page beside the sizes */}
-      <div className="rounded-xl bg-soft/70 p-3">
-        <p className="text-sm font-semibold">{w.chart} <span className="text-xs font-normal text-muted">{w.optional}</span></p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted">{w.chartHint}</p>
-        <div className="mt-2.5 flex flex-wrap items-center gap-3">
-          {chart ? (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={chart} alt={w.chart} className="h-20 w-28 rounded-lg bg-white object-contain ring-1 ring-fg/10" />
-              <button type="button" onClick={() => chartInput.current?.click()} className="text-sm font-semibold text-primary hover:underline">{w.chartChange}</button>
-              <button type="button" onClick={() => onChart("")} className="text-sm font-semibold text-rose-600 hover:underline">{w.chartRemove}</button>
-            </>
-          ) : (
-            <button type="button" onClick={() => chartInput.current?.click()} disabled={chartBusy} className="inline-flex h-10 items-center gap-2 rounded-xl border-2 border-dashed border-fg/20 px-4 text-sm font-semibold text-muted transition hover:border-primary hover:text-primary disabled:opacity-60">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4M12 15V4M8 8l4-4 4 4" /></svg>
-              {chartBusy ? w.chartBusy : w.chartUpload}
-            </button>
-          )}
-        </div>
-        {chartBad && <p role="alert" className="mt-2 text-xs font-semibold text-rose-600">{w.chartBad}</p>}
-        <input ref={chartInput} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" tabIndex={-1} aria-hidden onChange={(e) => { void pickChart(e.target.files?.[0]); e.target.value = ""; }} />
-      </div>
-    </div>
-  );
-}
 
 function Label({ id, children, hint, required = false, peek }: { id: string; children: React.ReactNode; hint?: string; required?: boolean; /* a "!" that shows where it lands on the store's product card */ peek?: React.ReactNode }) {
   return (
@@ -347,6 +192,33 @@ function CategoryPicker({ value, onChange, onTyped, products, words }: { value: 
     onTyped("");
   };
   const used = (c: string) => products.some((x) => !x.deletedAt && x.categories.includes(c));
+  /* a category no product uses goes at once, with an Undo that puts it back where it was (if it isn't back already) */
+  const drop = (c: string) => {
+    const at = list.indexOf(c);
+    keep(list.filter((x) => x !== c));
+    offerUndo({
+      scope: "products",
+      label: (l) => productsCopy[l].undoCat(c),
+      undo: () => {
+        let saved: string[] = [];
+        try {
+          const raw = JSON.parse(localStorage.getItem(CATS) ?? "[]");
+          if (Array.isArray(raw)) saved = raw.map(cleanCategory).filter(Boolean);
+        } catch {
+          /* none saved */
+        }
+        if (saved.includes(c)) return false;
+        const back = [...saved.slice(0, at), c, ...saved.slice(at)];
+        try {
+          localStorage.setItem(CATS, JSON.stringify(back));
+        } catch {
+          return false;
+        }
+        setList((cur) => (cur.includes(c) ? cur : [...cur.slice(0, at), c, ...cur.slice(at)]));
+        return true;
+      },
+    });
+  };
   const toggle = (c: string) => onChange(value.includes(c) ? value.filter((x) => x !== c) : value.length < PRODUCT_MAX.categories ? [...value, c] : value);
   return (
     <div className="space-y-3">
@@ -365,7 +237,7 @@ function CategoryPicker({ value, onChange, onTyped, products, words }: { value: 
                 {c}
               </button>
               {!used(c) && !value.includes(c) && (
-                <button type="button" onClick={() => keep(list.filter((x) => x !== c))} aria-label={`${words.catRemove}: ${c}`} title={words.catRemove} className="-ms-2 grid h-7 w-7 place-items-center rounded-full text-muted transition hover:text-rose-600">
+                <button type="button" onClick={() => drop(c)} aria-label={`${words.catRemove}: ${c}`} title={words.catRemove} className="-ms-2 grid h-7 w-7 place-items-center rounded-full text-muted transition hover:text-rose-600">
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
                 </button>
               )}
@@ -409,15 +281,40 @@ export function Products() {
   const [stockOk, setStockOk] = useState("");
   const [errors, setErrors] = useState<{ name?: string; price?: string; sale?: string; images?: string; quantity?: string; sizes?: string }>({});
   const [picked, setPicked] = useState<number[]>([]);
+  /* only "Delete permanently" asks first: every other change shows an Undo at the bottom instead (UndoToast.tsx) */
   const [confirmDelete, setConfirmDelete] = useState(false);
-  /* the "saved" card at the top: the product's name (empty: a product brought back from the bin) */
-  const [flash, setFlash] = useState<{ name: string; n: number } | null>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout>>();
-  const showSaved = (name: string) => {
-    clearTimeout(flashTimer.current);
-    setFlash((f) => ({ name, n: (f?.n ?? 0) + 1 }));
-    flashTimer.current = setTimeout(() => setFlash(null), 4000);
+  /* the list as it is now, for an undo (it checks nothing changed since) and for changes made one after the other */
+  const itemsNow = useRef<Product[]>([]);
+  useEffect(() => {
+    itemsNow.current = items;
+  }, [items]);
+  /* only this page can put its list back: its undos go when it closes */
+  useEffect(() => () => dropUndos("products"), []);
+  /** A change to the products: saved like any edit (the list is saved below), with an Undo that puts back exactly the
+      products it changed, the same way, unless one of them changed again since. */
+  const change = (next: Product[], label: (l: Lang) => string) => {
+    const before = itemsNow.current;
+    itemsNow.current = next;
+    setItems(next);
+    offerUndo({
+      scope: "products",
+      label,
+      undo: listUndo({
+        before,
+        after: next,
+        key: (x) => x.id,
+        now: () => itemsNow.current,
+        put: (list) => {
+          const was = itemsNow.current;
+          itemsNow.current = list;
+          setItems(list);
+          /* the editor does not stay open on a product the undo changed or took away */
+          setEditing((e) => (typeof e === "number" && JSON.stringify(was.find((x) => x.id === e)) !== JSON.stringify(list.find((x) => x.id === e)) ? null : e));
+        },
+      }),
+    });
   };
+  const nameOf = (ids: number[], l: Lang) => itemsNow.current.find((x) => x.id === ids[0])?.name || productsCopy[l].untitled;
   /* the editor scrolls on its own on a wide screen; after saving (it closes) it goes back to its top */
   const editorBox = useRef<HTMLElement>(null);
   /* The product's photos: shrunk and saved with the product, so the store shows them */
@@ -439,15 +336,21 @@ export function Products() {
   const snapshot = (d: Draft, imgs: string[], f: { x: number; y: number }) => JSON.stringify([d, imgs, f]);
   const dirty = editing !== null && snapshot(draft, photos, focus) !== clean;
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${p.title}`;
-  }, [lang, p]);
+  usePageTitle(`${brandName(lang)} | ${p.title}`);
 
+  /* the list as read from storage: not saved back (only a change he makes is), so opening the page on a device with an
+     older copy never sends that copy over a newer one */
+  const loadedList = useRef<Product[] | null>(null);
   useEffect(() => {
-    setItems(load());
+    const read = () => {
+      const list = load();
+      loadedList.current = list;
+      setItems(list);
+    };
+    read();
     setReady(true);
     /* Another tab changed the products (or the store sold some): take its list, so this tab never writes back an old one */
-    const onStorage = (e: StorageEvent) => e.key === KEY && setItems(load());
+    const onStorage = (e: StorageEvent) => e.key === KEY && read();
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
@@ -462,7 +365,7 @@ export function Products() {
   }, [ready]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || items === loadedList.current) return;
     try {
       localStorage.setItem(KEY, JSON.stringify(items));
     } catch {
@@ -488,8 +391,18 @@ export function Products() {
 
   const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  /* Unsaved changes are only thrown away after he says so */
-  const leave = () => !dirty || window.confirm(p.discardAsk);
+  /* Unsaved changes are only thrown away after he says so, in the page's own box (never the browser's window): what he
+     was about to do waits in `discardThen` until he answers */
+  const [discardThen, setDiscardThen] = useState<(() => void) | null>(null);
+  const leave = (then: () => void) => {
+    if (!dirty) then();
+    else setDiscardThen(() => then);
+  };
+  const keepRef = useRef<HTMLButtonElement>(null);
+  /* "Keep editing" has the focus first, so Enter or a stray key never throws his changes away */
+  useEffect(() => {
+    if (discardThen) keepRef.current?.focus();
+  }, [discardThen]);
 
   const openEdit = (x: Product) => {
     const d: Draft = {
@@ -546,19 +459,21 @@ export function Products() {
     typedCat.current = "";
   };
 
-  const close = () => {
-    if (leave()) setEditing(null);
-  };
+  const close = () => leave(() => setEditing(null));
 
   /* Escape closes the editor, asking first when there are unsaved changes */
   useEffect(() => {
     if (editing === null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && (!dirty || window.confirm(p.discardAsk))) setEditing(null);
+      if (e.key !== "Escape") return;
+      /* with the "leave without saving?" box open, Escape answers "Keep editing" */
+      if (discardThen) setDiscardThen(null);
+      else if (!dirty) setEditing(null);
+      else setDiscardThen(() => () => setEditing(null));
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [editing, dirty, p]);
+  }, [editing, dirty, discardThen]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -578,7 +493,7 @@ export function Products() {
     if (!files || !files.length) return;
     const n = files.length;
     setUploading((u) => u + n);
-    const made = await Promise.all(Array.from(files).filter((f) => f.size <= 8_000_000).map(onePhoto)).finally(() => setUploading((u) => Math.max(0, u - n)));
+    const made = await Promise.all(Array.from(files).filter((f) => f.size <= imageRules.productPhoto.max).map(onePhoto)).finally(() => setUploading((u) => Math.max(0, u - n)));
     const ok = made.filter((u): u is string => !!u);
     if (ok.length) setErrors((x) => ({ ...x, images: undefined }));
     /* a file that is not a picture, and pictures past the 6 that fit, are reported, not dropped silently */
@@ -588,7 +503,7 @@ export function Products() {
 
   const kw = kindWords[lang];
   /* the "!" beside a field that shows on the product card: the card filled with what he typed */
-  const peek = (f: PeekField) => <CardPeek lang={lang} field={f} values={{ name: draft.name, notes: draft.notes, badge: draft.badge, category: draft.categories[0] ?? typedCat.current, price: draft.price, sale: draft.sale, photo: photos[0] }} />;
+  const peek = (f: PeekField) => <CardPeek lang={lang} field={f} values={{ name: draft.name, notes: draft.notes, badge: draft.badge, category: draft.categories[0] ?? typedCat.current, price: draft.price, sale: draft.sale, photo: photos[0], id: typeof editing === "number" ? editing : undefined }} />;
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
@@ -607,7 +522,9 @@ export function Products() {
     if (bad.includes("price")) next.price = p.errPrice;
     if (bad.includes("sale")) next.sale = p.errSale;
     if (bad.includes("sizes")) next.sizes = kw.errSizes;
-    if (bad.includes("quantity")) next.quantity = p.errQuantity;
+    /* above the limit the stock box says so itself (with "Make it unlimited"); the error only stops the save */
+    if (!sized && stockOverMax(draft.unlimited, draft.quantity)) next.quantity = p.errQuantity;
+    else if (bad.includes("quantity")) next.quantity = p.errQuantity;
     else if (!sized && stockNeedsAnswer(draft.unlimited, draft.quantity, stockOk)) next.quantity = p.errStockAsk;
     setErrors(next);
     /* the first field with a mistake comes into view with the cursor in it */
@@ -653,38 +570,56 @@ export function Products() {
       focus,
     };
 
+    const list = itemsNow.current;
+    const name = base.name || p.untitled;
     if (editing === "new") {
-      const id = nextProductId(items);
-      setItems((list) => [{ id, created: Date.now(), ...base }, ...list]);
+      const id = nextProductId(list);
+      change([{ id, created: Date.now(), ...base }, ...list], (l) => productsCopy[l].undoAdded(name));
     } else {
       /* if the product was removed meanwhile (in another tab), his edits bring it back instead of being lost */
-      setItems((list) => (list.some((x) => x.id === editing) ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list]));
+      change(
+        list.some((x) => x.id === editing) ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list],
+        (l) => productsCopy[l].undoEdited(name),
+      );
     }
-    /* saved: the editor closes and the first screen ("pick a product") comes back, under the "saved" card */
+    /* saved: the editor closes and the first screen ("pick a product") comes back, with the note and its Undo below */
     setCropAt(null);
     setPhotoLive(null);
     setEditing(null);
-    showSaved(base.name);
     editorBox.current?.scrollTo({ top: 0, behavior: "smooth" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  /* Deleting moves to "Deleted products" at once (nothing is lost, it can be restored from there), with an Undo */
   const trash = (ids: number[]) => {
-    setItems((list) => list.map((x) => (ids.includes(x.id) ? { ...x, deletedAt: Date.now() } : x)));
+    const list = itemsNow.current;
+    const hit = ids.filter((id) => list.some((x) => x.id === id && !x.deletedAt));
+    if (hit.length) {
+      const at = Date.now();
+      const name = nameOf(hit, lang);
+      change(list.map((x) => (hit.includes(x.id) ? { ...x, deletedAt: at } : x)), (l) => productsCopy[l].undoBin(hit.length, name));
+    }
     setPicked((cur) => cur.filter((id) => !ids.includes(id)));
     if (typeof editing === "number" && ids.includes(editing)) setEditing(null);
     setConfirmDelete(false);
   };
 
   const restore = (ids: number[]) => {
-    setItems((list) => list.map((x) => (ids.includes(x.id) ? { ...x, deletedAt: undefined } : x)));
+    const list = itemsNow.current;
+    const hit = ids.filter((id) => list.some((x) => x.id === id && x.deletedAt));
+    if (hit.length) {
+      const name = nameOf(hit, lang);
+      change(list.map((x) => (hit.includes(x.id) ? { ...x, deletedAt: undefined } : x)), (l) => productsCopy[l].undoRestored(hit.length, name));
+    }
     setPicked((cur) => cur.filter((id) => !ids.includes(id)));
     if (typeof editing === "number" && ids.includes(editing)) setEditing(null);
-    showSaved("");
   };
 
+  /* For good: it asks first (it can't be restored from "Deleted products"), then an Undo still puts it back for a moment */
   const remove = (ids: number[]) => {
-    setItems((list) => list.filter((x) => !ids.includes(x.id)));
+    const list = itemsNow.current;
+    const name = nameOf(ids, lang);
+    change(list.filter((x) => !ids.includes(x.id)), (l) => productsCopy[l].undoForever(name));
     setPicked((cur) => cur.filter((id) => !ids.includes(id)));
     if (typeof editing === "number" && ids.includes(editing)) setEditing(null);
     setConfirmDelete(false);
@@ -710,7 +645,7 @@ export function Products() {
           </svg>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={p.searchPh} aria-label={p.searchPh} className={`${field} h-12 ps-12`} />
         </div>
-          <button type="button" onClick={() => leave() && openNew()} className="h-12 shrink-0 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep"> + {p.newProduct} </button>
+          <button type="button" onClick={() => leave(openNew)} className="h-12 shrink-0 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep"> + {p.newProduct} </button>
         </div>
 
         {/* filters | list | editor; in Arabic the editor comes first, on the right, and the filters go to the left */}
@@ -778,24 +713,16 @@ export function Products() {
                 {shown.map((x) => (
                   <li key={x.id} className={`flex items-center gap-3 px-4 py-3 transition-colors ${editing === x.id ? "bg-black/[0.07] dark:bg-white/[0.1]" : "hover:bg-fg/[0.05]"}`}>
                     <input type="checkbox" checked={picked.includes(x.id)} onChange={() => togglePick(x.id)} aria-label={x.name} className="h-4 w-4 shrink-0 accent-[rgb(var(--primary))]" />
-                    <button type="button" onClick={() => x.id !== editing && leave() && openEdit(x)} className="flex min-w-0 flex-1 items-center gap-3 text-start">
-                      <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-soft text-muted">
-                        {x.images?.[0] ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={x.images[0]} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                            <path d="M9 3 3.5 6 5.5 10.5 8 9.5V20.5H16V9.5l2.5 1L20.5 6 15 3a3 3 0 0 1-6 0Z" />
-                          </svg>
-                        )}
-                      </span>
+                    <button type="button" onClick={() => x.id !== editing && leave(() => openEdit(x))} className="flex min-w-0 flex-1 items-center gap-3 text-start">
+                      {/* the store's own placeholder when there is no photo, so the product looks the same here as in the store */}
+                      <ProductPhoto src={x.images?.[0]} hue={noPhotoHue(x.id)} className="h-12 w-12 shrink-0 rounded-lg" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold">{x.name}</span>
+                          <span dir="auto" className="truncate text-sm font-semibold ltr:text-left rtl:text-right">{x.name}</span>
                           {x.hidden && <span className="shrink-0 rounded bg-fg/10 px-1.5 py-0.5 text-[10px] font-bold text-muted">{p.filters.hidden.split(" ").pop()}</span>}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted">
-                          {x.categories.join(lang === "ar" ? "، " : ", ") || p.otherCategory} · {x.unlimited ? p.unlimitedShort : <><span dir="ltr">{x.quantity}</span> {p.piece}</>}
+                          {x.categories.join(lang === "ar" ? "، " : ", ") || p.otherCategory} · {x.unlimited ? p.unlimitedShort : x.quantity <= 0 ? p.soldOutShort : p.pieces(x.quantity)}
                         </span>
                         <span dir="ltr" className="mt-0.5 block text-start text-sm font-bold">
                           {x.price === null ? (
@@ -992,14 +919,13 @@ export function Products() {
 
                 <div className="space-y-5 border-t border-fg/10 pt-6 [&>div:not(.grid):not(:last-child)]:border-b-2 [&>div:not(.grid):not(:last-child)]:border-fg/20 [&>div:not(.grid):not(:last-child)]:pb-5">
                   <h3 className="font-bold">{p.stock}</h3>
-                  {/* clothing and shoes: each size with its own quantity */}
+                  {/* clothing and shoes: each size with its own quantity; the other kinds one quantity. Only the one that applies shows (not the other greyed out) */}
+                  {kindHasSizes(draft.kind) ? (
                   <div>
-                    <Blocked when={!kindHasSizes(draft.kind)} why={kw.sizesOff(kw.names[draft.kind])}>
-                      <SizesEditor lang={lang} kind={draft.kind} sizes={draft.sizes} chart={draft.sizeChart} onChart={(v) => set("sizeChart", v)} error={errors.sizes} inputClass={field} onChange={(sizes) => { set("sizes", sizes); if (errors.sizes) setErrors((x) => ({ ...x, sizes: undefined })); }} />
-                    </Blocked>
+                    <SizesEditor lang={lang} kind={draft.kind} sizes={draft.sizes} chart={draft.sizeChart} onChart={(v) => set("sizeChart", v)} error={errors.sizes} inputClass={field} onChange={(sizes) => { set("sizes", sizes); if (errors.sizes) setErrors((x) => ({ ...x, sizes: undefined })); }} />
                   </div>
+                  ) : (
                   <div>
-                    <Blocked when={kindHasSizes(draft.kind)} why={kw.stockBySize}>
                     <StockChoice
                       lang={lang}
                       unlimited={draft.unlimited}
@@ -1012,9 +938,10 @@ export function Products() {
                       inputClass={`${field} ${errors.quantity ? bad : ""}`}
                       error={errors.quantity}
                       required
+                      neutral={!kindShips(draft.kind)}
                     />
-                    </Blocked>
                   </div>
+                  )}
                 </div>
 
                 {/* the notifications (low stock, back in stock) were taken out until they work; the saved values keep their defaults */}
@@ -1037,14 +964,9 @@ export function Products() {
                           <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-500/50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{p.deleteForever}</button>
                         </span>
                       )
-                    ) : confirmDelete ? (
-                      <span className="ms-auto flex flex-wrap items-center gap-3">
-                        <span className="text-sm text-rose-600">{p.deleteAsk}</span>
-                        <button type="button" onClick={() => trash([editing])} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700">{p.deleteYes}</button>
-                        <button type="button" onClick={() => setConfirmDelete(false)} className="rounded-lg border border-fg/20 px-4 py-2 text-sm font-semibold transition hover:bg-soft">{p.cancel}</button>
-                      </span>
                     ) : (
-                      <button type="button" onClick={() => setConfirmDelete(true)} className="ms-auto rounded-lg border border-rose-500/50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{p.delete}</button>
+                      /* to "Deleted products" at once, like "Delete selected": the note at the bottom has its Undo */
+                      <button type="button" onClick={() => trash([editing])} className="ms-auto rounded-lg border border-rose-500/50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{p.delete}</button>
                     ))}
                 </div>
               </form>
@@ -1053,23 +975,28 @@ export function Products() {
         </div>
       </main>
 
-      {/* The "saved" card drops in at the top of the screen, where the page goes back to after saving */}
-      <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 top-20 z-[60] flex justify-center px-4">
-        {flash && (
-          <div key={flash.n} className="pointer-events-auto flex w-full max-w-sm animate-[savedIn_.35s_ease-out] items-center gap-3 rounded-2xl border border-emerald-500/30 bg-card px-4 py-3 shadow-2xl ring-1 ring-black/5">
-            <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-500 text-white">
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-bold text-emerald-700 dark:text-emerald-400">{p.saved}</span>
-              {flash.name && <span className="block truncate text-xs text-muted">{flash.name}</span>}
-            </span>
-            <button type="button" onClick={() => setFlash(null)} aria-label={p.cancel} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-soft hover:text-fg">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
-            </button>
+      {/* leaving the product with changes not saved: asked in the page (the dashboard never uses the browser's own windows) */}
+      {discardThen && (
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setDiscardThen(null)}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="discard-ask" className="dash my-8 w-full max-w-md rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
+            <p id="discard-ask" className="text-base font-bold leading-relaxed">{p.discardAsk}</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button ref={keepRef} type="button" onClick={() => setDiscardThen(null)} className="h-11 flex-1 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{p.discardKeep}</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const then = discardThen;
+                  setDiscardThen(null);
+                  then();
+                }}
+                className="h-11 flex-1 rounded-xl border border-rose-500/50 px-6 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10"
+              >
+                {p.discardYes}
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

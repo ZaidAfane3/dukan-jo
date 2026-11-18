@@ -32,17 +32,20 @@ const almarai = Almarai({ subsets: ["arabic"], weight: ["300", "400", "700"], va
    Almarai writes Arabic only: the English font pickers leave it out (fontChoices in storefront/config.ts). */
 const kufi = Noto_Kufi_Arabic({ subsets: ["arabic", "latin"], weight: ["300", "400", "500", "600", "800"], variable: "--font-kufi", preload: false });
 
-/* What every page is first sent with. The landing page then shows the title and description from components/siteContent.ts,
-   in the visitor's language (SiteMeta in components/useSiteContent.ts). */
+/* What every page is first sent with: in Arabic, the language every page is first drawn in, so the tab and the page
+   agree while it loads (an English tab over an Arabic page looked broken on slow loads). The pages then show their own
+   title in the visitor's language (SiteMeta in components/useSiteContent.ts; each dashboard page sets its own). */
 export const metadata: Metadata = {
-  title: "Dukkan | Launch your online store in minutes",
-  description:
-    "Dukkan is the all-in-one e-commerce platform: store builder, payments, shipping, marketing and more.",
+  title: "دكان | أطلق متجرك الإلكتروني في دقائق",
+  description: "دكان منصة التجارة الإلكترونية المتكاملة: إنشاء المتجر والمدفوعات والشحن والتسويق والمزيد.",
 };
 
 /* Applies saved theme and language before first paint to avoid a flash. A first visit is light and Arabic (not the
-   system's dark mode); the page is sent in Arabic, so only a saved English choice hides it until it has switched. */
-const initScript = `try{var d=document.documentElement,t=localStorage.getItem("seen-theme"),l=localStorage.getItem("seen-lang");d.dataset.theme=t==="dark"?"dark":"light";if(l==="en"){d.lang="en";d.dir="ltr";d.dataset.boot="1";setTimeout(function(){delete d.dataset.boot},1500)}}catch(e){}`;
+   system's dark mode); the page is sent in Arabic, so only a saved English choice hides it until it has switched.
+   PrefsProvider shows it again once English is on the page, however long the scripts take to arrive. A fixed timer
+   could run out first on a slow connection and show the Arabic text. Only if the scripts can't run at all (one fails
+   to load, or the page still isn't switched 3 s after everything has loaded) is it shown as it was sent. */
+const initScript = `try{var d=document.documentElement,t=localStorage.getItem("seen-theme"),l=localStorage.getItem("seen-lang");d.dataset.theme=t==="dark"?"dark":"light";if(l==="en"){d.lang="en";d.dir="ltr";d.dataset.boot="1";var s=function(){delete d.dataset.boot};addEventListener("error",function(e){var x=e.target;if(x&&x.tagName==="SCRIPT")s()},true);addEventListener("load",function(){setTimeout(s,3000)})}}catch(e){}`;
 
 export default function RootLayout({
   children,

@@ -5,11 +5,18 @@ import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
-import { isNewSlug, isPlatformPage, isSlug, reservedForNew, SLUG_RULE, typedSlug } from "./safe";
+import { isNewSlug, isPlatformPage, isSlug, reservedForNew, slugDropped, slugDroppedText, SLUG_RULE, typedSlug } from "./safe";
 import { reservedSlugError } from "./safeAccount";
 import { loadSetup, saveSetup } from "./setup";
 import { merchantCall, onServer } from "./merchantApi";
 import { STORE_PREFIX, storeUrl } from "./siteAddress";
+import { ShareMenu } from "./ShareMenu";
+import { dropUndos, offerUndo } from "./undo";
+import type { Lang } from "./content";
+import { usePageTitle } from "./pageTitle";
+
+/* the undo note at the bottom (UndoToast.tsx) */
+const undoLink: Record<Lang, (s: string) => string> = { en: (s) => `Store link changed to ${s}`, ar: (s) => `تغيّر رابط المتجر إلى ${s}` };
 
 /* The store link: every store lives at Dukkan's address followed by its own link name (components/siteAddress.ts, e.g. dukkan-demo.afaneh.dev/olive). Dukkan
    does not sell domains or connect a merchant's own domain, so this page is only about that link: see it, copy it,
@@ -69,13 +76,13 @@ export function StoreLink() {
   const tour = useDemo();
   const [draft, setDraft] = useState("");
   const [slugError, setSlugError] = useState("");
+  /* he typed something a link can't hold (Arabic letters, symbols): said under the box instead of dropped silently */
+  const [dropped, setDropped] = useState(false);
   const [flash, setFlash] = useState("");
   /* his store is kept on Dukkan's server (signed in, not the tour), so its address shows it to anyone */
   const [live, setLive] = useState(false);
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${c.title}`;
-  }, [lang, c]);
+  usePageTitle(`${brandName(lang)} | ${c.title}`);
 
   useEffect(() => {
     setSlug(loadSetup()?.slug ?? "");
@@ -99,21 +106,11 @@ export function StoreLink() {
     flashMsg(c.copied);
   };
 
-  const share = async () => {
-    if (tour) return;
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({ title: c.shareTitle, text: url });
-      } catch {
-        /* cancelled */
-      }
-    } else {
-      void copyUrl();
-    }
-  };
-
+  /* only this page shows the link: its undo goes when it closes */
+  useEffect(() => () => dropUndos("store-link"), []);
   const saveSlug = async () => {
     const v = draft.trim();
+    const was = slug;
     /* keeping the link the store already has is always allowed; a different one must be free to choose now */
     if (!(v === slug && isSlug(v)) && !isNewSlug(v)) {
       setSlugError(SLUG_RULE.test(v) && reservedForNew(v) ? reservedSlugError[lang] : c.invalid);
@@ -132,7 +129,28 @@ export function StoreLink() {
     setSlug(v);
     setEditing(false);
     setSlugError("");
+    setDropped(false);
     flashMsg(c.saved);
+    /* an Undo gives the store its link before back, unless the link changed again since or another store took the old one */
+    if (!s || !was || was === v) return;
+    offerUndo({
+      scope: "store-link",
+      label: (l) => undoLink[l](v),
+      undo: async () => {
+        const now = loadSetup();
+        if (!now || now.slug !== v) return false;
+        if (onServer()) {
+          const r = await merchantCall(`/api/shop/slug?slug=${encodeURIComponent(was)}`, "GET");
+          if (!r || r.status !== 200 || r.data.result !== "available") return false;
+        }
+        saveSetup({ ...now, slug: was });
+        setSlug(was);
+        setDraft(was);
+        setEditing(false);
+        setSlugError("");
+        return true;
+      },
+    });
   };
 
   return (
@@ -154,6 +172,8 @@ export function StoreLink() {
                 onClick={() => {
                   setDraft(slug);
                   setSlugError("");
+                  /* a notice left from the last time he edited it would no longer be true */
+                  setDropped(false);
                   setEditing(true);
                 }}
                 className={`rounded-lg border border-primary/60 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white ${demoOff}`}
@@ -179,6 +199,7 @@ export function StoreLink() {
                   value={draft}
                   onChange={(e) => {
                     setDraft(typedSlug(e.target.value));
+                    setDropped(slugDropped(e.target.value));
                     setSlugError("");
                   }}
                   onKeyDown={(e) => e.key === "Enter" && saveSlug()}
@@ -189,9 +210,10 @@ export function StoreLink() {
                 />
               </div>
               {slugError && <p className="mt-2 text-xs text-rose-600">{slugError}</p>}
+              {!slugError && dropped && <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-300">{slugDroppedText[lang]}</p>}
               <div className="mt-4 flex gap-3">
                 <button type="button" onClick={saveSlug} className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition hover:bg-deep">{c.save}</button>
-                <button type="button" onClick={() => setEditing(false)} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{c.cancel}</button>
+                <button type="button" onClick={() => { setEditing(false); setDropped(false); }} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{c.cancel}</button>
               </div>
             </div>
           ) : (
@@ -204,7 +226,8 @@ export function StoreLink() {
               )}
               <div className="flex items-center gap-4 text-sm font-semibold text-primary">
                 <button type="button" onClick={copyUrl} className="hover:underline">{flash === c.copied ? c.copied : c.copy}</button>
-                <button type="button" onClick={share} className="hover:underline">{c.share}</button>
+                {/* the phone's share sheet, or on a computer a menu: WhatsApp, Facebook, X, Telegram, email, copy, QR code */}
+                <ShareMenu url={storeUrl(slug)} title={loadSetup()?.name || c.shareTitle} lang={lang} fileName={`${slug}-qr`} disabled={tour} disabledTitle={demoOffText(lang)} className={`hover:underline ${demoOff}`} />
                 {/* the store as his visitors see it, at its address (app/[slug]) */}
                 {live && (
                   <a href={storeUrl(slug)} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-primary px-4 py-2 text-white transition hover:opacity-90">

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Select } from "@/components/diwan/shopBits";
 import { card, Loaded, PageHead, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { FunnelSkeleton } from "@/components/diwan/skeletons";
 
 type Funnel = { period: string; signed_up: number; setup: number; product: number; published: number; ordered: number };
 
@@ -36,7 +37,7 @@ export default function FunnelPage() {
           />
         }
       />
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<FunnelSkeleton />}>
         {(d) => {
           const steps = [
             { n: d.signed_up, label: t("Signed up", "سجّل") },

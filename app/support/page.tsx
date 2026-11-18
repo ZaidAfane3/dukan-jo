@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Support } from "@/components/Support";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Support tickets",
+  title: "دكان | تذاكر الدعم",
   description: "Open a support ticket if you need help with your store.",
 };
 

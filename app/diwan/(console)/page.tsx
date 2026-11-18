@@ -7,7 +7,8 @@ import { ArchWindow, Icon, iconForPath } from "@/components/diwan/icons";
 import { DIWAN_NAV } from "@/components/diwan/nav";
 import { can } from "@/components/diwan/perms";
 import { StatusBadge, storeLink } from "@/components/diwan/shopBits";
-import { ATTENTION, card, DataTable, Figures, Loaded, PageHead, td, useApi, useFmt, useStaff, useT } from "@/components/diwan/ui";
+import { ATTENTION, card, DataTable, Figures, Loaded, PageHead, tdDense, useApi, useFmt, useStaff, useT } from "@/components/diwan/ui";
+import { HomeSkeleton } from "@/components/diwan/skeletons";
 import { usePrefs } from "@/components/Prefs";
 
 type Overview = {
@@ -40,7 +41,7 @@ function ShopsOverview() {
   return (
     <>
       <Welcome />
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<HomeSkeleton />}>
         {(d) => {
           const waiting = [
             { href: "/diwan/tickets", n: d.waiting.tickets, one: t("open ticket", "تذكرة مفتوحة"), many: t("open tickets", "تذاكر مفتوحة") },
@@ -56,14 +57,15 @@ function ShopsOverview() {
                       label: t("Stores", "المتاجر"),
                       value: f.num(d.total),
                       note: d.suspended ? t(`${f.num(d.suspended)} suspended`, `${f.num(d.suspended)} موقوف`) : t("none suspended", "لا متجر موقوف"),
-                      extra: <Share part={d.active} whole={d.total} label={t(`${f.num(d.active)} active`, `${f.num(d.active)} نشط`)} />,
+                      /* how many can be visited: every store but the suspended ones (the Active box says who came in lately) */
+                      extra: <Share part={d.total - d.suspended} whole={d.total} label={t(`${f.num(d.total - d.suspended)} not suspended`, `${f.num(d.total - d.suspended)} غير موقوف`)} />,
                     },
                     { label: t("New this week", "جديدة هذا الأسبوع"), value: f.num(d.newWeek), note: t("signed up in the last 7 days", "سجّلت خلال آخر 7 أيام") },
-                    { label: t("Active", "النشطة"), value: f.num(d.active), note: t(`${f.num(d.inactive)} quiet for 14 days or more`, `${f.num(d.inactive)} بلا دخول منذ 14 يومًا أو أكثر`) },
+                    { label: t("Active", "النشطة"), value: f.num(d.active), note: t(`owner came in during the last 14 days · ${f.num(d.inactive)} quiet`, `دخلها صاحبها خلال آخر 14 يومًا · ${f.num(d.inactive)} بلا دخول`) },
                     {
                       label: t("Published", "منشورة"),
                       value: f.num(d.published),
-                      note: t(`of ${f.num(d.total)} stores`, `من ${f.num(d.total)} متجر`),
+                      note: `${t("of", "من")} ${f.count(d.total, ["store", "stores"], { one: "متجر واحد", two: "متجرين", few: "متاجر", many: "متجرًا" })}`,
                       extra: <Share part={d.published} whole={d.total} />,
                     },
                   ]}
@@ -79,7 +81,8 @@ function ShopsOverview() {
                         <li key={w.href}>
                           <Link href={w.href} className="group flex items-baseline gap-3 px-5 py-4 transition-colors hover:bg-fg/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
                             <span className={`min-w-[2ch] text-2xl font-extrabold tabular-nums ${ATTENTION}`}>{f.num(w.n)}</span>
-                            <span className="text-[15px]">{w.n === 1 ? w.one : w.many}</span>
+                            {/* after the number: one, else the plural; in Arabic 11 and more take the singular too («11 تذكرة مفتوحة») */}
+                            <span className="text-[15px]">{w.n === 1 || (t("en", "ar") === "ar" && w.n % 100 >= 11) ? w.one : w.many}</span>
                             <span aria-hidden className="ms-auto text-fg/30 transition group-hover:translate-x-0.5 group-hover:text-primary rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5 motion-reduce:transform-none">
                               →
                             </span>
@@ -99,30 +102,39 @@ function ShopsOverview() {
                       {t("All stores", "كل المتاجر")}
                     </Link>
                   </div>
+                  {/* dense and fitted to its column: the store and owner names truncate (in full in their tooltip), so
+                      the table never scrolls sideways */}
                   <DataTable
+                    dense
+                    fit
                     head={[t("Store", "المتجر"), t("Owner", "المالك"), t("Status", "الحالة"), t("Setup", "الإعداد"), t("Signed up", "التسجيل")]}
                     empty={!d.newest.length && t("No stores have signed up yet.", "لم يسجّل أي متجر بعد.")}
                   >
                     {d.newest.map((r) => (
                       <tr key={r.id} className="transition-colors hover:bg-fg/[0.025]">
-                        <td className={td}>
-                          <Link href={`/diwan/shops/${r.id}`} className="font-bold text-fg hover:text-primary hover:underline">
+                        {/* max-w-0 with a share of the width: the cell takes that share and truncates what is longer */}
+                        <td className={`${tdDense} w-[45%] max-w-0`}>
+                          <Link href={`/diwan/shops/${r.id}`} title={r.name || undefined} dir="auto" className="block truncate font-bold text-fg hover:text-primary hover:underline">
                             {r.name || t("(no name yet)", "(بلا اسم بعد)")}
                           </Link>
                           {r.slug && (
-                            <p dir="ltr" className="mt-0.5 text-xs text-muted rtl:text-end">
+                            <p dir="ltr" title={storeLink(r.slug)} className="mt-0.5 truncate text-xs text-muted rtl:text-end">
                               {storeLink(r.slug)}
                             </p>
                           )}
                         </td>
-                        <td className={`${td} text-muted`}>{r.owner}</td>
-                        <td className={td}>
+                        <td className={`${tdDense} w-[25%] max-w-0 text-muted`}>
+                          <span title={r.owner} dir="auto" className="block truncate">
+                            {r.owner}
+                          </span>
+                        </td>
+                        <td className={`${tdDense} whitespace-nowrap`}>
                           <StatusBadge status={r.status} />
                         </td>
-                        <td className={td}>
+                        <td className={`${tdDense} whitespace-nowrap`}>
                           <SetupMeter done={r.setup_done} />
                         </td>
-                        <td className={`${td} whitespace-nowrap text-muted`}>{f.date(r.created_at)}</td>
+                        <td className={`${tdDense} whitespace-nowrap text-muted`}>{f.date(r.created_at)}</td>
                       </tr>
                     ))}
                   </DataTable>
@@ -146,7 +158,6 @@ function PortalHome() {
     "/diwan/popups": { en: "Pop-ups merchants see once in their dashboard.", ar: "نوافذ يراها التجار مرة واحدة في لوحة التحكم." },
     "/diwan/announcements": { en: "Notices in the merchants' bell and banner.", ar: "إشعارات في جرس التجار وشريط الإعلانات." },
     "/diwan/marketplace": { en: "Outside developers and the work they send.", ar: "المطورون الخارجيون وما يرسلونه من أعمال." },
-    "/diwan/flags": { en: "Turn features on or off, for everyone or some stores.", ar: "شغّل الميزات أو أوقفها للجميع أو لبعض المتاجر." },
     "/diwan/activity": { en: "Who changed what, and when.", ar: "من غيّر ماذا، ومتى." },
   };
   const list = staff ? DIWAN_NAV.filter((i) => i.href !== "/diwan" && can(staff, i.perm)) : [];

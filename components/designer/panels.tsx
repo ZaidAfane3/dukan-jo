@@ -17,7 +17,7 @@ import { checkImage, cleanFileName, hasStoreContact, imageRules, PICTURE_ACCEPT,
 import { RudeNote } from "../RudeNote";
 import { digitsOnlyError, isJordanNumber, numberError, typedAnyPhone, typedPhone } from "../phone";
 import { PicNoteLine } from "./PicNoteLine";
-import { countDiscounted, readProducts, storeCategories } from "../storefront/useStoreData";
+import { countDiscounted, readProducts, storeCategories, useStoreData, type StoreProduct } from "../storefront/useStoreData";
 import { deleteMedia, getMedia, putMedia, setLiveMedia, useMediaUrl } from "../storefront/mediaStore";
 import { uploadImage } from "../media";
 import { onServer } from "../merchantApi";
@@ -30,9 +30,10 @@ const why = (lang: Lang, ar: string, en: string) => (lang === "ar" ? ar : en);
 import { DeleteAsk } from "./DeleteAsk";
 import { dc, sampleTexts } from "./copy";
 import { LinkPicker, LinkTargets, PictureMover, useStorePages } from "./PageLink";
-import { readSubscribers } from "../storefront/sections";
+import { emptyForCustomers, readSubscribers, sellsOf } from "../storefront/sections";
+import { usePublicSettings } from "../platformPublic";
 import { load as loadInfoPages } from "../InfoPages";
-import { bannerSurface, dimOn, footerColors, footerNameSize, inkOn, legibleOn, readsOn } from "../storefront/footerColors";
+import { bannerSurface, cardGround, dimOn, footerColors, footerNameSize, hex, inkOn, legibleOn, mix, readsOn } from "../storefront/footerColors";
 
 export type Identity = { name: string; description: string; color: string; phone: string };
 export type Draft = { config: StorefrontConfig; identity: Identity };
@@ -764,7 +765,7 @@ export const TextColorNow = createContext("#1c1a17");
 /* the store color, for the colors that follow it until he picks one (a perk box's border) */
 export const StoreColorNow = createContext("#e67726");
 /** The page's background and the store color the cover falls back to, so a color box can say when its color vanishes there */
-export const PageLookNow = createContext({ bg: "#ffffff", primary: "#e67726" });
+export const PageLookNow = createContext({ bg: "#ffffff", primary: "#e67726", text: "#1c1a17", title: "#1c1a17", accent: "#e67726" });
 
 /** The color of one text: a swatch that opens the color picker and shows the color it has now.
     `auto` is the color the preview draws when nothing is chosen (white on a banner); without it, the store's text color.
@@ -1037,16 +1038,30 @@ function MoreButton({ lang, value, onChange, onRemove, children }: { lang: Lang;
 /** Where the store's products are (its products part, see shopTarget): a hero button he never set leads there */
 const ShopNow = createContext("");
 
-/** Where a button leads. A button set to nowhere gets a warning (`warn` false: a picture, where nowhere is normal). */
-function Leads({ lang, label, value, onChange, warn = true }: { lang: Lang; label: string; value: string; onChange: (v: string) => void; warn?: boolean }) {
+/* A button (or link) with words and nowhere to go is not shown, to customers or in the preview: what its card and its
+   destination say, and the note's look (it opens the place to choose a destination) */
+const hiddenWords = { en: "Hidden from customers: choose where it goes.", ar: "مخفي عن العملاء: اختر وجهته." };
+const hasWords = (b?: { en?: string; ar?: string }) => !!(b?.en?.trim() || b?.ar?.trim());
+const flagCls = "flex w-full items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-start text-[11px] font-semibold leading-relaxed text-amber-800 transition hover:bg-amber-100 dark:bg-amber-400/10 dark:text-amber-300 dark:hover:bg-amber-400/20";
+/* the note on a closed item card: opens the card, then the part inside it that the note points at */
+const openFlagged = (from: HTMLElement) => {
+  const card = from.closest<HTMLElement>("[data-item-card]");
+  card?.querySelector<HTMLButtonElement>(":scope > div > button[aria-expanded=false], :scope > div > div > button[aria-expanded=false]")?.click();
+  setTimeout(() => card?.querySelector<HTMLButtonElement>("[data-part-flag]")?.click(), 320);
+};
+
+/** Where a button leads. A button set to nowhere gets a warning (`warn` false: a picture, where nowhere is normal); given its
+    `words`, only when it has some (it is hidden from customers then), in the words of the other hidden buttons. */
+function Leads({ lang, label, value, onChange, warn = true, words }: { lang: Lang; label: string; value: string; onChange: (v: string) => void; warn?: boolean; words?: { en?: string; ar?: string } }) {
+  const hidden = warn && !value.trim() && (words === undefined || hasWords(words));
   return (
-    <div className="mt-3">
+    <div className="mt-3" data-leads={hidden ? "hidden" : undefined}>
       <p className="mb-1.5 text-xs font-semibold text-fg/80">{label}</p>
       <LinkPicker lang={lang} value={value} onChange={onChange} label={label} />
-      {warn && !value.trim() && (
+      {hidden && (
         <p role="status" className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">
           <span aria-hidden>⚠</span>
-          {lang === "ar" ? "هذا الزر لا يأخذ العميل إلى أي مكان. اختر وجهة له." : "This button takes customers nowhere. Choose where it leads."}
+          {hiddenWords[lang]}
         </p>
       )}
     </div>
@@ -1079,7 +1094,7 @@ const subscribeRoot = (l: () => void) => {
   return () => void rootListeners.delete(l);
 };
 
-function Part({ lang, label, hint, more, field, also, force = false, error, icon, preview, before, after, spot, onOpen, onClose, children }: { lang?: Lang; label: string; /* told when he opens or closes it himself (the cart design shows the cart while open) */ onOpen?: () => void; onClose?: () => void; /* a small picture before the name (a banner's color) */ icon?: React.ReactNode; /* in the name's row, outside the button that folds it */ before?: React.ReactNode; after?: React.ReactNode; hint?: string; more?: React.ReactNode; field?: string; /* other fields that sit inside it and open it too */ also?: string[]; /* opened from outside: the tour points at it */ force?: boolean; error?: string; /* while closed, a short grey look at what is written in it */ preview?: string; /* the part of the store it changes, when it is not its field (see SpotScope) */ spot?: string; children: React.ReactNode }) {
+function Part({ lang, label, hint, more, field, also, force = false, error, icon, preview, before, after, spot, onOpen, onClose, flag, children }: { lang?: Lang; label: string; /* while closed, a note under the name (a button hidden from customers): pressing it opens the part at its destination */ flag?: string; /* told when he opens or closes it himself (the cart design shows the cart while open) */ onOpen?: () => void; onClose?: () => void; /* a small picture before the name (a banner's color) */ icon?: React.ReactNode; /* in the name's row, outside the button that folds it */ before?: React.ReactNode; after?: React.ReactNode; hint?: string; more?: React.ReactNode; field?: string; /* other fields that sit inside it and open it too */ also?: string[]; /* opened from outside: the tour points at it */ force?: boolean; error?: string; /* while closed, a short grey look at what is written in it */ preview?: string; /* the part of the store it changes, when it is not its field (see SpotScope) */ spot?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   /* opened by him (its name pressed, or its text clicked in the preview), not by a mistake or the tour: the preview shows where it is */
   const [aimed, setAimed] = useState(false);
@@ -1143,7 +1158,7 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
       <div data-part-flat>
         <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg/80">
           {icon}
-          <span className="truncate">{must ? label.slice(0, -2) : label}</span>
+          <span className="min-w-0 leading-snug [overflow-wrap:anywhere]">{must ? label.slice(0, -2) : label}</span>
           {must && <span className="ms-1 text-rose-600">*</span>}
           <ThemeMark lang={lang} theme={fromTheme} />
         </p>
@@ -1164,7 +1179,7 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
     <button type="button" onClick={() => { if (open) { hide(); onClose?.(); return; } setAimed(true); show(); onOpen?.(); }} aria-expanded={open} className={`flex items-center justify-between gap-2 text-start ${before || after ? "min-w-0 flex-1" : "w-full"}`}>
       <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg/80">
         {icon}
-        <span className="truncate">{must ? label.slice(0, -2) : label}</span>
+        <span className="min-w-0 leading-snug [overflow-wrap:anywhere]">{must ? label.slice(0, -2) : label}</span>
         {must && <span className="ms-1 text-rose-600">*</span>}
         <ThemeMark lang={lang} theme={fromTheme} />
       </span>
@@ -1178,6 +1193,21 @@ function Part({ lang, label, hint, more, field, also, force = false, error, icon
           opens below has the whole width */}
       {before || after ? <div className="flex items-center gap-1.5">{before}{head}{after}</div> : head}
       {error && !open && <p className="mt-1.5 text-xs text-rose-600">{error}</p>}
+      {flag && !open && (
+        <button
+          type="button"
+          data-part-flag
+          onClick={() => {
+            setAimed(true);
+            show();
+            setTimeout(() => box.current?.querySelector<HTMLElement>('[data-leads="hidden"] :is(button, select, input)')?.focus(), 320);
+          }}
+          className={`mt-1.5 ${flagCls}`}
+        >
+          <span aria-hidden>⚠</span>
+          {flag}
+        </button>
+      )}
       {/* it slides open and fades in, and slides closed again */}
       <div ref={box} onTransitionEnd={(e) => { if (e.target === e.currentTarget && open) setSettled(true); }} className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
         {/* cut only while it slides: once open, nothing inside is cut (an error under a field, a focus ring) */}
@@ -1271,9 +1301,9 @@ function AddLimited({ count, max, label, words, onAdd, onPick, multiple, compact
 /** One thing of a list. Its frame is thicker than the boxes inside it (teal while open), and it folds: closed, it shows its
     own name (what he wrote as its title, or "New …" while empty) and a small picture of it. Inside, each field has its name
     above it and an example in it (see Field), and the remove button comes last. */
-function ItemCard({ lang, name, empty, icon, force, extra, end, onRemove, removeLabel, children }: { lang: Lang; /* what he wrote as its title (or link text, message...) */ name?: string; /* shown while that is empty: "New perk" */ empty: string; icon?: React.ReactNode; /* opened from outside (just added) */ force?: boolean; /* beside the name, outside the fold (a drag handle, a show/hide switch) */ extra?: React.ReactNode; /* at the other end of the name row, outside the fold (an on/off switch) */ end?: React.ReactNode; onRemove?: () => void; removeLabel?: string; children: React.ReactNode }) {
+function ItemCard({ lang, name, empty, icon, force, extra, end, note, onRemove, removeLabel, children }: { lang: Lang; /* under the name row, outside the fold: seen while the card is closed too (what a link is missing) */ note?: React.ReactNode; /* what he wrote as its title (or link text, message...) */ name?: string; /* shown while that is empty: "New perk" */ empty: string; icon?: React.ReactNode; /* opened from outside (just added) */ force?: boolean; /* beside the name, outside the fold (a drag handle, a show/hide switch) */ extra?: React.ReactNode; /* at the other end of the name row, outside the fold (an on/off switch) */ end?: React.ReactNode; onRemove?: () => void; removeLabel?: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border-2 border-fg/15 bg-card px-3 py-2.5 shadow-sm transition has-[>div>button[aria-expanded=true]]:border-primary/45 has-[>div>div>button[aria-expanded=true]]:border-primary/45">
+    <div data-item-card className="rounded-2xl border-2 border-fg/15 bg-card px-3 py-2.5 shadow-sm transition has-[>div>button[aria-expanded=true]]:border-primary/45 has-[>div>div>button[aria-expanded=true]]:border-primary/45">
       {/* the grip and the switch sit in the name's row; what opens below has the whole width of the card */}
       <Part lang={lang} label={name?.trim() || empty} icon={icon} force={force} before={extra} after={end}>
         <div className="space-y-4">
@@ -1286,6 +1316,7 @@ function ItemCard({ lang, name, empty, icon, force, extra, end, onRemove, remove
           )}
         </div>
       </Part>
+      {note && <div className="mt-2">{note}</div>}
     </div>
   );
 }
@@ -1690,8 +1721,8 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
     const id = setTimeout(() => (document.querySelector(`[data-field="${focusField}"]`) as HTMLElement | null)?.focus(), 60);
     return () => clearTimeout(id);
   }, [focusField, nonce, section.id]);
-  const text = (v: { en: string; ar: string }, set: (b: { en: string; ar: string }) => void, label: string, area = false, field?: string, more?: React.ReactNode, extra?: React.ReactNode) => (
-    <Part lang={lang} label={label} more={more} field={field} preview={v[lang]?.trim() ? (v[lang].trim().length > 24 ? `${v[lang].trim().slice(0, 24)}…` : v[lang].trim()) : undefined}>
+  const text = (v: { en: string; ar: string }, set: (b: { en: string; ar: string }) => void, label: string, area = false, field?: string, more?: React.ReactNode, extra?: React.ReactNode, flag?: string) => (
+    <Part lang={lang} label={label} more={more} field={field} flag={flag} preview={v[lang]?.trim() ? (v[lang].trim().length > 24 ? `${v[lang].trim().slice(0, 24)}…` : v[lang].trim()) : undefined}>
       {area ? (
         <textarea data-field={field} value={v[lang]} onChange={(e) => set({ ...v, [lang]: e.target.value })} rows={area ? 6 : 3} maxLength={600} className={`${input} resize-y py-3`} />
       ) : (
@@ -1726,10 +1757,23 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       <Stepper lang={lang} label={t.luxe.textSize} value={s.settings.sizes?.[key] ?? defaults[key]} auto={s.settings.sizes?.[key] === undefined} onChange={(v) => setSize(key, v)} onReset={() => setSize(key, undefined)} min={key === "title" ? HERO_TITLE_MIN : undefined} max={key === "title" ? HERO_TITLE_MAX : undefined} />
     );
     const setColor = (key: HeroKey, v: string | undefined) => onChange({ ...s, settings: { ...s.settings, colors: { ...(s.settings.colors ?? {}), [key]: v } } });
-    /* the color the preview draws when none is chosen: on the banner the words sit on the first picture or color (white on a dark one), and the button is dark on white */
+    /* the color the preview draws when none is chosen, worked out as the store does (Hero in sections.tsx), so the box shows
+       it next to "Auto": on the banner the words sit on the first picture or color (with none, the store color's gradient),
+       and the button is dark on white; the pop and orbit layouts use the page's text, titles and accent; the split one the
+       panel's own text */
     const first = s.settings.backgrounds?.[0];
-    const onBanner = first?.kind === "image" && first.image ? "#ffffff" : first?.color ? onColor(first.color) : "#ffffff";
-    const autoColor = (key: HeroKey) => (split || pop || orbit ? undefined : key === "button" ? "#12262b" : onBanner);
+    const onBanner = first?.kind === "image" && first.image ? "#ffffff" : onColor(first?.color || page.primary);
+    const splitPanel = s.settings.panelColor || (first?.kind === "color" ? first.color || page.primary : page.primary);
+    const splitLight = onColor(splitPanel) !== "#ffffff";
+    const autoColor = (key: HeroKey): string => {
+      if (pop) return key === "title" ? page.title : key === "button" ? page.bg : pageText;
+      if (orbit) return key === "title" ? page.title : key === "eyebrow" ? page.accent : key === "button" ? page.bg : key === "subtitle" && hex(pageText) && hex(page.bg) ? mix(hex(pageText), hex(page.bg), 0.8) : pageText;
+      if (split) {
+        const text = splitLight ? pageText : "#ffffff";
+        return key === "button" ? (splitLight ? onColor(page.primary) : "#12262b") : key === "eyebrow" && splitLight ? page.accent : text;
+      }
+      return key === "button" ? "#12262b" : onBanner;
+    };
     /* what each text sits on (as the store draws it), so a chosen color that vanishes there is warned about: the page in the pop
        and orbit layouts, the text panel in the split one, every colored picture of the cover (a photo has its own dark fade) */
     const bgsNow = s.settings.backgrounds?.length ? s.settings.backgrounds : [{ kind: "color" as const, color: "", image: "" }];
@@ -1760,7 +1804,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       </div>
     );
     const set = (patch: Partial<typeof s.settings>) => onChange({ ...s, settings: { ...s.settings, ...patch } });
-    const link2 = <Leads lang={lang} label={popT[lang].button2Leads} value={s.settings.link2 ?? ""} onChange={(link2) => set({ link2 })} />;
+    const link2 = <Leads lang={lang} label={popT[lang].button2Leads} value={s.settings.link2 ?? ""} onChange={(link2) => set({ link2 })} words={s.settings.button2} />;
     const photoField = (label: string, ratio: string, radius: string, max: number, fill = false, hint?: string) => (
       <Part lang={lang} label={label} hint={hint}>
         <div data-field="photo" className="space-y-3">
@@ -1773,12 +1817,12 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       <>
         {text(s.settings.title, (title) => set({ title }), t.form.title, false, "title", <>{more("title")}{fontGrid}</>)}
         {text(s.settings.subtitle, (subtitle) => set({ subtitle }), t.form.subtitle, true, "subtitle", <>{more("subtitle")}{subFont}</>)}
-        <Part lang={lang} label={t.form.button} more={more("button")} field="button" also={["button2"]} preview={s.settings.button[lang]?.trim() || undefined}>
+        <Part lang={lang} label={t.form.button} more={more("button")} field="button" also={["button2"]} preview={s.settings.button[lang]?.trim() || undefined} flag={hasWords(s.settings.button2) && !s.settings.link2?.trim() ? hiddenWords[lang] : undefined}>
           <input data-field="button" value={s.settings.button[lang]} onChange={(e) => set({ button: { ...s.settings.button, [lang]: e.target.value } })} maxLength={60} className={`${input} h-11`} />
           <CharCount value={s.settings.button[lang] ?? ""} max={60} />
           <RudeNote lang={lang} text={s.settings.button[lang]} />
           {!s.settings.button[lang]?.trim() && <ButtonHiddenNote lang={lang} />}
-          <Leads lang={lang} label={popT[lang].buttonLeads} value={s.settings.link ?? shopNow} onChange={(link) => set({ link })} />
+          <Leads lang={lang} label={popT[lang].buttonLeads} value={s.settings.link?.trim() || shopNow} onChange={(link) => set({ link })} />
           <MoreButton lang={lang} value={s.settings.button2 ?? noText} onChange={(button2) => set({ button2 })} onRemove={() => set({ button2: undefined, link2: undefined })}>{link2}</MoreButton>
         </Part>
         {/* the round-photo layout came with a theme that was removed: it is offered only to a design that already uses it */}
@@ -1801,11 +1845,11 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
         {pop && (
           <FromTheme.Provider value="lamma">
             {text(s.settings.eyebrow ?? noText, (eyebrow) => set({ eyebrow }), pp.chip, false, "eyebrow", colorChip("eyebrow"))}
-            <Part lang={lang} label={pp.accentWord} hint={pp.accentWordHint} more={<ColorChip lang={lang} label={pp.colorAccent} value={s.settings.popColors?.accent} onChange={(accent) => setPop({ accent })} onReset={() => setPop({ accent: undefined })} on={page.bg} />}>
+            <Part lang={lang} label={pp.accentWord} hint={pp.accentWordHint} more={<ColorChip lang={lang} label={pp.colorAccent} value={s.settings.popColors?.accent} auto="#f2457f" onChange={(accent) => setPop({ accent })} onReset={() => setPop({ accent: undefined })} on={page.bg} />}>
               <input data-field="accentWord" value={(s.settings.accentWord ?? noText)[lang]} onChange={(e) => set({ accentWord: { ...(s.settings.accentWord ?? noText), [lang]: e.target.value } })} maxLength={30} className={`${input} h-11`} />
               <CharCount value={(s.settings.accentWord ?? noText)[lang] ?? ""} max={30} />
             </Part>
-            <Part lang={lang} label={pp.sticker} more={<ColorChip lang={lang} label={pp.colorSticker} value={s.settings.popColors?.sticker} onChange={(sticker) => setPop({ sticker })} onReset={() => setPop({ sticker: undefined })} />}>
+            <Part lang={lang} label={pp.sticker} more={<ColorChip lang={lang} label={pp.colorSticker} value={s.settings.popColors?.sticker} auto="#ffe36e" onChange={(sticker) => setPop({ sticker })} onReset={() => setPop({ sticker: undefined })} />}>
               <textarea data-field="sticker" value={(s.settings.sticker ?? noText)[lang]} onChange={(e) => set({ sticker: { ...(s.settings.sticker ?? noText), [lang]: e.target.value } })} rows={2} maxLength={30} className={`${input} resize-none py-2.5`} />
               <CharCount value={(s.settings.sticker ?? noText)[lang] ?? ""} max={30} />
               <RudeNote lang={lang} text={(s.settings.sticker ?? noText)[lang]} />
@@ -1814,13 +1858,13 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
             <Part lang={lang} label={pp.photo2}>
               <div data-field="photo2" className="space-y-3"><PhotoPicker lang={lang} value={s.settings.photo2 ?? ""} onChange={(photo2) => set({ photo2, photo2Pos: undefined })} max={1200} /><PictureMover lang={lang} image={s.settings.photo2 ?? ""} value={s.settings.photo2Pos} onChange={(photo2Pos) => set({ photo2Pos })} ratio="3 / 4" radius="22px" /></div>
             </Part>
-            <ColorChip lang={lang} label={pp.colorBlob} value={s.settings.popColors?.blob} onChange={(blob) => setPop({ blob })} onReset={() => setPop({ blob: undefined })} />
+            <ColorChip lang={lang} label={pp.colorBlob} value={s.settings.popColors?.blob} auto="#c9b6ff" onChange={(blob) => setPop({ blob })} onReset={() => setPop({ blob: undefined })} />
           </FromTheme.Provider>
         )}
         {orbit && (
           <>
             {text(s.settings.eyebrow ?? noText, (eyebrow) => set({ eyebrow }), pp.kickerLatin, false, "eyebrow", more("eyebrow"))}
-            <Part lang={lang} label={pp.accentWord} hint={pp.accentWordHint} more={<ColorChip lang={lang} label={pp.colorGold} value={s.settings.popColors?.accent} onChange={(accent) => setPop({ accent })} onReset={() => setPop({ accent: undefined })} on={page.bg} />}>
+            <Part lang={lang} label={pp.accentWord} hint={pp.accentWordHint} more={<ColorChip lang={lang} label={pp.colorGold} value={s.settings.popColors?.accent} auto={page.primary} onChange={(accent) => setPop({ accent })} onReset={() => setPop({ accent: undefined })} on={page.bg} />}>
               <input data-field="accentWord" value={(s.settings.accentWord ?? noText)[lang]} onChange={(e) => set({ accentWord: { ...(s.settings.accentWord ?? noText), [lang]: e.target.value } })} maxLength={40} className={`${input} h-11`} />
               <CharCount value={(s.settings.accentWord ?? noText)[lang] ?? ""} max={40} />
             </Part>
@@ -2001,7 +2045,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       <>
         {k !== "button" && <StyleBar lang={lang} value={shownStyle(k)} onChange={(v) => setStyle(k as Exclude<TextKey, "button">, v)} boldNow={k === "title"} />}
         <Stepper lang={lang} label={t.luxe.textSize} value={s.settings.sizes?.[k] ?? defaults[k]} auto={s.settings.sizes?.[k] === undefined} onChange={(v) => set({ sizes: { ...(s.settings.sizes ?? {}), [k]: v } })} onReset={() => set({ sizes: { ...(s.settings.sizes ?? {}), [k]: undefined } })} />
-        <ColorChip lang={lang} label={t.luxe.textColor} value={s.settings.colors?.[k]} onChange={(v) => set({ colors: { ...(s.settings.colors ?? {}), [k]: v } })} onReset={() => set({ colors: { ...(s.settings.colors ?? {}), [k]: undefined } })} />
+        <ColorChip lang={lang} label={t.luxe.textColor} value={s.settings.colors?.[k]} auto={k === "title" ? page.title : k === "eyebrow" ? page.accent : k === "button" ? onColor(page.primary) : pageText} onChange={(v) => set({ colors: { ...(s.settings.colors ?? {}), [k]: v } })} onReset={() => set({ colors: { ...(s.settings.colors ?? {}), [k]: undefined } })} />
       </>
     );
     body = (
@@ -2015,7 +2059,7 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
         {s.settings.style === "statement" && (
           <>
             {text(s.settings.eyebrow ?? noText, (eyebrow) => set({ eyebrow }), popT[lang].textEyebrow, false, "eyebrow", more("eyebrow"))}
-            {text(s.settings.button ?? noText, (button) => set({ button }), popT[lang].textButton, false, "button", more("button"), <Leads lang={lang} label={popT[lang].textLeads} value={s.settings.link ?? ""} onChange={(link) => set({ link })} />)}
+            {text(s.settings.button ?? noText, (button) => set({ button }), popT[lang].textButton, false, "button", more("button"), <Leads lang={lang} label={popT[lang].textLeads} value={s.settings.link ?? ""} onChange={(link) => set({ link })} words={s.settings.button} />, hasWords(s.settings.button) && !s.settings.link?.trim() ? hiddenWords[lang] : undefined)}
             <Part lang={lang} label={popT[lang].trustTitle}>
               <div data-field="trust" className="space-y-3.5">
                 <ItemList>
@@ -2173,7 +2217,7 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
      back the background that was there before */
   const [pending, setPending] = useState<{ id: string; src: string } | null>(null);
   const before = useRef(bg);
-  const saving = useRef<ReturnType<typeof setTimeout>>();
+  const saving = useRef<ReturnType<typeof setTimeout>>(undefined);
   const store = (id: string, url: string) =>
     fetch(url)
       .then((r) => r.blob())
@@ -2352,6 +2396,10 @@ function PageBgChoice({ lang, draft, update, color }: { lang: Lang; draft: Draft
   );
 }
 
+/** What the preview's products are, from the designer: with sample products or not, and a theme try-out's own samples
+    (none: the store's), so the link list can tell what the preview's parts hold */
+export const PreviewProducts = createContext<{ sample: boolean; products?: StoreProduct[] }>({ sample: false });
+
 /** The preview with sample products, from the designer (null: not offered, the store has products of its own) */
 export const SampleProducts = createContext<{ on: boolean; set: (on: boolean) => void } | null>(null);
 
@@ -2438,7 +2486,7 @@ export function OptionsPanel({ lang, draft, update, attn, ask, cart, product }: 
           </button>
         )}
       </Part>
-      <ColorChip lang={lang} label={popT[lang].priceColor} value={draft.config.cards.priceColor || undefined} onChange={(priceColor) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, priceColor } } }))} onReset={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, priceColor: "" } } }))} />
+      <ColorChip lang={lang} label={popT[lang].priceColor} value={draft.config.cards.priceColor || undefined} on={[cardGround(draft.config.cards, draft.config.theme.background), draft.config.theme.background]} onChange={(priceColor) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, priceColor } } }))} onReset={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, priceColor: "" } } }))} />
       <Blocked when={!(draft.config.cards.showAdd ?? true) || draft.config.cards.add !== "plus"} why={!(draft.config.cards.showAdd ?? true) ? why(lang, `غير متاح لأن «${t.showAdd}» مُطفأ.`, `Not available because “${t.showAdd}” is off.`) : why(lang, `غير متاح لأن «${popT[lang].cardAdd}» ليس «${popT[lang].addPlus}».`, `Not available because “${popT[lang].cardAdd}” isn't “${popT[lang].addPlus}”.`)}><ColorChip lang={lang} label={popT[lang].addColor} value={draft.config.cards.addColor} auto="#b9f3d0" onChange={(addColor) => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, addColor } } }))} onReset={() => update((d) => ({ ...d, config: { ...d.config, cards: { ...d.config.cards, addColor: undefined } } }))} /></Blocked>
       <Part lang={lang} label={t.cardImage}>
         <div className="grid grid-cols-3 gap-2">
@@ -3418,6 +3466,7 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
   /* where the name sits: the header (the page's background), or in the pill style a pill of the text color; and the footer */
   const textNow = useContext(TextColorNow);
   const storeColor = useContext(StoreColorNow);
+  const pageNow = useContext(PageLookNow);
   const nameOn = cfg.nav.style === "pill" ? (cfg.nav.links.length ? [textNow] : [cfg.theme.background, textNow]) : [cfg.theme.background];
   const nameLostInFooter = !!id.nameColor && !footerColors(cfg, storeColor).name;
   const nameHardIn = [
@@ -3471,7 +3520,7 @@ function NameLogoForm({ lang, cfg, setCfg, draft, update }: { lang: Lang; cfg: S
           <Part lang={lang} label={pt.taglineFont}>
             <FontGrid lang={lang} value={id.taglineFont} onChange={(taglineFont) => setId({ taglineFont })} first={pt.taglineFontDefault} firstFamily={TAGLINE_DEFAULT_FONT} />
           </Part>
-          <ColorChip lang={lang} label={pt.taglineColor} value={id.taglineColor} auto={cfg.theme.accent || cfg.theme.primary} onChange={(taglineColor) => setId({ taglineColor })} onReset={() => setId({ taglineColor: undefined })} on={cfg.theme.background} />
+          <ColorChip lang={lang} label={pt.taglineColor} value={id.taglineColor} auto={cfg.theme.accent || pageNow.primary} onChange={(taglineColor) => setId({ taglineColor })} onReset={() => setId({ taglineColor: undefined })} on={cfg.theme.background} />
         </div>
       </Part>
       <Part lang={lang} label={t.identity.description} preview={draft.identity.description} spot="footer:about">
@@ -3636,13 +3685,23 @@ function SearchCartForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
 /** Navigation design: how visitors move around the store from the top of the page (a sidebar button, links in the header or
     pill buttons), the header links themselves and their colors */
 /* what a header link still needs before customers see it */
+/* on a link customers do not see (it is not in the preview's header either): what it is missing, as a button that opens it */
 const navMissing = {
-  en: { both: "Write the link's name and choose where it leads: customers don't see it until then.", name: "Write the link's name: customers don't see it until then.", to: "This link takes customers nowhere, so they don't see it. Choose where it leads." },
-  ar: { both: "اكتب اسم الرابط واختر وجهته، فلن يراه العملاء قبل ذلك.", name: "اكتب اسم الرابط، فلن يراه العملاء قبل ذلك.", to: "هذا الرابط لا يأخذ العميل إلى أي مكان، لذلك لا يراه العملاء. اختر وجهة له." },
+  en: { both: "Hidden from customers: write its name and choose where it goes.", name: "Hidden from customers: write its name.", to: "Hidden from customers: choose where it goes." },
+  ar: { both: "مخفي عن العملاء: اكتب اسمه واختر وجهته.", name: "مخفي عن العملاء: اكتب اسمه.", to: "مخفي عن العملاء: اختر وجهته." },
 };
+/* on a link to a part of the page that shows customers nothing (no products, reviews or pictures in it yet): the preview's
+   header leaves it out too, though the preview still draws the part's dashed place */
+const navEmptyPart = { en: "Hidden from customers: this section is empty.", ar: "مخفي عن العملاء: هذا القسم فارغ." };
 
 function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConfig; setCfg: SetCfg }) {
   const lx = dc[lang].luxe;
+  /* what the preview's parts hold, to tell a link to a part customers see empty (the same check as the store's header) */
+  const previewOf = useContext(PreviewProducts);
+  const stored = useStoreData(lang, previewOf.sample);
+  const partData = previewOf.products ? { products: previewOf.products, isDemo: false } : stored;
+  const sells = sellsOf(usePublicSettings(), stored);
+  const emptyPart = (to: string) => cfg.sections.some((x) => x.id === to && x.visible && emptyForCustomers(x, partData, lang, sells));
   /* the header link whose trash was pressed: it asks before it goes */
   const [asking, setAsking] = useState<number | null>(null);
   /* a link just added opens by itself, the others stay closed under their names */
@@ -3653,6 +3712,20 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
     const t = setTimeout(() => (document.querySelector(`[data-nav-name="${added}"]`) as HTMLInputElement | null)?.focus(), 260);
     return () => clearTimeout(t);
   }, [added]);
+  /* the note on a hidden link pressed: its card opens, with where it goes open too (or its name, when that is what is
+     missing), and the cursor goes there; let go right after, so the next press opens it again */
+  const [aim, setAim] = useState<{ i: number; to: boolean } | null>(null);
+  useEffect(() => {
+    if (!aim) return;
+    const t = setTimeout(() => {
+      const el = aim.to
+        ? document.querySelector<HTMLElement>(`[data-nav-to="${aim.i}"] :is(button, select, input)`)
+        : document.querySelector<HTMLElement>(`[data-nav-name="${aim.i}"]`);
+      el?.focus();
+      setAim(null);
+    }, 260);
+    return () => clearTimeout(t);
+  }, [aim]);
   return (
     <>
       <Part lang={lang} label={lx.navStyle}>
@@ -3668,7 +3741,7 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
       </Blocked>
       <Blocked when={cfg.nav.style !== "pill"} why={why(lang, `غير متاح لأن «${lx.navStyle}» ليس «${popT[lang].navPill}».`, `Not available because “${lx.navStyle}” isn't “${popT[lang].navPill}”.`)}>
         <div className="space-y-3">
-          <ColorChip lang={lang} label={popT[lang].navActive} value={cfg.nav.activeColor} onChange={(activeColor) => setCfg((c) => ({ ...c, nav: { ...c.nav, activeColor } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, activeColor: undefined } }))} />
+          <ColorChip lang={lang} label={popT[lang].navActive} value={cfg.nav.activeColor} auto="#ff8fb1" onChange={(activeColor) => setCfg((c) => ({ ...c, nav: { ...c.nav, activeColor } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, activeColor: undefined } }))} />
         </div>
       </Blocked>
       <div className="space-y-3.5">
@@ -3682,7 +3755,26 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
                 name={l[lang]?.trim() || l[lang === "ar" ? "en" : "ar"]}
                 empty={itemWords[lang].newLink}
                 icon={<span aria-hidden className="h-4 w-4 shrink-0 rounded-full ring-1 ring-fg/15" style={{ background: l.color || cfg.theme.text }} />}
-                force={added === i}
+                force={added === i || aim?.i === i}
+                note={(() => {
+                  /* customers only see a link with a name and somewhere to go: the card says so, open or closed */
+                  const noName = !(l.en.trim() || l.ar.trim()), noTo = !l.to?.trim();
+                  /* everything set, but it leads to a part customers see empty: nothing to fix on the link itself */
+                  if (!noName && !noTo && l.to && emptyPart(l.to.trim()))
+                    return (
+                      <p className="flex w-full items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-start text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">
+                        <span aria-hidden>⚠</span>
+                        {navEmptyPart[lang]}
+                      </p>
+                    );
+                  if (!noName && !noTo) return null;
+                  return (
+                    <button type="button" onClick={() => setAim({ i, to: noTo })} className="flex w-full items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-start text-[11px] font-semibold leading-relaxed text-amber-800 transition hover:bg-amber-100 dark:bg-amber-400/10 dark:text-amber-300 dark:hover:bg-amber-400/20">
+                      <span aria-hidden>⚠</span>
+                      {navMissing[lang][noName ? (noTo ? "both" : "name") : "to"]}
+                    </button>
+                  );
+                })()}
                 /* it asks before it goes: while asking, the question takes the button's place */
                 onRemove={asking === i ? undefined : () => setAsking(i)}
                 removeLabel={lx.navRemove}
@@ -3692,18 +3784,13 @@ function NavigationForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
                   <CharCount value={l[lang] ?? ""} max={20} />
                   <RudeNote lang={lang} text={l[lang]} />
                 </Field>
-                <Part lang={lang} label={lx.navTarget} force={added === i}>
-                  <LinkPicker lang={lang} value={l.to ?? ""} onChange={(to) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, to: to || undefined } : x)) } }))} label={lx.navTarget} />
+                <Part lang={lang} label={lx.navTarget} force={added === i || (aim?.i === i && aim.to)}>
+                  <div data-nav-to={i}>
+                    <LinkPicker lang={lang} value={l.to ?? ""} onChange={(to) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, to: to || undefined } : x)) } }))} label={lx.navTarget} />
+                  </div>
                 </Part>
-                {/* customers only see a link with a name and somewhere to go: the card says what is missing (the preview keeps it) */}
-                {(!(l.en.trim() || l.ar.trim()) || !l.to?.trim()) && (
-                  <p role="status" className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold leading-relaxed text-amber-800 dark:bg-amber-400/10 dark:text-amber-300">
-                    <span aria-hidden>⚠</span>
-                    {navMissing[lang][!(l.en.trim() || l.ar.trim()) ? (l.to?.trim() ? "name" : "both") : "to"]}
-                  </p>
-                )}
                 {/* a link can stand out in a color of its own, like a red "Sale" */}
-                <ColorChip lang={lang} label={popT[lang].linkColor} value={l.color} auto={cfg.theme.text} onChange={(color) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, color } : x)) } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, color: undefined } : x)) } }))} on={[cfg.nav.style === "pill" ? "#ffffff" : cfg.theme.background, ...(cfg.header.showMenu ? [cfg.theme.titleStyle === "pop" ? "#ffffff" : cfg.theme.background] : [])]} />
+                <ColorChip lang={lang} label={popT[lang].linkColor} value={l.color} onChange={(color) => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, color } : x)) } }))} onReset={() => setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.map((x, j) => (j === i ? { ...x, color: undefined } : x)) } }))} on={[cfg.nav.style === "pill" ? "#ffffff" : cfg.theme.background, ...(cfg.header.showMenu ? [cfg.theme.titleStyle === "pop" ? "#ffffff" : cfg.theme.background] : [])]} />
                 {asking === i && <LinkAsk lang={lang} onYes={() => { setCfg((c) => ({ ...c, nav: { ...c.nav, links: c.nav.links.filter((_, j) => j !== i) } })); setAsking(null); }} onNo={() => setAsking(null)} />}
               </ItemCard>
             ))}
@@ -3923,7 +4010,7 @@ function Block({ id, title, icon: ico, preview, open, onToggle, children }: { id
       <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-3 py-2.5 text-start">
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-soft text-primary">{ico}</span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-bold text-black dark:text-white">{title}</span>
+          <span className="block text-sm font-bold leading-snug text-black [overflow-wrap:anywhere] dark:text-white">{title}</span>
           {preview && !open && <span dir="auto" className="block truncate text-xs text-muted">{preview}</span>}
         </span>
         <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md transition duration-300 ${open ? "rotate-180 text-primary" : "text-muted"}`}>{ic.chevron}</span>
@@ -4580,6 +4667,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
           icon={<span aria-hidden className="h-6 w-6 shrink-0 rounded-md ring-1 ring-black/10" style={{ background: x.variant === "card" ? x.bg || "#b9f3d0" : x.image ? `center / cover url(${x.image})` : "linear-gradient(135deg, #7a3ea1, #2f6fde)" }} />}
           onRemove={() => set(items.filter((_, j) => j !== i))}
           removeLabel={t.removeBanner}
+          note={hasWords(x.button) && !x.link?.trim() ? <button type="button" onClick={(e) => openFlagged(e.currentTarget)} className={flagCls}><span aria-hidden>⚠</span>{hiddenWords[lang]}</button> : undefined}
         >
           <Part lang={lang} label={popT[lang].bannerVariant}>
             <Seg lang={lang} value={x.variant ?? "photo"} onChange={(variant) => edit(i, { variant })} options={[{ key: "photo", label: popT[lang].variantPhoto }, { key: "card", label: popT[lang].variantCard, theme: "lamma" }]} />
@@ -4653,7 +4741,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
               <CharCount value={x.eyebrow?.[lang] ?? ""} max={40} />
               <RudeNote lang={lang} text={x.eyebrow?.[lang]} />
             </Part>
-            <Part lang={lang} label={t.bannerButton} more={
+            <Part lang={lang} label={t.bannerButton} flag={hasWords(x.button) && !x.link?.trim() ? hiddenWords[lang] : undefined} more={
               <>
                 <Blocked when={x.variant === "card"} why={why(lang, `غير متاح لأن «${popT[lang].bannerVariant}» ليس «${popT[lang].variantPhoto}».`, `Not available because “${popT[lang].bannerVariant}” isn't “${popT[lang].variantPhoto}”.`)}>
                   <Field label={lx.bannerButtonStyle}>
@@ -4666,7 +4754,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
               <input value={x.button?.[lang] ?? ""} onChange={(e) => bi(i, "button", e.target.value)} placeholder={listB[lang].bannerButtonPh} aria-label={t.bannerButton} maxLength={30} className={`${input} h-10`} />
               <CharCount value={x.button?.[lang] ?? ""} max={30} />
               <RudeNote lang={lang} text={x.button?.[lang]} />
-              <Leads lang={lang} label={t.bannerLink} value={x.link} onChange={(link) => edit(i, { link })} />
+              <Leads lang={lang} label={t.bannerLink} value={x.link} onChange={(link) => edit(i, { link })} words={x.button} />
             </Part>
             <Blocked when={x.variant === "card"} why={why(lang, `غير متاح لأن «${popT[lang].bannerVariant}» ليس «${popT[lang].variantPhoto}».`, `Not available because “${popT[lang].bannerVariant}” isn't “${popT[lang].variantPhoto}”.`)}>
               <div className="space-y-3">
@@ -4825,6 +4913,7 @@ function ChipsForm({ lang, s, onChange }: { lang: Lang; s: ChipsEl; onChange: (s
             }
             onRemove={() => set(items.filter((_, j) => j !== i))}
             removeLabel={pp.chipRemove}
+            note={hasWords(x.label) && !x.link?.trim() ? <button type="button" onClick={(e) => openFlagged(e.currentTarget)} className={flagCls}><span aria-hidden>⚠</span>{hiddenWords[lang]}</button> : undefined}
           >
             <Field label={pp.chipLabel}>
               <input value={x.label[lang] ?? ""} onChange={(e) => edit(i, { label: { ...x.label, [lang]: e.target.value } })} placeholder={listB[lang].chipPh} aria-label={pp.chipLabel} maxLength={24} className={`${input} h-10`} />
@@ -4834,8 +4923,10 @@ function ChipsForm({ lang, s, onChange }: { lang: Lang; s: ChipsEl; onChange: (s
             <Part lang={lang} label={pp.chipColor}>
               <ColorPicker value={x.color} onChange={(color) => edit(i, { color })} label={pp.chipColor} bad={dc[lang].identity.hexBad} list={popPastels} />
             </Part>
-            <Part lang={lang} label={pp.chipLink}>
-              <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(i, { link })} label={pp.chipLink} />
+            <Part lang={lang} label={pp.chipLink} flag={hasWords(x.label) && !x.link?.trim() ? hiddenWords[lang] : undefined}>
+              <div data-leads={hasWords(x.label) && !x.link?.trim() ? "hidden" : undefined}>
+                <LinkPicker lang={lang} value={x.link} onChange={(link) => edit(i, { link })} label={pp.chipLink} />
+              </div>
             </Part>
           </ItemCard>
         </div>

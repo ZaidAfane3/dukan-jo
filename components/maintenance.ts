@@ -6,7 +6,9 @@ import { cleanLines } from "./safe";
 
 export type Maintenance = { on: boolean; message: { en: string; ar: string } };
 
-const KEY = "seen-maintenance";
+/* the pause switch sends this key on its own, at once (StoreStatus.tsx) */
+export const MAINTENANCE_KEY = "seen-maintenance";
+const KEY = MAINTENANCE_KEY;
 export const MAINTENANCE_MAX = 300;
 
 /** What the page says (always Dukkan's words: the merchant no longer writes his own) */
@@ -28,9 +30,12 @@ export function loadMaintenance(): Maintenance {
   }
 }
 
+/** How it is saved */
+export const maintenanceText = (m: Maintenance) => JSON.stringify({ on: m.on, message: { en: cleanLines(m.message.en, MAINTENANCE_MAX), ar: cleanLines(m.message.ar, MAINTENANCE_MAX) } });
+
 export function saveMaintenance(m: Maintenance) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ on: m.on, message: { en: cleanLines(m.message.en, MAINTENANCE_MAX), ar: cleanLines(m.message.ar, MAINTENANCE_MAX) } }));
+    localStorage.setItem(KEY, maintenanceText(m));
   } catch {
     /* storage unavailable */
   }

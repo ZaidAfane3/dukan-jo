@@ -10,8 +10,8 @@ import { usePrefs } from "./Prefs";
    - TwoStepSettings: on the settings page, turning it on (scan or type the secret, then confirm with a code) and off
      (password and a code);
    - TwoStepCodeStep: the code step of the sign-in form;
-   - the pop-up asking to turn it on right after signing up or in without it is its own piece (TwoStepPrompt.tsx), which
-     leads here (/settings#two-step).
+   - the full page asking to turn it on right after signing up or in without it is its own piece (TwoStepPrompt.tsx),
+     which leads here and starts the setup at once (/settings#two-step-start).
    None of this runs in the platform tour or signed out: the server holds everything (app/api/auth/totp). */
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
@@ -92,7 +92,9 @@ const typedCode = (v: string) =>
     .replace(/\D/g, "")
     .slice(0, 6);
 
-function CodeInput({ value, onChange, id, label }: { value: string; onChange: (v: string) => void; id: string; label: string }) {
+/** The 6-digit code field (also the forgotten-password code, ForgotPassword.tsx). invalid / describedBy: its mistake,
+    for screen readers. */
+export function CodeInput({ value, onChange, id, label, invalid, describedBy }: { value: string; onChange: (v: string) => void; id: string; label: string; invalid?: boolean; describedBy?: string }) {
   return (
     <input
       id={id}
@@ -100,7 +102,10 @@ function CodeInput({ value, onChange, id, label }: { value: string; onChange: (v
       inputMode="numeric"
       autoComplete="one-time-code"
       aria-label={label}
-      placeholder="123456"
+      aria-invalid={invalid || undefined}
+      aria-describedby={describedBy}
+      /* six blanks, not a sample code: a sample looked like a code already filled in */
+      placeholder="______"
       value={value}
       onChange={(e) => onChange(typedCode(e.target.value))}
       className={`${field} text-center text-lg tracking-[0.4em]`}
@@ -127,18 +132,6 @@ export function TwoStepSettings() {
     void merchantCall("/api/auth/totp/setup", "GET").then((r) => setState(r?.status === 200 ? (r.data.on ? "on" : "off") : "hidden"));
   }, []);
 
-  /* opened from the pop-up after signing in (/settings#two-step): the section is drawn only once the server answered,
-     so the browser could not scroll to it by itself */
-  const ready = state === "on" || state === "off";
-  useEffect(() => {
-    if (!ready || window.location.hash !== "#two-step") return;
-    const el = document.getElementById("two-step");
-    el?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    el?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
-  }, [ready]);
-
-  if (state === "hidden" || state === "loading") return null;
-
   const fail = (result: unknown) =>
     setError(
       result === "wrong" || result === "wrong-code"
@@ -159,6 +152,25 @@ export function TwoStepSettings() {
     if (r?.status === 200) setSetup({ link: r.data.link, grouped: r.data.grouped });
     else fail(r?.data.result);
   };
+
+  /* opened with a link to it: the section is drawn only once the server answered, so the browser could not scroll to it
+     by itself. #two-step: scrolled to, its first button focused. #two-step-start (the full page after signing in,
+     TwoStepPrompt.tsx): the setup starts at once when the code is off, so one press there goes straight into it */
+  const ready = state === "on" || state === "off";
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!ready || (hash !== "#two-step" && hash !== "#two-step-start")) return;
+    const el = document.getElementById("two-step");
+    el?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    const focusFirst = () => el?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    if (hash !== "#two-step-start" || state !== "off") return void focusFirst();
+    /* started once: a reload or the browser's back does not start it again */
+    history.replaceState(history.state, "", `${window.location.pathname}${window.location.search}#two-step`);
+    void start().then(() => requestAnimationFrame(focusFirst));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  if (state === "hidden" || state === "loading") return null;
 
   const confirm = async () => {
     setBusy(true);

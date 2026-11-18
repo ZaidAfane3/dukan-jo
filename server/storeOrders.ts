@@ -4,7 +4,7 @@ import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as rec
 import { safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import {
-  checkCheckout, mergeSoldOnline, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, takeStock, toFils, money,
+  checkCheckout, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, takeStock, toFils, money,
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
 import { plainDeep, plainText, seal } from "./crypto";
@@ -89,6 +89,16 @@ function storePaysFrom(methods: Record<string, { on: boolean }>): Payment[] {
   return (["cliq", "cash", "card"] as const).filter((p) => methods[p === "cash" ? "cod" : p]?.on);
 }
 
+/** What Diwan has on now that decides whether a store can sell (safeOrder readyToSell): the ways to pay and the cities
+    Dukkan Ship serves. Read by the store save (app/api/store PUT, "not-ready") and Diwan's store page. */
+export async function sellPlatform(): Promise<{ pays: Payment[]; shipCities: { en: string[]; ar: string[] } }> {
+  const s = await readSettings(["payment_methods", "dukkan_ship"] as const);
+  return {
+    pays: storePaysFrom(s.payment_methods as unknown as Record<string, { on: boolean }>),
+    shipCities: { en: s.dukkan_ship.cities.map((x) => x.en), ar: s.dukkan_ship.cities.map((x) => x.ar) },
+  };
+}
+
 export type PlacedOrder = {
   number: number;
   items: PricedLine[];
@@ -99,11 +109,15 @@ export type PlacedOrder = {
   coupon: string | null;
   fulfil: "delivery" | "pickup";
   pay: Payment;
+  /* delivered by his own courier with no fee set: none is in the total and the receipt says the store confirms it (never
+     "Free"). Left out on an order sent again after its answer was lost (the cart then keeps what it showed). */
+  feeOpen?: boolean;
 };
 
 /** What the cart works the delivery and the discount out from, as the store has them now: sent back with a "changed"
     answer, so a customer whose page has older ones (a new delivery fee, offer or coupon) sees the right total */
-export type Terms = { fee: number; freeDelivery: { on: boolean; min: number }; coupon?: Coupon | null };
+/* `fee` null: his own courier and no fee was ever set: the checkout says the store confirms it, and the total has none */
+export type Terms = { fee: number | null; freeDelivery: { on: boolean; min: number }; coupon?: Coupon | null };
 
 /* a coupon's terms for the cart: no name, note, dates or how often it was used */
 const couponTerms = (c: Coupon): Coupon => ({ id: "x", type: c.type, name: "", code: c.code, kind: c.kind, value: c.value, minOrder: c.minOrder, start: "", end: "", limit: 0, validDays: 0, used: 0, active: true });
@@ -111,10 +125,14 @@ const couponTerms = (c: Coupon): Coupon => ({ id: "x", type: c.type, name: "", c
 /* a checkout's own key: letters, digits and dashes (a random UUID in the cart) */
 const ATTEMPT = /^[A-Za-z0-9-]{16,64}$/;
 
+/** The store's delivery cities (null: no home delivery), pickup and ways to pay now, sent with a refusal so the cart can offer them */
+export type StoreChoices = { cities: { en: readonly string[]; ar: readonly string[] } | null; pickup: boolean; pays: Payment[] };
+
 export type PlaceResult =
   | { status: 404; body: { result: "none" } }
   | { status: 409; body: { result: "closed" } }
-  | { status: 400; body: { result: "invalid"; fields: (CheckoutField | "lines")[] } }
+  | { status: 400; body: { result: "invalid"; fields: (CheckoutField | "lines")[]; choices?: StoreChoices } }
+  | { status: 409; body: { result: "no-delivery"; pickup: boolean; choices: StoreChoices } }
   | { status: 409; body: { result: "changed"; items: PricedLine[]; total?: number; terms: Terms } }
   | { status: 409; body: { result: "coupon"; why: CouponRefusal } }
   | { status: 200; body: { result: "ok"; order: PlacedOrder } };
@@ -176,21 +194,31 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const saved = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[]) FOR UPDATE`, [id, keys]);
     const data = new Map<string, string>(saved.rows.map((r: { key: string; value: string }) => [r.key, r.value]));
 
-    /* the customer's details, checked with the same rules as the cart: a Jordan mobile or an email, a city Dukkan Ship
-       delivers to, pickup only when the store offers it, and a way to pay that is on */
+    /* the customer's details, checked with the same rules as the cart: a Jordan mobile and an email, a city the store
+       delivers to (storeDelivery), pickup only when the store offers it, and a way to pay that Dukkan has on and he
+       chose (orderPays) */
     const setup = cleanSetup(parse(data.get("seen-setup")));
     const ship = settings.dukkan_ship;
-    const cities = { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) };
-    const pays = storePaysFrom(settings.payment_methods as unknown as Record<string, { on: boolean }>);
-    const checked = checkCheckout(customer, { pickup: setup?.pickup === true, pays, cities });
-    if (!checked.ok) return { status: 400, body: { result: "invalid", fields: checked.errors } };
+    /* no delivery choice yet: home delivery is not offered (pickup only, when he offers it) */
+    const offer = storeDelivery(setup?.shipping?.mode, { price: ship.price, cities: { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) } }, setup?.shipping ?? {});
+    const pickup = setup?.pickup === true;
+    const pays = orderPays(storePaysFrom(settings.payment_methods as unknown as Record<string, { on: boolean }>), setup?.pays);
+    /* the store's choices as they are now, sent with a refusal: he may have changed his cities, delivery, pickup or ways
+       to pay while the customer had the page open, so the cart offers these instead and the next try can go through
+       (cities null: no home delivery) */
+    const choices = { cities: offer ? offer.cities : null, pickup, pays };
+    if (!offer && !(pickup && customer.fulfil === "pickup")) return { status: 409, body: { result: "no-delivery", pickup, choices } };
+    const checked = checkCheckout(customer, { pickup, delivery: !!offer, pays, cities: offer?.cities });
+    if (!checked.ok) return { status: 400, body: { result: "invalid", fields: checked.errors, ...(checked.errors.some((f) => f === "city" || f === "pay" || f === "fulfil") ? { choices } : {}) } };
 
     /* delivery: free above the store's free delivery amount, for pickup and with a free delivery coupon; otherwise the
        merchant's own fee (his own courier) or Dukkan Ship's price from Diwan */
     const fd = parse(data.get("seen-freedelivery"));
     const fdMin = isObj(fd) ? recordMoney(fd.min) : null;
     const freeDelivery = { on: isObj(fd) && fd.on === true, min: fdMin !== null && fdMin > 0 ? fdMin : 25 };
-    const fee = toFils(setup?.shipping?.mode === "own" ? setup.shipping.fee ?? 0 : ship.price);
+    /* his own courier with no fee ever set (setup leaves it out): no fee is charged and the checkout says the store
+       confirms it, never "Free"; a fee he set (0 included) is charged as set */
+    const fee = offer ? offer.fee : 0;
     const terms: Terms = { fee, freeDelivery };
 
     /* every price and the stock from the shop's saved products, never from the customer's browser */
@@ -214,7 +242,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     } else terms.coupon = null;
 
     const v = checked.value;
-    const delivery = (freeDelivery.on && priced.subtotal >= freeDelivery.min) || v.fulfil === "pickup" || freeByCoupon ? 0 : fee;
+    const delivery = (freeDelivery.on && priced.subtotal >= freeDelivery.min) || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
     const total = toFils(priced.subtotal - discount + delivery);
     /* the customer was shown another total (a price or the delivery changed since the page opened): he looks again */
     const expect = typeof body.expect === "number" && Number.isFinite(body.expect) ? body.expect : null;
@@ -252,7 +280,8 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     /* the merchant's bell: kept only if the order is */
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);
 
-    return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay } } };
+    const feeOpen = fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !(freeDelivery.on && priced.subtotal >= freeDelivery.min);
+    return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen } } };
   });
 }
 
@@ -296,7 +325,8 @@ export type MerchantStoreOrder = {
   coupon?: { code: string; discount: number };
   delivery: number;
   created: number;
-  payment: "test" | "unpaid";
+  /* "paid": a cash order marked delivered; "test": nothing paid yet (cash still to come, or card/CliQ: nothing charged) */
+  payment: "test" | "unpaid" | "paid";
 };
 
 /* one store order as the merchant's Orders page reads it */
@@ -318,7 +348,8 @@ function merchantRow(r: Record<string, any>): MerchantStoreOrder {
     ...(r.coupon ? { coupon: { code: String(r.coupon), discount: Number(r.discount) } } : {}),
     delivery: Number(r.delivery_fee),
     created: new Date(r.created_at).getTime(),
-    payment: r.payment_status === "unpaid" ? "unpaid" : "test",
+    /* worked out from the status and the way to pay, so a cash order delivered before 'paid' was kept reads paid too */
+    payment: r.payment_method === "cash" && r.status === "delivered" ? "paid" : r.payment_status === "unpaid" ? "unpaid" : "test",
   };
 }
 
@@ -352,12 +383,27 @@ export async function storeOrderByNumber(accountId: string, number: string, q?: 
   return rows[0] ? merchantRow(rows[0]) : null;
 }
 
+/* a cash order is paid once it is delivered (the courier took the cash, or the customer paid at pickup): marked 'paid'
+   with the status, and back to 'test' when the status changes again (his undo included). Card and CliQ stay 'test'. */
+const PAID_SET = `payment_status = CASE WHEN payment_method = 'cash' AND $3::text = 'delivered' THEN 'paid'
+                                        WHEN payment_status = 'paid' THEN 'test' ELSE payment_status END`;
+
 /** Changes the status of one of the shop's store orders. False when the shop has no such order. */
-export async function setStoreOrderStatus(accountId: string, serverId: string, status: unknown): Promise<"ok" | "none" | "invalid"> {
+/** `from` (optional): the status the order must still have, or nothing changes ("changed"). The Orders page's undo sends
+    it, so putting the old status back never overwrites a change made since (another tab, another device). */
+export async function setStoreOrderStatus(accountId: string, serverId: string, status: unknown, from?: unknown): Promise<"ok" | "none" | "invalid" | "changed"> {
   if (!/^\d{1,18}$/.test(serverId)) return "none";
   if (typeof status !== "string" || !STATUS_KEYS.includes(status as StatusKey)) return "invalid";
-  const r = await (await db()).query(`UPDATE store_orders SET status = $3, updated_at = now() WHERE id = $1 AND account_id = $2`, [serverId, accountId, status]);
-  return r.rowCount ? "ok" : "none";
+  if (from !== undefined && (typeof from !== "string" || !STATUS_KEYS.includes(from as StatusKey))) return "invalid";
+  const pool = await db();
+  if (from === undefined) {
+    const r = await pool.query(`UPDATE store_orders SET status = $3, ${PAID_SET}, updated_at = now() WHERE id = $1 AND account_id = $2`, [serverId, accountId, status]);
+    return r.rowCount ? "ok" : "none";
+  }
+  const r = await pool.query(`UPDATE store_orders SET status = $3, ${PAID_SET}, updated_at = now() WHERE id = $1 AND account_id = $2 AND status = $4`, [serverId, accountId, status, from]);
+  if (r.rowCount) return "ok";
+  const still = await pool.query(`SELECT 1 FROM store_orders WHERE id = $1 AND account_id = $2`, [serverId, accountId]);
+  return still.rowCount ? "changed" : "none";
 }
 
 /** The newest store order of the shop (0 for none): the merchant's browser keeps the number its copy of the products

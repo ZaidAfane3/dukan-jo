@@ -5,8 +5,8 @@
    these rules; once Dukkan has a backend, the server must run the same functions on its own catalog before
    it saves an order. No React and no browser APIs in this file, so the server can import it as it is. */
 
-import { jordanMobile } from "./phone";
-import { cleanParagraph, cleanText } from "./safe";
+import { isJordanMobile, jordanMobile } from "./phone";
+import { cleanParagraph, cleanText, visibleLength } from "./safe";
 
 export const ORDER_LIMITS = {
   name: 80,
@@ -39,6 +39,49 @@ export const isKnownCity = (s: unknown): s is string => typeof s === "string" &&
 export const FULFILS = ["delivery", "pickup"] as const;
 export type Fulfil = (typeof FULFILS)[number];
 
+/** The cities a merchant with his own courier delivers to, from the list he saved (the English names of KNOWN_CITIES, as
+    the Delivery page and the setup save them), in both languages. Nothing saved (stores from before he could choose), or
+    nothing left that is on the list: every city. */
+export function ownCities(saved: unknown): { en: string[]; ar: string[] } {
+  const picked = Array.isArray(saved) ? KNOWN_CITIES.en.map((_, i) => i).filter((i) => saved.includes(KNOWN_CITIES.en[i])) : [];
+  const at = picked.length ? picked : KNOWN_CITIES.en.map((_, i) => i);
+  return { en: at.map((i) => KNOWN_CITIES.en[i]), ar: at.map((i) => KNOWN_CITIES.ar[i]) };
+}
+
+/** A merchant's delivery cities as they are saved: the English names of KNOWN_CITIES he picked, each once, in the list's
+    order (an empty list is not a choice: the pages ask for at least one) */
+export const savedCities = (v: unknown): string[] => (Array.isArray(v) ? KNOWN_CITIES.en.filter((c) => v.includes(c)) : []);
+
+/** The cities a store's checkout offers for delivery. With Dukkan Ship: the cities Ship serves, as Dukkan's staff set
+    them in Diwan. With his own courier: the cities he chose on the Delivery page or in setup (`own`, see ownCities; none
+    saved: every city). No choice made yet: none (home delivery is not offered, see storeDelivery). The checkout
+    (Cart.tsx) and the server (server/storeOrders.ts) take the list from here, so they accept the same cities; the
+    add-order form (Orders.tsx) takes every city when he has no choice yet (he types his own order). An order already
+    placed keeps its city when he takes that city off later. */
+export const deliveryCities = (mode: "own" | "seen" | null | undefined, ship: { en: readonly string[]; ar: readonly string[] }, own?: unknown): { en: readonly string[]; ar: readonly string[] } =>
+  mode === "own" ? ownCities(own) : mode === "seen" ? ship : { en: [], ar: [] };
+
+/** What a store's checkout offers for home delivery, the same on the page (Cart.tsx) and on the server
+    (server/storeOrders.ts). null: he has not chosen how he delivers yet, so home delivery is not offered at all (only
+    pickup when he offers it; neither: no order can be placed, the server answers "no-delivery"). Otherwise the cities
+    (deliveryCities) and the fee per order: his own courier's fee as saved (none ever set: null, the store confirms it,
+    never "Free"), or Dukkan Ship's price from Diwan. */
+export function storeDelivery(
+  mode: "own" | "seen" | null | undefined,
+  ship: { price: number; cities: { en: readonly string[]; ar: readonly string[] } },
+  own: { fee?: number; cities?: unknown } = {},
+): { cities: { en: readonly string[]; ar: readonly string[] }; fee: number | null } | null {
+  if (mode !== "own" && mode !== "seen") return null;
+  return {
+    cities: deliveryCities(mode, ship.cities, own.cities),
+    fee: mode === "own" ? (typeof own.fee === "number" && Number.isFinite(own.fee) ? toFils(own.fee) : null) : toFils(ship.price),
+  };
+}
+
+/** How the order can reach the customer at this store: delivery when storeDelivery offers it, pickup when he allows it.
+    Neither: the store hasn't set up delivery, no order is taken. */
+export const storeFulfils = (delivery: boolean, pickup: boolean): Fulfil[] => [...(delivery ? (["delivery"] as const) : []), ...(pickup ? (["pickup"] as const) : [])];
+
 /** A city orders are delivered to now (in either language): Dukkan Ship's cities from Diwan when given, else the list above. */
 export const isCity = (s: unknown, list: { en: readonly string[]; ar: readonly string[] } = CITIES): s is string =>
   typeof s === "string" && (list.en.includes(s) || list.ar.includes(s));
@@ -52,6 +95,47 @@ export function inLang(v: string, list: { en: readonly string[]; ar: readonly st
 
 export const PAYMENTS = ["cliq", "cash", "card"] as const;
 export type Payment = (typeof PAYMENTS)[number];
+
+/** The ways to pay a merchant chose for his store, as saved in his setup (`pays`): only known ways, each once, in the
+    checkout's order. Not saved (undefined: a store from before he could choose): undefined, every way Dukkan has on. An
+    empty list (a new store that has not chosen yet) stays empty. */
+export const savedPays = (v: unknown): Payment[] | undefined => (Array.isArray(v) ? PAYMENTS.filter((p) => v.includes(p)) : undefined);
+
+/** The ways a store's customer can pay now, the same on the page (Cart.tsx) and on the server (server/storeOrders.ts):
+    the ones Dukkan has on (Diwan, `dukkanOn`) that the merchant chose (`chosen`, see savedPays; not saved: all of
+    Dukkan's). None: the store can't take orders. */
+export const orderPays = (dukkanOn: readonly Payment[], chosen: readonly Payment[] | undefined): Payment[] =>
+  PAYMENTS.filter((p) => dukkanOn.includes(p) && (chosen === undefined || chosen.includes(p)));
+
+/** What a store still needs before it can sell: "pay" (no way to pay is on: orderPays is empty) and "delivery" (no way
+    for customers to get their orders: pickup is off and there is no valid delivery choice). */
+export type SellNeed = "pay" | "delivery";
+
+/** The parts of a saved setup (setup.ts SavedSetup, safeAccount cleanSetup) that decide whether the store can sell */
+type SellSetup = {
+  pays?: readonly Payment[];
+  pickup?: boolean;
+  shipping?: { mode?: "own" | "seen" | null; name?: string; phone?: string; fee?: number; cities?: unknown } | null;
+} | null | undefined;
+
+/** Whether a store is ready to sell, the same on every page and on the server: at least one way to pay is on (his
+    choice of the ways Dukkan has on in Diwan, orderPays; no choice saved: every way Dukkan has on), and customers have
+    a way to get their orders: pickup on, or a delivery choice storeDelivery offers with at least one city (Dukkan Ship:
+    a city Ship serves in Diwan; his own courier: the courier's name and Jordan mobile as the Delivery page asks, and his
+    cities; the fee may be left for the store to confirm). A store that is not ready can't be made live (the designer's
+    first save, the profile menu's open switch, app/api/store PUT "not-ready"); a live one is never taken offline by it,
+    but he can't make a change that leaves it so. `platform`: what Diwan has on now (platformPublic storePays and
+    shipCityLists on the pages; server/storeOrders.ts sellPlatform on the server). */
+export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment[]; shipCities: { en: readonly string[]; ar: readonly string[] } }): { ok: boolean; missing: SellNeed[] } {
+  const missing: SellNeed[] = [];
+  if (orderPays(platform.pays, setup?.pays ? savedPays(setup.pays) : undefined).length === 0) missing.push("pay");
+  const ship = setup?.shipping;
+  const offer = storeDelivery(ship?.mode, { price: 0, cities: platform.shipCities }, { fee: ship?.fee, cities: ship?.cities });
+  const courierOk = ship?.mode !== "own" || (visibleLength(ship.name ?? "") >= 2 && isJordanMobile(ship.phone ?? ""));
+  const delivers = !!offer && offer.cities.en.length > 0 && courierOk;
+  if (setup?.pickup !== true && !delivers) missing.push("delivery");
+  return { ok: missing.length === 0, missing };
+}
 
 /* ============================== catalog ============================== */
 
@@ -197,34 +281,38 @@ export function priceCart(lines: { id: unknown; qty: unknown; size?: unknown }[]
 const INVISIBLE = /[\s\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g;
 const visible = (s: string) => s.replace(INVISIBLE, "").length;
 
-export type CheckoutField = "name" | "phone" | "city" | "address" | "note" | "pay";
+export type CheckoutField = "name" | "phone" | "email" | "city" | "address" | "note" | "pay" | "fulfil";
 
-/* `phone` or `email`: the customer gives one of them (the receipt goes there); the other is "" */
+/* the customer gives both (the owner's rule, for delivery and pickup and any way to pay): `phone` a Jordan mobile
+   (+962…) and `email`. Older orders kept only one of them (the other is "") and still show. */
 export type CheckoutValue = { customer: string; phone: string; email: string; fulfil: Fulfil; city: string; address: string; note: string; pay: Payment };
 
-/** Checks the checkout form. Returns the cleaned order details, or the fields that are wrong. The city and the
-    address are asked only for delivery; "pickup" counts only when the store allows it (`pickup`). `pays`: the ways to
-    pay Dukkan offers now (platform settings in Diwan); one that is switched off is refused like one that does not exist. */
-export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] } } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
+/** Checks the checkout form. Returns the cleaned order details, or the fields that are wrong. Every order needs a Jordan
+    mobile (`phone`) and an email (`email`). The city and the address are asked only for delivery; "pickup" counts only
+    when the store allows it (`pickup`); `delivery: false` (no delivery choice yet, see storeDelivery) refuses a
+    delivered order ("fulfil"). `pays`: the ways to pay this store takes now (orderPays: Dukkan's and his own choice); one
+    that is off is refused like one that does not exist. */
+export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; delivery?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] } } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
   const errors: CheckoutField[] = [];
   const name = cleanText(f.name, ORDER_LIMITS.name).replace(/\s+/g, " ").trim();
   if (visible(name) < 2) errors.push("name");
-  /* one contact field: a Jordan mobile or an email address, where the receipt is sent */
-  const contact = typeof f.phone === "string" ? f.phone.trim() : "";
-  const mobile = jordanMobile(contact);
-  const email = mobile ? "" : visitorEmail(contact);
-  if (!mobile && !email) errors.push("phone");
+  const mobile = jordanMobile(typeof f.phone === "string" ? f.phone.trim() : "");
+  if (!mobile) errors.push("phone");
+  const email = visitorEmail(f.email);
+  if (!email) errors.push("email");
   const fulfil: Fulfil = opts.pickup && f.fulfil === "pickup" ? "pickup" : "delivery";
   const delivered = fulfil === "delivery";
-  const city = delivered && typeof f.city === "string" ? f.city : "";
-  if (delivered && !isCity(city, opts.cities)) errors.push("city");
-  const address = delivered ? cleanText(f.address, ORDER_LIMITS.address).replace(/\s+/g, " ").trim() : "";
-  if (delivered && visible(address) < 3) errors.push("address");
+  const deliverable = delivered && opts.delivery !== false;
+  if (delivered && !deliverable) errors.push("fulfil");
+  const city = deliverable && typeof f.city === "string" ? f.city : "";
+  if (deliverable && !isCity(city, opts.cities)) errors.push("city");
+  const address = deliverable ? cleanText(f.address, ORDER_LIMITS.address).replace(/\s+/g, " ").trim() : "";
+  if (deliverable && visible(address) < 3) errors.push("address");
   const note = cleanParagraph(f.note, ORDER_LIMITS.note).trim();
   const pay = (opts.pays ?? PAYMENTS).find((p) => p === f.pay);
   if (!pay) errors.push("pay");
   if (errors.length || !pay) return { ok: false, errors };
-  return { ok: true, value: { customer: name, phone: mobile ? `+962${mobile}` : "", email, fulfil, city, address, note, pay } };
+  return { ok: true, value: { customer: name, phone: `+962${mobile}`, email, fulfil, city, address, note, pay } };
 }
 
 /* ============================== newsletter ============================== */

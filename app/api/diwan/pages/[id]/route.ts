@@ -5,6 +5,7 @@ import { db } from "@/server/db";
 import { cleanPage, PAGE_COLUMNS, type PageInput } from "@/server/dukkanPages";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { onePage } from "../rows";
 
 export const dynamic = "force-dynamic";
 
@@ -57,9 +58,12 @@ export const PATCH = staffRoute("announce", async (req: NextRequest, me, { param
     if ((e as { code?: string }).code === "23505") return answer({ result: "taken", field: "slug" }, 409);
     throw e;
   }
-  if (keys.length) await audit(req, me.id, "page.edit", { type: "page", id: params.id }, null, { slug: p.slug ?? cur.slug, changed: keys });
-  if (status) await audit(req, me.id, "page.status", { type: "page", id: params.id }, null, { slug: p.slug ?? cur.slug, from: cur.status, to: status });
-  return answer({ result: "ok" });
+  /* both titles, so the activity log names the page in the staff's language even after it is deleted */
+  const titles = { titleEn: p.titleEn ?? cur.title_en, titleAr: p.titleAr ?? cur.title_ar };
+  if (keys.length) await audit(req, me.id, "page.edit", { type: "page", id: params.id }, null, { slug: p.slug ?? cur.slug, ...titles, changed: keys });
+  if (status) await audit(req, me.id, "page.status", { type: "page", id: params.id }, null, { slug: p.slug ?? cur.slug, ...titles, from: cur.status, to: status });
+  /* the row as the list shows it now, so Diwan can update it in the list at once */
+  return answer({ result: "ok", row: await onePage(params.id) });
 });
 
 /** Deletes a draft that was never published (one merchants may have read is hidden instead). Answers "ok", "missing",
@@ -68,13 +72,13 @@ export const DELETE = staffRoute("announce", async (req: NextRequest, me, { para
   if (!idOk(params.id)) return answer({ result: "missing" }, 404);
   const pool = await db();
   const { rows } = await pool.query(
-    `DELETE FROM dukkan_pages WHERE id = $1 AND status = 'draft' AND published_at IS NULL RETURNING slug, title_en`,
+    `DELETE FROM dukkan_pages WHERE id = $1 AND status = 'draft' AND published_at IS NULL RETURNING slug, title_en, title_ar`,
     [params.id],
   );
   if (!rows[0]) {
     const exists = (await pool.query(`SELECT 1 FROM dukkan_pages WHERE id = $1`, [params.id])).rowCount;
     return answer({ result: exists ? "not-allowed" : "missing" }, exists ? 409 : 404);
   }
-  await audit(req, me.id, "page.delete", { type: "page", id: params.id }, null, { slug: rows[0].slug, title: rows[0].title_en });
+  await audit(req, me.id, "page.delete", { type: "page", id: params.id }, null, { slug: rows[0].slug, title: rows[0].title_en, titleEn: rows[0].title_en, titleAr: rows[0].title_ar });
   return answer({ result: "ok" });
 });

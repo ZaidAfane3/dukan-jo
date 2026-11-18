@@ -1,6 +1,7 @@
 "use client";
 
 import { focusStyle } from "../FocusPicker";
+import { noPhotoHue, ProductPhoto } from "./NoPhoto";
 import { initialOf } from "../safe";
 import { unitPrice } from "../safeOrder";
 import type { Lang } from "../content";
@@ -37,7 +38,6 @@ export const copy = {
     follow: "Follow us",
     noProducts: "No products",
     addHere: "Add your product here",
-    noMatch: "No products match your search",
     sample: "Sample products. Yours appear here once you add them.",
     perks: [
       { t: "Fast delivery", d: "Irbid, Amman and Salt" },
@@ -73,7 +73,6 @@ export const copy = {
     follow: "تابعنا",
     noProducts: "لا توجد منتجات",
     addHere: "أضف منتجك هنا",
-    noMatch: "لا توجد منتجات مطابقة لبحثك",
     sample: "منتجات تجريبية. ستظهر منتجاتك هنا بعد إضافتها.",
     perks: [
       { t: "توصيل سريع", d: "لكل مناطق الأردن" },
@@ -92,16 +91,17 @@ export const copy = {
 } satisfies Record<Lang, unknown>;
 
 export const currency = (lang: Lang) => (lang === "ar" ? "د.أ" : "JOD");
-/** `cents`: always two decimals, so a sale price and its old price read alike (19.99 next to 34.00, not 34) */
-export const money = (n: number, cents = false) => n.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 });
+/** One way to write an amount everywhere in the store (cards, product page, cart, checkout, the order placed, search,
+    deals): each amount on its own, a whole one without decimals ("22"), any other with two ("18.50", never "18.5"),
+    whatever the amounts shown next to it (a sale price and its old price, the lines of a total). */
+export const hasFils = (n: number) => Math.round(n * 100) % 100 !== 0;
+export const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: hasFils(n) ? 2 : 0, maximumFractionDigits: 2 });
 /** The language the prices are shown in: the page's language, or the one the merchant chose for his prices */
 export const priceLang = (mode: "auto" | "ar" | "en" | undefined, lang: Lang): Lang => (mode === "ar" ? "ar" : mode === "en" ? "en" : lang);
-/** An amount in the chosen language: Arabic-Indic digits and the Arabic decimal mark, or Latin digits */
-export const moneyIn = (n: number, lang: Lang, cents = false) =>
-  lang === "ar" ? money(n, cents).replace(/[0-9]/g, (d) => "٠١٢٣٤٥٦٧٨٩"[Number(d)]).replace(/,/g, "٬").replace(".", "٫") : money(n, cents);
-/** Whether a product on sale shows its prices with two decimals: when either of them has cents */
-export const centsFor = (p: { price: number | null; sale: number | null }) =>
-  p.sale !== null && p.price !== null && [p.price, p.sale].some((n) => Math.round(n * 100) % 100 !== 0);
+/** An amount for prices in `lang`. The digits are the Latin ones in both languages, as on every page of Dukkan (the
+    merchant's pages too), so prices, counts, order numbers and quantities never mix two sets of digits; only the
+    currency's word follows the language (currency()). */
+export const moneyIn = (n: number, _lang: Lang) => money(n);
 export const priceOf = (p: StoreProduct) => unitPrice(p) ?? 0;
 
 const base = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -137,41 +137,10 @@ export const icons = {
   ],
 };
 
-/** The picture of a product. Without a real photo it is a soft color wash with a bag. */
+/** The picture of a product. Without a real photo (or when it fails to load) it is the one placeholder every page uses (NoPhoto):
+    a soft wash in the product's color with a bag. */
 export function ProductImage({ p, className = "", flat = false }: { p: StoreProduct; className?: string; flat?: boolean }) {
-  const h = p.hue ?? 190;
-  /* flat: one soft color and a bag, no circles and no gradient (the playful stores). A bag, not a garment: any store can use it. */
-  if (flat) {
-    return (
-      <div className={`relative grid place-items-center overflow-hidden ${className}`} style={{ background: `hsl(${h} 75% 86%)` }}>
-        <svg viewBox="0 0 24 24" className="relative h-1/2 w-1/2" fill={`hsl(${h} 70% 96%)`} stroke={`hsl(${h} 40% 30%)`} strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M5 8h14l-1 12H6L5 8Z" />
-          <path d="M9 8V6a3 3 0 0 1 6 0v2" fill="none" />
-        </svg>
-        {p.image && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={focusStyle(p.focus)} />
-        )}
-      </div>
-    );
-  }
-  return (
-    <div
-      className={`relative grid place-items-center overflow-hidden ${className}`}
-      style={{ background: `linear-gradient(145deg, hsl(${h} 70% 93%), hsl(${h} 55% 80%))` }}
-    >
-      <span aria-hidden className="absolute -end-6 -top-6 h-24 w-24 rounded-full opacity-50" style={{ background: `hsl(${h} 80% 97%)` }} />
-      <span aria-hidden className="absolute -bottom-8 -start-6 h-28 w-28 rounded-full opacity-30" style={{ background: `hsl(${h} 60% 62%)` }} />
-      <svg viewBox="0 0 24 24" className="relative h-1/3 w-1/3 drop-shadow-sm" fill="none" stroke={`hsl(${h} 45% 32%)`} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M5 8h14l-1 12H6L5 8Z" />
-        <path d="M9 8V6a3 3 0 0 1 6 0v2" />
-      </svg>
-      {p.image && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={p.image} alt={p.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 h-full w-full object-cover" style={focusStyle(p.focus)} />
-      )}
-    </div>
-  );
+  return <ProductPhoto src={p.image} hue={p.hue ?? noPhotoHue(p.id)} flat={flat} alt={p.name} className={className} imgStyle={focusStyle(p.focus)} />;
 }
 
 /** The style that puts a picture where he dragged it inside its frame (nothing when he never moved it) */

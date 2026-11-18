@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePageTitle } from "@/components/pageTitle";
 import { LangSwitch, ThemeToggle } from "@/components/Prefs";
 import { DiwanMark } from "@/components/diwan/icons";
 import { PAPER } from "@/components/diwan/Shell";
@@ -51,6 +52,9 @@ export function LoginForm() {
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState("");
+
+  /* the tab's title in the staff's language, again on a language switch and when Next's metadata title lands after it */
+  usePageTitle(t("Diwan | Sign in", "ديوان | تسجيل الدخول"));
 
   useEffect(() => {
     fetch("/api/diwan/setup", { cache: "no-store" })
@@ -168,6 +172,7 @@ export function LoginForm() {
         dir="ltr"
         inputMode="numeric"
         autoComplete="one-time-code"
+        placeholder="______"
         maxLength={7}
         required
         value={code}

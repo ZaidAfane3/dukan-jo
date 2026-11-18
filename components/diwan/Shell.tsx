@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { usePageTitle } from "../pageTitle";
 import { LangSwitch, ThemeToggle } from "../Prefs";
 import { DiwanMark, GROUP_ICON, Icon, iconForPath } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS, type NavGroup } from "./nav";
@@ -46,6 +47,13 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
     return () => window.removeEventListener("keydown", esc);
   }, [open]);
   useEffect(() => setOpen(false), [path]);
+  /* the tab's title in the staff's language, with the page's name (the menu's own words); set again on every page
+     change and language switch, and put back when Next's fixed (Arabic) metadata title lands after it (usePageTitle:
+     on a fresh load in English the metadata used to win). Overview, and pages that are not in the menu, keep Diwan's
+     own line. */
+  const pageName = DIWAN_NAV.filter((i) => i.href !== "/diwan").find((i) => active(i.href));
+  const tabTitle = pageName ? t(`Diwan | ${pageName.en}`, `ديوان | ${pageName.ar}`) : t("Diwan | Dukkan staff", "ديوان | فريق دكّان");
+  usePageTitle(tabTitle);
 
   const signOut = async () => {
     await send("/api/diwan/auth/logout", "POST");

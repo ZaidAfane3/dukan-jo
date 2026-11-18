@@ -1,42 +1,129 @@
 "use client";
 
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { TWO_STEP_ASK } from "./accounts";
+import { TWO_STEP_ASK, TWO_STEP_NEW } from "./accounts";
+import { brandName } from "./content";
+import { DashSkeleton } from "./DashSkeleton";
 import { isStaffPage } from "./diwan/nav";
-import { popupSlot } from "./MerchantPopup";
+import { popupSlot, popupSlotChanged, watchStarted } from "./MerchantPopup";
+import { signedInAs } from "./demoSandbox";
 import { merchantCall, onServer } from "./merchantApi";
-import { usePrefs } from "./Prefs";
+import { LangSwitch, ThemeToggle, usePrefs } from "./Prefs";
+import { loadSetup } from "./setup";
 
-/* Right after signing up or in (accounts.ts marks the tab with TWO_STEP_ASK; signing in with a 2-step code does not),
-   on the first dashboard page: if the account has no 2-step code, a pop-up over the whole page asks to turn it on
-   (TwoStepSettings on /settings#two-step). "Skip for now" (or Esc) hides it for this sign-in only: it is back on the
-   next sign-in, until the code is on. It takes the tab's pop-up place (popupSlot) before Dukkan's pop-ups and the
-   rejected-document one, which show on a later page once it is closed. Signed in on Dukkan's server only: never in the
-   platform tour, never on staff pages, never on a store's public pages (they do not draw the dashboard bar). */
+/* Right after signing up or in (accounts.ts marks the tab with TWO_STEP_ASK; signing in with a 2-step code does not), a
+   full page over the dashboard asks to turn 2-step sign-in on. Its button opens TwoStepSettings on
+   /settings#two-step-start, which starts the setup at once. "Not now" (or Esc) hides it for this sign-in only: it is
+   back on the next sign-in, until the code is on.
+
+   When it shows. It never lands on top of something the merchant has started:
+   - only as a page opens: it takes the tab's pop-up place (popupSlot) at once, before Dukkan's pop-ups and the
+     rejected-document one, and asks the server whether the code is on;
+   - the answer is in and nothing was touched yet (no click, key or typing, no dialog, drawer or checkout open, nothing
+     focused to type in: MerchantPopup.tsx watchStarted / pageIsCalm, the rule every pop-up follows) and it came
+     within LATE: it shows;
+   - otherwise it waits for the next page that opens. The answer is kept for this tab ("off"), so there it shows the
+     moment the page opens, with no wait; the place stays taken on the page it gave up, so no other pop-up drops on a
+     merchant who is busy there either;
+   - never on the settings page (visiting it makes the next page ask the server again, the code may be on now), never
+     in the designer, the platform tour, staff pages or a store's public pages (they do not draw the dashboard bar);
+   - never during or right after signing up: not until the store setup (the 6 tasks of /onboarding) is finished, or the
+     account is 3 days old with the setup still unfinished (OLD_ENOUGH, from the first time this browser saw it), and
+     not in a new account's first minutes (FIRST_WAIT). Until then the ask is kept for a later page of this sign-in.
+   The page is checked again on every move inside the app and right before it shows. Signed in on Dukkan's server only.
+
+   While the server is asked (right after signing in, nothing known yet), the page shows the dashboard's loading look over
+   it, decided before the page is painted: the dashboard never shows first only to be swapped for this page seconds later.
+   The answer comes (the code is on: the dashboard; off: this page) or LATE passes (the dashboard; asked on the next
+   page). */
 
 const words = {
   en: {
-    kicker: "Account security",
-    title: "Keep your account safe",
-    hint: "Don't forget to turn on two-step sign-in. It keeps your store safe even if someone learns your password.",
-    points: ["After your password, a 6-digit code from an app on your phone", "A stolen password alone can't open your store", "It takes about a minute to set up"],
+    title: "Protect your account with two-step sign-in",
+    why: "When you sign in, we'll also ask for a 6-digit code from an app on your phone. Someone who learns your password still can't get in without it.",
+    stepsTitle: "It takes about two minutes:",
+    steps: [
+      "Install an authenticator app on your phone, such as Google Authenticator or Microsoft Authenticator.",
+      "Add Dukkan to the app with the key we give you.",
+      "Type the 6-digit code the app shows, and you're done.",
+    ],
     yes: "Turn on two-step sign-in",
-    skip: "Skip for now",
-    later: "We'll remind you the next time you sign in.",
+    later: "Not now",
+    remind: "We'll remind you the next time you sign in.",
   },
   ar: {
-    kicker: "أمان الحساب",
-    title: "احمِ حسابك",
-    hint: "لا تنسَ تفعيل التحقق بخطوتين. يبقى متجرك آمنًا حتى لو عرف أحدهم كلمة مرورك.",
-    points: ["بعد كلمة المرور، رمز من 6 أرقام من تطبيق على هاتفك", "كلمة مرور مسروقة وحدها لا تفتح متجرك", "يستغرق إعداده دقيقة تقريبًا"],
+    title: "احمِ حسابك بالتحقق بخطوتين",
+    why: "عند تسجيل الدخول سنطلب منك أيضًا رمزًا من 6 أرقام يظهر في تطبيق على هاتفك. فمن يعرف كلمة مرورك لن يستطيع الدخول بدونه.",
+    stepsTitle: "يستغرق الأمر دقيقتين تقريبًا:",
+    steps: [
+      "ثبّت تطبيق مصادقة على هاتفك، مثل Google Authenticator أو Microsoft Authenticator.",
+      "أضف دكّان إلى التطبيق بالمفتاح الذي نعطيك إياه.",
+      "اكتب الرمز المكوّن من 6 أرقام الذي يظهره التطبيق، وانتهى.",
+    ],
     yes: "فعّل التحقق بخطوتين",
-    skip: "تخطَّ الآن",
-    later: "سنذكّرك في المرة القادمة التي تسجّل فيها الدخول.",
+    later: "ليس الآن",
+    remind: "سنذكّرك عند تسجيل دخولك القادم.",
   },
 };
 
+/* the server's answer later than this after the page opened: it waits for the next page instead of showing late */
+const LATE = 6000;
+/* pages it never shows on (the settings page has the setup itself; onboarding and the designer are work in progress) */
+const NOT_ON = ["/settings", "/onboarding", "/design", "/demo"];
+const notOn = (path: string) => NOT_ON.some((p) => path === p || path.startsWith(`${p}/`));
+/* a brand-new account is not asked in its first minutes, even with the setup done quickly */
+const FIRST_WAIT = 10 * 60_000;
+/* the store setup is finished: all 6 tasks of /onboarding (SignupForm.tsx sends a signed-in store there until then) */
+const setupDone = () => (loadSetup()?.done ?? []).filter(Boolean).length >= 6;
+/* made in this tab less than FIRST_WAIT ago (accounts.ts createAccount) */
+const brandNew = () => {
+  try {
+    const at = Number(sessionStorage.getItem(TWO_STEP_NEW));
+    return at > 0 && Date.now() - at < FIRST_WAIT;
+  } catch {
+    return false;
+  }
+};
+/* a store whose setup is never finished is still asked, once the account is this old */
+const OLD_ENOUGH = 3 * 24 * 60 * 60_000;
+/* the client has no account creation time: the first time this browser saw the signed-in account stands for it */
+const FIRST_SEEN = "dukkan-2fa-first-seen:";
+const seenSince = (): number => {
+  const me = signedInAs();
+  const now = Date.now();
+  if (!me) return now;
+  try {
+    const key = FIRST_SEEN + me;
+    const at = Number(localStorage.getItem(key));
+    if (at > 0 && at <= now) return at;
+    localStorage.setItem(key, String(now));
+  } catch {
+    /* storage blocked: counted from now */
+  }
+  return now;
+};
+/* whether it may ask on this page now; when not, the ask stays for a later page */
+const mayAsk = (path: string) => !notOn(path) && !brandNew() && (setupDone() || Date.now() - seenSince() >= OLD_ENOUGH);
+
+/* the tab's mark: "1" asked after signing in, the server not asked yet; "off" the server said the code is off */
+const readMark = () => {
+  try {
+    return sessionStorage.getItem(TWO_STEP_ASK);
+  } catch {
+    return null;
+  }
+};
+const setMark = (v: "1" | "off") => {
+  try {
+    sessionStorage.setItem(TWO_STEP_ASK, v);
+  } catch {
+    /* storage blocked */
+  }
+};
 /** Not asked again in this tab (until the next sign-in marks it again) */
 const forget = () => {
   try {
@@ -46,81 +133,153 @@ const forget = () => {
   }
 };
 
-function Shield() {
+/* the brand mark as on the sign-in page (Nav.tsx Logo), without its link home: leaving is "Not now" */
+function Mark({ lang }: { lang: "en" | "ar" }) {
   return (
-    <svg viewBox="0 0 120 120" className="h-24 w-24" aria-hidden>
-      <defs>
-        <linearGradient id="two-step-shield" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="rgb(var(--brand-2))" />
-          <stop offset="1" stopColor="rgb(var(--brand-deep))" />
-        </linearGradient>
-      </defs>
-      <circle cx="60" cy="60" r="56" fill="rgb(var(--brand) / 0.12)" />
-      <circle cx="60" cy="60" r="44" fill="rgb(var(--brand) / 0.12)" />
-      <path d="M60 22 88 33v22c0 19-12 34-28 41-16-7-28-22-28-41V33z" fill="url(#two-step-shield)" />
-      <path d="M60 22 88 33v22c0 19-12 34-28 41z" fill="#fff" opacity="0.12" />
-      <rect x="47" y="55" width="26" height="20" rx="4" fill="#fff" />
-      <path d="M52 55v-5a8 8 0 0 1 16 0v5" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
-      <circle cx="60" cy="63.5" r="3" fill="rgb(var(--brand-deep))" />
-      <rect x="58.6" y="64" width="2.8" height="6" rx="1.4" fill="rgb(var(--brand-deep))" />
-      <circle cx="96" cy="28" r="4" fill="rgb(var(--brand-2))" className="two-step-spark" />
-      <circle cx="22" cy="86" r="3" fill="rgb(var(--brand))" className="two-step-spark" />
-    </svg>
+    <span className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-fg">
+      <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-white">
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+          <path d="M4 9 5.5 4h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6" />
+        </svg>
+      </span>
+      {brandName(lang)}
+    </span>
   );
 }
 
-const check = (
-  <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" aria-hidden>
-    <path d="m5 10.5 3.2 3L15 6.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
+const ease = [0.2, 0.65, 0.3, 0.9] as const;
 
 export function TwoStepPrompt() {
   const { lang } = usePrefs();
   const w = words[lang];
+  const reduce = useReducedMotion();
+  /* drawn into the page only on a page that may ask (so the portal is not there on every page) */
+  const [ready, setReady] = useState(false);
   const [show, setShow] = useState(false);
+  /* the server is being asked whether the code is on: the loading look covers the page until the answer (or LATE) */
+  const [waiting, setWaiting] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-
-  /* on the page's first draw: the place is taken at once (before the other pop-ups ask), and given back if the code is
-     on already or the server can't say */
+  const yes = useRef<HTMLAnchorElement>(null);
+  /* whether this one holds the tab's pop-up place (read when the page goes away, after the state may have moved on) */
+  const holds = useRef({ on: false });
+  /* the page the app is on, checked again on every move inside the app (the bar may stay drawn across a move) */
+  const pathname = usePathname();
+  const here = useRef(pathname);
   useEffect(() => {
-    const path = window.location.pathname;
-    if (!onServer() || isStaffPage(path, window.location.search) || path.startsWith("/demo") || path.startsWith("/settings")) return;
-    try {
-      if (sessionStorage.getItem(TWO_STEP_ASK) !== "1") return;
-    } catch {
+    here.current = pathname;
+  }, [pathname]);
+
+  /* a layout effect: whether the page waits for the answer is known before it is painted */
+  useLayoutEffect(() => {
+    const path = pathname || window.location.pathname;
+    if (!onServer() || isStaffPage(path, window.location.search)) return;
+    /* the account's first-seen time starts counting on its first page here (setup included) */
+    seenSince();
+    const mark = readMark();
+    if (notOn(path)) {
+      /* the code may be turned on here: the next page asks the server again instead of trusting "off" */
+      if (path.startsWith("/settings") && mark === "off") setMark("1");
       return;
     }
+    if (mark !== "1" && mark !== "off") return;
+    /* the setup is not finished or the account is minutes old: the ask is kept for a later page */
+    if (!mayAsk(path)) return;
     if (popupSlot.open) return;
     popupSlot.open = true;
+    const h = holds.current;
+    h.on = true;
+    setReady(true);
     let gone = false;
-    void merchantCall("/api/auth/totp/setup", "GET").then((r) => {
-      if (gone) return;
-      if (r?.status === 200 && r.data.on === false) return setShow(true);
-      /* on already (or signed out): nothing to ask in this tab; the server unreachable: asked again on the next page */
-      if (r && r.status < 500) forget();
+    let decided = false;
+    const opened = Date.now();
+    /* the end of the loading look when the answer is late */
+    let late = 0;
+
+    /* anything the merchant starts on this page before the answer is in (MerchantPopup.tsx: the same rule for every
+       pop-up) */
+    const watch = watchStarted();
+    const unwatch = watch.stop;
+
+    const giveBack = () => {
+      if (!h.on) return;
+      h.on = false;
       popupSlot.open = false;
-    });
+      popupSlotChanged();
+    };
+    /* the code is off: shown now if the page is calm, else on the next page that opens (the place stays taken here) */
+    const offNow = () => {
+      if (decided) return;
+      decided = true;
+      setWaiting(false);
+      const busy = watch.busy();
+      unwatch();
+      /* checked again right before it shows: the app may have moved to a page it never shows on meanwhile */
+      const stillHere = here.current === path && window.location.pathname === path && mayAsk(path);
+      if (!busy && stillHere && Date.now() - opened <= LATE) return setShow(true);
+      setMark("off");
+      if (!stillHere) giveBack();
+    };
+
+    if (mark === "off") {
+      /* known from an earlier page: shown as this page opens, no waiting for the server */
+      offNow();
+      /* still checked: turned on meanwhile (another tab), or signed out: closed and not asked again */
+      void merchantCall("/api/auth/totp/setup", "GET").then((r) => {
+        if (gone || !r || r.status >= 500 || (r.status === 200 && r.data.on === false)) return;
+        forget();
+        setShow(false);
+        giveBack();
+      });
+    } else {
+      /* nothing known yet: the loading look until the answer, never the dashboard first */
+      setWaiting(true);
+      late = window.setTimeout(() => setWaiting(false), LATE);
+      void merchantCall("/api/auth/totp/setup", "GET").then((r) => {
+        window.clearTimeout(late);
+        if (gone) return;
+        if (r?.status === 200 && r.data.on === false) return offNow();
+        setWaiting(false);
+        unwatch();
+        /* on already (or signed out): nothing to ask in this tab; the server unreachable: asked again on the next page */
+        if (r && r.status < 500) forget();
+        giveBack();
+      });
+    }
     return () => {
       gone = true;
-      popupSlot.open = false;
+      window.clearTimeout(late);
+      unwatch();
+      /* leaving the page frees the tab for the next one (the others on the next page ask for it themselves); not answered
+         yet, it is asked on that page (the mark stays) */
+      if (h.on) popupSlot.open = false;
+      h.on = false;
+      setShow(false);
+      setWaiting(false);
     };
-  }, []);
+  }, [pathname]);
 
+  /* "Not now" and "Turn on" both end it for this sign-in; the place is free for the next pop-up */
   const close = () => {
     forget();
-    popupSlot.open = false;
     setShow(false);
+    if (holds.current.on) {
+      holds.current.on = false;
+      popupSlot.open = false;
+      popupSlotChanged();
+    }
   };
 
-  /* while it is open: Esc skips it, Tab stays inside it, the page under it does not scroll, and the focus comes back after */
+  /* while it is open: Esc is "Not now", Tab stays inside it, the page under it does not scroll, and the focus comes back */
   useEffect(() => {
     if (!show) return;
     const before = document.activeElement as HTMLElement | null;
     const focusables = () => Array.from(box.current?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])") ?? []);
-    focusables()[0]?.focus();
+    (yes.current ?? focusables()[0])?.focus({ preventScroll: true });
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return close();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        return close();
+      }
       if (e.key !== "Tab") return;
       const f = focusables();
       if (!f.length) return;
@@ -139,60 +298,93 @@ export function TwoStepPrompt() {
     return () => {
       window.removeEventListener("keydown", key);
       document.body.style.overflow = overflow;
-      before?.focus?.();
+      before?.focus?.({ preventScroll: true });
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [show]);
 
-  if (!show) return null;
+  if (!ready) return null;
+  const move = { duration: reduce ? 0 : 0.3, ease };
   return createPortal(
-    <div data-two-step-prompt className="two-step-fade fixed inset-0 z-[110] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-md">
-      <div
-        ref={box}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="two-step-prompt-title"
-        aria-describedby="two-step-prompt-hint"
-        className="two-step-pop relative my-auto w-full max-w-md overflow-hidden rounded-3xl bg-card p-6 text-center shadow-2xl ring-1 ring-fg/10 sm:p-8"
-      >
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-primary/15 to-transparent" />
-        <div className="relative">
-          <div className="mx-auto grid w-fit place-items-center">
-            <Shield />
-          </div>
-          <p className="mt-3 text-xs font-bold uppercase tracking-wider text-[rgb(var(--brand-deep))] dark:text-primary">{w.kicker}</p>
-          <h2 id="two-step-prompt-title" className="mt-1.5 text-2xl font-extrabold tracking-tight sm:text-[1.7rem]">
-            {w.title}
-          </h2>
-          <p id="two-step-prompt-hint" className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted">
-            {w.hint}
-          </p>
-          <ul className="mt-5 space-y-2.5 rounded-2xl bg-soft/70 p-4 text-start text-sm">
-            {w.points.map((p) => (
-              <li key={p} className="flex items-start gap-2.5">
-                <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[rgb(var(--brand-deep))] dark:text-primary">{check}</span>
-                <span>{p}</span>
-              </li>
-            ))}
-          </ul>
-          <Link
-            href="/settings#two-step"
-            onClick={close}
-            className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-ink px-5 text-sm font-semibold text-onink shadow-sm transition hover:bg-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-card"
-          >
-            {w.yes}
-          </Link>
-          <button
-            type="button"
-            onClick={close}
-            className="mt-2.5 h-11 w-full rounded-xl text-sm font-semibold text-muted transition hover:bg-soft hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            {w.skip}
-          </button>
-          <p className="mt-2 text-xs text-muted">{w.later}</p>
-        </div>
+    <>
+    {/* the answer is not in yet: the page's loading look over it (the dashboard's, as the page itself shows it first) */}
+    {waiting && !show && (
+      <div data-two-step-wait className="fixed inset-0 z-[110] overflow-hidden bg-page">
+        <DashSkeleton variant={pathname === "/dashboard" ? "home" : "form"} />
       </div>
-      <style>{`@keyframes twoStepFade{from{opacity:0}to{opacity:1}}@keyframes twoStepPop{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}@keyframes twoStepSpark{0%,100%{opacity:.35}50%{opacity:1}}.two-step-fade{animation:twoStepFade .25s ease-out}.two-step-pop{animation:twoStepPop .3s cubic-bezier(.2,.8,.2,1)}.two-step-spark{animation:twoStepSpark 2.4s ease-in-out infinite}@media (prefers-reduced-motion: reduce){.two-step-fade,.two-step-pop,.two-step-spark{animation:none}}`}</style>
-    </div>,
+    )}
+    <AnimatePresence>
+      {show && (
+        <motion.div
+          key="two-step"
+          ref={box}
+          data-two-step-prompt
+          data-dukkan-popup
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="two-step-prompt-title"
+          aria-describedby="two-step-prompt-why"
+          className="dash fixed inset-0 z-[110] flex flex-col overflow-y-auto bg-page text-fg"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: reduce ? 0 : 0.2, ease }}
+        >
+          <header className="flex items-center justify-between px-6 py-6 sm:px-10">
+            <Mark lang={lang} />
+            <div className="flex items-center gap-2">
+              <LangSwitch />
+              <ThemeToggle />
+            </div>
+          </header>
+
+          <motion.main
+            data-lang-fade
+            className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 pb-16 pt-4 sm:px-0"
+            initial={reduce ? false : { opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...move, delay: reduce ? 0 : 0.05 }}
+          >
+            <h1 id="two-step-prompt-title" className="text-3xl font-extrabold leading-tight tracking-tight">
+              {w.title}
+            </h1>
+            <p id="two-step-prompt-why" className="mt-4 text-base leading-relaxed text-muted">
+              {w.why}
+            </p>
+
+            <p className="mt-10 text-sm font-semibold">{w.stepsTitle}</p>
+            <ol className="mt-3 border-t border-fg/10">
+              {w.steps.map((s, i) => (
+                <li key={i} className="flex items-start gap-4 border-b border-fg/10 py-4">
+                  <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-fg/20 text-sm font-semibold tabular-nums">
+                    {i + 1}
+                  </span>
+                  <span className="pt-0.5 text-sm leading-relaxed">{s}</span>
+                </li>
+              ))}
+            </ol>
+
+            <Link
+              ref={yes}
+              href="/settings#two-step-start"
+              onClick={close}
+              className="mt-10 flex h-12 w-full items-center justify-center rounded-xl bg-ink px-5 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-page motion-reduce:hover:translate-y-0"
+            >
+              {w.yes}
+            </Link>
+            <button
+              type="button"
+              onClick={close}
+              className="mt-3 h-12 w-full rounded-xl text-sm font-semibold text-muted transition hover:bg-soft hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              {w.later}
+            </button>
+            <p className="mt-3 text-center text-xs text-muted">{w.remind}</p>
+          </motion.main>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    </>,
     document.body,
   );
 }

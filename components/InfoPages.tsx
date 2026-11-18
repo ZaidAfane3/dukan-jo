@@ -9,6 +9,9 @@ import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required"
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { publicSettings, refreshPublicSettings } from "./platformPublic";
+import { dropUndos, listUndo, offerUndo } from "./undo";
+import type { Lang } from "./content";
+import { usePageTitle } from "./pageTitle";
 
 type Bi = { en: string; ar: string };
 export type InfoPage = {
@@ -52,7 +55,8 @@ const copy = {
     searchPh: "Search for a page",
     sort: "Sort",
     sorts: ["Newest first", "Title"],
-    types: ["General", "Return policy", "Terms and privacy"],
+    /* the third is the type of both the terms and the privacy page, so it names either */
+    types: ["General", "Return policy", "Legal: terms or privacy"],
     published: "Published",
     draft: "Draft",
     visit: "View page",
@@ -69,7 +73,7 @@ const copy = {
     save: "Save",
     saved: "Page saved",
     delete: "Delete page",
-    deleteAsk: "Delete this page? This cannot be undone.",
+    deleteAsk: "Delete this page for good?",
     deleteYes: "Yes, delete",
     cancel: "Cancel",
     errTitle: "Enter the page title",
@@ -80,6 +84,10 @@ const copy = {
     pickOne: "Select a page to edit it, or add a new one",
     sample: "These pages start with sample text. Read them and change them to match how your store works.",
     untitled: "Untitled page",
+    /* the undo note at the bottom (UndoToast.tsx) */
+    undoAdded: (t: string) => `Page “${t}” added`,
+    undoEdited: (t: string) => `Changes to page “${t}” saved`,
+    undoDeleted: (t: string) => `Page “${t}” deleted`,
   },
   ar: {
     title: "الصفحات التعريفية",
@@ -87,7 +95,7 @@ const copy = {
     searchPh: "ابحث عن صفحة",
     sort: "ترتيب",
     sorts: ["الأحدث أولًا", "العنوان"],
-    types: ["عامة", "سياسة الاستبدال والاسترجاع", "الأحكام والخصوصية"],
+    types: ["عامة", "سياسة الاستبدال والاسترجاع", "قانونية: الأحكام أو الخصوصية"],
     published: "منشور",
     draft: "مسودة",
     visit: "زيارة الصفحة",
@@ -104,7 +112,7 @@ const copy = {
     save: "حفظ",
     saved: "تم حفظ الصفحة",
     delete: "حذف الصفحة",
-    deleteAsk: "هل تريد حذف هذه الصفحة؟ لا يمكن التراجع عن ذلك.",
+    deleteAsk: "هل تريد حذف هذه الصفحة نهائيًا؟",
     deleteYes: "نعم، احذف",
     cancel: "إلغاء",
     errTitle: "أدخل عنوان الصفحة",
@@ -115,6 +123,9 @@ const copy = {
     pickOne: "اختر صفحة لتعديلها، أو أضف صفحة جديدة",
     sample: "تبدأ هذه الصفحات بنص تجريبي. اقرأها وعدّلها لتناسب طريقة عمل متجرك.",
     untitled: "صفحة بدون عنوان",
+    undoAdded: (t: string) => `أُضيفت الصفحة «${t}»`,
+    undoEdited: (t: string) => `حُفظت تعديلات الصفحة «${t}»`,
+    undoDeleted: (t: string) => `حُذفت الصفحة «${t}»`,
   },
 };
 
@@ -227,13 +238,22 @@ export function InfoPages() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [flash, setFlash] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+  /* the list and the page being edited as they are now, for an undo (it checks nothing changed since) */
+  const pagesNow = useRef<InfoPage[]>([]);
+  /* the list as read from storage (see the save below) */
+  const loadedList = useRef<InfoPage[] | null>(null);
+  const editingNow = useRef<number | "new" | null>(null);
+  useEffect(() => {
+    pagesNow.current = pages;
+    editingNow.current = editing;
+  }, [pages, editing]);
+  /* only this page can put its list back: its undos go when it closes */
+  useEffect(() => () => dropUndos("pages"), []);
 
   /* Show the text in the current language, or the other one if this one is empty. */
   const t = (b: Bi) => b[lang] || b[other];
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${c.title}`;
-  }, [lang, c]);
+  usePageTitle(`${brandName(lang)} | ${c.title}`);
 
   useEffect(() => {
     /* A store with no pages saved yet gets them now (they are saved below), so it first asks Dukkan for the templates its
@@ -247,16 +267,31 @@ export function InfoPages() {
     }
     void (saved ? Promise.resolve(true) : refreshPublicSettings()).then(() => {
       if (gone) return;
-      setPages(load());
+      const list = load();
+      /* a store's first pages (the templates) are saved; a list it already had is not saved back (see below) */
+      loadedList.current = saved ? list : null;
+      setPages(list);
       setReady(true);
+      /* The dashboard search links here with ?open=ID: that page opens in the editor (an unknown id: just the list). The
+         address loses ?open so a reload doesn't open it again. */
+      const url = new URL(window.location.href);
+      const want = url.searchParams.get("open");
+      if (want !== null) {
+        const hit = list.find((x) => x.id === Number(want));
+        if (hit) open(hit);
+        url.searchParams.delete("open");
+        window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+      }
     });
     return () => {
       gone = true;
     };
   }, []);
 
+  /* the list as read from storage is not saved back (only a change he makes is), so opening the page on a device with
+     an older copy never sends that copy over a newer one */
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || pages === loadedList.current) return;
     try {
       localStorage.setItem(KEY, JSON.stringify(pages));
     } catch {
@@ -294,6 +329,36 @@ export function InfoPages() {
     setTimeout(() => titleRef.current?.focus(), 0);
   };
 
+  /** A change to the pages, saved like any edit (below), with an Undo at the bottom that puts back exactly the pages it
+      changed, unless one of them changed again since. The editor follows: it shows the page as the undo left it. */
+  const change = (next: InfoPage[], label: (l: Lang) => string) => {
+    const before = pagesNow.current;
+    pagesNow.current = next;
+    setPages(next);
+    offerUndo({
+      scope: "pages",
+      label,
+      undo: listUndo({
+        before,
+        after: next,
+        key: (x) => x.id,
+        now: () => pagesNow.current,
+        put: (list) => {
+          const was = pagesNow.current;
+          pagesNow.current = list;
+          setPages(list);
+          const e = editingNow.current;
+          if (typeof e !== "number") return;
+          const now = list.find((x) => x.id === e);
+          if (JSON.stringify(now) === JSON.stringify(was.find((x) => x.id === e))) return;
+          if (now) open(now);
+          else setEditing(null);
+        },
+      }),
+    });
+  };
+  const named = (b: Bi, l: Lang) => cleanLine(b[l] || b[l === "ar" ? "en" : "ar"], 80) || copy[l].untitled;
+
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
@@ -303,28 +368,36 @@ export function InfoPages() {
     if (Object.keys(next).length) return;
 
     /* Editing in one language only changes that language's text. */
+    const l = pagesNow.current;
     if (editing === "new") {
-      const id = pages.reduce((m, p) => Math.max(m, p.id), 0) + 1;
+      const id = l.reduce((m, p) => Math.max(m, p.id), 0) + 1;
       const bi = (v: string): Bi => ({ en: lang === "en" ? v : "", ar: lang === "ar" ? v : "" });
-      setPages((l) => [{ id, type, published, footer, title: bi(cleanLine(title, 80)), content: bi(cleanLines(content, 10000)), created: Date.now() }, ...l]);
+      const made: InfoPage = { id, type, published, footer, title: bi(cleanLine(title, 80)), content: bi(cleanLines(content, 10000)), created: Date.now() };
+      change([made, ...l], (x) => copy[x].undoAdded(named(made.title, x)));
       setEditing(id);
+      editingNow.current = id;
     } else {
-      setPages((l) =>
-        l.map((p) =>
-          p.id === editing
-            ? { ...p, type, published, footer, title: { ...p.title, [lang]: cleanLine(title, 80) }, content: { ...p.content, [lang]: cleanLines(content, 10000) } }
-            : p,
-        ),
+      const was = l.find((p) => p.id === editing);
+      const next = l.map((p) =>
+        p.id === editing
+          ? { ...p, type, published, footer, title: { ...p.title, [lang]: cleanLine(title, 80) }, content: { ...p.content, [lang]: cleanLines(content, 10000) } }
+          : p,
       );
+      const now = next.find((p) => p.id === editing);
+      /* saving without a change has nothing to undo */
+      if (now && JSON.stringify(now) !== JSON.stringify(was)) change(next, (x) => copy[x].undoEdited(named(now.title, x)));
     }
     setFlash(true);
     setTimeout(() => setFlash(false), 1800);
   };
 
+  /* deleting a page is for good, so it still asks first; the Undo after it puts it back for a moment */
   const remove = (id: number) => {
-    setPages((l) => l.filter((p) => p.id !== id));
+    const gone = pagesNow.current.find((p) => p.id === id);
     setEditing(null);
+    editingNow.current = null;
     setConfirmDelete(false);
+    if (gone) change(pagesNow.current.filter((p) => p.id !== id), (x) => copy[x].undoDeleted(named(gone.title, x)));
   };
 
   return (
@@ -379,7 +452,8 @@ export function InfoPages() {
                           {p.published ? c.published : c.draft}
                         </span>
                       </span>
-                      <span className="mt-1.5 block text-xs text-muted">{c.types[p.type]}</span>
+                      {/* the type under the title, unless it only says the title again (the return policy) */}
+                      {c.types[p.type].trim() !== t(p.title).trim() && <span className="mt-1.5 block text-xs text-muted">{c.types[p.type]}</span>}
                     </button>
                   </li>
                 ))}

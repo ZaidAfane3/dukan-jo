@@ -16,8 +16,10 @@ export type PublicSetup = {
   slug: string;
   logo: string;
   pickup: boolean;
-  /* only how the store delivers and, with its own courier, its fee per order */
-  shipping: { mode: "own" | "seen"; fee?: number } | null;
+  /* only how the store delivers and, with its own courier, its fee per order and the cities it delivers to (left out: all) */
+  shipping: { mode: "own" | "seen"; fee?: number; cities?: string[] } | null;
+  /* the ways to pay the merchant chose (left out: an older store, every way Dukkan has on) */
+  pays?: ("cliq" | "cash" | "card")[];
 };
 
 /** An open store: what its storefront needs to draw itself */

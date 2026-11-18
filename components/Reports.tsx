@@ -6,12 +6,13 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { brandName, content, type Content, type ReportWidget, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
-import { cleanOrder, cleanProduct, parseList, type Order, type Product } from "./records";
+import { cleanProduct, parseList, type Product } from "./records";
 import { cleanLine } from "./safe";
 import { onServer } from "./merchantApi";
 import { loadSetup } from "./setup";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { useStoreVisits } from "./storeVisits";
+import { arCount, dropUndos, offerUndo, snapshot, storageUndo } from "./undo";
 import { sourceNames, type VisitCounts, type VisitStats } from "./visitStats";
 import { STATUS_KEYS, ordersCopy } from "./ordersContent";
 import {
@@ -24,9 +25,12 @@ import {
   previousSpan,
   rangeSpan,
   salesFigures,
+  type CountedOrder,
   type RangeKind,
   type Span,
 } from "./storeNumbers";
+import { useStoreOrders } from "./useStoreOrders";
+import { usePageTitle } from "./pageTitle";
 
 /* ====================================================================
    Data. A brand-new store has no sales, so every figure starts at zero.
@@ -126,6 +130,11 @@ function MoreButton({ open, onClick, lang }: { open: boolean; onClick: () => voi
 
 const SHORT_LIST = 4;
 
+/** Decimals for a percentage: one when it has a tenth, none when it is whole (0%, 25%, never 0.0% or 25.0%) */
+export const pctDecimals = (v: number) => (Number.isInteger(Math.round(v * 10) / 10) ? 0 : 1);
+/** A percentage as text, one decimal at most and no trailing .0 */
+const pctText = (v: number) => `${Math.round(v * 10) / 10}%`;
+
 export function AnimatedNumber({ value, decimals = 0 }: { value: number; decimals?: number }) {
   const ref = useRef<HTMLSpanElement>(null);
   const prev = useRef(0);
@@ -168,7 +177,8 @@ function Delta({ value }: { value: number | null }) {
   const tone = value > 0 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : value < 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" : "bg-fg/10 text-muted";
   return (
     <span dir="ltr" className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${tone}`}>
-      <span aria-hidden className={value < 0 ? "rotate-180" : ""}>▲</span>
+      {/* no change: just 0%, no arrow pointing up or down */}
+      {value !== 0 && <span aria-hidden className={value < 0 ? "rotate-180" : ""}>▲</span>}
       {Math.abs(value)}%
     </span>
   );
@@ -282,7 +292,7 @@ function PayLogo({ src }: { src: string }) {
   if (src === "cash") {
     /* Dukkan's own pictogram for cash on delivery, the same one the main page shows */
     return (
-      <span className="grid h-7 w-10 shrink-0 place-items-center rounded-md bg-white text-primary ring-1 ring-fg/10">
+      <span className="grid h-7 w-10 shrink-0 place-items-center rounded-md bg-white text-primary ring-1 ring-fg/10 dark:bg-white/[0.07]">
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <g transform="rotate(-14 14 7)">
             <rect x="8" y="2.5" width="12" height="7.5" rx="1.3" />
@@ -294,9 +304,10 @@ function PayLogo({ src }: { src: string }) {
     );
   }
   return (
-    <span className="grid h-7 w-10 shrink-0 place-items-center overflow-hidden rounded-md bg-white ring-1 ring-fg/10">
+    <span className="grid h-7 w-10 shrink-0 place-items-center overflow-hidden rounded-md bg-white ring-1 ring-fg/10 dark:bg-white/[0.07]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="" className="h-full w-full object-contain p-0.5" />
+      {/* in the dark the tile is dark and the logo white (they are dark letters on clear ground) */}
+      <img src={src} alt="" className="h-full w-full object-contain p-0.5 dark:brightness-0 dark:invert" />
     </span>
   );
 }
@@ -372,7 +383,7 @@ function GenericReport({
                 <div className="flex flex-1 flex-col justify-center">
                   <div className="flex items-center justify-between gap-3">
                     <Delta value={change(seed, slot, sample)} />
-                    <p className={`text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={d.value} decimals={1} />%</span></p>
+                    <p className={`text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={d.value} decimals={pctDecimals(d.value)} />%</span></p>
                   </div>
                   <div className="mt-4 h-3 overflow-hidden rounded-full bg-fg/10" role="progressbar" aria-valuenow={d.value} aria-valuemin={0} aria-valuemax={100}>
                     <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.min(d.value * 4, 100)}%` }} />
@@ -398,10 +409,10 @@ function GenericReport({
                         <div className="flex items-center justify-between gap-3 text-sm font-semibold">
                           <span className="flex min-w-0 items-center gap-2.5">
                             {PAY_LOGOS[w.id]?.[i] && <PayLogo src={PAY_LOGOS[w.id][i]} />}
-                            <span className="min-w-0 truncate">{name}</span>
+                            <span dir="auto" className="min-w-0 truncate ltr:text-left rtl:text-right">{name}</span>
                           </span>
                           <span dir="ltr" className="shrink-0 text-muted">
-                            {w.kind === "breakdown" ? (numbers[w.id] ? d.rows[i].toLocaleString("en-US") : `${((d.rows[i] / total) * 100).toFixed(1)}%`) : w.kind === "ratelist" ? `${d.rows[i]}%` : d.rows[i]}
+                            {w.kind === "breakdown" ? (numbers[w.id] ? d.rows[i].toLocaleString("en-US") : pctText((d.rows[i] / total) * 100)) : w.kind === "ratelist" ? `${d.rows[i]}%` : d.rows[i]}
                           </span>
                         </div>
                         <div className="mt-2 h-2 overflow-hidden rounded-full bg-fg/10">
@@ -426,21 +437,35 @@ function GenericReport({
    yet (visits, carts left behind, taxes, payment fees) says so.
    ==================================================================== */
 
-type StoreData = { orders: Order[]; products: Product[] };
+type StoreData = { orders: CountedOrder[]; products: Product[] };
 
 const real = {
   en: {
     notTracked: "Not tracked yet",
+    /* before the page has read the store's orders and products (the first moment after it opens) */
+    loading: "Loading your numbers…",
     noCompare: "No earlier sales to compare with",
     visitsNote: "Visitors are counted for a store that is signed in and open at its link. Your orders, customers and stock are in the other reports.",
     cartsNote: "Dukkan does not keep the carts customers leave yet, so there is nothing to show here.",
     cogsUnknown: (n: number) => `${n === 1 ? "1 sold item has" : `${n} sold items have`} no known cost (no cost on the product, or the product was deleted), so ${n === 1 ? "it is" : "they are"} left out.`,
     profitHigh: "Some sold items have no cost on their product, so the real profit is lower than this.",
+    /* the profit counts only the products that have a cost price (storeNumbers.ts salesFigures) */
+    profitFrom: (n: number, m: number) => `${n} of the ${m} products sold ${n === 1 ? "has" : "have"} a cost price: the profit is from ${n === 1 ? "it" : "those"} only`,
+    /* so net sales − costs − this = profit, and the cards add up */
+    costless: (amount: string) => `Not in the profit: ${amount} paid for products with no cost price`,
+    addCosts: "Add cost prices to your products to see profit.",
+    /* what counts as a sale (storeNumbers.ts saleState), the same rule as the home page */
+    expected: "Orders waiting for delivery: {n} · expected {amount}",
+    notCharged: "Card or CliQ test orders not counted (nothing was charged): {n}",
+    netSalesHelp: { title: "Net sales", desc: "What customers paid for delivered orders, and for orders you added yourself once they're marked paid, after coupons. Orders still on their way are shown apart as expected. Cancelled or refunded orders, and card or CliQ test orders (nothing was charged), are not counted.", formula: ["Net sales", "=", "Total sales", "−", "Discounts"] },
+    profitHelp: { title: "Net profit", desc: "What you made on the products that have a cost price: what customers paid for them (after coupons, without the delivery fee), minus their cost. Products with no cost price are left out, so they never count as 100% profit. What you pay the courier isn't tracked yet.", formula: ["Net profit", "=", "Paid for products with a cost", "−", "Their cost"] },
+    failed: "Your orders couldn't be loaded. Check your connection and try again.",
+    retry: "Try again",
     shippingNone: "Not saved on these orders",
     shippingPaid: "Paid by customers; taken out of the profit",
     courierNote: "What you pay the courier isn't tracked yet: this is the profit on your products.",
-    orders: { title: "Orders", desc: "Every order placed in the period, whatever its status." },
-    average: { title: "Average order", desc: "What an order brought in on average, without cancelled or refunded ones.", formula: ["Average order", "=", "Net sales", "÷", "Orders"] },
+    orders: { title: "Orders", desc: "Every order placed in the period, whatever its status. Card or CliQ test orders (nothing was charged) are not counted, here or in any report." },
+    average: { title: "Average order", desc: "What a delivered order brought in on average (the orders counted in net sales).", formula: ["Average order", "=", "Net sales", "÷", "Orders"] },
     cancel: { title: "Cancellation rate", desc: "The share of the period's orders that were cancelled.", formula: ["Cancellation rate", "=", "Cancelled orders", "÷", "All orders", "×", "100"] },
     cancelItems: ["Cancelled orders", "All orders"],
     byStatus: { title: "Orders by status", desc: "Where the period's orders are now." },
@@ -455,8 +480,8 @@ const real = {
     top: { title: "Customers with the most orders", desc: "Your most loyal customers in the period, ranked by number of orders." },
     ordersN: (n: number) => (n === 1 ? "1 order" : `${n} orders`),
     noContact: "Orders with no phone or email: {n}. They are not counted as customers.",
-    methods: { title: "Payment methods used", desc: "How the period's paid orders were paid, by number of orders and amount." },
-    pays: { card: "Card", cliq: "CliQ", cash: "Cash on delivery", none: "Not recorded (added by hand)" },
+    methods: { title: "Payment methods used", desc: "How the period's orders were paid, or will be paid on delivery, by number of orders and amount. Card or CliQ test orders (nothing was charged) and cancelled or refunded orders are not counted." },
+    pays: { card: "Card", cliq: "CliQ", cash: "Cash (on delivery or pickup)", none: "Not recorded (added by hand)" },
     electronic: { title: "Share of electronic payments", desc: "Orders paid by card or CliQ, out of the orders whose way of paying is known." },
     electronicItems: ["Electronic payments", "Payments with a known method"],
     products: { title: "Products", desc: "Products in your store, hidden ones too (not the ones in the bin)." },
@@ -471,16 +496,27 @@ const real = {
   },
   ar: {
     notTracked: "لا يُتتبّع بعد",
+    loading: "جارٍ تحميل أرقامك…",
     noCompare: "لا توجد مبيعات سابقة للمقارنة",
     visitsNote: "يُحسب الزوار لمتجر مسجّل الدخول ومفتوح على رابطه. طلباتك وعملاؤك ومخزونك في التقارير الأخرى.",
     cartsNote: "لا يحفظ دكان السلات التي يتركها العملاء بعد، فلا يوجد ما يُعرض هنا.",
     cogsUnknown: (n: number) => `${n === 1 ? "قطعة مباعة واحدة تكلفتها" : `${n} من القطع المباعة تكلفتها`} غير معروفة (لا تكلفة على المنتج، أو حُذف المنتج)، فلم تُحسب.`,
     profitHigh: "بعض القطع المباعة لا تكلفة على منتجها، فالربح الحقيقي أقل من هذا.",
+    profitFrom: (n: number, m: number) =>
+      `${n === 1 ? "منتج واحد" : n === 2 ? "منتجان" : n} من أصل ${arCount(m, { one: "منتج واحد", two: "منتجين مباعين", few: "منتجات مباعة", many: "منتجًا مباعًا" })} ${n === 1 ? "له" : "لها"} سعر تكلفة، والربح ${n === 1 ? "منه" : "منها"} وحده${n === 1 ? "" : "ا"}`,
+    costless: (amount: string) => `لا يدخل في الربح: ${amount} دُفعت في منتجات بلا سعر تكلفة`,
+    addCosts: "أضف سعر التكلفة لمنتجاتك لترى الربح.",
+    expected: "طلبات بانتظار التوصيل: {n} · المتوقَّع {amount}",
+    notCharged: "طلبات تجريبية بالبطاقة أو كليك لا تُحتسب (لم يُخصم أي مبلغ): {n}",
+    netSalesHelp: { title: "صافي المبيعات", desc: "ما دفعه العملاء في الطلبات التي تم توصيلها، وفي الطلبات التي أضفتها بنفسك بعد أن تصبح مدفوعة، بعد الكوبونات. الطلبات التي لم تصل بعد تظهر وحدها كمبلغ متوقَّع. لا تُحتسب الطلبات الملغاة أو المستردة، ولا الطلبات التجريبية بالبطاقة أو كليك (لم يُخصم فيها أي مبلغ).", formula: ["صافي المبيعات", "=", "إجمالي المبيعات", "−", "الخصومات"] },
+    profitHelp: { title: "صافي الأرباح", desc: "ما ربحته من المنتجات التي لها سعر تكلفة: ما دفعه العملاء فيها (بعد الكوبونات ودون رسوم التوصيل) ناقص تكلفتها. المنتجات بلا سعر تكلفة لا تُحتسب، فلا تظهر أبدًا كربح كامل. ما تدفعه لشركة التوصيل لا يُتتبّع بعد.", formula: ["صافي الأرباح", "=", "ما دُفع في المنتجات ذات التكلفة", "−", "تكلفتها"] },
+    failed: "تعذّر تحميل طلباتك. تحقق من الاتصال وحاول مرة أخرى.",
+    retry: "حاول مرة أخرى",
     shippingNone: "غير محفوظة على هذه الطلبات",
     shippingPaid: "دفعها العملاء؛ تُطرح من الربح",
     courierNote: "ما تدفعه لشركة التوصيل لا يُتتبّع بعد: هذا هو الربح من منتجاتك.",
-    orders: { title: "الطلبات", desc: "كل الطلبات التي وصلت خلال الفترة، أيًّا كانت حالتها." },
-    average: { title: "متوسط الطلب", desc: "ما جلبه الطلب الواحد في المتوسط، دون الطلبات الملغاة أو المستردة.", formula: ["متوسط الطلب", "=", "صافي المبيعات", "÷", "الطلبات"] },
+    orders: { title: "الطلبات", desc: "كل الطلبات التي وصلت خلال الفترة، أيًّا كانت حالتها. لا تُحتسب الطلبات التجريبية بالبطاقة أو كليك (لم يُخصم فيها أي مبلغ)، هنا ولا في أي تقرير." },
+    average: { title: "متوسط الطلب", desc: "ما جلبه الطلب الواحد الذي تم توصيله في المتوسط (الطلبات المحسوبة في صافي المبيعات).", formula: ["متوسط الطلب", "=", "صافي المبيعات", "÷", "الطلبات"] },
     cancel: { title: "معدل الإلغاء", desc: "نسبة الطلبات الملغاة من طلبات الفترة.", formula: ["معدل الإلغاء", "=", "الطلبات الملغاة", "÷", "كل الطلبات", "×", "100"] },
     cancelItems: ["الطلبات الملغاة", "كل الطلبات"],
     byStatus: { title: "الطلبات حسب الحالة", desc: "أين وصلت طلبات الفترة الآن." },
@@ -495,8 +531,8 @@ const real = {
     top: { title: "العملاء الأكثر طلبًا", desc: "أكثر عملائك ولاءً خلال الفترة، مرتّبين حسب عدد الطلبات." },
     ordersN: (n: number) => (n === 1 ? "طلب واحد" : n === 2 ? "طلبان" : n <= 10 ? `${n} طلبات` : `${n} طلبًا`),
     noContact: "طلبات بلا هاتف أو بريد: {n}. لم تُحسب ضمن العملاء.",
-    methods: { title: "طرق الدفع المستخدمة", desc: "كيف دُفعت طلبات الفترة، بعدد الطلبات والمبلغ." },
-    pays: { card: "بطاقة", cliq: "كليك", cash: "الدفع عند الاستلام", none: "غير مسجّلة (أُضيفت يدويًا)" },
+    methods: { title: "طرق الدفع المستخدمة", desc: "كيف دُفعت طلبات الفترة أو ستُدفع عند الاستلام، بعدد الطلبات والمبلغ. لا تُحتسب الطلبات التجريبية بالبطاقة أو كليك (لم يُخصم فيها أي مبلغ) ولا الملغاة أو المستردة." },
+    pays: { card: "بطاقة", cliq: "كليك", cash: "نقدًا عند الاستلام", none: "غير مسجّلة (أُضيفت يدويًا)" },
     electronic: { title: "نسبة الدفع الإلكتروني", desc: "الطلبات المدفوعة ببطاقة أو كليك، من الطلبات المعروفة طريقة دفعها." },
     electronicItems: ["مدفوعات إلكترونية", "مدفوعات معروفة الطريقة"],
     products: { title: "المنتجات", desc: "منتجات متجرك، ومنها المخفية (دون التي في سلة المحذوفات)." },
@@ -544,7 +580,7 @@ function Stat({ delta, tone = "text-primary", children, note }: { delta?: number
 function Rate({ value, tone, labels, a, b }: { value: number; tone: string; labels: string[]; a: number; b: number }) {
   return (
     <div className="flex flex-1 flex-col justify-center">
-      <p className={`text-end text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={value} decimals={1} />%</span></p>
+      <p className={`text-end text-4xl font-bold ${tone}`}><span dir="ltr"><AnimatedNumber value={value} decimals={pctDecimals(value)} />%</span></p>
       <div className="mt-4 h-3 overflow-hidden rounded-full bg-fg/10" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100}>
         <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.min(value, 100)}%` }} />
       </div>
@@ -575,7 +611,7 @@ function Bars({ rows, logos }: { rows: { label: string; value: number; shown?: s
               <div className="flex items-center justify-between gap-3 text-sm font-semibold">
                 <span className="flex min-w-0 items-center gap-2.5">
                   {logos?.[i] && <PayLogo src={logos[i] as string} />}
-                  <span dir="auto" className="min-w-0 truncate">{row.label}</span>
+                  <span dir="auto" className="min-w-0 truncate ltr:text-left rtl:text-right">{row.label}</span>
                 </span>
                 <span dir="ltr" className="shrink-0 text-muted">{row.shown ?? row.value.toLocaleString("en-US")}</span>
               </div>
@@ -637,6 +673,12 @@ const seen = {
     emptyTitle: "No visitors yet",
     emptyHint: "When people open your store, you'll see them here within a minute. Share your store's link on WhatsApp, Instagram or wherever your customers are.",
     shareLink: "Your store's link",
+    /* the server leaves out the merchant's own visits on purpose (server/storeVisits.ts): a 0 after he opened it says why */
+    ownVisits: "Your own visits aren't counted while you're signed in on this browser.",
+    /* while the server's answer is on its way, and when it can't be had: never zeros, which would read as "no visitors" */
+    loading: "Loading your visitor numbers…",
+    failed: "Your visitor numbers couldn't be loaded. Check your connection and try again.",
+    retry: "Try again",
   },
   ar: {
     tiles: ["آخر ساعة", "اليوم", "أمس", "آخر 7 أيام", "آخر 30 يومًا"],
@@ -660,10 +702,33 @@ const seen = {
     emptyTitle: "لا زوار بعد",
     emptyHint: "حين يفتح الناس متجرك ستراهم هنا خلال دقيقة. شارك رابط متجرك على واتساب أو إنستغرام أو حيث يوجد عملاؤك.",
     shareLink: "رابط متجرك",
+    ownVisits: "زياراتك أنت لا تُحتسب وأنت مسجّل الدخول على هذا المتصفح.",
+    loading: "جارٍ تحميل أرقام الزوار…",
+    failed: "تعذّر تحميل أرقام الزوار. تحقق من الاتصال وحاول مرة أخرى.",
+    retry: "حاول مرة أخرى",
   },
 };
 
 const NO_VISITS: VisitCounts = { visitors: 0, visits: 0, views: 0 };
+
+/** Three grey rows in place of a list of bars that is still loading */
+function ListPlaceholder() {
+  return (
+    <div className="space-y-4">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="space-y-2">
+          <Placeholder className="h-3.5 w-2/5" />
+          <Placeholder className="h-2 w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A grey block in place of a number or a list that is still loading */
+function Placeholder({ className }: { className: string }) {
+  return <span aria-hidden className={`block animate-pulse rounded-lg bg-fg/10 motion-reduce:animate-none ${className}`} />;
+}
 
 /** No one has opened the store yet: says so, and gives the link to share */
 function VisitorsEmpty() {
@@ -680,6 +745,7 @@ function VisitorsEmpty() {
       </span>
       <p className="mt-4 font-bold">{v.emptyTitle}</p>
       <p className="mt-1 max-w-md text-sm text-muted">{v.emptyHint}</p>
+      <p className="mt-2 max-w-md text-xs text-muted">{v.ownVisits}</p>
       {slug && (
         <p className="mt-4 text-sm">
           <span className="text-muted">{v.shareLink}: </span>
@@ -710,9 +776,21 @@ function VisitorsReport({ productNames }: { productNames: Map<number, string> })
   };
 
   if (loaded && stats && stats.days30.views === 0 && stats.lastHour.views === 0) return <VisitorsEmpty />;
+  /* the server answered nothing usable (and there are no numbers from before): says so, with a way to ask again */
+  if (loaded && !stats)
+    return (
+      <div role="alert" className="flex flex-col items-center rounded-2xl bg-card p-10 text-center shadow-sm ring-1 ring-fg/10">
+        <p className="max-w-md text-sm text-rose-600 dark:text-rose-400">{v.failed}</p>
+        <button type="button" onClick={() => void refresh()} disabled={busy} className="mt-4 rounded-xl border border-fg/15 px-4 py-2 text-sm font-semibold transition hover:bg-soft disabled:opacity-60">
+          {v.retry}
+        </button>
+      </div>
+    );
   const s: VisitStats | null = stats;
+  /* still loading: grey blocks stand where the numbers will be, not zeros */
+  const loading = !s;
   const tiles = [s?.lastHour, s?.today, s?.yesterday, s?.week, s?.days30].map((x) => x ?? NO_VISITS);
-  const fading = `transition-opacity duration-300 ${busy || !s ? "opacity-40" : ""}`;
+  const fading = `transition-opacity duration-300 ${busy ? "opacity-40" : ""}`;
 
   /* the chart: the last 24 hours by hour, or the last 30 days by day (Jordan time) */
   const hourName = (t: number) => new Intl.DateTimeFormat(dateLocale(lang), { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Asia/Amman" }).format(new Date(t));
@@ -737,6 +815,7 @@ function VisitorsReport({ productNames }: { productNames: Map<number, string> })
           {v.help.title}
         </h3>
         <div className="flex items-center gap-3">
+          {loading && <span role="status" className="text-xs text-muted">{v.loading}</span>}
           {at && <span dir="ltr" className="text-xs text-muted">{v.updated} {at.toLocaleTimeString(dateLocale(lang))}</span>}
           <RefreshButton busy={busy} onClick={() => void refresh()} label={r.refresh} />
         </div>
@@ -750,11 +829,18 @@ function VisitorsReport({ productNames }: { productNames: Map<number, string> })
               <span className="pt-px"><HelpTip info={{ title: v.tiles[i], desc: v.tileHelp[i] }} /></span>
               {v.tiles[i]}
             </h3>
-            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
-              <p className="text-4xl font-bold text-primary"><span dir="ltr"><AnimatedNumber value={t.visitors} /></span></p>
-              <p className="text-xs font-semibold text-muted">{v.visitors}</p>
-              <p className="mt-2 text-xs text-muted">{v.visits(t.visits)} · {v.views(t.views)}</p>
-            </div>
+            {loading ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2">
+                <Placeholder className="h-10 w-20" />
+                <Placeholder className="h-3 w-32" />
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
+                <p className="text-4xl font-bold text-primary"><span dir="ltr"><AnimatedNumber value={t.visitors} /></span></p>
+                <p className="text-xs font-semibold text-muted">{v.visitors}</p>
+                <p className="mt-2 text-xs text-muted">{v.visits(t.visits)} · {v.views(t.views)}</p>
+              </div>
+            )}
           </section>
         ))}
       </div>
@@ -779,7 +865,8 @@ function VisitorsReport({ productNames }: { productNames: Map<number, string> })
             <p className="mt-1 text-muted"><span className="font-semibold text-fg">{shown.visitors.toLocaleString("en-US")}</span> {v.visitors} · {v.views(shown.views)}</p>
           </div>
         )}
-        <div dir="ltr" className="mt-4 flex h-36 items-end gap-1" role="img" aria-label={v.chart.title}>
+        {loading && <Placeholder className="mt-4 h-36 w-full" />}
+        <div dir="ltr" className={`mt-4 flex h-36 items-end gap-1 ${loading ? "hidden" : ""}`} role="img" aria-label={v.chart.title}>
           {bars.map((b, i) => (
             <button
               key={i}
@@ -809,7 +896,7 @@ function VisitorsReport({ productNames }: { productNames: Map<number, string> })
             {v.sources.title}
           </h3>
           <div className="mt-4 flex flex-1 flex-col">
-            <Bars rows={(s?.sources ?? []).map((x) => ({ label: sourceNames[lang][x.source], value: x.visits, shown: v.visits(x.visits) }))} />
+            {loading ? <ListPlaceholder /> : <Bars rows={(s?.sources ?? []).map((x) => ({ label: sourceNames[lang][x.source], value: x.visits, shown: v.visits(x.visits) }))} />}
           </div>
         </section>
         <section className={panel}>
@@ -818,7 +905,7 @@ function VisitorsReport({ productNames }: { productNames: Map<number, string> })
             {v.products.title}
           </h3>
           <div className="mt-4 flex flex-1 flex-col">
-            <Bars rows={products.map((x) => ({ label: x.label, value: x.value, shown: v.views(x.value) }))} />
+            {loading ? <ListPlaceholder /> : <Bars rows={products.map((x) => ({ label: x.label, value: x.value, shown: v.views(x.value) }))} />}
           </div>
         </section>
       </div>
@@ -852,7 +939,7 @@ function RealReport({ section, data, span, prev, busy, refresh, signedIn }: { se
     const peak = Math.max(...o.byDay.map((d) => d.orders), 1);
     return (
       <div className={grid}>
-        {card("ro-all", w.orders, <Stat delta={percentChange(o.all, before.all)}><span dir="ltr"><AnimatedNumber value={o.all} /></span></Stat>)}
+        {card("ro-all", w.orders, <Stat delta={percentChange(o.all, before.all)} note={o.test ? w.notCharged.replace("{n}", String(o.test)) : undefined}><span dir="ltr"><AnimatedNumber value={o.all} /></span></Stat>)}
         {card("ro-avg", w.average, <Stat delta={percentChange(f.average, fBefore.average)}><Money value={f.average} currency={cur} /></Stat>)}
         {card("ro-cancel", w.cancel, <Rate value={o.cancelRate} tone="text-rose-500" labels={w.cancelItems} a={o.byStatus.cancelled} b={o.all} />)}
         {card("ro-status", w.byStatus, <Bars rows={STATUS_KEYS.map((k) => ({ label: st[k], value: o.byStatus[k] }))} />)}
@@ -932,7 +1019,7 @@ function RealReport({ section, data, span, prev, busy, refresh, signedIn }: { se
           <ul className="space-y-3 text-sm">
             {inv.lowList.map((x, i) => (
               <li key={`${x.name}-${i}`} className="flex items-center justify-between gap-3">
-                <a href="/products" dir="auto" className="min-w-0 truncate font-semibold hover:text-primary hover:underline">{x.name}</a>
+                <a href="/products" dir="auto" className="min-w-0 truncate ltr:text-left rtl:text-right font-semibold hover:text-primary hover:underline">{x.name}</a>
                 <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold ${x.quantity === 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-300"}`}>{w.left(x.quantity, x.lowAt)}</span>
               </li>
             ))}
@@ -978,27 +1065,21 @@ export function Reports() {
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => setSignedIn(onServer()), []);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
-  /* A real store's own orders and products, read again by each refresh button and when the range changes */
-  const [data, setData] = useState<StoreData>({ orders: [], products: [] });
-  const readData = useCallback(() => {
-    try {
-      setData({ orders: parseList(localStorage.getItem("seen-orders"), cleanOrder), products: parseList(localStorage.getItem("seen-products"), cleanProduct) });
-    } catch {
-      /* storage blocked: nothing to count */
-    }
-  }, []);
+  /* A real store's orders (his browser's and, signed in, the ones customers placed on his store: the same list the
+     Orders page shows) and products, read when the page opens, every minute, when he comes back to the tab and by each
+     refresh button (useStoreOrders.ts, shared with the home page) */
+  const data = useStoreOrders();
+  const reloadOrders = data.reload;
 
-  useEffect(() => {
-    document.title = `${brandName(lang)} | ${r.menu[0]}`;
-  }, [r]);
+  usePageTitle(`${brandName(lang)} | ${r.menu[0]}`);
 
   useEffect(() => {
     if (demoActive()) {
       setSample(true);
       setTour(true);
-    } else readData();
+    }
     setUpdatedAt(new Date());
-  }, [readData]);
+  }, []);
 
   const figures = sample ? sampleFigures(range, seed) : ZERO;
   const { net, costs, profit } = derive(figures);
@@ -1008,13 +1089,19 @@ export function Reports() {
      store reads its orders and products again) */
   const refresh = useCallback((id: WidgetId) => {
     setBusy((b) => ({ ...b, [id]: true }));
+    if (!demoActive()) {
+      void reloadOrders().finally(() => {
+        setUpdatedAt(new Date());
+        setBusy((b) => ({ ...b, [id]: false }));
+      });
+      return;
+    }
     window.setTimeout(() => {
       setSeed((s) => s + 1);
-      if (!demoActive()) readData();
       setUpdatedAt(new Date());
       setBusy((b) => ({ ...b, [id]: false }));
     }, 900);
-  }, [readData]);
+  }, [reloadOrders]);
 
   /* A real store's sales, and the same days just before to compare with (storeNumbers.ts) */
   const at = updatedAt ?? new Date();
@@ -1022,12 +1109,19 @@ export function Reports() {
   const prevSpan = previousSpan(range as RangeKind, at);
   const realNow = sample ? null : salesFigures(data.orders, data.products, span);
   const realPrev = sample ? null : salesFigures(data.orders, data.products, prevSpan);
+  /* the reports worked out from the orders wait for them (Visitors and abandoned carts don't) */
+  const needsOrders = !sample && section !== 3 && section !== 4;
+  const money2 = (n: number) => `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`;
 
-  /* A report he sets up is kept in this browser as a saved definition (nothing is sent anywhere) */
+  /* only this page made its reports: its undo goes when it closes */
+  useEffect(() => () => dropUndos("reports"), []);
+  /* A report he sets up is kept in this browser as a saved definition (nothing is sent anywhere), with an Undo that takes
+     it out again (unless the saved reports changed since) */
   const createReport = (e: React.FormEvent) => {
     e.preventDefault();
     const name = cleanLine(reportName, 60);
     if (name.length < 2) return setReportError(true);
+    const before = snapshot(["seen-reports"]);
     try {
       /* a saved list that is broken or not a list starts again */
       let list: unknown[] = [];
@@ -1042,6 +1136,8 @@ export function Reports() {
     } catch {
       /* storage unavailable */
     }
+    const undo = storageUndo(before, snapshot(["seen-reports"]));
+    if (undo) offerUndo({ scope: "reports", label: (l) => (l === "ar" ? `أُنشئ التقرير «${name}»` : `Report “${name}” created`), undo });
     setReportName("");
     setReportError(false);
     setCreating(false);
@@ -1060,7 +1156,9 @@ export function Reports() {
   const timeText = updatedAt ? updatedAt.toLocaleTimeString(dateLocale(lang)) : "";
 
   /* `delta` is the real store's change from the period before; the tour keeps its repeatable sample one (slot) */
-  const cards: { id: WidgetId; help: HelpKey; title: string; value: number; slot: number; color: string; badge?: boolean; delta?: number | null }[] = [
+  /* `value` null (a real store's profit when nothing sold has a cost price): no number, a hint instead; `info`: the real
+     store's own "?" text; `notes`: lines under the number */
+  const cards: { id: WidgetId; help: HelpKey; title: string; value: number | null; slot: number; color: string; badge?: boolean; delta?: number | null; info?: HelpInfo; notes?: string[] }[] = [
     { id: "net", help: "netSales", title: r.cards[0], value: net, slot: 1, color: "text-primary" },
     { id: "sales", help: "totalSales", title: r.cards[1], value: figures.sales, slot: 2, color: "text-primary", badge: true },
     { id: "profit", help: "netProfit", title: r.cards[2], value: profit, slot: 3, color: "text-emerald-600 dark:text-emerald-400" },
@@ -1068,7 +1166,7 @@ export function Reports() {
   ];
 
   /* `value` null: not known for a real store, and `note` says why instead of a 0 */
-  const rows: { help: HelpKey; label: string; value: number | null; tone: string; slot: number; delta?: number | null; note?: string }[] = [
+  const rows: { help: HelpKey; label: string; value: number | null; tone: string; slot: number; delta?: number | null; note?: string; href?: string; info?: HelpInfo }[] = [
     { help: "totalSales", label: r.rows[0], value: figures.sales, tone: "", slot: 5 },
     { help: "discounts", label: r.rows[1], value: figures.discounts, tone: "text-rose-500", slot: 6 },
     { help: "netSales", label: r.rows[2], value: net, tone: "text-emerald-600 dark:text-emerald-400", slot: 7 },
@@ -1085,22 +1183,42 @@ export function Reports() {
     /* Net sales is what customers paid (the orders' totals, after coupons); total sales is the same before coupons.
        The costs are the ones that are known: products with a cost, and delivery fees saved on the orders */
     const costsOf = (f: typeof realNow) => f.cogs + (f.shipping ?? 0);
-    const d = (now: number, before: number) => percentChange(now, before);
+    /* a profit that is not known (nothing sold has a cost price) has nothing to compare */
+    const d = (now: number | null, before: number | null) => (now === null || before === null ? null : percentChange(now, before));
     const figuresNow = { net: realNow.sales, gross: realNow.gross, profit: realNow.profit, costs: costsOf(realNow) };
     const figuresPrev = { net: realPrev.sales, gross: realPrev.gross, profit: realPrev.profit, costs: costsOf(realPrev) };
     const keys = ["net", "gross", "profit", "costs"] as const;
     keys.forEach((k, i) => Object.assign(cards[i], { value: figuresNow[k], delta: d(figuresNow[k], figuresPrev[k]) }));
+    /* what is not a sale yet, or never one, said under net sales; which products the profit comes from, under it */
+    const salesNotes = [
+      realNow.expected.orders ? rw.expected.replace("{n}", String(realNow.expected.orders)).replace("{amount}", money2(realNow.expected.sales)) : "",
+      realNow.notCharged ? rw.notCharged.replace("{n}", String(realNow.notCharged)) : "",
+    ].filter(Boolean);
+    const p = realNow.products;
+    Object.assign(cards[0], { info: rw.netSalesHelp, notes: salesNotes });
+    /* what was paid for things with no cost price is in net sales but not in the profit: said with its amount, so net
+       sales − costs − it = profit */
+    const profitNotes =
+      realNow.profit === null
+        ? []
+        : [p.withCost < p.all ? rw.profitFrom(p.withCost, p.all) : "", realNow.costless > 0 ? rw.costless(money2(realNow.costless)) : ""].filter(Boolean);
+    Object.assign(cards[2], { info: rw.profitHelp, notes: profitNotes });
     const set = (i: number, value: number | null, delta: number | null, note?: string) => Object.assign(rows[i], { value, delta, note });
     set(0, realNow.gross, d(realNow.gross, realPrev.gross));
     set(1, realNow.discounts, d(realNow.discounts, realPrev.discounts));
-    set(2, realNow.sales, d(realNow.sales, realPrev.sales));
+    set(2, realNow.sales, d(realNow.sales, realPrev.sales), salesNotes.length ? salesNotes.join(" · ") : undefined);
+    rows[2].info = rw.netSalesHelp;
     set(3, realNow.cogs, d(realNow.cogs, realPrev.cogs), realNow.cogsUnknown ? rw.cogsUnknown(realNow.cogsUnknown) : undefined);
     set(4, realNow.shipping, realNow.shipping === null ? null : d(realNow.shipping, realPrev.shipping ?? 0), realNow.shipping === null ? rw.shippingNone : rw.shippingPaid);
     set(5, null, null, rw.notTracked);
     set(6, null, null, rw.notTracked);
     set(7, figuresNow.costs, d(figuresNow.costs, figuresPrev.costs));
     /* the courier's real cost is not recorded, so the profit always says what it leaves out */
-    set(8, realNow.profit, d(realNow.profit, realPrev.profit), realNow.cogsUnknown ? `${rw.profitHigh} ${rw.courierNote}` : rw.courierNote);
+    if (realNow.profit === null) Object.assign(rows[8], { value: null, delta: null, note: rw.addCosts, href: "/products", info: rw.profitHelp });
+    else {
+      set(8, realNow.profit, d(realNow.profit, realPrev.profit), [...profitNotes, rw.courierNote].join(". "));
+      rows[8].info = rw.profitHelp;
+    }
   }
 
   const ab = abandonedFigures(range, seed, sample);
@@ -1111,7 +1229,7 @@ export function Reports() {
   const abCards: { id: WidgetId; help: HelpKey; title: string; node: React.ReactNode; color: string; slot: number; badge?: boolean }[] = [
     { id: "ab1", help: "abandoned", title: r.abandoned.cards[0], node: <AnimatedNumber value={ab.count} />, color: "text-primary", slot: 21, badge: true },
     { id: "ab2", help: "lostRevenue", title: r.abandoned.cards[1], node: <Money value={ab.lost} currency={cur} />, color: "text-rose-500", slot: 22 },
-    { id: "ab3", help: "recovery", title: r.abandoned.cards[2], node: <span dir="ltr"><AnimatedNumber value={ab.rate} decimals={1} />%</span>, color: "text-emerald-600 dark:text-emerald-400", slot: 23 },
+    { id: "ab3", help: "recovery", title: r.abandoned.cards[2], node: <span dir="ltr"><AnimatedNumber value={ab.rate} decimals={pctDecimals(ab.rate)} />%</span>, color: "text-emerald-600 dark:text-emerald-400", slot: 23 },
   ];
 
   const abandonedView = (
@@ -1176,7 +1294,7 @@ export function Reports() {
           <div className={`mt-5 transition-opacity duration-300 ${busy.ab5 ? "opacity-40" : ""}`}>
             <div className="flex items-center justify-between gap-3">
               <Delta value={change(seed, 24, sample)} />
-              <p className="text-4xl font-bold text-emerald-600 dark:text-emerald-400"><span dir="ltr"><AnimatedNumber value={ab.rate} decimals={1} />%</span></p>
+              <p className="text-4xl font-bold text-emerald-600 dark:text-emerald-400"><span dir="ltr"><AnimatedNumber value={ab.rate} decimals={pctDecimals(ab.rate)} />%</span></p>
             </div>
             <div className="mt-4 h-3 overflow-hidden rounded-full bg-fg/10" role="progressbar" aria-valuenow={ab.rate} aria-valuemin={0} aria-valuemax={100}>
               <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.min(ab.rate * 4, 100)}%` }} />
@@ -1245,7 +1363,6 @@ export function Reports() {
                 value={range}
                 onChange={(e) => {
                   setRange(Number(e.target.value));
-                  if (!tour) readData();
                   setUpdatedAt(new Date());
                 }}
                 aria-label={rangeText}
@@ -1255,20 +1372,42 @@ export function Reports() {
                   <option key={name} value={i}>{name}</option>
                 ))}
               </select>
-              <span dir="ltr" className="text-sm text-muted">{rangeText}</span>
+              {/* each date kept whole and the range in the page's direction: forcing left to right broke the Arabic dates apart */}
+              <span className="text-sm text-muted"><bdi>{formatDate(start)}</bdi> – <bdi>{formatDate(end)}</bdi></span>
             </div>
 
           </div>}
 
 
-          {section === 0 ? (
+          {/* updatedAt is set once the page has read the store's numbers (or chosen the tour's): until then grey blocks,
+              not the zeros it starts with, which would read as a store with no sales */}
+          {!updatedAt || (needsOrders && data.state === "loading") ? (
+            <div aria-busy="true" className="grid gap-6 sm:grid-cols-2">
+              <p role="status" className="sr-only">{real[lang].loading}</p>
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="flex min-h-[15rem] flex-col justify-between rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10">
+                  <Placeholder className="h-4 w-1/3" />
+                  <Placeholder className="mx-auto h-14 w-1/2" />
+                  <span />
+                </div>
+              ))}
+            </div>
+          ) : needsOrders && data.state === "failed" ? (
+            /* the first read of the orders did not come: says so, with a way to ask again (never zeros) */
+            <div role="alert" className="flex flex-col items-center rounded-2xl bg-card p-10 text-center shadow-sm ring-1 ring-fg/10">
+              <p className="max-w-md text-sm text-rose-600 dark:text-rose-400">{real[lang].failed}</p>
+              <button type="button" onClick={() => refresh("summary")} disabled={!!busy.summary} className="mt-4 rounded-xl border border-fg/15 px-4 py-2 text-sm font-semibold transition hover:bg-soft disabled:opacity-60">
+                {real[lang].retry}
+              </button>
+            </div>
+          ) : section === 0 ? (
             <>
               <div className="grid gap-6 sm:grid-cols-2">
                 {cards.map((card) => (
                   <section key={card.id} className="flex min-h-[15rem] flex-col rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10">
                     <div className="flex items-center justify-between">
                       <h3 className="flex items-center gap-2 text-sm font-bold">
-                        <HelpTip id={card.help} />
+                        {card.info ? <HelpTip info={card.info} /> : <HelpTip id={card.help} />}
                         {card.title}
                       </h3>
                       <div className="flex items-center gap-2">
@@ -1276,9 +1415,16 @@ export function Reports() {
                       </div>
                     </div>
                     <div className={`flex flex-1 flex-col items-center justify-center gap-3 transition-opacity duration-300 ${busy[card.id] ? "opacity-40" : ""}`}>
-                      <Delta value={card.delta !== undefined ? card.delta : change(seed, card.slot, sample)} />
-                      <p className={`text-6xl font-bold ${card.color}`}><Money value={card.value} currency={cur} /></p>
-                      {card.id === "profit" && realNow?.cogsUnknown ? <p className="max-w-xs text-center text-xs text-amber-700 dark:text-amber-300">{real[lang].profitHigh}</p> : null}
+                      {card.value === null ? (
+                        /* nothing sold has a cost price: no profit number (it would be the whole sale), a way to get one */
+                        <a href="/products" className="max-w-xs text-center text-sm font-semibold text-primary hover:underline">{real[lang].addCosts}</a>
+                      ) : (
+                        <>
+                          <Delta value={card.delta !== undefined ? card.delta : change(seed, card.slot, sample)} />
+                          <p className={`text-6xl font-bold ${card.color}`}><Money value={card.value} currency={cur} /></p>
+                        </>
+                      )}
+                      {card.notes?.map((n) => <p key={n} dir="auto" className="max-w-xs text-center text-xs text-muted">{n}</p>)}
                     </div>
                   </section>
                 ))}
@@ -1297,11 +1443,13 @@ export function Reports() {
                     <li key={row.label} className="py-3 text-sm">
                       <div className="flex items-center justify-between gap-4">
                         <span className="flex items-center gap-2 font-semibold">
-                          <HelpTip id={row.help} />
+                          {row.info ? <HelpTip info={row.info} /> : <HelpTip id={row.help} />}
                           {row.label}
                         </span>
                         <span className="flex items-center gap-3">
-                          {row.value === null ? (
+                          {row.value === null && row.href ? (
+                            <a href={row.href} className="min-w-[6.5rem] text-end font-semibold text-primary hover:underline">{row.note}</a>
+                          ) : row.value === null ? (
                             <span className="min-w-[6.5rem] text-end font-semibold text-muted">{row.note}</span>
                           ) : (
                             <>

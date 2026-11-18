@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Orders } from "@/components/Orders";
 
 export const metadata: Metadata = {
-  title: "Dukkan | Orders",
+  title: "دكان | الطلبات",
   description: "Manage your store orders.",
 };
 

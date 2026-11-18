@@ -13,10 +13,11 @@ import { storeAddress, storeUrl } from "../siteAddress";
    suspended by Dukkan */
 export type ShopStatus = "open" | "paused" | "suspended";
 
-const STATUS: Record<ShopStatus, { en: string; ar: string; tone: Tone }> = {
-  open: { en: "Open", ar: "مفتوح", tone: "green" },
-  paused: { en: "Under maintenance", ar: "تحت الصيانة", tone: "amber" },
-  suspended: { en: "Suspended", ar: "موقوف", tone: "red" },
+/* short: the word a narrow list column shows (the full one stays in its tooltip) */
+const STATUS: Record<ShopStatus, { en: string; ar: string; short: { en: string; ar: string }; tone: Tone }> = {
+  open: { en: "Open", ar: "مفتوح", short: { en: "Open", ar: "مفتوح" }, tone: "green" },
+  paused: { en: "Under maintenance", ar: "تحت الصيانة", short: { en: "Maintenance", ar: "صيانة" }, tone: "amber" },
+  suspended: { en: "Suspended", ar: "موقوف", short: { en: "Suspended", ar: "موقوف" }, tone: "red" },
 };
 
 /* each state's colours (a soft tint, a stronger edge and text) and its mark: an open shop's awning with a tick, a
@@ -64,17 +65,15 @@ export function StatusIcon({ status, className = "h-3.5 w-3.5" }: { status: stri
   );
 }
 
-/** A store's state as a small tinted pill with its mark (lists and the store's numbers) */
-export function StatusBadge({ status }: { status: string }) {
+/** A store's state the way every status in Diwan is shown (tickets, documents, the Ship list): its word with the small
+    diamond (ui.tsx Badge), green open, amber under maintenance, red suspended. compact: the short word, for a table
+    column, so a store under maintenance doesn't push a wide table past its card (the full word in its tooltip). */
+export function StatusBadge({ status, compact = false }: { status: string; compact?: boolean }) {
   const t = useT();
   const key = (STATUS[status as ShopStatus] ? status : "open") as ShopStatus;
   const s = STATUS[key];
-  return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${STATUS_LOOK[key].pill}`}>
-      <StatusIcon status={key} />
-      {t(s.en, s.ar)}
-    </span>
-  );
+  const word = <Badge tone={s.tone}>{compact ? t(s.short.en, s.short.ar) : t(s.en, s.ar)}</Badge>;
+  return compact && s.short.en !== s.en ? <span title={t(s.en, s.ar)}>{word}</span> : word;
 }
 
 export const statusOptions = (t: (en: string, ar: string) => string) =>
@@ -107,20 +106,21 @@ const PAY_LOGO: Record<string, { src: string; h: string } | "cash" | "bank"> = {
   bank: "bank",
 };
 
-/** A way to pay's logo on a small white tile (white in the dark too: the logos are made for a light background) */
+/** A way to pay's logo on a small tile: white in the light; in the dark a dark tile with the logo drawn in white (the
+    logos are dark letters on clear ground, which a white tile glared around and a dark one would hide) */
 export function PayLogo({ method, className = "h-7 w-11", dim = false }: { method: string | null; className?: string; dim?: boolean }) {
   const l = method ? PAY_LOGO[method] : undefined;
   return (
-    <span aria-hidden className={`grid shrink-0 place-items-center overflow-hidden rounded-md bg-white ring-1 ring-black/[0.07] ${dim ? "opacity-50 grayscale" : ""} ${className}`}>
+    <span aria-hidden className={`grid shrink-0 place-items-center overflow-hidden rounded-md bg-white ring-1 ring-black/[0.07] dark:bg-white/[0.07] dark:ring-white/10 ${dim ? "opacity-50 grayscale" : ""} ${className}`}>
       {typeof l === "object" ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={l.src} alt="" className={`${l.h} w-auto max-w-[80%] object-contain`} />
+        <img src={l.src} alt="" className={`${l.h} w-auto max-w-[80%] object-contain dark:brightness-0 dark:invert`} />
       ) : l === "cash" ? (
-        <svg viewBox="0 0 24 24" className="h-[62%] w-auto text-emerald-700" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 24" className="h-[62%] w-auto text-emerald-700 dark:text-emerald-400" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.6" /><path d="M6 9.5v5M18 9.5v5" />
         </svg>
       ) : l === "bank" ? (
-        <svg viewBox="0 0 24 24" className="h-[62%] w-auto text-sky-800" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 24" className="h-[62%] w-auto text-sky-800 dark:text-sky-300" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3 9.5 12 4l9 5.5M5 10v7M9.5 10v7M14.5 10v7M19 10v7M3 20h18" />
         </svg>
       ) : (
@@ -228,11 +228,39 @@ export function ShopOnly({ id, name, onClear }: { id: string; name?: string | nu
 
 /** A store and who owns it, the same way everywhere in Diwan: the store's name as the link to its page (or a muted
     "no store name yet" when the merchant has not named it), and the owner's name under it, labelled, only when it says
-    something more than the store's name. */
-export function ShopAndOwner({ id, shop, owner, className = "" }: { id: string | number | null | undefined; shop: string | null | undefined; owner?: string | null; className?: string }) {
+    something more than the store's name.
+    truncate (for a narrow spot such as a card's footer): each line stays on one line and a long name ends with "…", with
+    the whole name on hover. Each name is its own isolated box (dir="auto"), so an English name in the Arabic console is
+    cut at its own end, next to the label ("المالك  Qa Tickets Ow…"; the label has no colon in Arabic: beside an English name it showed on the wrong side), never at its start. */
+export function ShopAndOwner({ id, shop, owner, className = "", truncate = false }: { id: string | number | null | undefined; shop: string | null | undefined; owner?: string | null; className?: string; truncate?: boolean }) {
   const t = useT();
   const name = (shop ?? "").trim();
   const who = (owner ?? "").trim();
+  const showOwner = !!who && who.toLowerCase() !== name.toLowerCase();
+  if (truncate)
+    return (
+      <span className={`block min-w-0 ${className}`}>
+        <span className="flex min-w-0">
+          <bdi dir="auto" className="min-w-0 truncate" title={name || undefined}>
+            {name ? (
+              <ShopLink id={id}>{name}</ShopLink>
+            ) : (
+              <ShopLink id={id} className="font-medium text-muted hover:text-primary hover:underline">
+                {t("(no store name yet)", "(لا اسم للمتجر بعد)")}
+              </ShopLink>
+            )}
+          </bdi>
+        </span>
+        {showOwner && (
+          <span className="flex min-w-0 gap-1 text-xs text-muted">
+            <span className="shrink-0">{t("Owner:", "المالك")}</span>
+            <bdi dir="auto" className="min-w-0 truncate" title={who}>
+              {who}
+            </bdi>
+          </span>
+        )}
+      </span>
+    );
   return (
     <span className={`block ${className}`}>
       {name ? (
@@ -242,9 +270,10 @@ export function ShopAndOwner({ id, shop, owner, className = "" }: { id: string |
           {t("(no store name yet)", "(لا اسم للمتجر بعد)")}
         </ShopLink>
       )}
-      {who && who.toLowerCase() !== name.toLowerCase() && (
-        <span className="block text-xs text-muted">
-          {t("Owner:", "المالك:")} <bdi>{who}</bdi>
+      {showOwner && (
+        <span className="flex gap-1 text-xs text-muted">
+          <span className="shrink-0">{t("Owner:", "المالك")}</span>
+          <bdi dir="auto">{who}</bdi>
         </span>
       )}
     </span>

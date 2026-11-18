@@ -4,6 +4,7 @@ import { db } from "@/server/db";
 import { cleanPopup } from "@/server/popups";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { onePopup } from "../rows";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,8 @@ export const PATCH = staffRoute("announce", async (req, me, { params }) => {
     plainParams([params.id, p.template, JSON.stringify(p.slots), p.placement, c.titleEn, c.titleAr, c.bodyEn, c.bodyAr, c.image, c.buttonEn, c.buttonAr, c.buttonLink, JSON.stringify(p.audience), p.startsAt, p.endsAt, p.priority, me.id]),
   );
   await audit(req, me.id, "popup.edit", { type: "popup", id: params.id }, null, { title: c.titleEn, template: p.template, placement: p.placement, audience: p.audience, status: cur.status });
-  return answer({ result: "ok" });
+  /* the row as the list shows it now, so Diwan can update it in the list at once */
+  return answer({ result: "ok", row: await onePopup(params.id) });
 });
 
 /** Deletes a draft. A pop-up that was shown is ended instead, so its numbers stay. Answers "ok", "missing", "not-allowed". */

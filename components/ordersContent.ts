@@ -58,6 +58,19 @@ type OrdersCopy = {
   /* an order a customer placed on the public store: no payment is taken yet */
   testOrder: string;
   testOrderHint: string;
+  /* how a store order is paid, worked out from its way to pay and its status (Orders.tsx payLine): cash is paid on
+     delivery (or at pickup) and is "Paid (cash)" once delivered; card and CliQ take nothing yet */
+  cashPickup: string;
+  paidCash: string;
+  cashHint: string;
+  cashPickupHint: string;
+  testCard: string;
+  testCliq: string;
+  /* reaching the customer from the order: a call, WhatsApp with a first message ({n}: order number, {store}: store name) */
+  call: string;
+  whatsapp: string;
+  waText: string;
+  waTextNoStore: string;
   /* a status change of such an order did not reach the server */
   statusFailed: string;
   /* the orders from his public store come a page at a time */
@@ -65,8 +78,10 @@ type OrdersCopy = {
   loadMore: string;
   loadingMore: string;
   moreFailed: string;
+  /* the first list of his store orders did not come (server error or offline), and the button that asks again */
+  loadFailed: string;
+  retry: string;
   note: string;
-  payWith: string;
   payNames: { cliq: string; cash: string; card: string };
   cancelledPay: string;
   refundedPay: string;
@@ -99,7 +114,7 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     searchPh: "Search by order number, customer name or phone",
     all: "All orders",
     statuses: {
-      pending: "Awaiting payment",
+      pending: "New",
       review: "Awaiting review",
       processing: "Processing",
       shipping: "Out for delivery",
@@ -140,13 +155,24 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     paymentHint: "You can send the customer a payment link to complete the order.",
     testOrder: "Test order, not paid",
     testOrderHint: "Placed on your store's page while payment is not open yet. Nothing was charged.",
+    cashPickup: "Cash on pickup",
+    paidCash: "Paid (cash)",
+    cashHint: "The customer pays when the order arrives. Mark it Delivered once you have the cash.",
+    cashPickupHint: "The customer pays at your store when collecting the order. Mark it Delivered once you have the cash.",
+    testCard: "Card (test, nothing charged)",
+    testCliq: "CliQ (test, nothing charged)",
+    call: "Call",
+    whatsapp: "WhatsApp",
+    waText: "Hello, about your order #{n} from {store}",
+    waTextNoStore: "Hello, about your order #{n}",
     statusFailed: "The status couldn't be saved. Check your connection and try again.",
     storeShown: "Showing {n} of {total} orders from your store page",
     loadMore: "Load more",
     loadingMore: "Loading…",
     moreFailed: "Couldn't load more. Try again.",
+    loadFailed: "Your orders couldn't be loaded. Check your connection and try again.",
+    retry: "Try again",
     note: "Customer note",
-    payWith: "Customer chose",
     payNames: { cliq: "CliQ", cash: "Cash on delivery", card: "Card" },
     cancelledPay: "Cancelled, not paid",
     refundedPay: "Refunded to the customer",
@@ -177,7 +203,7 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     searchPh: "ابحث برقم الطلب، اسم العميل، أو رقم الجوال",
     all: "كل الطلبات",
     statuses: {
-      pending: "بانتظار الدفع",
+      pending: "جديد",
       review: "بانتظار المراجعة",
       processing: "قيد التنفيذ",
       shipping: "جاري التوصيل",
@@ -218,13 +244,24 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     paymentHint: "يمكنك إرسال رابط الدفع للعميل لإكمال الطلب.",
     testOrder: "طلب تجريبي، غير مدفوع",
     testOrderHint: "وصل من صفحة متجرك قبل تفعيل الدفع. لم يُخصم أي مبلغ.",
+    cashPickup: "الدفع نقدًا عند الاستلام من المتجر",
+    paidCash: "مدفوع (نقدًا)",
+    cashHint: "يدفع العميل عند وصول الطلب. غيّر الحالة إلى «تم التوصيل» بعد استلام المبلغ.",
+    cashPickupHint: "يدفع العميل في متجرك عند استلام الطلب. غيّر الحالة إلى «تم التوصيل» بعد استلام المبلغ.",
+    testCard: "بطاقة (تجريبي، لم يُخصم شيء)",
+    testCliq: "كليك (تجريبي، لم يُخصم شيء)",
+    call: "اتصال",
+    whatsapp: "واتساب",
+    waText: "مرحبًا، بخصوص طلبك رقم {n} من {store}",
+    waTextNoStore: "مرحبًا، بخصوص طلبك رقم {n}",
     statusFailed: "تعذّر حفظ الحالة. تأكد من اتصالك وحاول مرة أخرى.",
     storeShown: "يظهر {n} من {total} طلبًا من صفحة متجرك",
     loadMore: "عرض المزيد",
     loadingMore: "جارٍ التحميل…",
     moreFailed: "تعذّر تحميل المزيد. حاول مجددًا.",
+    loadFailed: "تعذّر تحميل طلباتك. تحقق من الاتصال وحاول مرة أخرى.",
+    retry: "حاول مرة أخرى",
     note: "ملاحظة العميل",
-    payWith: "اختار العميل",
     payNames: { cliq: "كليك CliQ", cash: "الدفع عند الاستلام", card: "بطاقة" },
     cancelledPay: "ملغي — لم يُدفع",
     refundedPay: "أُعيد المبلغ للعميل",

@@ -5,7 +5,9 @@ import { ActivityText, type ActivityRow } from "@/components/diwan/ActivityLine"
 import { actionWords } from "@/components/diwan/activityWords";
 import { ShopLink, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { Btn, DataTable, field, Loaded, LoadMore, PageHead, td, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { ActivitySkeleton } from "@/components/diwan/skeletons";
 import { FilterBar } from "@/components/diwan/Filters";
+import { oneOf, shaped, useListScroll, useListState } from "@/components/diwan/useListState";
 
 /* The activity log: Diwan's own staff, when they signed in and what they changed, newest first. What they only opened is
    not kept, and a line says what happened in plain words, nothing deeper. It can only be added to (the database refuses
@@ -14,12 +16,15 @@ import { FilterBar } from "@/components/diwan/Filters";
 type Data = { rows: ActivityRow[]; next: string | null; staff: { id: string; name: string; active: boolean }[]; actions: string[]; shopName: string | null };
 type Filters = { staff: string; kind: string; action: string; from: string; to: string };
 const none: Filters = { staff: "", kind: "", action: "", from: "", to: "" };
+/* the filters applied, kept in the address so Back from a store brings the log back as it was */
+const DAY = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
+const LIST = { staff: shaped(/^[0-9]{1,12}$/), kind: oneOf(["", "signin"]), action: shaped(/^[\w.:-]{1,80}$/), from: shaped(DAY), to: shaped(DAY) };
 
 export default function ActivityPage() {
   const t = useT();
   const f = useFmt();
-  const [draft, setDraft] = useState<Filters>(none);
-  const [filters, setFilters] = useState<Filters>(none);
+  const [filters, setFilters] = useListState(LIST);
+  const [draft, setDraft] = useState<Filters>(filters);
   /* one store's lines only, from its page's "See all" (?shop=) */
   const [shopParam, setShop] = useUrlParam("shop");
   const shop = /^\d+$/.test(shopParam) ? shopParam : "";
@@ -30,6 +35,7 @@ export default function ActivityPage() {
     return `/api/diwan/activity?${q}`;
   }, [filters, shop]);
   const s = useMore<Data>(url, (d) => (d.next ? `before=${d.next}` : null));
+  useListScroll(s);
   /* the choices stay while new lines load */
   const [choices, setChoices] = useState<Pick<Data, "staff" | "actions"> | null>(null);
   useEffect(() => {
@@ -89,7 +95,7 @@ export default function ActivityPage() {
         </form>
       </FilterBar>
 
-      <Loaded s={s}>
+      <Loaded s={s} skeleton={<ActivitySkeleton />}>
         {(d) => (
           <>
             <DataTable
@@ -99,7 +105,7 @@ export default function ActivityPage() {
               {d.rows.map((r) => (
                 <tr key={r.id}>
                   <td className={`${td} whitespace-nowrap`}>{f.dateTime(r.at)}</td>
-                  <td className={td}>{r.staffName ?? <span className="text-muted">{t("Not signed in", "غير مسجّل")}</span>}</td>
+                  <td className={`${td} whitespace-nowrap`}>{r.staffName ? <bdi>{r.staffName}</bdi> : <span className="text-muted">{t("Not signed in", "غير مسجّل")}</span>}</td>
                   <td className={`${td} max-w-md font-medium`}>
                     <ActivityText row={r} />
                   </td>
