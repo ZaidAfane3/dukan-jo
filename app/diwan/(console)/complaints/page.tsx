@@ -1,7 +1,6 @@
 "use client";
 
 import { ShopAndOwner, ShopLink, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
-import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { ComplaintsSkeleton } from "@/components/diwan/skeletons";
@@ -43,23 +42,17 @@ const LIST = { status: oneOf(FILTERS, "open"), reason: oneOf(["", ...REPORT_REAS
 
 export default function ComplaintsPage() {
   const t = useT();
-  const [list, setList] = useListState(LIST);
+  /* one store's reports only, from its page's "See all" (?shop=); every status then. "All" is then the starting tab,
+     so a tab staff picked (even "To do") stays in the address for Back */
+  const [shopParam, setShop] = useUrlParam("shop");
+  const shop = /^\d+$/.test(shopParam) ? shopParam : "";
+  const [list, setList] = useListState(LIST, undefined, shop ? { status: "all" } : undefined);
   const status = list.status as (typeof FILTERS)[number];
   const { reason, from } = list;
   const setStatus = (x: (typeof FILTERS)[number]) => setList({ status: x });
   const setReason = (x: string) => setList({ reason: x });
   const setFrom = (x: string) => setList({ from: x });
-  const sp = useSearchParams();
   const [adding, setAdding] = useState(false);
-  /* one store's reports only, from its page's "See all" (?shop=); every status then */
-  const [shopParam, setShop] = useUrlParam("shop");
-  const shop = /^\d+$/.test(shopParam) ? shopParam : "";
-  const [shopStatusSet, setShopStatusSet] = useState(false);
-  if (shop && !shopStatusSet) {
-    setShopStatusSet(true);
-    /* unless the address already says which tab (Back to a list staff had changed) */
-    if (!sp?.has("status")) setStatus("all");
-  }
   const s = useApi<Data>(`/api/diwan/complaints?${new URLSearchParams({ status, ...(reason ? { reason } : {}), ...(from ? { from } : {}), ...(shop ? { shop } : {}) })}`);
   useListScroll(s);
 

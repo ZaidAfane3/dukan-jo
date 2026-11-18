@@ -5,7 +5,7 @@
 
    - an item only one side changed takes that side's version; both changed it: the one saved now wins, for that item only;
    - an item only one side added is kept (both added one with the same id but not the same: both are kept, this one gets
-     a new id);
+     a new id; unless both were made at the same moment: that is this side's own addition saved before, kept once);
    - an item one side deleted and the other did not touch is deleted;
    - one side deleted it and the other changed it: in a list with a bin (products), the delete wins but the item goes
      to the bin with the change in it, so one click brings it back; in a list without one, the changed item is kept
@@ -98,6 +98,13 @@ function bothChanged(mine: unknown, theirs: unknown, bin: boolean): unknown {
   return mine;
 }
 
+/* Two items with the same id made at the same moment (their "created" time, to the millisecond): one item, saved twice.
+   Ids count up, so two devices can each add a different item under the same id, but not at the same millisecond. */
+function sameMaking(a: unknown, b: unknown): boolean {
+  const x = (a as Record<string, unknown> | null)?.created;
+  return typeof x === "number" && x === (b as Record<string, unknown> | null)?.created;
+}
+
 /* the biggest number id in the lists (worked out once, only when two new items share an id) */
 function topId(lists: Map<string, unknown>[]): number {
   let top = 0;
@@ -138,9 +145,14 @@ export function mergeList(key: string, base: ItemMarks, mineText: string, theirs
       const mh = mark(m);
       const th = mark(t);
       if (b === undefined) {
-        out.push(t);
-        const again = mh === th ? null : renamed(m);
-        if (again) out.push(again);
+        /* this side's own earlier addition, which reached the server though its reply was lost (and maybe was edited
+           since, or had its pictures made files there): the same item, this side's newer copy kept, not a second one */
+        if (mh === th || sameMaking(m, t)) out.push(m);
+        else {
+          out.push(t);
+          const again = renamed(m);
+          if (again) out.push(again);
+        }
       } else if (mh === b) out.push(t);
       else if (th === b) out.push(m);
       else out.push(bothChanged(m, t, bin));

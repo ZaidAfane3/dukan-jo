@@ -384,7 +384,8 @@ export async function leaveUnboughtTheme(lang: Lang): Promise<string | null> {
   if (s.active === base && !s.custom.some((c) => c.from === base && !isOwnMade(c))) {
     const t = findTheme(base);
     const name = t ? t.name[lang] : base;
-    saveThemeState({ ...s, custom: [...s.custom, { id: newId(), name: `${name} ${lang === "ar" ? "(نسختي)" : "(my copy)"}`.slice(0, NAME_MAX), at: Date.now(), look: lookOf(loadConfig()), from: base }] });
+    /* his design not kept as the draft (storage full): the store stays as it is rather than lose it */
+    if (!saveThemeState({ ...s, custom: [...s.custom, { id: newId(), name: `${name} ${lang === "ar" ? "(نسختي)" : "(my copy)"}`.slice(0, NAME_MAX), at: Date.now(), look: lookOf(loadConfig()), from: base }] })) return null;
   }
   return applyTheme(defaultTheme, lang) ? base : null;
 }

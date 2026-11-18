@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /* A Diwan list's search, filters, tab and sort, kept in the page's address (?q=...&status=...), so Back from a store or
    a ticket brings the list back exactly as it was, and a filtered list can be linked. Only the keys a page names are
@@ -43,8 +43,24 @@ function ownPart<S extends Record<string, ListField>>(spec: S, v: Values<S>): st
 }
 
 /** The list's state from the address, and a way to change part of it. `spec` must be the same object on every render
-    (a constant outside the component). */
-export function useListState<S extends Record<string, ListField>>(spec: S, delay = 300): [Values<S>, (patch: Partial<Values<S>>) => void] {
+    (a constant outside the component). `starts`: fields whose starting value differs on this view (a list narrowed to
+    one store starts on "All"); that value is then the one left out of the address, so any other choice, the page-wide
+    default included, stays in it and Back restores it. */
+export function useListState<S extends Record<string, ListField>>(
+  base: S,
+  delay = 300,
+  starts?: Partial<Record<keyof S & string, string>>,
+): [Values<S>, (patch: Partial<Values<S>>) => void] {
+  const startsKey = starts ? JSON.stringify(starts) : "";
+  const spec = useMemo(() => {
+    if (!startsKey) return base;
+    const out: Record<string, ListField> = { ...base };
+    for (const [k, raw] of Object.entries(JSON.parse(startsKey) as Record<string, string>)) {
+      const def = base[k]?.clean(raw);
+      if (def != null) out[k] = { ...base[k], def };
+    }
+    return out as S;
+  }, [base, startsKey]);
   const sp = useSearchParams();
   const [v, setV] = useState<Values<S>>(() => readAll(spec, sp));
   /* what this page last wrote (or read): an address change that differs comes from elsewhere (a link to the same page

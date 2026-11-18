@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ShopAndOwner, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
@@ -31,19 +31,13 @@ const LIST = {
 export default function TicketsPage() {
   const t = useT();
   const f = useFmt();
-  const [filters, setFilters] = useListState(LIST);
-  const [q, setQ] = useState(filters.q);
-  const sp = useSearchParams();
-  const router = useRouter();
-  /* one store's tickets only, from its page's "See all" (?shop=); every status then, not only the open ones */
+  /* one store's tickets only, from its page's "See all" (?shop=); every status then, not only the open ones. "All" is
+     then the starting tab, so a tab staff picked (even "Needs work") stays in the address for Back */
   const [shopParam, setShop] = useUrlParam("shop");
   const shop = /^\d+$/.test(shopParam) ? shopParam : "";
-  const [shopStatusSet, setShopStatusSet] = useState(false);
-  if (shop && !shopStatusSet) {
-    setShopStatusSet(true);
-    /* unless the address already says which tab (Back to a list staff had changed) */
-    if (!sp?.has("status")) setFilters({ status: "" });
-  }
+  const [filters, setFilters] = useListState(LIST, undefined, shop ? { status: "" } : undefined);
+  const [q, setQ] = useState(filters.q);
+  const router = useRouter();
   const url = useMemo(() => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(filters)) if (v) p.set(k, v);

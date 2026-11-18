@@ -26,7 +26,9 @@ import { SUSPENDED_PATH } from "./suspended";
    working storage nothing is held back. Signing out, or another account signing in (accounts.ts), win over this. */
 
 export type TabState = "off" | "active" | "inactive";
-type Lease = { id: string; at: number; left?: boolean };
+/* `took`: another tab took it ("Use here") and is loading again; it counts as let go for that tab's load, but a tab still
+   renewing must give it up, not take it back */
+type Lease = { id: string; at: number; left?: boolean; took?: boolean };
 type Message = { t: "take"; from: string; acct: string; n: number };
 
 const LEASE_MS = 5_000;
@@ -79,14 +81,14 @@ function tabId(fresh = false): string {
   }
 }
 
-/* "<id>.<when>.<1 if let go>" */
+/* "<id>.<when>.<1 if let go, 2 if taken by a tab now loading again>" */
 function readLease(): Lease | null {
   if (!account) return null;
   try {
     const name = `${leaseCookie(account)}=`;
     const raw = document.cookie.split("; ").find((c) => c.startsWith(name))?.slice(name.length);
     const [id, at, left] = (raw ?? "").split(".");
-    return id && Number.isFinite(Number(at)) ? { id, at: Number(at), left: left === "1" } : null;
+    return id && Number.isFinite(Number(at)) ? { id, at: Number(at), left: left === "1" || left === "2", took: left === "2" } : null;
   } catch {
     return null;
   }
@@ -95,7 +97,7 @@ function readLease(): Lease | null {
 function writeLease(l: Lease | null) {
   if (!account) return;
   try {
-    const value = l ? `${l.id}.${l.at}.${l.left ? 1 : 0}` : "";
+    const value = l ? `${l.id}.${l.at}.${l.took ? 2 : l.left ? 1 : 0}` : "";
     document.cookie = `${leaseCookie(account)}=${value}; path=/; max-age=${l ? 3600 : 0}; samesite=strict`;
   } catch {
     /* cookies blocked: nothing is held back (see storageWorks) */
@@ -190,7 +192,7 @@ function goOff() {
 function renew() {
   if (state !== "active" || handing) return;
   const l = readLease();
-  if (l && l.id !== myId && !l.left) {
+  if (l && l.id !== myId && (!l.left || l.took)) {
     void flushSaves();
     becomeInactive();
     return;
@@ -205,7 +207,7 @@ function watchFree() {
 
 /* This tab becomes the active one: it loads again, with the store as the server has it */
 function takeOver() {
-  writeLease({ id: myId, at: Date.now(), left: true });
+  writeLease({ id: myId, at: Date.now(), left: true, took: true });
   try {
     sessionStorage.removeItem(SYNCED);
   } catch {
