@@ -208,8 +208,9 @@ export function LoginForm() {
         : step === "code" ? t("Enter your 2-step code", "أدخل رمز التحقق")
           : step === "new-password" ? t("Choose your password", "اختر كلمة مرورك")
             : t("Sign in to Diwan", "تسجيل الدخول إلى الديوان");
+  /* the setup step does not name the server setting that holds the key: this page's script is sent to every visitor */
   const sub =
-    step === "setup" ? t("Diwan has no staff yet. The setup key is on the server (DIWAN_SETUP_KEY).", "لا يوجد فريق في الديوان بعد. مفتاح الإعداد موجود في الخادم (DIWAN_SETUP_KEY).")
+    step === "setup" ? t("Diwan has no staff yet. The setup key is in the server's settings.", "لا يوجد فريق في الديوان بعد. مفتاح الإعداد موجود في إعدادات الخادم.")
       : step === "enroll" ? t("Diwan asks for a code from an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password…) every time you sign in.", "يطلب الديوان رمزًا من تطبيق المصادقة (Google Authenticator أو Microsoft Authenticator أو 1Password…) في كل مرة تدخل فيها.")
         : step === "code" ? t("Open your authenticator app and type the code shown for Diwan.", "افتح تطبيق المصادقة واكتب الرمز الظاهر للديوان.")
           : step === "new-password" ? t("You signed in with a temporary password. Choose your own now.", "دخلت بكلمة مرور مؤقتة. اختر كلمة مرورك الآن.")
