@@ -75,7 +75,6 @@ export default function ThemesPage() {
       <Loaded s={s} skeleton={<ThemesSkeleton />}>
         {(d) => {
           const all = d.themes.map(entryOf).filter((x): x is Entry => !!x);
-          const count = (f: Filter) => all.filter((e) => inFilter(e.row.status, f)).length;
           const shown = all.filter((e) => inFilter(e.row.status, filter));
           const open = openId ? all.find((e) => e.row.id === openId) : null;
           const openFree = openId ? FREE.find((x) => x.id === openId) : null;
@@ -85,7 +84,7 @@ export default function ThemesPage() {
                 <div className="mb-3 flex flex-wrap gap-2" role="tablist">
                   {(["live", "hidden"] as Filter[]).map((f) => (
                     <button key={f} type="button" role="tab" aria-selected={filter === f} onClick={() => setFilter(f)} className={`h-9 rounded-full px-4 text-sm font-semibold transition ${filter === f ? "bg-ink text-onink" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}>
-                      {{ live: t("Live", "منشورة"), hidden: t("Hidden", "مخفية") }[f]} <span className="tabular-nums opacity-70">{count(f)}</span>
+                      {{ live: t("Live", "منشورة"), hidden: t("Hidden", "مخفية") }[f]}
                     </button>
                   ))}
                 </div>

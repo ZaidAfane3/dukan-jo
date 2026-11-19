@@ -198,7 +198,6 @@ export default function PaymentsPage() {
               <div role="tablist" aria-label={t("Kind of payment", "نوع الدفعة")} className="flex flex-wrap gap-2 border-b border-fg/10">
                 {TABS.map((x) => {
                   const on = tab === x;
-                  const n = x === "" ? d.kinds.payment + d.kinds.theme : x === "store" ? d.kinds.payment : d.kinds.theme;
                   return (
                     <button
                       key={x || "all"}
@@ -211,7 +210,6 @@ export default function PaymentsPage() {
                       }`}
                     >
                       {x === "" ? t("All", "الكل") : x === "store" ? t("Store payments", "دفعات المتاجر") : t("Theme purchases", "شراء الثيمات")}
-                      <span className="ms-1.5 text-xs tabular-nums opacity-70">{f.num(n)}</span>
                     </button>
                   );
                 })}

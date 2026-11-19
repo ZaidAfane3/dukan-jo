@@ -71,6 +71,10 @@ type OrdersCopy = {
   whatsapp: string;
   waText: string;
   waTextNoStore: string;
+  /* an order Dukkan Ship delivers: where its delivery is (Dukkan's staff mark it) */
+  shipTitle: string;
+  shipStates: { waiting: string; delivered: string; failed: string };
+  shipWhy: string;
   /* a status change of such an order did not reach the server */
   statusFailed: string;
   /* the orders from his public store come a page at a time */
@@ -165,6 +169,9 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     whatsapp: "WhatsApp",
     waText: "Hello, about your order #{n} from {store}",
     waTextNoStore: "Hello, about your order #{n}",
+    shipTitle: "Dukkan Ship delivery",
+    shipStates: { waiting: "Waiting for Dukkan Ship to deliver it", delivered: "Delivered by Dukkan Ship", failed: "Dukkan Ship couldn't deliver it" },
+    shipWhy: "Why",
     statusFailed: "The status couldn't be saved. Check your connection and try again.",
     storeShown: "Showing {n} of {total} orders from your store page",
     loadMore: "Load more",
@@ -254,6 +261,9 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     whatsapp: "واتساب",
     waText: "مرحبًا، بخصوص طلبك رقم {n} من {store}",
     waTextNoStore: "مرحبًا، بخصوص طلبك رقم {n}",
+    shipTitle: "التوصيل عبر شحن دكّان",
+    shipStates: { waiting: "بانتظار أن يوصله شحن دكّان", delivered: "سلّمه شحن دكّان", failed: "تعذّر على شحن دكّان تسليمه" },
+    shipWhy: "السبب",
     statusFailed: "تعذّر حفظ الحالة. تأكد من اتصالك وحاول مرة أخرى.",
     storeShown: "يظهر {n} من {total} طلبًا من صفحة متجرك",
     loadMore: "عرض المزيد",

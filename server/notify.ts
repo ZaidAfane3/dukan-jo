@@ -10,12 +10,14 @@ import { db } from "./db";
      shopReactivated {}                         the store is back
      paymentReceived { amount, method }         Dukkan marked a payment as received
      orderPlaced     { number, total, name }    a customer placed an order on the store's page (server/storeOrders.ts)
+     shipDelivered   { number }                 Dukkan Ship delivered one of the store's orders (server/shipOrders.ts)
+     shipFailed      { number, note }           Dukkan Ship could not deliver it, and why
    Dukkan has no plans or free trial, so the old planChanged kind is no longer sent, and "Log in as merchant" was removed
    on 2026-11-16, so neither is the old supportViewed kind (the bell still words both for older messages). Announcements are not sent with
    this: they are rows in announcements, shown to whoever they are for. */
 export type NotifyKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "paymentReceived" | "orderPlaced";
+  | "paymentReceived" | "orderPlaced" | "shipDelivered" | "shipFailed";
 
 /* the free-text details (a ticket's subject, a staff note, a suspension reason) are stored encrypted; numbers, kinds
    and statuses stay plain so the bell can find a ticket's notices. db() opens them again on the way out. */

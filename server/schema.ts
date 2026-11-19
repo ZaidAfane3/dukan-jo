@@ -747,4 +747,29 @@ export const DIWAN_SCHEMA = `
      a company or person the merchant works with, made safe like the store's name) and whether customers may pick up */
   ALTER TABLE shops ADD COLUMN IF NOT EXISTS ship_name TEXT NOT NULL DEFAULT '';
   ALTER TABLE shops ADD COLUMN IF NOT EXISTS pickup BOOLEAN NOT NULL DEFAULT false;
+
+  /* ---------- store orders Dukkan Ship delivers (Diwan > Dukkan Ship > Orders) ----------
+     ship_by: who takes the order to the customer, as it was when the order was placed (server/storeOrders.ts):
+     'dukkan' (the store delivers with Dukkan Ship), 'own' (the merchant's own courier) or 'pickup' (the customer
+     collects it). Orders placed before this column get it once from what their store uses now (ship_by is null only
+     until then). ship_state: Dukkan's delivery of a 'dukkan' order, set by staff: 'waiting', 'delivered' or 'failed'
+     (not delivered, with ship_note saying why, sealed); ship_at and ship_staff: when and by whom. */
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_by TEXT CHECK (ship_by IN ('dukkan', 'own', 'pickup'));
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_state TEXT NOT NULL DEFAULT 'waiting' CHECK (ship_state IN ('waiting', 'delivered', 'failed'));
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_note TEXT;
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_at TIMESTAMPTZ;
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_staff BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+  UPDATE store_orders o
+     SET ship_by = CASE WHEN o.fulfil = 'pickup' THEN 'pickup' WHEN COALESCE(s.ship_mode, '') = 'own' THEN 'own' ELSE 'dukkan' END
+    FROM shops s
+   WHERE o.ship_by IS NULL AND s.account_id = o.account_id;
+  CREATE INDEX IF NOT EXISTS store_orders_dukkan_ship ON store_orders (id DESC) WHERE ship_by = 'dukkan';
+
+  /* ---------- announcements and pop-ups that were ended early ----------
+     "End now" in Diwan keeps the row (it moves to the "Past" list) and says here when and by whom. Null: it ran to its
+     own end, is still on, or was ended before these columns. "Start again" clears them. */
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
 `;

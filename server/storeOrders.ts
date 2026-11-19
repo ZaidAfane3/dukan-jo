@@ -256,16 +256,20 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const number = Math.max(ownMax, Number(last.rows[0].n)) + 1;
 
     const items = priced.items.map((it) => ({ ...it, ...(images.has(it.id) ? { image: images.get(it.id) } : {}) }));
+    /* who takes it to the customer, kept as it is now (the merchant may change his delivery later): the same rule as the
+       fee above (checkoutShipMode), so an order charged Dukkan Ship's price is one Dukkan Ship delivers (Diwan > Dukkan
+       Ship > Orders) */
+    const shipBy = v.fulfil === "pickup" ? "pickup" : checkoutShipMode(setup) === "own" ? "own" : "dukkan";
     await c.query(
       `INSERT INTO store_orders (account_id, number, items, subtotal, discount, delivery_fee, total, coupon, fulfil,
-                                 customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17)`,
+                                 customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key, ship_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17, $18)`,
       [
         /* the lines (product names, sizes) and the coupon code are the shop's own words, kept unsealed: made safe first */
         id, number, JSON.stringify(plainDeep(items)), priced.subtotal, discount, delivery, total, plainText(couponUsed), v.fulfil,
         /* the customer's details are private: sealed, and opened again only for the shop's own owner (GET /api/orders) */
         seal(v.customer), v.phone ? seal(v.phone) : null, v.email ? seal(v.email) : null,
-        v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt,
+        v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt, shipBy,
       ],
     );
 
@@ -327,7 +331,12 @@ export type MerchantStoreOrder = {
   created: number;
   /* "paid": a cash order marked delivered; "test": nothing paid yet (cash still to come, or card/CliQ: nothing charged) */
   payment: "test" | "unpaid" | "paid";
+  /* only on an order Dukkan Ship delivers: where its delivery is (staff mark it in Diwan), why not delivered, and when */
+  ship?: { state: ShipState; note?: string; at?: number };
 };
+
+export type ShipState = "waiting" | "delivered" | "failed";
+const SHIP_STATES: ShipState[] = ["waiting", "delivered", "failed"];
 
 /* one store order as the merchant's Orders page reads it */
 function merchantRow(r: Record<string, any>): MerchantStoreOrder {
@@ -350,11 +359,14 @@ function merchantRow(r: Record<string, any>): MerchantStoreOrder {
     created: new Date(r.created_at).getTime(),
     /* worked out from the status and the way to pay, so a cash order delivered before 'paid' was kept reads paid too */
     payment: r.payment_method === "cash" && r.status === "delivered" ? "paid" : r.payment_status === "unpaid" ? "unpaid" : "test",
+    ...(r.ship_by === "dukkan"
+      ? { ship: { state: (SHIP_STATES.includes(r.ship_state) ? r.ship_state : "waiting") as ShipState, ...(r.ship_state === "failed" && r.ship_note ? { note: String(r.ship_note) } : {}), ...(r.ship_at ? { at: new Date(r.ship_at).getTime() } : {}) } }
+      : {}),
   };
 }
 
 const ROW = `id, number, created_at, status, items, subtotal, discount, delivery_fee, total, coupon, fulfil, customer_name, customer_phone,
-             customer_email, city, address, notes, payment_method, payment_status`;
+             customer_email, city, address, notes, payment_method, payment_status, ship_by, ship_state, ship_note, ship_at`;
 
 /** How many store orders the Orders page asks for at a time */
 export const ORDERS_PAGE = 100;
@@ -385,8 +397,11 @@ export async function storeOrderByNumber(accountId: string, number: string, q?: 
 
 /* a cash order is paid once it is delivered (the courier took the cash, or the customer paid at pickup): marked 'paid'
    with the status, and back to 'test' when the status changes again (his undo included). Card and CliQ stay 'test'. */
-const PAID_SET = `payment_status = CASE WHEN payment_method = 'cash' AND $3::text = 'delivered' THEN 'paid'
+/** The SET part that keeps payment_status with a new status `p` (the query's parameter holding it): a cash order that is
+    delivered is paid; one that leaves delivered is not paid any more. Diwan's Dukkan Ship marks (server/shipOrders.ts) use it too. */
+export const paidSet = (p: string) => `payment_status = CASE WHEN payment_method = 'cash' AND ${p}::text = 'delivered' THEN 'paid'
                                         WHEN payment_status = 'paid' THEN 'test' ELSE payment_status END`;
+const PAID_SET = paidSet("$3");
 
 /* an order holds the stock it took, unless it is cancelled or refunded */
 const holdsStock = (status: string) => status !== "cancelled" && status !== "refunded";

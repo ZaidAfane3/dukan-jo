@@ -726,6 +726,18 @@ export function Orders() {
                   ))}
                 </dl>
 
+                {/* an order Dukkan Ship delivers: where its delivery is */}
+                {current.ship && (
+                  <div className={`mt-6 rounded-xl px-4 py-3 ${current.ship.state === "delivered" ? "bg-emerald-500/10" : current.ship.state === "failed" ? "bg-rose-500/10" : "bg-soft/70"}`}>
+                    <p className="text-xs text-muted">{o.shipTitle}</p>
+                    <p className={`mt-1 text-sm font-semibold ${current.ship.state === "delivered" ? "text-emerald-700 dark:text-emerald-300" : current.ship.state === "failed" ? "text-rose-700 dark:text-rose-300" : ""}`}>
+                      {o.shipStates[current.ship.state]}
+                      {current.ship.at ? <span className="ms-2 text-xs font-normal text-muted">{dateOf(current.ship.at, true)}</span> : null}
+                    </p>
+                    {current.ship.note && <p dir="auto" className="mt-1 text-sm">{o.shipWhy}: {current.ship.note}</p>}
+                  </div>
+                )}
+
                 {/* what the customer wrote for the store at checkout */}
                 {current.note && (
                   <div className="mt-6 rounded-xl bg-soft/70 px-4 py-3">

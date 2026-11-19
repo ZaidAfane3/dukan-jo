@@ -47,13 +47,11 @@ export default function TicketsPage() {
   const s = useMore<Data>(url, (d, n) => (n * d.pageSize < d.total ? `page=${n + 1}` : null));
   useListScroll(s);
   const set = (k: keyof Filters, v: string) => setFilters({ [k]: v });
-  const counts = s.data?.counts ?? {};
-  const active = STATUS_ORDER.filter((x) => x !== "resolved" && x !== "closed").reduce((n, x) => n + (counts[x] ?? 0), 0);
-  const all = Object.values(counts).reduce((n, x) => n + x, 0);
-  const tabs: { key: string; label: string; n: number }[] = [
-    { key: "active", label: t("Needs work", "قيد العمل"), n: active },
-    ...STATUS_ORDER.map((x) => ({ key: x, label: t(STATUS[x].en, STATUS[x].ar), n: counts[x] ?? 0 })),
-    { key: "", label: t("All", "الكل"), n: all },
+  /* the tabs show no numbers (the owner's call, 2026-11-19) */
+  const tabs: { key: string; label: string }[] = [
+    { key: "active", label: t("Needs work", "قيد العمل") },
+    ...STATUS_ORDER.map((x) => ({ key: x, label: t(STATUS[x].en, STATUS[x].ar) })),
+    { key: "", label: t("All", "الكل") },
   ];
   const label = "mb-1 block text-xs font-medium text-muted";
 
@@ -72,10 +70,7 @@ export default function TicketsPage() {
             onClick={() => set("status", x.key)}
             className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${filters.status === x.key ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
           >
-            {/* the gap keeps the count apart from the word in both directions (a margin on the dir="ltr" count would
-                land on its far side in Arabic) */}
             {x.label}
-            <span dir="ltr" className="tabular-nums opacity-75">{f.num(x.n)}</span>
           </button>
         ))}
       </div>
