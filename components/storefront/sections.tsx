@@ -233,7 +233,7 @@ export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id
 /* the title look of the section being drawn, for its Heading */
 const SectionTitleLook = createContext<TitleLook | undefined>(undefined);
 
-function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string; /* a section with no products yet: its "view all" shows in the designer while the merchant edits that wording, to see where it goes */ moreHole?: boolean }) {
+function Heading({ title, ctx, more: moreOn, right, link, moreHole, onMore }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string; /* a section with no products yet: its "view all" shows in the designer while the merchant edits that wording, to see where it goes */ moreHole?: boolean; /* "view all" with no link: it shows every product of the section in place (Featured, Deals) */ onMore?: () => void }) {
   const c = copy[ctx.lang];
   const spots = useSpots();
   const more = moreOn || (!!moreHole && !!ctx.design && spots.some((x) => x.key === "viewall"));
@@ -255,7 +255,7 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
       return (
         <div className="mb-8 flex items-end justify-between gap-4">
           {h2}
-          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : <span data-spot="viewall" className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
+          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : onMore && !ctx.design ? <button type="button" onClick={onMore} className={cls}>{viewAll}</button> : <span data-spot="viewall" className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
           {right}
         </div>
       );
@@ -285,6 +285,8 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
           const inner = pop || light ? viewAll : <>{viewAll}{icons.arrow}</>;
           return link?.trim() && !ctx.design ? (
             <a {...linkProps(link, ctx)} className={`${cls} transition hover:opacity-70`} style={style}>{inner}</a>
+          ) : onMore && !ctx.design ? (
+            <button type="button" onClick={onMore} className={`${cls} transition hover:opacity-70`} style={style}>{inner}</button>
           ) : (
             <span data-spot="viewall" className={cls} style={style} onClick={designOpen(link, ctx)}>{inner}</span>
           );
@@ -2502,7 +2504,10 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
 }
 
 function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>["settings"]; ctx: Ctx }) {
-  const items = featuredItems(s, ctx.data);
+  /* "view all": every product of the section, not only the count he set (it goes once they all show) */
+  const [all, setAll] = useState(false);
+  const items = featuredItems(s, ctx.data, all);
+  const more = all ? false : featuredItems(s, ctx.data, true).length > items.length;
   if (!items.length) {
     if (!ctx.design) return null;
     return (
@@ -2514,7 +2519,7 @@ function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>[
   }
   return (
     <section className={section(ctx.compact)}>
-      <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more />
+      <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more={more || !!ctx.design} onMore={() => setAll(true)} />
       <Grid items={items} ctx={ctx} columns={4} />
     </section>
   );
@@ -2527,7 +2532,10 @@ const dealsBox = (ctx: Ctx): string | undefined => {
 };
 
 function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }>["settings"]; ctx: Ctx }) {
-  const items = discountItems(s, ctx.data);
+  /* "view all": every discounted product, not only the count he set (it goes once they all show) */
+  const [all, setAll] = useState(false);
+  const items = discountItems(s, ctx.data, all);
+  const more = all ? false : discountItems(s, ctx.data, true).length > items.length;
   if (!items.length) {
     if (!ctx.design) return null;
     return (
@@ -2540,7 +2548,7 @@ function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }
   return (
     <section className={section(ctx.compact)}>
       <div className="rounded-[var(--sf-r)] p-5" style={{ background: "color-mix(in srgb, var(--sf-primary) 8%, var(--sf-bg))" }}>
-        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more />
+        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more={more || !!ctx.design} onMore={() => setAll(true)} />
         <CardBehind.Provider value={dealsBox(ctx)}>
           <Grid items={items} ctx={ctx} columns={4} />
         </CardBehind.Provider>
@@ -3029,15 +3037,17 @@ function collectionItems(s: Settings<"collection">, data: PartData): StoreProduc
   return (picked.length ? picked : data.isDemo ? data.products : []).slice(0, s.count);
 }
 /** Featured products: the ones he picked for it, in his order; none picked: the ones marked featured (or, with none, all),
-    those that can be bought now first */
-function featuredItems(s: Settings<"featured">, data: PartData): StoreProduct[] {
+    those that can be bought now first (`all`: every one, not only the count he set: its "view all") */
+function featuredItems(s: Settings<"featured">, data: PartData, all = false): StoreProduct[] {
   const picked = (s.productIds ?? []).map((id) => data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
   const featured = data.products.filter((p) => p.featured);
-  return (picked.length ? picked : buyableFirst(featured.length ? featured : data.products)).slice(0, s.count);
+  const list = picked.length ? picked : buyableFirst(featured.length ? featured : data.products);
+  return all ? list : list.slice(0, s.count);
 }
-/** Deals: the products with a discounted price, those that can be bought now first */
-function discountItems(s: Settings<"discounts">, data: PartData): StoreProduct[] {
-  return buyableFirst(data.products.filter((p) => p.sale !== null)).slice(0, s.count);
+/** Deals: the products with a discounted price, those that can be bought now first (`all`: every one, its "view all") */
+function discountItems(s: Settings<"discounts">, data: PartData, all = false): StoreProduct[] {
+  const list = buyableFirst(data.products.filter((p) => p.sale !== null));
+  return all ? list : list.slice(0, s.count);
 }
 
 /** Whether a part of the home page shows nothing to customers: hidden, or with nothing in it (no products to show, no
