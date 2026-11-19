@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { answer, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
-import { placeStoreOrder } from "@/server/storeOrders";
+import { findStoreAttempt, placeStoreOrder } from "@/server/storeOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     if (!body) return answer({ result: "too-big" }, 413);
     /* per store, from every visitor together */
     if (tooManyFor(`store-order-shop:${String(p.slug ?? "").toLowerCase().slice(0, 64)}`, 60, 60)) return answer({ result: "slow-down" }, 429);
-    const r = await placeStoreOrder(p.slug, body);
+    /* { lookup: <key> }: only asks whether the order sent with that key got in (a reloaded checkout), places nothing */
+    const r = typeof body.lookup === "string" ? await findStoreAttempt(p.slug, body.lookup) : await placeStoreOrder(p.slug, body);
     return answer(r.body, r.status);
   } catch (e) {
     console.error("[store order]", p.slug, e);

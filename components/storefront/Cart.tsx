@@ -334,6 +334,9 @@ function keepDetails(slug: string, form: Record<(typeof DETAIL_KEYS)[number], st
   }
 }
 
+/* the server's answer for an order that is in (POST /api/public/store/<link>/orders) */
+type PlacedAnswer = { number: number; items: PricedLine[]; total: number; subtotal?: number; discount?: number; delivery?: number; coupon?: string | null; fulfil?: string; feeOpen?: boolean };
+
 /* how long one send of an order may take before it is given up (and sent once more with the same key) */
 const SEND_TIMEOUT = 20_000;
 
@@ -430,10 +433,17 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
      or the details since makes a new key, so the edited order is not answered with the first one. Kept in this tab's
      storage too while it waits, so a reload during the send cannot place a second order (keptAttempt). */
   const attemptKey = useRef<{ key: string; fp: string } | null>(null);
+  /* the key of the order that was on its way when the page was reloaded: sent along (`previous`) until the server has
+     answered once, so if that order got in it is the answer even when the basket changed since (the stock it took makes
+     the reloaded page cut it, which gives this checkout a new key) */
+  const previousKey = useRef<string | null>(null);
+  /* asked once the page opens: did it get in? Then the thank-you shows at once (lookedUp) instead of a cut basket */
+  const [lookedUp, setLookedUp] = useState<{ order: PlacedAnswer; phone: string; email: string; pay: Pay | null } | null>(null);
   useEffect(() => {
     if (!orderTo) return;
     const kept = keptAttempt(orderTo);
     attemptKey.current = kept;
+    previousKey.current = kept?.key ?? null;
     if (!kept) {
       /* his details from his last visit to this store, in this browser (a reload no longer loses what he typed) */
       const d = keptDetails(orderTo);
@@ -450,6 +460,20 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       if (c.fulfil === "pickup" || c.fulfil === "delivery") setFulfil(c.fulfil);
       if (c.pay === "cliq" || c.pay === "cash" || c.pay === "card") setPay(c.pay);
       if (typeof o.coupon === "string" && o.coupon) void applyRemoteCoupon(o.coupon, true);
+      const pay0 = c.pay === "cliq" || c.pay === "cash" || c.pay === "card" ? c.pay : null;
+      void fetch(`/api/public/store/${encodeURIComponent(orderTo)}/orders`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lookup: kept.key }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: { result?: string; order?: PlacedAnswer } | null) => {
+          if (j?.result === "ok" && j.order && typeof j.order.number === "number") setLookedUp({ order: j.order, phone: str(c.phone, 20), email: str(c.email, ORDER_LIMITS.email), pay: pay0 });
+        })
+        .catch(() => {
+          /* no answer: Place still sends `previous`, so the order is found then */
+        });
     } catch {
       /* a damaged entry: a new checkout */
     }
@@ -577,11 +601,55 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   /* The public store: the order goes to Dukkan's server, which prices it again from the store's saved products. It
      answers with the order, or with the cart priced again (stock or a price changed), a refused coupon or the fields
      to fix. `shown`: the total the customer sees, so a price changed since the page opened is never charged unseen. */
+  /* the order is in: its thank-you, and the next checkout is a new one */
+  function shownPlaced(got: PlacedAnswer, phoneIn: string, emailIn: string, payIn: Pay | null) {
+    const mobile = jordanMobile(phoneIn);
+    const items = got.items ?? [];
+    const num = (v: unknown, or: number) => (typeof v === "number" && Number.isFinite(v) ? v : or);
+    /* an older answer without the lines: what this cart showed */
+    setPlaced({
+      number: got.number,
+      items,
+      subtotal: num(got.subtotal, toFils(items.reduce((n, it) => n + it.qty * it.price, 0))),
+      discount: num(got.discount, discount),
+      coupon: typeof got.coupon === "string" && got.coupon ? got.coupon : got.coupon === null ? null : cp?.ok ? cp.coupon.code : null,
+      delivery: num(got.delivery, delivery),
+      fulfil: got.fulfil === "pickup" || got.fulfil === "delivery" ? got.fulfil : fulfil,
+      feeOpen: typeof got.feeOpen === "boolean" ? got.feeOpen : feeOpen,
+      total: got.total,
+      phone: mobile ? `0${mobile}` : phoneIn.trim(),
+      email: emailIn.trim().toLowerCase(),
+      pay: payIn,
+      /* something in it is delivered (the lines it holds, not this basket: a reloaded page's basket may differ) */
+      ships: items.length ? items.some((it) => !products.find((p) => p.id === it.id)?.noShip) : ships,
+    });
+    attemptKey.current = null;
+    previousKey.current = null;
+    keepAttempt(orderTo ?? "", null);
+    setTermsFix(null);
+    setStep("done");
+    setChanged(false);
+    setLost([]);
+    setCoupon("");
+    setRemoteCoupon(null);
+    setCouponErr(null);
+    setPriceFix({});
+    onCleared();
+    void refreshStore?.();
+  }
+  /* the reloaded page's order got in: its thank-you, shown when the cart opens (as after any order) */
+  useEffect(() => {
+    if (!lookedUp) return;
+    setLookedUp(null);
+    shownPlaced(lookedUp.order, lookedUp.phone, lookedUp.email, lookedUp.pay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookedUp]);
+
   const placeRemote = async (shown: number) => {
     placing.current = true;
     setSending(true);
     setSendErr("");
-    let j: { result?: string; order?: { number: number; items: PricedLine[]; total: number; subtotal?: number; discount?: number; delivery?: number; coupon?: string | null; fulfil?: string; feeOpen?: boolean }; items?: PricedLine[]; why?: CouponRefusal; fields?: string[]; terms?: { fee?: unknown; freeDelivery?: { on?: unknown; min?: unknown }; coupon?: unknown }; choices?: unknown } = {};
+    let j: { result?: string; order?: PlacedAnswer; items?: PricedLine[]; why?: CouponRefusal; fields?: string[]; terms?: { fee?: unknown; freeDelivery?: { on?: unknown; min?: unknown }; coupon?: unknown }; choices?: unknown } = {};
     let status = 0;
     /* the order itself (what he chose and typed): the same order keeps its key, any change gets a new one */
     const order = {
@@ -603,7 +671,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...order, expect: shown, attempt: attemptKey.current?.key }),
+          body: JSON.stringify({ ...order, expect: shown, attempt: attemptKey.current?.key, ...(previousKey.current ? { previous: previousKey.current } : {}) }),
           signal: stop.signal,
         });
         status = r.status;
@@ -623,40 +691,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     }
     placing.current = false;
     setSending(false);
+    /* the server answered: it has looked for the reloaded page's order already */
+    if (status) previousKey.current = null;
     if (j.result === "ok" && j.order) {
-      const mobile = jordanMobile(form.phone);
-      const got = j.order;
-      const items = got.items ?? [];
-      const num = (v: unknown, or: number) => (typeof v === "number" && Number.isFinite(v) ? v : or);
-      /* an older answer without the lines: what this cart showed */
-      setPlaced({
-        number: got.number,
-        items,
-        subtotal: num(got.subtotal, toFils(items.reduce((n, it) => n + it.qty * it.price, 0))),
-        discount: num(got.discount, discount),
-        coupon: typeof got.coupon === "string" && got.coupon ? got.coupon : got.coupon === null ? null : cp?.ok ? cp.coupon.code : null,
-        delivery: num(got.delivery, delivery),
-        fulfil: got.fulfil === "pickup" || got.fulfil === "delivery" ? got.fulfil : fulfil,
-        feeOpen: typeof got.feeOpen === "boolean" ? got.feeOpen : feeOpen,
-        total: got.total,
-        phone: mobile ? `0${mobile}` : form.phone.trim(),
-        email: form.email.trim().toLowerCase(),
-        pay,
-        ships,
-      });
-      /* the next checkout is a new one */
-      attemptKey.current = null;
-      keepAttempt(orderTo ?? "", null);
-      setTermsFix(null);
-      setStep("done");
-      setChanged(false);
-      setLost([]);
-      setCoupon("");
-      setRemoteCoupon(null);
-      setCouponErr(null);
-      setPriceFix({});
-      onCleared();
-      void refreshStore?.();
+      shownPlaced(j.order, form.phone, form.email, pay);
       return;
     }
     if (j.result === "changed" && Array.isArray(j.items)) {

@@ -141,6 +141,33 @@ export type PlaceResult =
   | { status: 409; body: { result: "coupon"; why: CouponRefusal } }
   | { status: 200; body: { result: "ok"; order: PlacedOrder } };
 
+/** The order a checkout's key placed at this store, as the checkout shows it, or null */
+async function orderByAttempt(c: PoolClient, account: string, key: string): Promise<PlacedOrder | null> {
+  const done = await c.query(
+    `SELECT number, items, subtotal, discount, delivery_fee, total, coupon, fulfil, payment_method FROM store_orders WHERE account_id = $1 AND attempt_key = $2`,
+    [account, key],
+  );
+  const o = done.rows[0];
+  if (!o) return null;
+  const items = (Array.isArray(o.items) ? o.items : []).map((it: Record<string, unknown>) => ({ id: Number(it.id), name: String(it.name ?? ""), qty: Number(it.qty), price: Number(it.price), ...(typeof it.size === "string" && it.size ? { size: it.size } : {}) }));
+  return { number: Number(o.number), items, subtotal: Number(o.subtotal), discount: Number(o.discount), delivery: Number(o.delivery_fee), total: Number(o.total), coupon: o.coupon ?? null, fulfil: o.fulfil === "pickup" ? "pickup" : "delivery", pay: o.payment_method as Payment };
+}
+
+/** Whether the order a checkout's key was sent with got in (a page reloaded while it was on its way: Cart keptAttempt).
+    Only reads: nothing is placed. */
+export async function findStoreAttempt(slug: unknown, key: unknown): Promise<{ status: 200; body: { result: "ok"; order: PlacedOrder } | { result: "not-placed" } } | { status: 400 | 404; body: { result: "invalid" | "none" } }> {
+  if (typeof key !== "string" || !ATTEMPT.test(key)) return { status: 400, body: { result: "invalid" } };
+  const c = await (await db()).connect();
+  try {
+    const shop = await findShop(c, slug);
+    if (!shop) return { status: 404, body: { result: "none" } };
+    const o = await orderByAttempt(c, shop.account_id, key);
+    return { status: 200, body: o ? { result: "ok", order: o } : { result: "not-placed" } };
+  } finally {
+    c.release();
+  }
+}
+
 /** Runs fn in a transaction: on the client given (a caller's transaction, left open), else on a new one */
 async function inTransaction<T>(client: PoolClient | undefined, fn: (c: PoolClient) => Promise<T>): Promise<T> {
   if (client) return fn(client);
@@ -169,6 +196,10 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
   const customer = isObj(body.customer) ? body.customer : {};
   const couponCode = typeof body.coupon === "string" ? body.coupon.slice(0, 40) : "";
   const attempt = typeof body.attempt === "string" && ATTEMPT.test(body.attempt) ? body.attempt : null;
+  /* the key of an order that was on its way when the page was reloaded (Cart keptAttempt). The basket may have changed
+     since (the stock it took makes the reloaded page cut it), so this send has a new key: if that earlier order got in,
+     it is the answer, never a second order */
+  const previous = typeof body.previous === "string" && ATTEMPT.test(body.previous) && body.previous !== attempt ? body.previous : null;
   const settings = await readSettings(["payment_methods", "dukkan_ship"] as const);
 
   return inTransaction(client, async (c) => {
@@ -181,16 +212,9 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     if (!shop) return { status: 404, body: { result: "none" } };
     const id = shop.account_id;
     /* this checkout's order is already in (its answer was lost): the same order again, whatever changed since */
-    if (attempt) {
-      const done = await c.query(
-        `SELECT number, items, subtotal, discount, delivery_fee, total, coupon, fulfil, payment_method FROM store_orders WHERE account_id = $1 AND attempt_key = $2`,
-        [id, attempt],
-      );
-      const o = done.rows[0];
-      if (o) {
-        const items = (Array.isArray(o.items) ? o.items : []).map((it: Record<string, unknown>) => ({ id: Number(it.id), name: String(it.name ?? ""), qty: Number(it.qty), price: Number(it.price), ...(typeof it.size === "string" && it.size ? { size: it.size } : {}) }));
-        return { status: 200, body: { result: "ok", order: { number: Number(o.number), items, subtotal: Number(o.subtotal), discount: Number(o.discount), delivery: Number(o.delivery_fee), total: Number(o.total), coupon: o.coupon ?? null, fulfil: o.fulfil === "pickup" ? "pickup" : "delivery", pay: o.payment_method as Payment } } };
-      }
+    for (const key of [attempt, previous]) {
+      const o = key ? await orderByAttempt(c, id, key) : null;
+      if (o) return { status: 200, body: { result: "ok", order: o } };
     }
     if (!isOpen(shop)) return { status: 409, body: { result: "closed" } };
 
@@ -272,7 +296,9 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     /* who takes it to the customer, kept as it is now (the merchant may change his delivery later): the same rule as the
        fee above (checkoutShipMode), so an order charged Dukkan Ship's price is one Dukkan Ship delivers (Diwan > Dukkan
        Ship > Orders) */
-    const shipBy = v.fulfil === "pickup" ? "pickup" : checkoutShipMode(setup) === "own" ? "own" : "dukkan";
+    /* who takes it to the customer; nothing to deliver (A2: only codes, services...): nobody, so it never reaches
+       Dukkan Ship's To deliver list */
+    const shipBy = !ships ? "none" : v.fulfil === "pickup" ? "pickup" : checkoutShipMode(setup) === "own" ? "own" : "dukkan";
     await c.query(
       `INSERT INTO store_orders (account_id, number, items, subtotal, discount, delivery_fee, total, coupon, fulfil,
                                  customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key, ship_by)

@@ -754,7 +754,14 @@ export const DIWAN_SCHEMA = `
      collects it). Orders placed before this column get it once from what their store uses now (ship_by is null only
      until then). ship_state: Dukkan's delivery of a 'dukkan' order, set by staff: 'waiting', 'delivered' or 'failed'
      (not delivered, with ship_note saying why, sealed); ship_at and ship_staff: when and by whom. */
-  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_by TEXT CHECK (ship_by IN ('dukkan', 'own', 'pickup'));
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_by TEXT CHECK (ship_by IN ('dukkan', 'own', 'pickup', 'none'));
+  /* 'none': nothing in the order is delivered (codes, services). A database made before 'none' was allowed gets it once */
+  DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'store_orders_ship_by_check' AND pg_get_constraintdef(oid) NOT LIKE '%none%') THEN
+      ALTER TABLE store_orders DROP CONSTRAINT store_orders_ship_by_check;
+      ALTER TABLE store_orders ADD CONSTRAINT store_orders_ship_by_check CHECK (ship_by IN ('dukkan', 'own', 'pickup', 'none'));
+    END IF;
+  END $$;
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_state TEXT NOT NULL DEFAULT 'waiting' CHECK (ship_state IN ('waiting', 'delivered', 'failed'));
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_note TEXT;
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_at TIMESTAMPTZ;
