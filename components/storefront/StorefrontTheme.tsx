@@ -594,8 +594,30 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const spots = useSpots();
   const spotted = (key: string) => !!design && spots.some((s) => s.key === key);
   const taglineHole = !tagline && spotted("identity:tagline");
+  /* The logo and name lead to the store's home page: its own address on the public store (a new tab opens it as any
+     link does), the home page in place everywhere else. In the designer a click edits them. */
+  const homeHref = routed && visitor ? `/${visitor.setup.slug}` : "#";
+  const goHome = () => {
+    setMenu(false);
+    if (queryNow.current.trim()) endSearch(true);
+    setOwnProduct(null);
+    setPageId(null);
+    moveTo({ product: null, page: null });
+    root.current?.scrollIntoView({ block: "start" });
+  };
+  const brandClick = (e: React.MouseEvent) => {
+    if (design) {
+      e.preventDefault();
+      e.stopPropagation();
+      design.select("identity");
+      return;
+    }
+    if (homeHref !== "#" && (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) return;
+    e.preventDefault();
+    goHome();
+  };
   const brand = (
-    <a href="#" data-spot="identity" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
+    <a href={homeHref} data-spot="identity" onClick={brandClick} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
       {(nameShown || tagline || taglineHole) && (
         <span className={`flex min-w-0 flex-col ${centered ? "items-center" : nameEnd ? "items-end" : ""}`}>
@@ -812,7 +834,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const [navOn, setNavOn] = useState(0);
   /* The pill header: the name in a dark pill, the links in a white pill (the chosen one colored), and a round basket button */
   const pillBrand = (
-    <a href="#" data-spot="identity" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className="inline-flex min-w-0 max-w-full items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: pillNameColor, fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
+    <a href={homeHref} data-spot="identity" onClick={brandClick} className="inline-flex min-w-0 max-w-full items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: pillNameColor, fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
       {namePlace ?? <span dir="auto" className="min-w-0 truncate ltr:text-left rtl:text-right" style={{ fontSize: nameSizeOwn }}>{data.name}</span>}
     </a>
