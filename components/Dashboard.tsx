@@ -18,6 +18,8 @@ import { ThemeAccessNotice } from "./ThemeAccessNotice";
 import { useStoreVisits } from "./storeVisits";
 import { dropUndos, offerUndo } from "./undo";
 import { storeIsLive } from "./storefront/storage";
+import { loadMaintenance, MAINTENANCE_KEY } from "./maintenance";
+import { STORE_STATUS_EVENT } from "./StoreStatus";
 import { onServer } from "./merchantApi";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { ShareMenu } from "./ShareMenu";
@@ -163,6 +165,8 @@ export function Dashboard() {
      and whether customers can see it now (its design saved, not under maintenance) */
   const sell = useSellReady();
   const [liveNow, setLiveNow] = useState(false);
+  /* the store is published but paused (under maintenance): said at the top, so he never forgets it is closed */
+  const [paused, setPaused] = useState(false);
   const [goal, setGoal] = useState(0);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -210,6 +214,22 @@ export function Dashboard() {
       setGoal(readGoal());
       setNow(new Date());
     }
+  }, []);
+
+  /* paused or opened from the profile menu (or in another tab): the home page follows */
+  useEffect(() => {
+    const read = () => {
+      setPaused(storeIsLive() && loadMaintenance().on);
+      setLiveNow(storeLiveNow());
+    };
+    read();
+    const onStorage = (e: StorageEvent) => (e.key === null || e.key.endsWith(MAINTENANCE_KEY)) && read();
+    window.addEventListener(STORE_STATUS_EVENT, read);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(STORE_STATUS_EVENT, read);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   /* The tour draws a fresh set of sample numbers; a real store reads its orders (and its visitors) again */
@@ -330,6 +350,19 @@ export function Dashboard() {
             <p className="mt-1 text-sm text-muted">{h.welcomeSub}</p>
           </div>
         </div>
+
+        {/* The store is paused: customers see the maintenance page until he opens it again from the account menu */}
+        {!tour && paused && (
+          <p role="status" className="flex items-start gap-2.5 rounded-xl bg-amber-500/15 px-4 py-3 text-sm font-medium text-amber-900 dark:text-amber-200">
+            <span aria-hidden className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500" />
+            <span>
+              <span className="font-bold">{lang === "ar" ? "متجرك متوقف (قيد الصيانة)." : "Your store is paused (under maintenance)."}</span>{" "}
+              {lang === "ar"
+                ? "يرى العملاء صفحة الصيانة ولا يستطيعون الطلب. لفتحه مجددًا استخدم مفتاح «المتجر قيد الصيانة» في قائمة الحساب أعلى الصفحة."
+                : "Customers see a maintenance page and can't order. To open it again, use the \"Store under maintenance\" switch in the account menu at the top of the page."}
+            </span>
+          </p>
+        )}
 
         {/* Setup progress, until every task is done. The tour shows a store that is already running, so it has none. */}
         {!tour && setupRead && doneCount < TOTAL_TASKS && (
