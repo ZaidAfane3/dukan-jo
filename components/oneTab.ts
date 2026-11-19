@@ -7,8 +7,8 @@ import { SUSPENDED_PATH } from "./suspended";
 /* One Dukkan tab at a time per account, in each browser (like WhatsApp Web). Two tabs editing the same store would each
    save their own copy, and the later save would undo the other's changes without a word.
 
-   The active tab holds a lease in a cookie ("dukkan-tab-<email>": its id and when it last renewed it), renewed every
-   2 seconds. A cookie, not localStorage: writing localStorage would wake every other tab's storage listeners every 2
+   The active tab holds a lease in a cookie ("dukkan-tab-<a short hash of the email>": its id and when it last renewed
+   it; the email itself is never in a cookie, which goes with every request), renewed every 2 seconds. A cookie, not localStorage: writing localStorage would wake every other tab's storage listeners every 2
    seconds (some read the whole product list again), and a cookie can still be read at once by a tab opening. A lease not renewed for 5 seconds (the tab closed or crashed) is free, and so is one its tab let go of while
    leaving the page ("left"): a new tab then takes it without asking. Otherwise the new tab shows "Dukkan is open in
    another tab" (OtherTabScreen.tsx), loads nothing, saves nothing (serverSync.ts gate), and waits for "Use here".
@@ -20,7 +20,12 @@ import { SUSPENDED_PATH } from "./suspended";
    finds it gone on its next renewal and stops).
 
    The tab's id is kept in sessionStorage, so a reload of the active tab keeps the lease. A copy of a tab (the browser's
-   "Duplicate") gets the same id while the first is still alive: it is told apart by a lease still fresh and not left.
+   "Duplicate") gets a copy of its sessionStorage: the id is marked there as in use until its page leaves (ALIVE_KEY),
+   so a copy finds it marked and takes an id of its own, however slow the first tab's timers are.
+
+   Browsers slow down the timers of a tab in the background, so the lease of a tab left there can run out and another
+   tab take it while the first still thinks it is active. The rule does not rest on the timer: the lease is looked at
+   again when the tab comes back to the front and before every save (gateSaves), and a tab that finds it taken stops.
 
    Only on a signed-in merchant's pages: never the public store, sign-in, the tour, Diwan or the suspended page. Without
    working storage nothing is held back. Signing out, or another account signing in (accounts.ts), win over this. */
@@ -36,9 +41,21 @@ const RENEW_MS = 2_000;
 const HANDOFF_WAIT = 3_000;
 const TAKE_WAIT = 5_000;
 const ID_KEY = "dukkan-tab-id";
+/* the id of the page using ID_KEY now, until it leaves (see the copy of a tab above) */
+const ALIVE_KEY = "dukkan-tab-alive";
+const LEASE_PREFIX = "dukkan-tab-";
 /* accounts.ts SYNCED: cleared so the tab taking over loads the store from the server again */
 const SYNCED = "dukkan-synced";
-const leaseCookie = (a: string) => `dukkan-tab-${encodeURIComponent(a)}`;
+/* a short hash of the account's email, so the cookie's name says nothing about whose it is (FNV-1a) */
+function shortHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+const leaseCookie = (a: string) => `${LEASE_PREFIX}${shortHash(a.trim().toLowerCase())}`;
 const messageKey = (a: string) => `dukkan-tab-message:${a}`;
 
 let state: TabState = "off";
@@ -69,16 +86,24 @@ export function onHandOver(fn: () => void): () => void {
 
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
+/* this page's id, worked out once per page load */
+let pageId: string | null = null;
 function tabId(fresh = false): string {
+  if (pageId && !fresh) return pageId;
   try {
-    const kept = fresh ? null : sessionStorage.getItem(ID_KEY);
-    if (kept) return kept;
-    const id = newId();
-    sessionStorage.setItem(ID_KEY, id);
-    return id;
+    let id = fresh ? null : sessionStorage.getItem(ID_KEY);
+    /* still marked in use by a page that has not left: this page is a copy of that tab, and takes an id of its own */
+    if (id && sessionStorage.getItem(ALIVE_KEY) === id) id = null;
+    if (!id) {
+      id = newId();
+      sessionStorage.setItem(ID_KEY, id);
+    }
+    sessionStorage.setItem(ALIVE_KEY, id);
+    pageId = id;
   } catch {
-    return newId();
+    pageId = newId();
   }
+  return pageId;
 }
 
 /* "<id>.<when>.<1 if let go, 2 if taken by a tab now loading again>" */
@@ -139,6 +164,7 @@ export function decideTab() {
   if (state !== "off" && account === me) return;
   if (state !== "off") goOff();
   account = me;
+  forgetOldLease(me);
   myId = tabId();
   listen();
   const l = readLease();
@@ -157,8 +183,20 @@ export function tabState(): TabState {
 /** True while the new tab waits for the active one to hand over */
 export const tabTaking = () => taking;
 
-/* the account's saves go only from its active tab */
-gateSaves(() => tabState() !== "inactive");
+/* the account's saves go only from its active tab, and only while it still holds the lease: a tab whose timers were
+   slowed in the background may have lost it to another tab meanwhile, and then stops at once (it sends nothing: the
+   tab that took over sends what the account's outbox has) */
+gateSaves(() => {
+  if (tabState() === "inactive") return false;
+  if (state !== "active" || handing) return true;
+  const l = readLease();
+  if (l && l.id !== myId && (!l.left || l.took)) {
+    becomeInactive();
+    return false;
+  }
+  if (!l || l.id !== myId || Date.now() - l.at >= RENEW_MS) writeLease({ id: myId, at: Date.now() });
+  return true;
+});
 
 function setTimer(fn: () => void, ms: number) {
   if (timer) clearInterval(timer);
@@ -294,10 +332,23 @@ function listen() {
   window.addEventListener("focus", front);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && front());
   /* leaving the page (a reload, another page, closing): the lease is let go, and a reload of this tab takes it back */
-  window.addEventListener("pagehide", () => state === "active" && !handing && writeLease({ id: myId, at: Date.now(), left: true }));
+  window.addEventListener("pagehide", () => {
+    if (state === "active" && !handing) writeLease({ id: myId, at: Date.now(), left: true });
+    /* the id is no longer in use: a reload of this tab keeps it (a copy made while the page was open does not) */
+    try {
+      if (sessionStorage.getItem(ALIVE_KEY) === pageId) sessionStorage.removeItem(ALIVE_KEY);
+    } catch {
+      /* storage blocked */
+    }
+  });
   /* back from the browser's page cache: decided again */
   window.addEventListener("pageshow", (e) => {
     if (!e.persisted) return;
+    try {
+      if (pageId) sessionStorage.setItem(ALIVE_KEY, pageId);
+    } catch {
+      /* storage blocked */
+    }
     if (timer) clearInterval(timer);
     timer = null;
     state = "off";
@@ -306,9 +357,38 @@ function listen() {
   });
 }
 
-/** Lets go of the lease when this tab holds it (signing out, leaving the dashboard) */
-export function releaseTab() {
+/** Lets go of the lease when this tab holds it (leaving the dashboard). `signingOut`: the account signs out of this
+    browser, so every tab lease cookie goes, whoever holds it. */
+export function releaseTab(signingOut = false) {
+  if (signingOut) return forgetLeases();
   const l = readLease();
   if (!account || !l || l.id !== myId) return;
   writeLease(null);
+}
+
+const expire = (name: string) => {
+  document.cookie = `${name}=; path=/; max-age=0; samesite=strict`;
+};
+
+/* the lease cookie as it was named before (with the email in its name): removed */
+function forgetOldLease(a: string) {
+  try {
+    const old = `${LEASE_PREFIX}${encodeURIComponent(a)}`;
+    if (document.cookie.split("; ").some((c) => c.startsWith(`${old}=`))) expire(old);
+  } catch {
+    /* cookies blocked */
+  }
+}
+
+/* every tab lease of this browser, of any account, by either name */
+function forgetLeases() {
+  try {
+    document.cookie
+      .split("; ")
+      .map((c) => c.slice(0, c.indexOf("=")))
+      .filter((n) => n.startsWith(LEASE_PREFIX))
+      .forEach(expire);
+  } catch {
+    /* cookies blocked */
+  }
 }

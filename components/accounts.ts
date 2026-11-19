@@ -168,8 +168,8 @@ export async function logOut(): Promise<void> {
   /* the outbox stays: each change is crossed out as the server confirms it, and what is left (another tab's, or one
      that could not go) is sent when this account signs in again here; another account signing in deletes it */
   dropSaves({ keepOutbox: true });
-  /* another tab of this account may take over at once */
-  releaseTab();
+  /* another tab of this account may take over at once; the tab lease cookies go with the account (oneTab.ts) */
+  releaseTab(true);
   signInAs(null);
   await sending;
   try {
@@ -209,7 +209,10 @@ function leaveForSignIn(elsewhere = false) {
     /* storage blocked */
   }
   /* the browser still names this account: it is signed out for every tab. Another account's sign-in is left alone. */
-  if (mark !== null && mark === signedInAs()) signInAs(null);
+  if (mark !== null && mark === signedInAs()) {
+    signInAs(null);
+    releaseTab(true);
+  }
   try {
     sessionStorage.removeItem("seen-signed-in");
     sessionStorage.removeItem(SYNCED);
