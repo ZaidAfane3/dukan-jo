@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const PAGE = 50;
 
-/* The stores that deliver with Dukkan Ship (shops.ship_mode = 'seen'), newest first, 50 at a time, with the shop list's
+/* The stores that deliver with Dukkan Ship (shops SHIP_SQL: chosen, or by default), newest first, 50 at a time, with the shop list's
    own search (store name or link; an owner's email or mobile only when typed in full). Each row: the store's name, its
    owner's name, link, pickup city, status and how many orders it has. Never an email, a phone or an address. The shops
    row has no date for when Dukkan Ship was chosen, so none is given. `served`: false when its pickup city is no longer on

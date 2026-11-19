@@ -84,7 +84,7 @@ export default function ShopsPage() {
         r.status,
         `${r.setup_done}/6`,
         r.published ? "yes" : "no",
-        r.ship_mode === "seen" ? "yes" : "no",
+        r.ship_mode === "seen" ? "yes" : r.ship_mode === "" && r.published ? "yes (default, not chosen)" : "no",
         r.product_count,
         r.order_count,
         r.total_sales,

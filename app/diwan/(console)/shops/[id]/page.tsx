@@ -278,7 +278,9 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 {d.theme && <ThemeLine theme={d.theme} link={!!d.can.themes} />}
                 <Line k={t("Paused for maintenance", "متوقف للصيانة")} v={sh.paused ? t("Yes", "نعم") : t("No", "لا")} />
-                {/* the way it delivers, as the merchant chose it: Dukkan Ship, its own courier (by name), pickup only, or none yet */}
+                {/* the way it delivers, as the merchant chose it: Dukkan Ship, its own courier (by name), pickup only, or none yet.
+                    A live store with no choice saved (from before one was asked for) delivers with Dukkan Ship by default
+                    (safeOrder checkoutShipMode, server/shops.ts SHIP_SQL), pickup on or off */}
                 <Line
                   k={t("Delivery", "التوصيل")}
                   v={(() => {
@@ -289,7 +291,9 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                           ? sh.ship_name
                             ? t(`Own courier: ${sh.ship_name}`, `مندوب خاص: ${sh.ship_name}`)
                             : t("Own courier", "مندوب خاص")
-                          : null;
+                          : sh.published
+                            ? t("Dukkan Ship (default, not chosen)", "شحن دكّان (تلقائي، لم يُختر)")
+                            : null;
                     if (way) return sh.pickup ? `${way}${t(" · pickup too", " · والاستلام من المتجر")}` : way;
                     return sh.pickup ? t("Pickup only", "استلام من المتجر فقط") : t("Not chosen yet", "لم يُختر بعد");
                   })()}

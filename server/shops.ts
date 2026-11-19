@@ -229,6 +229,11 @@ export const STORE_ORDERS_SQL = (s = "s") => `(SELECT count(*) FILTER (WHERE o.p
 export const ORDERS_SQL = `(s.order_count + so.n)`;
 export const SALES_SQL = `(s.total_sales + so.sales)::numeric(14, 3)`;
 
+/** A shop that delivers with Dukkan Ship: it chose it, or it is live (published) with no delivery choice saved, a store
+    from before one was asked for, which delivers with Dukkan Ship by default (safeOrder checkoutShipMode). Diwan's
+    Dukkan Ship list and count go by this, and the store page says "default, not chosen" for the second. */
+export const SHIP_SQL = (s = "s") => `(${s}.ship_mode = 'seen' OR (${s}.ship_mode = '' AND ${s}.published))`;
+
 /* ---------------- the shop list (Diwan's Shops page and its CSV) ---------------- */
 
 const SORTS: Record<string, string> = {
@@ -268,8 +273,8 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   if (pub === "yes") where.push(`s.published`);
   else if (pub === "no") where.push(`NOT s.published`);
   const ship = p.get("ship");
-  if (ship === "yes") where.push(`s.ship_mode = 'seen'`);
-  else if (ship === "no") where.push(`s.ship_mode <> 'seen'`);
+  if (ship === "yes") where.push(SHIP_SQL("s"));
+  else if (ship === "no") where.push(`NOT ${SHIP_SQL("s")}`);
   const sql = `FROM shops s JOIN accounts a ON a.id = s.account_id LEFT JOIN LATERAL ${STORE_ORDERS_SQL("s")} so ON true ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
   return { sql, params, order: SORTS[p.get("sort") ?? ""] ?? SORTS.newest };
 }

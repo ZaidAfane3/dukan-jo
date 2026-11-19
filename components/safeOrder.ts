@@ -78,14 +78,16 @@ export function storeDelivery(
   };
 }
 
-/** The delivery way a store's checkout goes by: the merchant's own choice. A store that is live with neither a choice nor
-    pickup can only be one from before a choice was asked for (a store can no longer open without one: readyToSell), and
-    it delivered with Dukkan Ship then; it still does, so it keeps taking orders until he chooses (his dashboard and
-    Diwan still say what is missing). The public store (server/publicStore.ts) and the order (server/storeOrders.ts)
-    both ask this, so the checkout offers what the server accepts. */
-export const checkoutShipMode = (setup: { pickup?: boolean; shipping?: { mode?: "own" | "seen" | null } | null } | null | undefined): "own" | "seen" | null => {
+/** The delivery way a store's checkout goes by: the merchant's own choice. A store with no choice saved is one from before
+    a choice was asked for (the setup and the Delivery page always save one; a store can no longer open with neither a
+    choice nor pickup: readyToSell), and it delivered with Dukkan Ship then; it still does, so it keeps taking orders
+    until he chooses. Turning pickup on does not take that away: his customers can then choose Dukkan Ship's delivery or
+    pickup (the owner's decision), never pickup only. His dashboard and Diwan say it delivers with Dukkan Ship by default
+    (ReadyToSell shipsByDefault, server/shops.ts SHIP_SQL). The public store (server/publicStore.ts), the order
+    (server/storeOrders.ts) and his own preview all ask this, so the checkout offers what the server accepts. */
+export const checkoutShipMode = (setup: { pickup?: boolean; shipping?: { mode?: "own" | "seen" | null } | null } | null | undefined): "own" | "seen" => {
   const mode = setup?.shipping?.mode;
-  return mode === "own" || mode === "seen" ? mode : setup?.pickup === true ? null : "seen";
+  return mode === "own" ? "own" : "seen";
 };
 
 /** How the order can reach the customer at this store: delivery when storeDelivery offers it, pickup when he allows it.

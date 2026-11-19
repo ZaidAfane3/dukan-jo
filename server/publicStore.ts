@@ -112,11 +112,11 @@ export async function shapePublicStore(
     slug: shop.slug,
     logo,
     pickup: setup?.pickup === true,
-    /* a live store from before a delivery choice was asked for, with no choice and no pickup, delivers with Dukkan Ship as
-       it did then (safeOrder checkoutShipMode): the checkout offers what the server will accept for its orders */
+    /* a live store from before a delivery choice was asked for, with no choice saved, delivers with Dukkan Ship as it did
+       then, pickup on or off (safeOrder checkoutShipMode): the checkout offers what the server will accept for its orders */
     shipping: setup?.shipping
       ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}), ...(setup.shipping.cities ? { cities: setup.shipping.cities } : {}) }
-      : checkoutShipMode(setup) === "seen" ? { mode: "seen" } : null,
+      : { mode: checkoutShipMode(setup) },
     ...(setup?.pays ? { pays: setup.pays } : {}),
   };
 
