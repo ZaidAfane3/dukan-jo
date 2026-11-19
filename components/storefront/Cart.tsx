@@ -602,7 +602,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
      answers with the order, or with the cart priced again (stock or a price changed), a refused coupon or the fields
      to fix. `shown`: the total the customer sees, so a price changed since the page opened is never charged unseen. */
   /* the order is in: its thank-you, and the next checkout is a new one */
-  function shownPlaced(got: PlacedAnswer, phoneIn: string, emailIn: string, payIn: Pay | null) {
+  /* `whole`: the basket is the order just sent, so all of it goes; a reloaded page's order found later (lookedUp) takes
+     out only what that order holds, so products added while it was being looked for stay */
+  function shownPlaced(got: PlacedAnswer, phoneIn: string, emailIn: string, payIn: Pay | null, whole = true) {
     const mobile = jordanMobile(phoneIn);
     const items = got.items ?? [];
     const num = (v: unknown, or: number) => (typeof v === "number" && Number.isFinite(v) ? v : or);
@@ -634,14 +636,19 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     setRemoteCoupon(null);
     setCouponErr(null);
     setPriceFix({});
-    onCleared();
+    if (whole) onCleared();
+    else
+      for (const it of got.items ?? []) {
+        const l = lines.find((x) => x.p.id === it.id && (x.size ?? "") === (it.size ?? ""));
+        if (l) setQty(l.p, Math.max(0, l.qty - it.qty), l.size);
+      }
     void refreshStore?.();
   }
   /* the reloaded page's order got in: its thank-you, shown when the cart opens (as after any order) */
   useEffect(() => {
     if (!lookedUp) return;
     setLookedUp(null);
-    shownPlaced(lookedUp.order, lookedUp.phone, lookedUp.email, lookedUp.pay);
+    shownPlaced(lookedUp.order, lookedUp.phone, lookedUp.email, lookedUp.pay, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookedUp]);
 
