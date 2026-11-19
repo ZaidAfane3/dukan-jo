@@ -85,7 +85,7 @@ function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number
 }
 
 /** The ways to pay the store checkout offers now (Diwan's platform settings), as the cart names them */
-function storePaysFrom(methods: Record<string, { on: boolean }>): Payment[] {
+export function storePaysFrom(methods: Record<string, { on: boolean }>): Payment[] {
   return (["cliq", "cash", "card"] as const).filter((p) => methods[p === "cash" ? "cod" : p]?.on);
 }
 

@@ -12,12 +12,13 @@ import { db } from "./db";
      orderPlaced     { number, total, name }    a customer placed an order on the store's page (server/storeOrders.ts)
      shipCityGone    { city }                   Dukkan Ship no longer picks up from the store's pickup city (Diwan took
                                                 it off the list: app/api/diwan/settings)
+     payOff          {}                         Diwan switched off the last way to pay the store had on
    Dukkan has no plans or free trial, so the old planChanged kind is no longer sent, and "Log in as merchant" was removed
    on 2026-11-16, so neither is the old supportViewed kind (the bell still words both for older messages). Announcements are not sent with
    this: they are rows in announcements, shown to whoever they are for. */
 export type NotifyKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "paymentReceived" | "orderPlaced" | "shipCityGone";
+  | "paymentReceived" | "orderPlaced" | "shipCityGone" | "payOff";
 
 /* the free-text details (a ticket's subject, a staff note, a suspension reason) are stored encrypted; numbers, kinds
    and statuses stay plain so the bell can find a ticket's notices. db() opens them again on the way out. */
