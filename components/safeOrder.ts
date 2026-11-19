@@ -384,6 +384,49 @@ export function takeStock(list: unknown[], items: { id?: unknown; qty: number; s
   });
 }
 
+/** How many pieces each order line really takes out of the saved products (`took`): what it asks for, as far as the
+    product (or its size) has them; none for a product with no limit, and none for a product or size that is not there.
+    It is kept on each line of the order, so cancelling it gives back exactly that and nothing else (a product that had no
+    limit when it was ordered gets nothing added, whatever it has now). `short`: a line that could not have all it asks
+    for from a product that is still there (a product with no limit never is; one deleted for good has nothing to take). */
+export function stockTaken<T extends { id?: unknown; qty: number; size?: string }>(list: unknown[], items: T[]): { lines: (T & { took: number })[]; short: T[] } {
+  const byId = new Map<number, Record<string, unknown>>();
+  for (const raw of list) {
+    const id = raw && typeof raw === "object" && !Array.isArray(raw) ? productId((raw as Record<string, unknown>).id) : null;
+    if (id !== null && !byId.has(id)) byId.set(id, raw as Record<string, unknown>);
+  }
+  /* what earlier lines of the same product (and size) already took */
+  const used = new Map<string, number>();
+  const short: T[] = [];
+  const lines = items.map((it) => {
+    const id = productId(it.id);
+    const p = id === null ? undefined : byId.get(id);
+    if (!p) return { ...it, took: 0 };
+    const sizes = productSizes(p);
+    if (!sizes.length && isUnlimited(p)) return { ...it, took: 0 };
+    const k = `${id}|${sizes.length ? sizeName(it.size) : ""}`;
+    const has = sizes.length ? sizes.find((z) => z.name === sizeName(it.size))?.quantity ?? 0 : stock(p.quantity);
+    const took = Math.max(0, Math.min(it.qty, has - (used.get(k) ?? 0)));
+    used.set(k, (used.get(k) ?? 0) + took);
+    if (took < it.qty) short.push(it);
+    return { ...it, took };
+  });
+  return { lines, short };
+}
+
+/** The lines of an order whose pieces can't go back to the saved stock when it is cancelled: the product is now sold in
+    sizes and the line's size is no longer one of them (renamed or removed since), so nothing is added anywhere for it and
+    the merchant is told instead. A product with no limit now needs nothing back; one deleted for good is gone. */
+export function stockNotBack<T extends { id?: unknown; size?: string; took: number }>(list: unknown[], items: T[]): T[] {
+  return items.filter((it) => {
+    if (it.took <= 0) return false;
+    const id = productId(it.id);
+    const p = list.find((raw) => raw && typeof raw === "object" && !Array.isArray(raw) && productId((raw as Record<string, unknown>).id) === id) as Record<string, unknown> | undefined;
+    const sizes = p ? productSizes(p) : [];
+    return sizes.length > 0 && !sizes.some((z) => z.name === sizeName(it.size));
+  });
+}
+
 /* ============================== stock sold on the public store ==============================
    SOLD_ONLINE: every product an order from the public store took stock from carries `soldOnline`, how many the store
    sold online, per size ("" for a product without sizes). The merchant's own copy of his products (in his browser)

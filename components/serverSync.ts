@@ -16,6 +16,7 @@
    account sends them first (resumeSaves). Leaving the page while a change is still on its way asks first. */
 
 import { accountValue, replaceAccountValue, restoreAccountValue, signedInAs } from "./demoSandbox";
+import { lastOrderNumber, ORDER_NUMBER_KEY } from "./orderNumbers";
 import { LIST_KEYS, listMarks, mergeList, VERSION_KEYS, type ItemMarks } from "./listMerge";
 import { bounceIfSuspended } from "./suspended";
 
@@ -66,7 +67,7 @@ export async function pullOnlineKeys(): Promise<void> {
   if (!signedInAs() || running || paused || !gate()) return;
   const before = Object.fromEntries(ONLINE_KEYS.map((k) => [k, accountValue(k)]));
   try {
-    const r = await fetch(`/api/store?keys=${ONLINE_KEYS.join(",")}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader() });
+    const r = await fetch(`/api/store?keys=${[...ONLINE_KEYS, ORDER_NUMBER_KEY].join(",")}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader() });
     if (r.status === 401 || r.status === 409) return lostSession();
     /* another tab signed this browser out or in as someone else meanwhile: the answer is not this tab's account's */
     if (!r.ok || halted) return;
@@ -83,6 +84,11 @@ export async function pullOnlineKeys(): Promise<void> {
         showAgain(k);
       }
     }
+    /* the last order number given: store orders raised it on the server, and this browser's next order (his own, or one
+       from his preview) goes on from the higher one (components/orderNumbers.ts) */
+    const num = j.data?.[ORDER_NUMBER_KEY];
+    const mine = accountValue(ORDER_NUMBER_KEY);
+    if (typeof num === "string" && lastOrderNumber(num) > lastOrderNumber(mine) && !pending.has(ORDER_NUMBER_KEY) && !inOutbox(ORDER_NUMBER_KEY) && !running) restoreAccountValue(ORDER_NUMBER_KEY, num, mine);
   } catch {
     /* offline: the next page load tries again */
   }

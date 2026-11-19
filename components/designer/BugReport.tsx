@@ -17,8 +17,11 @@ import { cleanLine, cleanLines, visibleLength } from "../safe";
 import { ACCOUNT_LIMITS, cleanTickets, TICKET_MIN, TICKET_PICTURES, type Ticket } from "../safeAccount";
 import { createTicket, sendable } from "../ticketsApi";
 import { readPhoto } from "./image";
+import { dropDraft, HeldSendBar, heldWords, keepDraft, takeDraft, useHeldSend } from "../heldSend";
 
 const KEY = "seen-tickets";
+/* a report that could not be sent after the designer was left (heldSend.tsx keepDraft) */
+const DRAFT_KEY = "seen-bug-draft";
 /* "Store design" in the support categories (content.ts, support.categories) */
 const DESIGN_CATEGORY = 3;
 
@@ -204,10 +207,35 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
     setSendError("");
   };
 
-  const send = async () => {
+  /* the report is held for a moment with an Undo, like a ticket from the Support page (heldSend.tsx): the tab closes at
+     once, and Undo opens it again as he left it */
+  const send = () => {
     if (visibleLength(text) < TICKET_MIN.message) return setError(true);
+    if (busy || held.holding) return;
+    setSendError("");
+    setOpen(false);
+    held.hold();
+  };
+  const undoSend = () => {
+    if (held.undo()) setOpen(true);
+  };
+
+  /* a report that could not be sent after the designer was left: the tab opens with it, and says so */
+  useEffect(() => {
+    const d = takeDraft(DRAFT_KEY);
+    if (!d || typeof d.text !== "string") return;
+    setText(d.text.slice(0, ACCOUNT_LIMITS.message));
+    if (d.kind === "bug" || d.kind === "idea") setKind(d.kind);
+    if (Array.isArray(d.pictures)) setPics(d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES));
+    setSendError(w.failed);
+    setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const deliver = async () => {
     if (serverMode()) {
-      if (busy) return;
+      /* the account it is sent as, taken now (the answer may come after a sign-out): the draft is dropped for that one */
+      const owner = keepDraft(DRAFT_KEY, { text, kind, pictures: pics });
       setBusy(true);
       setSendError("");
       const r = await createTicket({
@@ -217,9 +245,16 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
         pictures: sendable(pics),
         kind,
         where: cleanLine(where, 200),
-      });
+      }, { leaving: held.leaving.current });
       setBusy(false);
-      if (!r.ok) return setSendError(r.why === "too-many" ? w.tooMany : r.field === "pictures" ? w.badPics : w.failed);
+      if (!r.ok) {
+        /* not sent: the tab opens again with his words and says why (left meanwhile: the draft brings them back) */
+        if (!held.alive.current || held.leaving.current) return;
+        dropDraft(DRAFT_KEY, owner);
+        setOpen(true);
+        return setSendError(r.why === "too-many" ? w.tooMany : r.field === "pictures" ? w.badPics : w.failed);
+      }
+      dropDraft(DRAFT_KEY, owner);
       return done(`#${r.data.number}`);
     }
     let tickets: Ticket[] = [];
@@ -245,12 +280,14 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
     }
     done(id);
   };
+  const held = useHeldSend(deliver);
 
   return (
     <>
       <button
         type="button"
         onClick={() => { setSentId(""); setOpen(true); }}
+        disabled={held.holding}
         aria-label={w.open}
         title={w.open}
         className={`fixed end-4 z-40 flex items-center gap-2 rounded-full bg-card text-xs font-bold text-fg shadow-lg ring-1 ring-fg/10 transition hover:-translate-y-0.5 hover:text-primary ${lift ? "bottom-3 p-2.5" : "bottom-4 px-3.5 py-2"} ${open || hidden ? "invisible" : ""}`}
@@ -348,7 +385,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
                 </div>
                 {sendError && <p role="alert" className="mx-5 mb-0 mt-3 rounded-xl bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">{sendError}</p>}
                 <div className="flex gap-3 border-t border-fg/10 px-5 py-4">
-                  <button type="button" onClick={() => void send()} disabled={busy} className="h-11 flex-1 rounded-xl bg-ink text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-60">{busy ? w.sending : w.send[kind]}</button>
+                  <button type="button" onClick={send} disabled={busy || held.holding} className="h-11 flex-1 rounded-xl bg-ink text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-60">{busy ? w.sending : w.send[kind]}</button>
                   <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-xl border border-fg/20 px-5 text-sm font-semibold transition hover:bg-soft">{w.cancel}</button>
                 </div>
               </>
@@ -356,6 +393,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
           </aside>
         </div>
       )}
+      {held.holding && <HeldSendBar text={kind === "bug" ? heldWords[lang].report : heldWords[lang].idea} undo={heldWords[lang].undo} onUndo={undoSend} />}
     </>
   );
 }

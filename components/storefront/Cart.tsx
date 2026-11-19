@@ -6,8 +6,9 @@ import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
 import { payNote, shipCityLists, storePayKey, storePays, usePublicSettings } from "../platformPublic";
 import { jordanMobile } from "../phone";
-import { checkCheckout, orderPays, ORDER_LIMITS, savedPays, storeDelivery, storeFulfils, type Payment, priceCart, productSizes, sellableStock, takeStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
+import { checkCheckout, orderPays, ORDER_LIMITS, savedPays, storeDelivery, storeFulfils, type Payment, priceCart, productSizes, sellableStock, stockTaken, takeStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type CouponRefusal } from "../records";
+import { nextOrderNumber } from "../orderNumbers";
 import type { CartStyle } from "./config";
 import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
@@ -255,11 +256,15 @@ const storeCoupons = (): Coupon[] => {
 function saveOrder(o: { customer: string; phone: string; total: number; items: (PricedLine & { image?: string })[]; fulfil: Fulfil; city: string; address: string; note: string; pay: Pay; coupon?: { code: string; discount: number }; /* the delivery fee inside the total, for his reports */ delivery: number }): number | null {
   try {
     const list = readList("seen-orders");
-    const id = list.reduce((m, x) => (typeof x.id === "number" && Number.isSafeInteger(x.id) && x.id < 1e9 ? Math.max(m, x.id) : m), 1000) + 1;
-    localStorage.setItem("seen-orders", JSON.stringify([{ id, ...o, status: "pending", channel: 1, created: Date.now() }, ...list]));
+    /* the next number the store never gave (orderNumbers.ts), so it never meets another order's */
+    const id = nextOrderNumber(list);
+    /* each line keeps how many pieces it really took (none from a product with no limit), so cancelling it on the Orders
+       page gives back exactly that, as the server does for orders on the public store */
+    const items = stockTaken(readList("seen-products"), o.items).lines;
+    localStorage.setItem("seen-orders", JSON.stringify([{ id, ...o, items, status: "pending", channel: 1, created: Date.now() }, ...list]));
     /* what was bought leaves the stock: each size its own, and a stock with no limit stays as it is (safeOrder.ts, the
        same rule the server runs for orders on the public store) */
-    if (localStorage.getItem("seen-products")) localStorage.setItem("seen-products", JSON.stringify(takeStock(readList("seen-products"), o.items)));
+    if (localStorage.getItem("seen-products")) localStorage.setItem("seen-products", JSON.stringify(takeStock(readList("seen-products"), items.map((it) => ({ ...it, qty: it.took })))));
     /* the coupon counts one more use (its limit is checked against this) */
     if (o.coupon) localStorage.setItem("seen-coupons", JSON.stringify(countCouponUse(readList("seen-coupons"), o.coupon.code)));
     return id;

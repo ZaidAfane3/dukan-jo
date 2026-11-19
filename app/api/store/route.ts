@@ -12,6 +12,7 @@ import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership
 import { stripPaidLooks } from "@/components/themeLooks";
 import { valueVersion } from "@/server/storeVersion";
 import { LIST_KEYS, VERSION_KEYS } from "@/components/listMerge";
+import { lastOrderNumber, ORDER_NUMBER_KEY } from "@/components/orderNumbers";
 
 /* the keys whose save may name the version it was made from (see PUT "base") */
 const VERSIONED = (k: string) => LIST_KEYS.has(k) || VERSION_KEYS.has(k);
@@ -48,7 +49,9 @@ export const dynamic = "force-dynamic";
    products or coupons carries the counts of the copy it was made from, so the orders that copy has not seen are taken
    again from it before it is kept (mergeOnlineSales): a save from an older copy (another tab, a page left open) can't
    put back stock that was sold. The kept value comes back in "rewritten", so the browser keeps it too. GET answers
-   "rev", the newest store order, so the browser knows when to fetch the products again (serverSync.ts). */
+   "rev", the newest store order, so the browser knows when to fetch the products again (serverSync.ts). The last order
+   number given (components/orderNumbers.ts) is raised by store orders on the server: a save keeps the higher of the two
+   (the kept value comes back in "rewritten"). */
 
 const MAX_KEY = 200;
 const MAX_VALUE = 3_000_000;
@@ -127,6 +130,8 @@ export const PUT = guarded(async (req: NextRequest) => {
   if (body.base && typeof body.base === "object" && !Array.isArray(body.base))
     for (const [k, v] of Object.entries(body.base as Record<string, unknown>)) if (VERSIONED(k) && typeof v === "string" && v.length <= 64) base[k] = v;
   const online = set.filter(([k]) => (ONLINE_KEYS as readonly string[]).includes(k));
+  /* the last order number the store gave (components/orderNumbers.ts): store orders raise it too, so a save never lowers it */
+  const numberEntry = set.find(([k]) => k === ORDER_NUMBER_KEY);
 
   /* pictures still inside the data become files, before anything is measured */
   const rewritten: Record<string, string> = {};
@@ -223,7 +228,7 @@ export const PUT = guarded(async (req: NextRequest) => {
     await client.query("BEGIN");
     /* a save of the products or coupons waits for an order being placed on the store, and takes again what the store
        sold online that the browser's copy has not seen */
-    if (online.length) await shopLock(client, a.id);
+    if (online.length || numberEntry) await shopLock(client, a.id);
     const asked = set.map(([k]) => k).filter((k) => Object.hasOwn(base, k));
     /* one save of the account's lists, or of what decides whether the store is live (setup, design, pause), at a time:
        a lock that exists before any row does, so a second device that also had no copy on the server ("") waits for
@@ -283,6 +288,15 @@ export const PUT = guarded(async (req: NextRequest) => {
           entry[1] = kept;
           rewritten[entry[0]] = kept;
         }
+      }
+    }
+    if (numberEntry) {
+      const { rows } = await client.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = $2 FOR UPDATE`, [a.id, ORDER_NUMBER_KEY]);
+      const stored = rows[0] ? lastOrderNumber(rows[0].value) : 0;
+      const kept = Math.max(stored, lastOrderNumber(numberEntry[1]));
+      if (kept > 0 && String(kept) !== numberEntry[1]) {
+        numberEntry[1] = String(kept);
+        rewritten[ORDER_NUMBER_KEY] = String(kept);
       }
     }
     if (remove.length) await client.query(`DELETE FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, remove]);
