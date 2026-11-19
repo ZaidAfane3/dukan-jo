@@ -263,8 +263,9 @@ function TicketView({ first }: { first: Data }) {
     }
     const staffSide = m.author === "staff";
     const who = staffSide ? m.staff?.name ?? t("Dukkan team", "فريق دكّان") : merchantName;
+    /* an internal note is a sticky note on the thread (app/globals.css), never a chat bubble */
     const bubble = m.internal
-      ? "border-2 border-dashed border-amber-500/70 bg-amber-50 text-amber-950 dark:bg-amber-500/10 dark:text-amber-50"
+      ? "sticky-note !rounded-[3px] mt-2 -rotate-[0.6deg] rtl:rotate-[0.6deg]"
       : staffSide
         ? "rounded-se-md bg-primary/[0.12] ring-1 ring-primary/25"
         : "rounded-ss-md bg-card ring-1 ring-fg/10";
@@ -519,16 +520,32 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
             </button>
           </div>
         )}
-        <textarea
-          className={`${area} ${note ? "border-amber-400 bg-white/70 focus:border-amber-500 focus:ring-amber-500/25 dark:border-amber-500/40 dark:bg-black/20" : ""}`}
-          rows={3}
-          dir="auto"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          maxLength={5000}
-          aria-label={note ? t("Internal note", "ملاحظة داخلية") : t("Reply to merchant", "الرد على التاجر")}
-          placeholder={note ? t("Write a note for the team…", "اكتب ملاحظة للفريق…") : t(`Write to ${merchant}… they will see this`, `اكتب إلى ${merchant}… سيرى ما تكتبه`)}
-        />
+        {note ? (
+          /* the note is written on a sticky note (app/globals.css .sticky-note): it drops in each time the tab is picked */
+          <div key="note" className="sticky-note sticky-note-in mt-4 px-4 pb-4 pt-3 focus-within:ring-2 focus-within:ring-amber-500/60">
+            <textarea
+              className="sticky-note-lines block w-full resize-y border-0 bg-transparent text-sm text-inherit outline-none placeholder:text-[rgb(var(--note-ink)/0.5)]"
+              rows={4}
+              dir="auto"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={5000}
+              aria-label={t("Internal note", "ملاحظة داخلية")}
+              placeholder={t("Write a note for the team…", "اكتب ملاحظة للفريق…")}
+            />
+          </div>
+        ) : (
+          <textarea
+            className={area}
+            rows={3}
+            dir="auto"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={5000}
+            aria-label={t("Reply to merchant", "الرد على التاجر")}
+            placeholder={t(`Write to ${merchant}… they will see this`, `اكتب إلى ${merchant}… سيرى ما تكتبه`)}
+          />
+        )}
         {!!pics.length && (
           <div className="flex flex-wrap gap-2">
             {pics.map((p, i) => (
