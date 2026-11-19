@@ -209,7 +209,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     return () => { on.removeEventListener("scroll", place); window.removeEventListener("resize", place); };
   }, [design, showCart]);
   const cartLines = Object.entries(qty).flatMap(([key, n]) => {
-    const [id, size] = key.split("|");
+    /* "id|size": split at the first bar only, so a size whose name has a bar ("S|M") stays whole (visitorBasket.ts reads it the same way) */
+    const bar = key.indexOf("|");
+    const id = bar < 0 ? key : key.slice(0, bar);
+    const size = bar < 0 ? "" : key.slice(bar + 1);
     const p = data.products.find((x) => String(x.id) === id);
     return p && n > 0 ? [{ p, qty: n, ...(size ? { size } : {}) }] : [];
   });
