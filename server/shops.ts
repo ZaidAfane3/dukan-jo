@@ -228,6 +228,10 @@ export const STORE_ORDERS_SQL = (s = "s") => `(SELECT count(*) FILTER (WHERE o.p
     store page's (STORE_ORDERS_SQL, joined as `so`) together */
 export const ORDERS_SQL = `(s.order_count + so.n)`;
 export const SALES_SQL = `(s.total_sales + so.sales)::numeric(14, 3)`;
+/** The same apart, as Diwan shows them (two figures, each labelled): the orders and sales that came through the store's
+    page, counted by the server from store_orders, and the ones the merchant added himself (his saved orders, by hand or
+    from his own preview: countShop), which the server cannot check. Platform figures go by the store page's only. */
+export const STORE_PAGE_SQL = `so.n AS store_orders, so.sales::numeric(14, 3) AS store_sales, s.order_count AS hand_orders, s.total_sales AS hand_sales`;
 
 /** A shop that delivers with Dukkan Ship: it chose it, or it is live (published) with no delivery choice saved, a store
     from before one was asked for, which delivers with Dukkan Ship by default (safeOrder checkoutShipMode). Diwan's
@@ -241,8 +245,9 @@ const SORTS: Record<string, string> = {
   seen: "s.last_seen_at DESC NULLS LAST",
   name: "lower(s.name) ASC, s.created_at DESC",
   products: "s.product_count DESC",
-  orders: `${ORDERS_SQL} DESC`,
-  sales: `${SALES_SQL} DESC`,
+  /* by what came through the store page (STORE_PAGE_SQL), then what the merchant added */
+  orders: `so.n DESC, s.order_count DESC`,
+  sales: `so.sales DESC, s.total_sales DESC`,
 };
 export const SHOP_SORTS = Object.keys(SORTS);
 export const SHOP_STATUSES = ["open", "paused", "suspended"] as const;
@@ -280,5 +285,5 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
 }
 
 export const SHOP_LIST_COLUMNS = `s.account_id AS id, s.name, s.slug, a.name AS owner, a.email, a.phone,
-  (${STATUS_SQL}) AS status, s.setup_done, s.published, s.paused, s.ship_mode, s.product_count, ${ORDERS_SQL} AS order_count,
-  ${SALES_SQL} AS total_sales, s.last_seen_at, s.created_at`;
+  (${STATUS_SQL}) AS status, s.setup_done, s.published, s.paused, s.ship_mode, s.product_count, ${STORE_PAGE_SQL},
+  s.last_seen_at, s.created_at`;

@@ -38,6 +38,11 @@ type Shop = {
   /* order_count and total_sales are the merchant's Home's numbers (his own orders and his store page's, no test orders) */
   /* of order_count, the orders customers placed on its public page */
   storefront_orders: number;
+  /* the same apart: through the store page (store_orders) and added by the merchant (his saved orders) */
+  store_orders?: number;
+  store_sales?: string;
+  hand_orders?: number;
+  hand_sales?: string;
   /* card and CliQ orders placed on its page while payment is not open: test orders, in neither number */
   storefront_test?: number;
   /* visitors of its store at its link over the last 30 days (each day's visitors added up) */
@@ -312,11 +317,14 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
               <Info title={t("Status and numbers", "الحالة والأرقام")}>
                 <Line k={t("Status", "الحالة")} v={<StatusBadge status={sh.status} />} />
                 <Line k={t("Products", "المنتجات")} v={f.num(sh.product_count)} />
-                <Line k={t("Orders", "الطلبات")} v={f.num(sh.order_count)} />
-                <Line k={t("Of them, from its store page", "منها من صفحة المتجر")} v={f.num(sh.storefront_orders ?? 0)} />
+                {/* two figures, each labelled: what came through the store page (counted by Dukkan's server) and what the
+                    merchant added himself (server/shops.ts STORE_PAGE_SQL) */}
+                <Line k={t("Orders through the store page", "الطلبات عبر صفحة المتجر")} v={f.num(sh.store_orders ?? 0)} />
+                <Line k={t("Orders the merchant added", "طلبات أضافها التاجر")} v={f.num(sh.hand_orders ?? 0)} />
                 {(sh.storefront_test ?? 0) > 0 && <Line k={t("Test orders not counted", "طلبات تجريبية غير محسوبة")} v={f.num(sh.storefront_test ?? 0)} />}
                 <Line k={t("Visitors, last 30 days", "الزوار، آخر 30 يومًا")} v={f.num(sh.visitors_30 ?? 0)} />
-                <Line k={t("Total sales", "إجمالي المبيعات")} v={f.jod(sh.total_sales)} />
+                <Line k={t("Sales through the store page", "المبيعات عبر صفحة المتجر")} v={f.jod(sh.store_sales ?? "0")} />
+                <Line k={t("Sales the merchant added", "مبيعات أضافها التاجر")} v={f.jod(sh.hand_sales ?? "0")} />
                 {/* a date, or why there is none: none yet, or some counted without the date of the first being recorded */}
                 <Line
                   k={t("First product", "أول منتج")}

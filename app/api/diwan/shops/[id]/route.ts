@@ -2,7 +2,7 @@ import { answer } from "@/server/auth";
 import { aboutShopSql, describeActivity } from "@/server/activityDetail";
 import { db } from "@/server/db";
 import { notFound, shopId } from "@/server/shopActions";
-import { ORDERS_SQL, prepareShops, SALES_SQL, STATUS_SQL, STORE_ORDERS_SQL, syncShop } from "@/server/shops";
+import { ORDERS_SQL, prepareShops, SALES_SQL, STATUS_SQL, STORE_ORDERS_SQL, STORE_PAGE_SQL, syncShop } from "@/server/shops";
 import { SHOWN_SQL } from "@/components/diwan/activityWords";
 import { can, staffRoute } from "@/server/staff";
 import { shopVisitors30 } from "@/server/storeVisits";
@@ -76,8 +76,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode, s.ship_name, s.pickup, s.store_pays,
               s.pickup_city, s.pickup_address, s.status AS shop_status, s.suspend_reason, s.suspended_at, s.product_count,
               /* its orders and sales as the merchant's Home shows them: its own and its store page's, without the card
-                 and CliQ test orders (server/shops.ts STORE_ORDERS_SQL) */
-              ${ORDERS_SQL} AS order_count, ${SALES_SQL} AS total_sales, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
+                 and CliQ test orders (server/shops.ts STORE_ORDERS_SQL), and the two apart (STORE_PAGE_SQL) */
+              ${ORDERS_SQL} AS order_count, ${SALES_SQL} AS total_sales, ${STORE_PAGE_SQL}, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
               /* the oldest order: the one the merchant's saved orders give, or an older one customers placed on its page */
               LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at,
               a.name AS owner, a.email, a.phone, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
