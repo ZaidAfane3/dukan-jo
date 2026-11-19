@@ -7,7 +7,7 @@ import { load as loadPages, pagesScope, starterPages } from "../InfoPages";
 import type { PublicStoreOpen } from "../publicStore";
 import { useVisitorStore } from "./visitorStore";
 import type { SectionConfig } from "./config";
-import { isUnlimited, money, productId, productSizes, salePrice, sellableStock, type Payment, type SizeStock } from "../safeOrder";
+import { isUnlimited, money, productId, productShips, productSizes, salePrice, sellableStock, type Payment, type SizeStock } from "../safeOrder";
 import { safeStoredImage } from "../safe";
 import { noPhotoHue } from "./NoPhoto";
 import { productCategories } from "../records";
@@ -31,6 +31,9 @@ export type StoreProduct = {
   /* What can be sold: an unlimited product gets UNLIMITED_STOCK, so it is never sold out or "only a few left" */
   quantity: number;
   unlimited?: boolean;
+  /* Not delivered to an address (a digital product, a service, or "Needs shipping" off: safeOrder productShips): a cart of
+     only such products has no delivery fee and asks no city or address */
+  noShip?: boolean;
   /* Clothing and shoes: each size and how many of it (the customer picks one before adding it to the cart) */
   sizes?: SizeStock[];
   /* Clothing and shoes: a picture of the size chart, opened from the product page */
@@ -141,6 +144,7 @@ export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
     ...(productSizes(p).length ? { sizes: productSizes(p) } : {}),
     ...(productSizes(p).length && safeStoredImage(p.sizeChart) ? { sizeChart: safeStoredImage(p.sizeChart) } : {}),
     ...(isUnlimited(p) ? { unlimited: true } : {}),
+    ...(productShips(p) ? {} : { noShip: true }),
     /* the color of its placeholder when it has no photo, the same one the dashboard shows */
     hue: noPhotoHue(Number(p.id)),
     /* a picture saved in this browser, never a link to another site (it could track the visitors) */

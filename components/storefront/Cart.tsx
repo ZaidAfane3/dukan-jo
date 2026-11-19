@@ -308,7 +308,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const [sendErr, setSendErr] = useState("");
   /* (the receipt's lines as the server worked them out: the subtotal, the coupon's discount and the delivery, so they add
      up to the total; `feeOpen`: his own courier with no fee set, the store confirms it) */
-  const [placed, setPlaced] = useState<{ number: number; items: PricedLine[]; subtotal: number; discount: number; coupon: string | null; delivery: number; fulfil: Fulfil; feeOpen: boolean; total: number; phone: string; email: string; pay: Pay | null } | null>(null);
+  const [placed, setPlaced] = useState<{ number: number; items: PricedLine[]; subtotal: number; discount: number; coupon: string | null; delivery: number; fulfil: Fulfil; feeOpen: boolean; total: number; phone: string; email: string; pay: Pay | null; /* something in it is delivered (no delivery line otherwise) */ ships: boolean } | null>(null);
   /* the public store: the delivery fee and free delivery offer as the server answered them, when they changed since the
      page opened (the cart then works its total out from these, as the server does) */
   /* (`fee` null: his own courier with no fee set, the store confirms it) */
@@ -340,7 +340,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const cities = (choicesFix ? choicesFix.cities : offer?.cities) ?? { en: [], ar: [] };
   /* how the order can reach him here; none: the store hasn't set up delivery, no order can be placed */
   const fulfils = storeFulfils(canDeliver, pickup);
-  const noDelivery = fulfils.length === 0;
+  /* nothing in the cart is delivered to an address (codes, gift cards, services: safeOrder productShips): no delivery
+     fee, no city, address or delivery choice, and the store's delivery setup does not matter. One that ships: as usual. */
+  const ships = lines.some((l) => !l.p.noShip);
+  const noDelivery = ships && fulfils.length === 0;
   const [payPicked, setPay] = useState<Pay>("cliq");
   /* a way to pay switched off in Diwan while the page is open is never kept: the first one still on is chosen */
   const pay: Pay | null = pays.includes(payPicked) ? payPicked : pays[0] ?? null;
@@ -387,9 +390,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   /* the coupon taken is checked again whenever the basket changes (it may fall under its minimum) */
   const cp = coupon ? checkCoupon(coupon, couponList(), subtotal) : null;
   const discount = cp?.ok ? cp.discount : 0;
-  const delivery = lines.length === 0 || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery) ? 0 : DELIVERY_FEE;
+  const delivery = !ships || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery) ? 0 : DELIVERY_FEE;
   /* a delivery that is not free by an offer, a coupon or pickup, with no fee set: the store confirms the fee */
-  const feeOpen = feeAsk && !(lines.length === 0 || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery));
+  const feeOpen = feeAsk && !(!ships || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery));
   const total = toFils(subtotal - discount + delivery);
   const applyCoupon = () => {
     if (!couponText.trim()) return;
@@ -474,6 +477,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
         phone: mobile ? `0${mobile}` : form.phone.trim(),
         email: form.email.trim().toLowerCase(),
         pay,
+        ships,
       });
       /* the next checkout is a new one */
       attemptKey.current = null;
@@ -509,9 +513,11 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
         return !it || it.qty !== l.qty || Math.abs(it.price - priceAt(l.p)) > 0.0005;
       });
       const newSub = toFils(items.reduce((n, it) => n + it.qty * it.price, 0));
+      /* (the new basket still has something delivered to an address) */
+      const newShips = items.some((it) => !products.find((p) => p.id === it.id)?.noShip);
       const cNow = c ?? (cp?.ok ? cp.coupon : null);
       const cpNew = cNow ? checkCoupon(cNow.code, [cNow], newSub) : null;
-      const deliveryWith = (fee: number, free: FreeDelivery) => (items.length === 0 || (free.on && newSub >= free.min) || fulfil === "pickup" || (cpNew?.ok && cpNew.freeDelivery) ? 0 : fee);
+      const deliveryWith = (fee: number, free: FreeDelivery) => (!newShips || (free.on && newSub >= free.min) || fulfil === "pickup" || (cpNew?.ok && cpNew.freeDelivery) ? 0 : fee);
       const termsNow = t && (typeof t.fee === "number" || t.fee === null) && t.freeDelivery && typeof t.freeDelivery.min === "number" ? { fee: t.fee, fd: { on: t.freeDelivery.on === true, min: t.freeDelivery.min } } : null;
       const feeNow = termsNow ? deliveryWith(termsNow.fee ?? 0, termsNow.fd) : null;
       /* the store now confirms the fee itself (none set any more), on a delivery that is not free anyway */
@@ -585,7 +591,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     setSendErr("");
     if (noDelivery) return setSendErr(w.noDelivery);
     if (!pays.length) return setSendErr(w.noPay);
-    const checked = checkCheckout({ ...form, pay, fulfil }, { pickup, delivery: canDeliver, pays, cities });
+    const checked = checkCheckout({ ...form, pay, fulfil }, { pickup, delivery: canDeliver, pays, cities, ships });
     const bad = new Set<CheckoutField>(checked.ok ? [] : checked.errors);
     const next: typeof errors = {};
     if (bad.has("name")) next.name = w.errName;
@@ -620,7 +626,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       return;
     }
     const off = used?.ok ? used.discount : 0;
-    const fee = (fd.on && priced.subtotal >= fd.min) || checked.value.fulfil === "pickup" || (used?.ok && used.freeDelivery) ? 0 : DELIVERY_FEE;
+    const fee = !ships || (fd.on && priced.subtotal >= fd.min) || checked.value.fulfil === "pickup" || (used?.ok && used.freeDelivery) ? 0 : DELIVERY_FEE;
     const sum = toFils(priced.subtotal - off + fee);
     placing.current = true;
     const id = saveOrder({
@@ -659,7 +665,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const heading: CSSProperties = { fontFamily: "var(--sf-heading)" };
 
   /* free delivery is only promised when the order can be delivered and is not picked up */
-  const freeLine = fd.on && canDeliver && fulfil === "delivery" && lines.length > 0 && (
+  const freeLine = fd.on && canDeliver && ships && fulfil === "delivery" && lines.length > 0 && (
     <div className={s.free}>
       <p className="flex items-center gap-2">
         {look !== "editorial" && <span aria-hidden className="shrink-0">{truck}</span>}
@@ -733,7 +739,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       <p className="flex justify-between gap-3"><span className="opacity-70">{w.subtotal}</span><span dir="auto">{amount(subtotal)}</span></p>
       {cp?.ok && discount > 0 && <p className="flex justify-between gap-3 text-emerald-700 dark:text-emerald-500"><span>{w.discount} <span dir="ltr" className="font-bold">{cp.coupon.code}</span></span><span dir="auto">−{amount(discount)}</span></p>}
       {/* no way to get the order: no delivery line (never a false "Free"); picked up: it says so */}
-      {noDelivery ? null : fulfil === "pickup" ? (
+      {noDelivery || !ships ? null : fulfil === "pickup" ? (
         <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span>{canDeliver ? w.pickupLine : w.pickupOnly}</span></p>
       ) : feeOpen ? (
         <p className="flex justify-between gap-3"><span className="opacity-70">{w.deliveryFee}</span><span>{w.feeByStore}</span></p>
@@ -820,7 +826,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
         ))}
       </div>
       {/* the ways the store offers: delivery and pickup, or pickup alone when he has no delivery choice yet */}
-      {pickup && (
+      {pickup && ships && (
         <div role="radiogroup" aria-label={w.fulfil}>
           <p className={s.label}>{w.fulfil}</p>
           <div className={`grid gap-2 ${fulfils.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
@@ -833,7 +839,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
           {fulfil === "pickup" && <p className="mt-2 text-xs opacity-70">{w.pickupNote}</p>}
         </div>
       )}
-      {fulfil === "delivery" && !noDelivery && (
+      {fulfil === "delivery" && ships && !noDelivery && (
         <div className={luxe ? "grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : "space-y-3"}>
           <div>
             <label htmlFor="co-city" className={s.label}>{w.city} <span className="text-rose-600">*</span></label>
@@ -914,7 +920,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
             {placed.discount > 0 && (
               <p className="flex justify-between gap-3 text-emerald-700 dark:text-emerald-500"><span>{w.discount}{placed.coupon && <> <span dir="ltr" className="font-bold">{placed.coupon}</span></>}</span><span dir="auto">−{amount(placed.discount)}</span></p>
             )}
-            {placed.fulfil === "delivery" && (placed.feeOpen ? (
+            {placed.fulfil === "delivery" && placed.ships && (placed.feeOpen ? (
               <p className="flex justify-between gap-3"><span className="opacity-70">{w.deliveryFee}</span><span>{w.feeByStore}</span></p>
             ) : (
               <p className="flex justify-between gap-3"><span className="opacity-70">{w.delivery}</span><span dir="auto">{placed.delivery === 0 ? w.free : amount(placed.delivery)}</span></p>

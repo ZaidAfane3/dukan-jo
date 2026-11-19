@@ -184,6 +184,11 @@ export const productKind = (v: unknown): ProductKind => (PRODUCT_KINDS.includes(
 export const kindHasSizes = (k: ProductKind) => k === "clothing" || k === "shoes";
 /** The kind is something delivered to an address (a code, a gift card or a service is not) */
 export const kindShips = (k: ProductKind) => k !== "digital" && k !== "service";
+/** A saved product is delivered to an address: its kind ships (kindShips) and he did not switch "Needs shipping" off
+    (`shipping: false`, the product form). Products saved before that switch ship. A cart of only products that don't
+    ship has no delivery fee and asks no city or address, the same in the cart (Cart.tsx) and on the server
+    (server/storeOrders.ts); a cart with one product that ships is delivered as usual. */
+export const productShips = (p: { kind?: unknown; shipping?: unknown }) => kindShips(productKind(p.kind)) && p.shipping !== false;
 
 /** One size of a product and how many of it the store has */
 export type SizeStock = { name: string; quantity: number };
@@ -301,8 +306,9 @@ export type CheckoutValue = { customer: string; phone: string; email: string; fu
     mobile (`phone`) and an email (`email`). The city and the address are asked only for delivery; "pickup" counts only
     when the store allows it (`pickup`); `delivery: false` (no delivery choice yet, see storeDelivery) refuses a
     delivered order ("fulfil"). `pays`: the ways to pay this store takes now (orderPays: Dukkan's and his own choice); one
-    that is off is refused like one that does not exist. */
-export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; delivery?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] } } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
+    that is off is refused like one that does not exist. `ships: false`: nothing in the cart is delivered to an address
+    (productShips), so no city, no address and no delivery choice are asked. */
+export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; delivery?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] }; ships?: boolean } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
   const errors: CheckoutField[] = [];
   const name = cleanText(f.name, ORDER_LIMITS.name).replace(/\s+/g, " ").trim();
   if (visible(name) < 2) errors.push("name");
@@ -311,7 +317,8 @@ export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boole
   const email = visitorEmail(f.email);
   if (!email) errors.push("email");
   const fulfil: Fulfil = opts.pickup && f.fulfil === "pickup" ? "pickup" : "delivery";
-  const delivered = fulfil === "delivery";
+  const ships = opts.ships !== false;
+  const delivered = fulfil === "delivery" && ships;
   const deliverable = delivered && opts.delivery !== false;
   if (delivered && !deliverable) errors.push("fulfil");
   const city = deliverable && typeof f.city === "string" ? f.city : "";

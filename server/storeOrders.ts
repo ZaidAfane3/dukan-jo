@@ -4,7 +4,7 @@ import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as rec
 import { safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import {
-  checkCheckout, checkoutShipMode, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, takeStock, toFils, money,
+  checkCheckout, checkoutShipMode, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productShips, productSizes, salePrice, sellableStock, takeStock, toFils, money,
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
 import { plainDeep, plainText, seal } from "./crypto";
@@ -63,11 +63,13 @@ async function findShop(q: { query: PoolClient["query"] }, slug: unknown): Promi
 /* only an open store takes orders: not suspended by Dukkan, published, not paused by the merchant */
 const isOpen = (s: Shop) => s.status !== "suspended" && s.published && !s.paused;
 
-/** The products customers can buy (not in the bin, not hidden), as the cart prices them */
-function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number, string> } {
+/** The products customers can buy (not in the bin, not hidden), as the cart prices them. `noShip`: the ones that are not
+    delivered to an address (safeOrder productShips: a digital product, a service, or "Needs shipping" off). */
+function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number, string>; noShip: Set<number> } {
   const list = Array.isArray(products) ? products.filter(isObj) : [];
   const catalog: Sellable[] = [];
   const images = new Map<number, string>();
+  const noShip = new Set<number>();
   const seen = new Set<number>();
   for (const p of list) {
     if (p.deletedAt || p.hidden) continue;
@@ -77,11 +79,12 @@ function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number
     const price = money(p.price);
     const sizes = productSizes(p);
     catalog.push({ id, name: String(p.name ?? ""), price, sale: salePrice(price, p.sale), quantity: sellableStock(p), ...(sizes.length ? { sizes } : {}) });
+    if (!productShips(p)) noShip.add(id);
     /* the picture the merchant sees on the order: a file's address only, never picture data kept inside the product */
     const img = Array.isArray(p.images) ? safeStoredImage(p.images[0]) : "";
     if (img && !img.startsWith("data:") && img.length <= 300) images.set(id, img);
   }
-  return { catalog, images };
+  return { catalog, images, noShip };
 }
 
 /** The ways to pay the store checkout offers now (Diwan's platform settings), as the cart names them */
@@ -207,8 +210,17 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
        to pay while the customer had the page open, so the cart offers these instead and the next try can go through
        (cities null: no home delivery) */
     const choices = { cities: offer ? offer.cities : null, pickup, pays };
-    if (!offer && !(pickup && customer.fulfil === "pickup")) return { status: 409, body: { result: "no-delivery", pickup, choices } };
-    const checked = checkCheckout(customer, { pickup, delivery: !!offer, pays, cities: offer?.cities });
+    /* every price and the stock from the shop's saved products, never from the customer's browser */
+    const products = parse(data.get("seen-products"));
+    const { catalog, images, noShip } = catalogOf(products);
+    /* a cart of only products that are not delivered (codes, gift cards, services: safeOrder productShips) has no
+       delivery: no fee, no city or address, and no delivery choice needed. One product that ships: as usual. */
+    const ships = (lines as { id?: unknown }[]).some((l) => {
+      const pid = productId(l?.id);
+      return pid === null || !noShip.has(pid);
+    });
+    if (ships && !offer && !(pickup && customer.fulfil === "pickup")) return { status: 409, body: { result: "no-delivery", pickup, choices } };
+    const checked = checkCheckout(customer, { pickup, delivery: !!offer, pays, cities: offer?.cities, ships });
     if (!checked.ok) return { status: 400, body: { result: "invalid", fields: checked.errors, ...(checked.errors.some((f) => f === "city" || f === "pay" || f === "fulfil") ? { choices } : {}) } };
 
     /* delivery: free above the store's free delivery amount, for pickup and with a free delivery coupon; otherwise the
@@ -218,12 +230,10 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const freeDelivery = { on: isObj(fd) && fd.on === true, min: fdMin !== null && fdMin > 0 ? fdMin : 25 };
     /* his own courier with no fee ever set (setup leaves it out): no fee is charged and the checkout says the store
        confirms it, never "Free"; a fee he set (0 included) is charged as set */
+    /* (sent as the store has it also with a cart that is not delivered: the cart charges it only when something ships) */
     const fee = offer ? offer.fee : 0;
     const terms: Terms = { fee, freeDelivery };
 
-    /* every price and the stock from the shop's saved products, never from the customer's browser */
-    const products = parse(data.get("seen-products"));
-    const { catalog, images } = catalogOf(products);
     const priced = priceCart(lines as { id: unknown; qty: unknown; size?: unknown }[], catalog);
     if (priced.changed || priced.items.length === 0) return { status: 409, body: { result: "changed", items: priced.items, terms } };
 
@@ -242,7 +252,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     } else terms.coupon = null;
 
     const v = checked.value;
-    const delivery = (freeDelivery.on && priced.subtotal >= freeDelivery.min) || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
+    const delivery = !ships || (freeDelivery.on && priced.subtotal >= freeDelivery.min) || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
     const total = toFils(priced.subtotal - discount + delivery);
     /* the customer was shown another total (a price or the delivery changed since the page opened): he looks again */
     const expect = typeof body.expect === "number" && Number.isFinite(body.expect) ? body.expect : null;
@@ -280,7 +290,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     /* the merchant's bell: kept only if the order is */
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);
 
-    const feeOpen = fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !(freeDelivery.on && priced.subtotal >= freeDelivery.min);
+    const feeOpen = ships && fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !(freeDelivery.on && priced.subtotal >= freeDelivery.min);
     return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen } } };
   });
 }

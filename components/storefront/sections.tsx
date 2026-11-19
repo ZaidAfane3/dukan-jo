@@ -748,7 +748,8 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   /* how many to add: chosen before adding; once it is in the basket the same buttons change the basket */
   const [pick, setPick] = useState(1);
   const [more, setMore] = useState(false);
-  const perkLine = perkLineWith(ctx.sells);
+  /* a product that is not delivered to an address (a code, a service: safeOrder productShips) promises no delivery */
+  const perkLine = perkLineWith(p.noShip ? { ...ctx.sells, delivers: false } : ctx.sells);
   useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
   useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
@@ -772,8 +773,8 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
     return t + (x ? n * priceOf(x) : 0);
   }, 0));
   const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
-  /* free delivery is only promised by a store that delivers to a door */
-  if (fd?.on && ctx.sells.delivers) {
+  /* free delivery is only promised by a store that delivers to a door, on a product it delivers */
+  if (fd?.on && ctx.sells.delivers && !p.noShip) {
     perks.push(
       basket >= fd.min
         ? { icon: icons.truck, t: w.freeHere, bar: 1 }
@@ -782,7 +783,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
           : { icon: icons.truck, t: <>{w.freeFrom} {amount(fd.min)}</> },
     );
   }
-  if (pickup) perks.push({ icon: icons.pin, t: w.pickup, d: w.pickupD });
+  if (pickup && !p.noShip) perks.push({ icon: icons.pin, t: w.pickup, d: w.pickupD });
   const promises = sections?.find((x): x is Extract<SectionConfig, { type: "perks" }> => x.type === "perks" && x.visible)?.settings.items ?? [];
   const other = ctx.lang === "ar" ? "en" : "ar";
   const perkIcon = { truck: icons.truck, shield: icons.shield, returns: icons.returns, gift: icons.gift, clock: icons.clock, chat: icons.chat };

@@ -45,8 +45,9 @@ export type PublicStore =
   | { status: "unavailable" };
 
 /** The parts of a saved product a visitor's storefront reads (useStoreData.ts toStoreProduct). Anything else saved with
-    a product (its cost, notes for himself, dates, the bin) never leaves the server. */
+    a product (its cost, notes for himself, dates, the bin) never leaves the server. `kind` and `shipping` tell the cart
+    whether it is delivered to an address (safeOrder productShips). */
 export const PUBLIC_PRODUCT_FIELDS = [
-  "id", "name", "category", "categories", "price", "sale", "featured", "quantity", "unlimited", "kind", "sizes", "sizeChart",
+  "id", "name", "category", "categories", "price", "sale", "featured", "quantity", "unlimited", "kind", "shipping", "sizes", "sizeChart",
   "images", "notes", "badge", "description", "brand", "focus",
 ] as const;
