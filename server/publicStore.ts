@@ -1,7 +1,7 @@
 import { MAINTENANCE_MAX } from "@/components/maintenance";
 import { PUBLIC_PRODUCT_FIELDS, type PublicSetup, type PublicStore } from "@/components/publicStore";
-import { money } from "@/components/records";
-import { cleanLines, SLUG_RULE } from "@/components/safe";
+import { money, PRODUCT_MAX } from "@/components/records";
+import { cleanLine, cleanLines, safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { checkoutShipMode } from "@/components/safeOrder";
 import { sanitizeDesign, sanitizePages } from "@/components/safeDesign";
@@ -37,14 +37,25 @@ const parse = (v: string | undefined): unknown => {
 };
 const strings = (v: unknown, max: number) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, max) : undefined);
 
-/* one saved product, with only the parts a storefront reads; the storefront checks each value again (toStoreProduct) */
+/* one saved product, with only the parts a storefront reads; the storefront checks each value again (toStoreProduct).
+   Its words and pictures are cleaned here too, with the helpers the dashboard and the store page use (cleanLine and
+   cleanLines with the product limits, safeStoredImage), so the public answer never carries markup, control characters
+   or a picture address the page would not show (a link to another site, javascript:, SVG data), whoever reads it. */
+const TEXT_MAX: Partial<Record<string, number>> = { name: PRODUCT_MAX.name, brand: PRODUCT_MAX.brand, notes: PRODUCT_MAX.notes, badge: PRODUCT_MAX.badge, category: PRODUCT_MAX.category };
 function publicProduct(p: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of PUBLIC_PRODUCT_FIELDS) {
     const v = p[k];
     if (v === undefined || v === null) continue;
-    if (k === "categories") out[k] = strings(v, 20);
-    else if (k === "images") out[k] = strings(v, 8);
+    if (k === "categories") out[k] = strings(v, 20)?.map((c) => cleanLine(c, PRODUCT_MAX.category)).filter(Boolean);
+    else if (k === "images") out[k] = strings(v, 8)?.map(safeStoredImage).filter(Boolean);
+    else if (k === "sizeChart") {
+      const chart = safeStoredImage(v);
+      if (chart) out[k] = chart;
+    } else if (k === "description") {
+      const d = cleanLines(v, PRODUCT_MAX.description);
+      if (d) out[k] = d;
+    } else if (TEXT_MAX[k] !== undefined) out[k] = cleanLine(v, TEXT_MAX[k]);
     else if (k === "sizes") {
       /* each size's name and stock only */
       if (Array.isArray(v)) out[k] = v.filter(isObj).slice(0, 40).map((z) => ({ name: z.name, quantity: z.quantity }));

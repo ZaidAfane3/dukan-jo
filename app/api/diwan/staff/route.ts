@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, hashPassword, readJson } from "@/server/auth";
-import { emailKey, seal } from "@/server/crypto";
+import { emailKey, plainText, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { passwordAgain } from "@/server/staffConfirm";
@@ -41,7 +41,8 @@ export const POST = staffRoute("staff", async (req: NextRequest, me) => {
   try {
     const { rows } = await (await db()).query(
       `INSERT INTO staff (email, email_hash, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, 'owner', $4, true) RETURNING id`,
-      [seal(who.email), emailKey(who.email), who.name, hash],
+      /* the name is kept as plain text: one that only looks encrypted is sealed, so it is never opened as someone's data */
+      [seal(who.email), emailKey(who.email), plainText(who.name), hash],
     );
     id = String(rows[0].id);
   } catch (e) {

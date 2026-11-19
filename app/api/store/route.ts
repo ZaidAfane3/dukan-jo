@@ -8,7 +8,8 @@ import { movePicturesOut } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
 import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, type OnlineKey } from "@/server/storeOrders";
 import { readyToSell, type SellNeed } from "@/components/safeOrder";
-import { cleanThemeState, themeOwner } from "@/server/themeOwnership";
+import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership";
+import { stripPaidLooks } from "@/components/themeLooks";
 import { valueVersion } from "@/server/storeVersion";
 import { LIST_KEYS } from "@/components/listMerge";
 
@@ -34,6 +35,10 @@ export const dynamic = "force-dynamic";
    is kept only when Dukkan recorded the purchase (server/themeOwnership.ts); the corrected value comes back in
    "rewritten" too. A save that puts a paid theme he did not buy on the store is not kept for that key (and the design
    sent with it): "refused" gives each such key { result: "theme-not-bought", theme, value: the server's copy }.
+   The same check runs on every save of the design (seen-storefront), also when it comes alone: against the theme in use
+   that the server has, it is refused the same way while that theme is a paid one he did not buy, and the looks of a paid
+   theme he did not buy are taken out of it (components/themeLooks.ts stripPaidLooks, as the public store does), the
+   kept value coming back in "rewritten".
 
    Store orders: customers' orders on the public store take stock out of the saved products (and count coupon uses)
    on the server, and count them as online sales on each product and coupon (server/storeOrders.ts). A save of the
@@ -134,8 +139,10 @@ export const PUT = guarded(async (req: NextRequest) => {
      so. The rest of the save goes on. */
   const refused: Record<string, { result: "theme-not-bought"; theme: string; value: string | null } | { result: "not-ready"; missing: SellNeed[]; value: string | null }> = {};
   const themeState = set.find(([k]) => k === "seen-themes");
-  if (themeState) {
-    const checked = cleanThemeState(themeState[1] as string, await themeOwner(await db(), a.id));
+  const designSave = set.find(([k]) => k === "seen-storefront");
+  const owns = themeState || designSave ? await themeOwner(await db(), a.id) : null;
+  if (themeState && owns) {
+    const checked = cleanThemeState(themeState[1] as string, owns);
     if (checked.notBought) {
       const held = ["seen-themes", "seen-storefront"].filter((k) => set.some(([s]) => s === k));
       const { rows } = await (await db()).query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, held]);
@@ -148,6 +155,29 @@ export const PUT = guarded(async (req: NextRequest) => {
     } else if (checked.value !== null) {
       themeState[1] = checked.value;
       rewritten[themeState[0]] = checked.value;
+    }
+  } else if (designSave && owns) {
+    /* the design alone: checked against the theme in use the server has */
+    const { rows } = await (await db()).query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, ["seen-themes", "seen-storefront"]]);
+    const now = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
+    const inUse = themeInUse(now.get("seen-themes") ?? null);
+    if (inUse && !owns(inUse)) {
+      refused["seen-storefront"] = { result: "theme-not-bought", theme: inUse, value: now.get("seen-storefront") ?? null };
+      set.splice(set.indexOf(designSave), 1);
+      delete rewritten["seen-storefront"];
+    }
+  }
+  /* a design kept: never with the looks of a paid theme he did not buy */
+  if (owns && designSave && set.includes(designSave)) {
+    try {
+      const design = JSON.parse(designSave[1] as string);
+      const kept = stripPaidLooks(design, owns);
+      if (kept !== design) {
+        designSave[1] = JSON.stringify(kept);
+        rewritten["seen-storefront"] = designSave[1] as string;
+      }
+    } catch {
+      /* not JSON: the pages read it back as no design */
     }
   }
   /* A store opens to customers with its first design save (seen-storefront) and again when he takes it off maintenance
@@ -189,7 +219,7 @@ export const PUT = guarded(async (req: NextRequest) => {
     /* a save of the products or coupons waits for an order being placed on the store, and takes again what the store
        sold online that the browser's copy has not seen */
     if (online.length) await shopLock(client, a.id);
-    const asked = set.map(([k]) => k).filter((k) => k in base);
+    const asked = set.map(([k]) => k).filter((k) => Object.hasOwn(base, k));
     /* one save of the account's lists, or of what decides whether the store is live (setup, design, pause), at a time:
        a lock that exists before any row does, so a second device that also had no copy on the server ("") waits for
        the first and then finds its row, and gets "stale" to merge with it, instead of writing over it (a row lock alone
@@ -204,7 +234,7 @@ export const PUT = guarded(async (req: NextRequest) => {
         const v = cur === null ? "" : valueVersion(cur);
         if (v !== base[k]) stale[k] = { value: cur, v };
       }
-      for (let i = set.length - 1; i >= 0; i--) if (set[i][0] in stale) set.splice(i, 1);
+      for (let i = set.length - 1; i >= 0; i--) if (Object.hasOwn(stale, set[i][0])) set.splice(i, 1);
       for (const k of Object.keys(stale)) delete rewritten[k];
     }
     if (touchesLive && platform) {
@@ -242,7 +272,7 @@ export const PUT = guarded(async (req: NextRequest) => {
     }
     if (online.length) {
       for (const entry of online) {
-        if (entry[0] in stale) continue;
+        if (Object.hasOwn(stale, entry[0])) continue;
         const kept = await mergeOnlineSales(client, a.id, entry[0] as OnlineKey, entry[1] as string);
         if (kept !== entry[1]) {
           entry[1] = kept;

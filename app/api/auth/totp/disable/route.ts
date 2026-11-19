@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { answer, checkPassword, currentAccount, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { db } from "@/server/db";
-import { totpOk } from "@/server/staff";
+import { useTotpCode } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,8 @@ export const POST = guarded(async (req: NextRequest) => {
   const r = rows[0];
   if (!r?.totp_on) return answer({ result: "ok", on: false });
   if (!password || !(await checkPassword(password, r.password_hash))) return answer({ result: "wrong-password" }, 400);
-  if (!r.totp_secret || !totpOk(r.totp_secret, code)) return answer({ result: "wrong-code" }, 400);
+  /* a code works once (as at sign-in): one already used, even inside its 90 seconds, counts as wrong */
+  if (!r.totp_secret || !(await useTotpCode("accounts", a.id, r.totp_secret, code))) return answer({ result: "wrong-code" }, 400);
   await pool.query(`UPDATE accounts SET totp_on = false, totp_secret = NULL WHERE id = $1`, [a.id]);
   return answer({ result: "ok", on: false });
 });
