@@ -160,9 +160,9 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
                 >
                   <Icon name={GROUP_ICON[g]} className={`h-[18px] w-[18px] shrink-0 ${g === here ? "text-primary" : "text-fg/45"}`} strokeWidth={1.7} />
                   <span className="flex-1 truncate">{t(NAV_GROUPS[g].en, NAV_GROUPS[g].ar)}</span>
-                  {/* closed: how many pages are inside, and an orange dot when the page you are on is one of them */}
+                  {/* closed: an orange dot when the page you are on is one of them. No number beside it: a count of the
+                      pages inside read like work waiting (Diwan shows no numbers beside tabs) */}
                   {!openG && g === here && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                  {!openG && <span className="text-[11px] font-medium tabular-nums text-muted">{list.length}</span>}
                   <svg viewBox="0 0 24 24" className={`h-4 w-4 shrink-0 text-fg/40 transition-transform duration-200 ${openG ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="m6 9 6 6 6-6" />
                   </svg>

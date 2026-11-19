@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { Badge, card, Loaded, LoadMore, PageHead, send, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { FeedbackSkeleton } from "@/components/diwan/skeletons";
 import { ticketPicture, type TicketRow } from "@/components/diwan/TicketBits";
-import { KIND, STATUS, STATUS_ORDER, type TStatus } from "@/components/diwan/ticketWords";
+import { KIND, STATUS, STATUS_ORDER } from "@/components/diwan/ticketWords";
 import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
 
 /* Bug reports and ideas merchants send from the theme designer's "Bug or idea?" button (and any ticket sent as one),
@@ -38,9 +38,6 @@ export default function FeedbackPage() {
   }, [kind, status, shop]);
   const s = useMore<Data>(url, (d, n) => (n * d.pageSize < d.total ? `page=${n + 1}` : null));
   useListScroll(s);
-  const counts = s.data?.counts ?? {};
-  const all = Object.values(counts).reduce((n, x) => n + x, 0);
-  const activeN = (["new", "open", "waiting_dukkan", "waiting_merchant"] as TStatus[]).reduce((n, x) => n + (counts[x] ?? 0), 0);
 
   const setStatusOf = async (number: number, to: string) => {
     setBusy(number);
@@ -63,17 +60,18 @@ export default function FeedbackPage() {
           </button>
         ))}
       </div>
+      {/* no numbers beside the status tabs (Diwan shows none beside tabs) */}
       <div className="mb-5 flex flex-wrap gap-2">
         <button onClick={() => { setStatus("active"); }} className={chip(status === "active")}>
-          {t("Needs work", "قيد العمل")}<span dir="ltr" className="opacity-75">{f.num(activeN)}</span>
+          {t("Needs work", "قيد العمل")}
         </button>
         {STATUS_ORDER.map((x) => (
           <button key={x} onClick={() => { setStatus(x); }} className={chip(status === x)}>
-            {t(STATUS[x].en, STATUS[x].ar)}<span dir="ltr" className="opacity-75">{f.num(counts[x] ?? 0)}</span>
+            {t(STATUS[x].en, STATUS[x].ar)}
           </button>
         ))}
         <button onClick={() => { setStatus(""); }} className={chip(status === "")}>
-          {t("All", "الكل")}<span dir="ltr" className="opacity-75">{f.num(all)}</span>
+          {t("All", "الكل")}
         </button>
       </div>
 

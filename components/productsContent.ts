@@ -41,6 +41,9 @@ type Copy = {
   empty: string;
   emptyHint: string;
   noMatch: string;
+  /* a list with nothing in it and nothing searched: Deleted products, or another filter */
+  binEmpty: string;
+  noneHere: string;
   pickOne: string;
   sort: string;
   sorts: string[];
@@ -174,6 +177,8 @@ export const productsCopy: Record<Lang, Copy> = {
     empty: "No products yet",
     emptyHint: "Add your first product and it will show up in your store.",
     noMatch: "No products match your search",
+    binEmpty: "No deleted products. Products you delete wait here, so you can bring them back.",
+    noneHere: "No products here",
     pickOne: "Select a product to edit it, or add a new one",
     sort: "Sort",
     sorts: ["Newest first", "Name", "Price: low to high", "Price: high to low"],
@@ -302,6 +307,8 @@ export const productsCopy: Record<Lang, Copy> = {
     empty: "لا توجد منتجات بعد",
     emptyHint: "أضف أول منتج لك وسيظهر في متجرك.",
     noMatch: "لا توجد منتجات مطابقة لبحثك",
+    binEmpty: "لا توجد منتجات محذوفة. المنتجات التي تحذفها تبقى هنا لتتمكن من استرجاعها.",
+    noneHere: "لا توجد منتجات هنا",
     pickOne: "اختر منتجًا لتعديله، أو أضف منتجًا جديدًا",
     sort: "ترتيب",
     sorts: ["الأحدث أولًا", "الاسم", "السعر: من الأقل", "السعر: من الأعلى"],
