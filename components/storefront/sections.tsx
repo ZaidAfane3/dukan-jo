@@ -1,6 +1,6 @@
 "use client";
 
-import { orderPays, storeDelivery, UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
+import { orderPays, storeDelivery, toFils, UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { cloneElement, createContext, Fragment, isValidElement, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -766,10 +766,11 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const about = p.description ?? "";
   const long = about.length > 360 || about.split("\n").length > 6;
   /* the free delivery offer follows what is already in the basket */
-  const basket = Object.entries(ctx.qty).reduce((t, [key, n]) => {
+  /* (kept to the fils, as the cart and the server test it) */
+  const basket = toFils(Object.entries(ctx.qty).reduce((t, [key, n]) => {
     const x = ctx.data.products.find((y) => String(y.id) === key.split("|")[0]);
     return t + (x ? n * priceOf(x) : 0);
-  }, 0);
+  }, 0));
   const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
   /* free delivery is only promised by a store that delivers to a door */
   if (fd?.on && ctx.sells.delivers) {

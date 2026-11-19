@@ -12,7 +12,7 @@ import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
 import { fontFamily, headingFamily } from "./config";
 import { categoriesOf, sampleProducts, storeDataReady, useStoreData, type StoreProduct } from "./useStoreData";
-import { cartQty, productId } from "../safeOrder";
+import { cartQty, productId, toFils } from "../safeOrder";
 import { CartPanel } from "./Cart";
 import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
 import { shownMobile } from "../phone";
@@ -214,7 +214,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     return p && n > 0 ? [{ p, qty: n, ...(size ? { size } : {}) }] : [];
   });
   /* every entry of the basket (each size of a product counts on its own) */
-  const cart = cartLines.reduce((k, l) => ({ count: k.count + l.qty, total: k.total + l.qty * priceOf(l.p) }), { count: 0, total: 0 });
+  const cartSum = cartLines.reduce((k, l) => ({ count: k.count + l.qty, total: k.total + l.qty * priceOf(l.p) }), { count: 0, total: 0 });
+  /* the total kept to the fils, as the cart and the server work it out (the free delivery offer is tested on it) */
+  const cart = { count: cartSum.count, total: toFils(cartSum.total) };
   /* A page of the store (an info page) shown in place of the home page */
   const [ownPage, setPageId] = useState<number | null>(null);
   /* In the designer the page shown is chosen by the designer (its page menu, or a button that leads to a page) */

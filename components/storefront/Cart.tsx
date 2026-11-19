@@ -378,7 +378,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   /* each amount on its own, as on the product cards (parts.tsx money): a whole one whole ("22"), any other with two
      decimals ("18.50"), whatever the amounts next to it */
   const amount = (n: number) => `${moneyIn(n, priceLanguage)} ${currency(priceLanguage)}`;
-  const subtotal = lines.reduce((s, l) => s + l.qty * priceAt(l.p), 0);
+  /* kept to the fils like the server's (safeOrder priceCart), so the coupon's minimum, its percent and the free delivery
+     amount are tested on the same number on both sides (3 x 5.35 adds up to 16.049999… unrounded) */
+  const subtotal = toFils(lines.reduce((s, l) => s + l.qty * priceAt(l.p), 0));
   const freeNow = fd.on && subtotal >= fd.min;
   /* the coupons: the merchant's own as saved in his browser, or on the public store only the one the server accepted */
   const couponList = (): Coupon[] => (orderTo ? (remoteCoupon ? [remoteCoupon] : []) : storeCoupons());
@@ -506,7 +508,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
         const it = items.find((x) => x.id === l.p.id && (x.size ?? "") === (l.size ?? ""));
         return !it || it.qty !== l.qty || Math.abs(it.price - priceAt(l.p)) > 0.0005;
       });
-      const newSub = items.reduce((n, it) => n + it.qty * it.price, 0);
+      const newSub = toFils(items.reduce((n, it) => n + it.qty * it.price, 0));
       const cNow = c ?? (cp?.ok ? cp.coupon : null);
       const cpNew = cNow ? checkCoupon(cNow.code, [cNow], newSub) : null;
       const deliveryWith = (fee: number, free: FreeDelivery) => (items.length === 0 || (free.on && newSub >= free.min) || fulfil === "pickup" || (cpNew?.ok && cpNew.freeDelivery) ? 0 : fee);
