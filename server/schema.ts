@@ -760,7 +760,9 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_at TIMESTAMPTZ;
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_staff BIGINT REFERENCES staff (id) ON DELETE SET NULL;
   UPDATE store_orders o
-     SET ship_by = CASE WHEN o.fulfil = 'pickup' THEN 'pickup' WHEN COALESCE(s.ship_mode, '') = 'own' THEN 'own' ELSE 'dukkan' END
+     SET ship_by = CASE WHEN o.fulfil = 'pickup' THEN 'pickup' WHEN COALESCE(s.ship_mode, '') = 'own' THEN 'own' ELSE 'dukkan' END,
+         /* an order its store already marked delivered was delivered: it never comes back as one to deliver */
+         ship_state = CASE WHEN o.status = 'delivered' THEN 'delivered' ELSE o.ship_state END
     FROM shops s
    WHERE o.ship_by IS NULL AND s.account_id = o.account_id;
   CREATE INDEX IF NOT EXISTS store_orders_dukkan_ship ON store_orders (id DESC) WHERE ship_by = 'dukkan';

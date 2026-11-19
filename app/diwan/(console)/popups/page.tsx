@@ -485,7 +485,7 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
     /* a second click while it is being saved does nothing; a new one is made once (useCreateOnce) */
     if (!once.begin()) return;
     setBusy(true);
-    const r = form.id ? await send(`/api/diwan/popups/${form.id}`, "PATCH", body) : await send("/api/diwan/popups", "POST", { ...body, requestKey: once.key() });
+    const r = form.id ? await send(`/api/diwan/popups/${form.id}`, "PATCH", body) : await send("/api/diwan/popups", "POST", { ...body, requestKey: once.key(body) });
     setBusy(false);
     once.end();
     if (r.ok && !form.id) once.made();

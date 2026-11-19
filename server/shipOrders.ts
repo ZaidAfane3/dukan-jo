@@ -156,8 +156,9 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
       await c.query("ROLLBACK");
       return "cancelled";
     }
-    /* the merchant's own status follows: delivered when Dukkan delivered it; back to shipping when that is undone */
-    const status = state === "delivered" ? "delivered" : state === "waiting" && o.ship_state === "delivered" && o.status === "delivered" ? "shipping" : o.status;
+    /* the merchant's own status follows: delivered when Dukkan delivered it; back to shipping when a delivery Dukkan had
+       marked is undone or changed to "not delivered" (so a cash order no longer reads as paid either: paidSet) */
+    const status = state === "delivered" ? "delivered" : o.ship_state === "delivered" && o.status === "delivered" ? "shipping" : o.status;
     await c.query(
       `UPDATE store_orders SET ship_state = $2, ship_note = $3, ship_at = $4, ship_staff = $5, status = $6, ${paidSet("$6")}, updated_at = now() WHERE id = $1`,
       [id, state, state === "failed" ? seal(note) : null, state === "waiting" ? null : new Date(), state === "waiting" ? null : me.id, status],

@@ -222,7 +222,7 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
       inMenu: form.inMenu, sort: Number(form.sort || 100), audience: audienceBody(form.audience),
     };
     setBusy(true);
-    const r = form.id ? await send(`/api/diwan/pages/${form.id}`, "PATCH", body) : await send("/api/diwan/pages", "POST", { ...body, requestKey: once.key() });
+    const r = form.id ? await send(`/api/diwan/pages/${form.id}`, "PATCH", body) : await send("/api/diwan/pages", "POST", { ...body, requestKey: once.key(body) });
     setBusy(false);
     once.end();
     if (r.ok && !form.id) once.made();

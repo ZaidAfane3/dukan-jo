@@ -65,13 +65,19 @@ export function useApi<T>(url: string | null): ApiState<T> {
     it once (server/onceKey.ts); `begin()` is false while a save is already on its way (a second click does nothing), and
     `end()` lets the next one go. */
 export function useCreateOnce() {
-  const key = useRef("");
+  /* the key belongs to exactly what was sent: the same form sent again (its answer was lost) reuses it, so the server
+     makes it once; a form changed since gets a new key, so its changes are saved, never answered with the first save */
+  const key = useRef<{ what: string; key: string } | null>(null);
   const busy = useRef(false);
   return {
-    key: () =>
-      (key.current ||= typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`),
+    key: (sent?: unknown) => {
+      const what = JSON.stringify(sent ?? null);
+      if (!key.current || key.current.what !== what)
+        key.current = { what, key: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2)}` };
+      return key.current.key;
+    },
     made: () => {
-      key.current = "";
+      key.current = null;
     },
     begin: () => !busy.current && (busy.current = true),
     end: () => {

@@ -263,7 +263,7 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
       endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
     };
     setBusy(true);
-    const r = form.id ? await send(`/api/diwan/announcements/${form.id}`, "PUT", body) : await send("/api/diwan/announcements", "POST", { ...body, requestKey: once.key() });
+    const r = form.id ? await send(`/api/diwan/announcements/${form.id}`, "PUT", body) : await send("/api/diwan/announcements", "POST", { ...body, requestKey: once.key(body) });
     setBusy(false);
     once.end();
     if (r.ok && !form.id) once.made();
