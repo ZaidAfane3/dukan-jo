@@ -15,6 +15,7 @@ import {
   type MerchantStatus, type Sent, type ServerTicket, type Thread,
 } from "./ticketsApi";
 import { usePageTitle } from "./pageTitle";
+import { dropDraft, HeldSendBar, heldWords, keepDraft, takeDraft, useHeldSend } from "./heldSend";
 import { pageText, useMerchant } from "./FromDukkan";
 import type { MerchantPage } from "./dukkanPages";
 import { replyWithin, usePublicSettings } from "./platformPublic";
@@ -60,16 +61,11 @@ const searchIcon = <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stro
 const xIcon = <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>;
 const picIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 21" /></svg>;
 
-/* A new ticket is held for a moment before it goes to Dukkan, with an Undo (like an email's "undo send"): the form
-   closes at once, a bar says it is being sent, and Undo opens the form again with everything still in it. */
-const HOLD_MS = 3000;
+/* A new ticket is held for a moment before it goes to Dukkan, with an Undo (like an email's "undo send", heldSend.tsx):
+   the form closes at once, a bar says it is being sent, and Undo opens the form again with everything still in it. */
 /* a ticket that could not be sent after its page was left: kept for this browser session, and the form opens with it
    the next time the Support page is opened */
 const DRAFT_KEY = "seen-ticket-draft";
-const holdWords = {
-  en: { sending: "Sending your ticket…", undo: "Undo" },
-  ar: { sending: "جارٍ إرسال تذكرتك…", undo: "تراجع" },
-};
 
 export function Support() {
   const { lang } = usePrefs();
@@ -98,22 +94,12 @@ export function Support() {
   const [openNo, setOpenNo] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
-  /* a new ticket held before it is sent (HOLD_MS): its timer, and the send as the newest render made it */
-  const [holding, setHolding] = useState(false);
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* a new ticket held before it is sent (heldSend.tsx: leaving the page sends it at once, closing the tab asks first),
+     and the send as the newest render made it */
   const deliverRef = useRef<() => Promise<void> | void>(() => {});
-  const alive = useRef(true);
-  /* leaving the page while a ticket is held sends it at once (it is never dropped quietly) */
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-      if (!holdTimer.current) return;
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-      void deliverRef.current();
-    };
-  }, []);
+  const held = useHeldSend(() => deliverRef.current());
+  const holding = held.holding;
+  const alive = held.alive;
   /* a ticket that could not be sent after the page was left (DRAFT_KEY): the form opens with it and says so */
   useEffect(() => {
     try {
@@ -133,27 +119,6 @@ export function Support() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  /* closing the tab in those few seconds asks first: a tab that is gone can't send it */
-  useEffect(() => {
-    if (!holding) return;
-    const onLeave = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    /* the tab is going anyway (a phone often asks nothing): it is sent now, as well as the browser still allows */
-    const onHide = () => {
-      if (!holdTimer.current) return;
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-      void deliverRef.current();
-    };
-    window.addEventListener("beforeunload", onLeave);
-    window.addEventListener("pagehide", onHide);
-    return () => {
-      window.removeEventListener("beforeunload", onLeave);
-      window.removeEventListener("pagehide", onHide);
-    };
-  }, [holding]);
   /* how soon Dukkan usually answers: set in Diwan (platform setting support_reply_hours) */
   const replyHours = usePublicSettings().support_reply_hours;
 
@@ -233,28 +198,20 @@ export function Support() {
     setFormError("");
     if (Object.keys(next).length) return;
     if (busy || holding) return;
-    /* held for HOLD_MS before it is sent (deliver below); the form's words stay as they are until then */
+    /* held for a moment before it is sent (deliver below); the form's words stay as they are until then */
     setCreating(false);
-    setHolding(true);
-    holdTimer.current = setTimeout(() => {
-      holdTimer.current = null;
-      void deliverRef.current();
-    }, HOLD_MS);
+    held.hold();
   };
 
   /** Undo, while the ticket is held: nothing was sent, and the form opens again as he left it */
   const undoSend = () => {
     /* too late: the time is over and it is being sent */
-    if (!holdTimer.current) return;
-    clearTimeout(holdTimer.current);
-    holdTimer.current = null;
-    setHolding(false);
+    if (!held.undo()) return;
     setCreating(true);
   };
 
   /** Sends the held ticket (the time to undo is over, or the page is being left) */
   const deliver = async () => {
-    setHolding(false);
     let id: string;
     if (server) {
       setBusy(true);
@@ -465,14 +422,7 @@ export function Support() {
         </section>
       </main>
 
-      {holding && (
-        <div role="status" className="fixed inset-x-0 bottom-6 z-50 mx-auto flex w-fit max-w-[92vw] items-center gap-4 rounded-full border-2 border-primary bg-transparent px-5 py-3 text-sm font-semibold text-primary backdrop-blur-md">
-          <span>{holdWords[lang].sending}</span>
-          <button type="button" onClick={undoSend} className="rounded-full border border-primary px-4 py-1.5 transition hover:bg-primary/10">
-            {holdWords[lang].undo}
-          </button>
-        </div>
-      )}
+      {holding && <HeldSendBar text={heldWords[lang].ticket} undo={heldWords[lang].undo} onUndo={undoSend} />}
       {creating && (
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setCreating(false)}>
           <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={s.newTicket} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
@@ -703,20 +653,42 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
     setPics((p) => [...p, ...ok].slice(0, TICKET_PICTURES));
   };
 
-  const send = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (busy || (visibleLength(text) < 1 && !pics.length)) return;
+  /* his reply is held for a moment with an Undo, like a new ticket (heldSend.tsx); closing the conversation meanwhile
+     sends it at once. Kept as a draft until it went, so one that could not be sent after it was closed comes back here. */
+  const draft = `seen-reply-draft-${number}`;
+  useEffect(() => {
+    const d = takeDraft(draft);
+    if (!d || typeof d.text !== "string") return;
+    setText(d.text.slice(0, ACCOUNT_LIMITS.message));
+    if (Array.isArray(d.pictures)) setPics(d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES));
+    setError(sv.sendFailed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+  const deliver = async () => {
+    keepDraft(draft, { text, pictures: pics });
     setBusy(true);
     setError("");
     const r = await replyTicket(number, cleanLines(text, ACCOUNT_LIMITS.message), pics);
     setBusy(false);
-    if (!r.ok) return setError(r.why === "too-many" ? sv.tooMany : r.field === "pictures" ? sv.picturesBad : sv.sendFailed);
+    if (!r.ok) {
+      /* still open: the box keeps his words and says why; closed meanwhile: the draft brings them back next time */
+      if (held.alive.current) dropDraft(draft);
+      return setError(r.why === "too-many" ? sv.tooMany : r.field === "pictures" ? sv.picturesBad : sv.sendFailed);
+    }
+    dropDraft(draft);
     setText("");
     setPics([]);
     setNote("");
     /* his own message is shown at the bottom, wherever he had scrolled */
     atBottom.current = true;
     await load();
+  };
+  const held = useHeldSend(deliver);
+  const send = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy || held.holding || (visibleLength(text) < 1 && !pics.length)) return;
+    setError("");
+    held.hold();
   };
 
   const toggle = async () => {
@@ -800,7 +772,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
           <form onSubmit={send} className="border-t border-fg/10 px-5 py-4">
             {t.status === "closed" && <p className="mb-2 text-xs text-muted">{sv.closedNote}</p>}
             <label htmlFor="t-reply" className="sr-only">{sv.replyLabel}</label>
-            <textarea id="t-reply" value={text} onChange={(e) => setText(e.target.value)} placeholder={sv.replyPh} dir="auto" rows={3} maxLength={1000} className={`${field} resize-none py-3`} />
+            <textarea id="t-reply" value={text} disabled={held.holding} onChange={(e) => setText(e.target.value)} placeholder={sv.replyPh} dir="auto" rows={3} maxLength={1000} className={`${field} resize-none py-3`} />
             {!!pics.length && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {pics.map((p, i) => (
@@ -817,13 +789,13 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
             {note && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{note}</p>}
             {error && <p role="alert" className="mt-1.5 text-xs text-rose-600">{error}</p>}
             <div className="mt-3 flex items-center gap-2">
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={pics.length >= TICKET_PICTURES} className="flex h-10 items-center gap-2 rounded-xl border border-fg/20 px-3 text-xs font-semibold transition hover:bg-soft disabled:opacity-40">
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={held.holding || pics.length >= TICKET_PICTURES} className="flex h-10 items-center gap-2 rounded-xl border border-fg/20 px-3 text-xs font-semibold transition hover:bg-soft disabled:opacity-40">
                 {picIcon}
                 {s.addPicture}
                 <span dir="ltr" className="tabular-nums text-muted">{pics.length}/{TICKET_PICTURES}</span>
               </button>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={(e) => { void add(e.target.files); e.target.value = ""; }} />
-              <button type="submit" disabled={busy || (visibleLength(text) < 1 && !pics.length)} className="ms-auto h-10 rounded-xl bg-ink px-5 text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-50">
+              <button type="submit" disabled={busy || held.holding || (visibleLength(text) < 1 && !pics.length)} className="ms-auto h-10 rounded-xl bg-ink px-5 text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-50">
                 {busy ? sv.sending : sv.sendReply}
               </button>
             </div>
@@ -831,6 +803,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
         )}
       </section>
 
+      {held.holding && <HeldSendBar text={heldWords[lang].reply} undo={heldWords[lang].undo} onUndo={() => held.undo()} />}
       {big && (
         <div className="fixed inset-0 z-[60] grid place-items-center bg-black/85 p-4" onMouseDown={() => setBig(null)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
