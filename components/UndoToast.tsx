@@ -10,13 +10,14 @@ import { usePrefs } from "./Prefs";
 import type { Lang } from "./content";
 import { UNDO_TOAST_MS, canUndo, hideUndo, hideUndoNote, runUndo, useUndo } from "./undo";
 
-const words: Record<Lang, { undo: string; undoHint: string; close: string; undone: string; changed: string }> = {
+const words: Record<Lang, { undo: string; undoHint: string; close: string; undone: string; changed: string; offline: string }> = {
   en: {
     undo: "Undo",
     undoHint: "Undo (Ctrl+Z or ⌘Z)",
     close: "Close",
     undone: "Undone",
     changed: "Can't undo: it changed since.",
+    offline: "Can't undo right now: no connection. Check your connection and try again.",
   },
   ar: {
     undo: "تراجع",
@@ -24,6 +25,7 @@ const words: Record<Lang, { undo: string; undoHint: string; close: string; undon
     close: "إغلاق",
     undone: "تم التراجع",
     changed: "تعذّر التراجع: تغيّر منذ ذلك الحين.",
+    offline: "تعذّر التراجع الآن: لا يوجد اتصال. تحقق من اتصالك وحاول مرة أخرى.",
   },
 };
 
@@ -246,7 +248,7 @@ export function UndoToast() {
           ) : (
             <svg viewBox="0 0 24 24" className="h-4 w-4 text-amber-400" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5M12 16.5h.01" /></svg>
           )}
-          {note.kind === "undone" ? w.undone : w.changed}
+          {note.kind === "undone" ? w.undone : note.kind === "offline" ? w.offline : w.changed}
         </div>
       ) : null}
     </div>,
