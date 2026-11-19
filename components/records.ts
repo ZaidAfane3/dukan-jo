@@ -212,7 +212,7 @@ export function productCategories(x: { categories?: unknown; category?: unknown 
 
 /* ============================== orders ============================== */
 
-export type OrderItem = { id?: number; name: string; qty: number; price: number; image?: string; /* the size chosen (clothing and shoes) */ size?: string };
+export type OrderItem = { id?: number; name: string; qty: number; price: number; image?: string; /* the size chosen (clothing and shoes) */ size?: string; /* how many pieces it took out of the stock (safeOrder stockTaken): a cancel gives back exactly that. Older orders have none (their qty) */ took?: number };
 
 export type Order = {
   id: number;
@@ -253,7 +253,9 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     const image = picture(i.image);
     const id = recordId(i.id);
     const size = cleanLine(i.size, 12);
-    return name && price !== null ? { ...(id ? { id } : {}), name, qty: count(i.qty, 1, 9999, 1), price, ...(image ? { image } : {}), ...(size ? { size } : {}) } : null;
+    const qty = count(i.qty, 1, 9999, 1);
+    const took = typeof i.took === "number" && Number.isSafeInteger(i.took) && i.took >= 0 ? Math.min(i.took, qty) : null;
+    return name && price !== null ? { ...(id ? { id } : {}), name, qty, price, ...(image ? { image } : {}), ...(size ? { size } : {}), ...(took !== null ? { took } : {}) } : null;
   });
   return {
     id,
@@ -276,6 +278,16 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     ...(money(x.delivery) !== null ? { delivery: money(x.delivery) as number } : {}),
     created: time(x.created, 0),
   };
+}
+
+/** The Orders page's search: an order whose number, customer name, phone or email has what was typed. A phone is found
+    however it is typed (079…, 79… or +962 79…). The server searches its store orders with this too (server/storeOrders.ts). */
+export function orderMatches(x: { id: number; customer: string; phone: string; email?: string }, query: string): boolean {
+  const q = query.trim().toLowerCase().replace(/^#/, "");
+  if (!q) return true;
+  const digitsOf = (v: string) => latin(v).replace(/\D/g, "").replace(/^(00962|962|0)/, "");
+  const qd = digitsOf(q);
+  return String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q) || !!x.email?.includes(q) || (qd.length >= 3 && digitsOf(x.phone).includes(qd));
 }
 
 /** An order's coupon as saved: a valid code and a discount, or nothing */
@@ -388,31 +400,43 @@ export function checkCoupon(code: unknown, coupons: Coupon[], subtotal: number, 
 
 /** The saved coupons after an order used one: that code counts one more use (its limit is checked against this).
     Every other part of each coupon is kept exactly as saved. Used by the merchant's preview (Cart.tsx) and the server
-    (server/storeOrders.ts). */
-export function countCouponUse(list: unknown[], code: string, o: { online?: boolean } = {}): unknown[] {
+    (server/storeOrders.ts). `by: -1`: an order that used it was cancelled or refunded, so the use is given back (never
+    below zero); it counts again (+1) when the order comes back, even past the coupon's limit (that order already had
+    its discount). */
+export function countCouponUse(list: unknown[], code: string, o: { online?: boolean; by?: 1 | -1 } = {}): unknown[] {
   const typed = code.toUpperCase();
+  const by = o.by ?? 1;
   return list.map((c) => {
     if (!c || typeof c !== "object" || Array.isArray(c)) return c;
     const x = c as Record<string, unknown>;
     if (typeof x.code !== "string" || x.code.toUpperCase() !== typed) return x;
-    const used = (typeof x.used === "number" && x.used >= 0 ? x.used : 0) + 1;
-    /* an order on the public store also counts as an online use (see mergeUsedOnline) */
-    return o.online ? { ...x, used, usedOnline: count(x.usedOnline) + 1 } : { ...x, used };
+    const used = Math.max(0, (typeof x.used === "number" && x.used >= 0 ? x.used : 0) + by);
+    if (!o.online) return { ...x, used };
+    /* an order on the public store also counts as an online use (see mergeUsedOnline); none left: left out */
+    const online = Math.max(0, count(x.usedOnline) + by);
+    const { usedOnline: _was, ...rest } = x;
+    return online > 0 ? { ...rest, used, usedOnline: online } : { ...rest, used };
   });
 }
 
-/** The merchant's coupons as he saves them (`incoming`), with the online uses his copy has not seen yet added to their
-    count, from the coupons as the server has them (`stored`), matched by their id. Every other part is kept. */
+/** The merchant's coupons as he saves them (`incoming`), with their online uses brought to the server's count, from the
+    coupons as the server has them (`stored`), matched by their id: uses his copy has not seen yet are added, and uses
+    given back since (an order cancelled or refunded) are taken off, so his copy ends on the server's count and saving it
+    again changes nothing more (as safeOrder.ts mergeSoldOnline does for stock). A coupon the server does not have yet
+    (new in his copy) is kept as it is. Every other part is kept. */
 export function mergeUsedOnline(incoming: unknown[], stored: unknown[]): unknown[] {
   const server = new Map<string, number>();
   for (const s of stored) if (s && typeof s === "object" && typeof (s as Record<string, unknown>).id === "string") server.set((s as Record<string, unknown>).id as string, count((s as Record<string, unknown>).usedOnline));
   return incoming.map((c) => {
     if (!c || typeof c !== "object" || Array.isArray(c)) return c;
     const x = c as Record<string, unknown>;
-    const known = typeof x.id === "string" ? server.get(x.id) ?? 0 : 0;
+    const known = typeof x.id === "string" ? server.get(x.id) : undefined;
+    if (known === undefined) return x;
     const mine = count(x.usedOnline);
-    if (known <= mine) return x;
-    return { ...x, used: count(x.used) + (known - mine), usedOnline: known };
+    if (known === mine) return x;
+    const { usedOnline: _was, ...rest } = x;
+    const used = Math.max(0, count(x.used) + (known - mine));
+    return known > 0 ? { ...rest, used, usedOnline: known } : { ...rest, used };
   });
 }
 

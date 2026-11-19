@@ -1,12 +1,13 @@
 import type { PoolClient } from "pg";
 import { STATUS_KEYS, type StatusKey } from "@/components/ordersContent";
-import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as recordMoney, parseList, type Coupon, type CouponRefusal } from "@/components/records";
+import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as recordMoney, orderMatches, parseList, type Coupon, type CouponRefusal } from "@/components/records";
 import { safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import {
-  checkCheckout, checkoutShipMode, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, takeStock, toFils, money,
+  checkCheckout, checkoutShipMode, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, stockNotBack, stockTaken, takeStock, toFils, money,
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
+import { highestOrderNumber, lastOrderNumber, ORDER_NUMBER_KEY, ORDER_NUMBER_START } from "@/components/orderNumbers";
 import { plainDeep, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { notify } from "./notify";
@@ -190,7 +191,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     }
     if (!isOpen(shop)) return { status: 409, body: { result: "closed" } };
 
-    const keys = ["seen-setup", "seen-products", "seen-freedelivery", "seen-orders", ...(couponCode ? ["seen-coupons"] : [])];
+    const keys = ["seen-setup", "seen-products", "seen-freedelivery", "seen-orders", ORDER_NUMBER_KEY, ...(couponCode ? ["seen-coupons"] : [])];
     const saved = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[]) FOR UPDATE`, [id, keys]);
     const data = new Map<string, string>(saved.rows.map((r: { key: string; value: string }) => [r.key, r.value]));
 
@@ -248,14 +249,16 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const expect = typeof body.expect === "number" && Number.isFinite(body.expect) ? body.expect : null;
     if (expect !== null && Math.abs(expect - total) > 0.0005) return { status: 409, body: { result: "changed", items: priced.items, total, terms } };
 
-    /* the order number goes on from the shop's own orders (those he added by hand or from his preview) and its earlier
-       store orders, so the merchant never sees two orders with one number */
+    /* the order number goes on from the last number the shop ever gave (components/orderNumbers.ts: never lowered by a
+       deletion), the shop's own orders (those he added by hand or from his preview) and its earlier store orders, so the
+       merchant never sees two orders with one number, and the last number is raised with it */
     const own = parse(data.get("seen-orders"));
-    const ownMax = Array.isArray(own) ? own.reduce((m: number, x) => (isObj(x) && typeof x.id === "number" && Number.isSafeInteger(x.id) && x.id < 1e9 ? Math.max(m, x.id) : m), 1000) : 1000;
     const last = await c.query(`SELECT COALESCE(MAX(number), 0) AS n FROM store_orders WHERE account_id = $1`, [id]);
-    const number = Math.max(ownMax, Number(last.rows[0].n)) + 1;
+    const number = Math.max(ORDER_NUMBER_START, lastOrderNumber(parse(data.get(ORDER_NUMBER_KEY))), Array.isArray(own) ? highestOrderNumber(own) : 0, Number(last.rows[0].n)) + 1;
 
-    const items = priced.items.map((it) => ({ ...it, ...(images.has(it.id) ? { image: images.get(it.id) } : {}) }));
+    /* each line keeps how many pieces it really took out of the stock (none from a product with no limit), so a cancel
+       gives back exactly that (setStoreOrderStatus) */
+    const items = stockTaken(Array.isArray(products) ? products : [], priced.items.map((it) => ({ ...it, ...(images.has(it.id) ? { image: images.get(it.id) } : {}) }))).lines;
     await c.query(
       `INSERT INTO store_orders (account_id, number, items, subtotal, discount, delivery_fee, total, coupon, fulfil,
                                  customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key)
@@ -271,11 +274,17 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
 
     /* what was bought leaves the shop's saved stock, and the coupon counts one more use, in this same transaction; both
        are counted as online sales too (see above) */
-    if (Array.isArray(products)) await writeKey(c, id, "seen-products", JSON.stringify(takeStock(products, items, { online: true })));
+    if (Array.isArray(products)) await writeKey(c, id, "seen-products", JSON.stringify(takeStock(products, items.map((it) => ({ ...it, qty: it.took })), { online: true })));
     if (couponUsed) {
       const list = parse(data.get("seen-coupons"));
       if (Array.isArray(list)) await writeKey(c, id, "seen-coupons", JSON.stringify(countCouponUse(list, couponUsed, { online: true })));
     }
+
+    await c.query(
+      `INSERT INTO store_data (account_id, key, value, plain_len) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (account_id, key) DO UPDATE SET value = EXCLUDED.value, plain_len = EXCLUDED.plain_len, updated_at = now()`,
+      [id, ORDER_NUMBER_KEY, seal(String(number)), String(number).length],
+    );
 
     /* the merchant's bell: kept only if the order is */
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);
@@ -376,6 +385,25 @@ export async function listStoreOrders(accountId: string, before: string | null =
   return { orders: page.map(merchantRow), next: more ? String(page[page.length - 1].id) : null, total: Number(count.rows[0].n) };
 }
 
+/** How many store orders the shop has in each status (the Orders page counts every order, not only the pages loaded) */
+export async function storeOrderCounts(accountId: string, q?: { query: PoolClient["query"] }): Promise<Record<string, number>> {
+  const { rows } = await (q ?? (await db())).query(`SELECT status, count(*)::int AS n FROM store_orders WHERE account_id = $1 GROUP BY status`, [accountId]);
+  return Object.fromEntries(rows.map((r: { status: string; n: number }) => [r.status, Number(r.n)]));
+}
+
+/** The shop's store orders that match a search (records.ts orderMatches: number, name, phone, email) and/or are in one
+    status, newest first, at most ORDERS_PAGE: the Orders page asks for them when it has not loaded every order. The
+    customer's details are sealed, so they are matched here after they are opened, over the shop's newest 5,000. */
+export async function findStoreOrders(accountId: string, query: string, status: string | null, q?: { query: PoolClient["query"] }): Promise<MerchantStoreOrder[]> {
+  const st = status && STATUS_KEYS.includes(status as StatusKey) ? status : null;
+  const text = query.trim().slice(0, 60);
+  const { rows } = await (q ?? (await db())).query(
+    `SELECT ${ROW} FROM store_orders WHERE account_id = $1${st ? " AND status = $3" : ""} ORDER BY id DESC LIMIT $2`,
+    st ? [accountId, text ? 5000 : ORDERS_PAGE, st] : [accountId, text ? 5000 : ORDERS_PAGE],
+  );
+  return rows.map(merchantRow).filter((x: MerchantStoreOrder) => orderMatches(x, text)).slice(0, ORDERS_PAGE);
+}
+
 /** One of the shop's store orders by its number (a link to an order that is not on the first page), or null */
 export async function storeOrderByNumber(accountId: string, number: string, q?: { query: PoolClient["query"] }): Promise<MerchantStoreOrder | null> {
   if (!/^\d{1,9}$/.test(number)) return null;
@@ -391,38 +419,76 @@ const PAID_SET = `payment_status = CASE WHEN payment_method = 'cash' AND $3::tex
 /* an order holds the stock it took, unless it is cancelled or refunded */
 const holdsStock = (status: string) => status !== "cancelled" && status !== "refunded";
 
+/** A line of an order, as the merchant is told about it (a product short of stock, or pieces that could not go back) */
+export type StockLine = { name: string; qty: number; size?: string };
+
+export type StatusResult =
+  | { result: "ok"; notBack: StockLine[] }
+  | { result: "none" | "invalid" | "changed" }
+  | { result: "no-stock"; short: StockLine[] };
+
 /** Changes the status of one of the shop's store orders. "none" when the shop has no such order.
-    `from` (optional): the status the order must still have, or nothing changes ("changed"). The Orders page's undo sends
-    it, so putting the old status back never overwrites a change made since (another tab, another device).
-    Stock: an order took its products out of the shop's stock when it was placed. Cancelling or refunding it puts them
-    back (and takes them off the products' online sales count); moving it out of cancelled or refunded again (an undo, a
-    mistake put right) takes them again. Done in one transaction with the status, under the shop's order lock, so a
-    customer's order placed at the same moment sees the stock either before or after it, never half. */
-export async function setStoreOrderStatus(accountId: string, serverId: string, status: unknown, from?: unknown): Promise<"ok" | "none" | "invalid" | "changed"> {
-  if (!/^\d{1,18}$/.test(serverId)) return "none";
-  if (typeof status !== "string" || !STATUS_KEYS.includes(status as StatusKey)) return "invalid";
-  if (from !== undefined && (typeof from !== "string" || !STATUS_KEYS.includes(from as StatusKey))) return "invalid";
-  return inTransaction(undefined, async (c) => {
+    `from` (optional): the status the order must still have, or nothing changes ("changed"). The Orders page sends it
+    with every change, so a change (or an undo) never overwrites one made since (another tab, another device).
+    Stock: an order took its products out of the shop's stock when it was placed, and each line keeps how many it really
+    took (`took`, safeOrder stockTaken). Cancelling or refunding it gives back exactly that (and takes it off the
+    products' online sales count); a size renamed or removed since can't take it back, so nothing is added anywhere and
+    the answer names those lines (`notBack`) for the merchant to put right by hand. Moving it out of cancelled or refunded
+    again (an undo, a mistake put right) takes the stock again, and is refused ("no-stock", nothing changes) when a
+    product still in the shop no longer has enough (per size) for it. The coupon it used gives its use back and counts it
+    again the same way (records.ts countCouponUse). Done in one transaction with the status, under the shop's order lock,
+    so a customer's order placed at the same moment sees the stock either before or after it, never half. */
+export async function setStoreOrderStatus(accountId: string, serverId: string, status: unknown, from?: unknown): Promise<StatusResult> {
+  if (!/^\d{1,18}$/.test(serverId)) return { result: "none" };
+  if (typeof status !== "string" || !STATUS_KEYS.includes(status as StatusKey)) return { result: "invalid" };
+  if (from !== undefined && (typeof from !== "string" || !STATUS_KEYS.includes(from as StatusKey))) return { result: "invalid" };
+  return inTransaction(undefined, async (c): Promise<StatusResult> => {
     await shopLock(c, accountId);
-    const cur = await c.query(`SELECT status, items FROM store_orders WHERE id = $1 AND account_id = $2 FOR UPDATE`, [serverId, accountId]);
-    const o = cur.rows[0] as { status: string; items: unknown } | undefined;
-    if (!o) return "none";
-    if (from !== undefined && o.status !== from) return "changed";
-    await c.query(`UPDATE store_orders SET status = $3, ${PAID_SET}, updated_at = now() WHERE id = $1 AND account_id = $2`, [serverId, accountId, status]);
+    const cur = await c.query(`SELECT status, items, coupon FROM store_orders WHERE id = $1 AND account_id = $2 FOR UPDATE`, [serverId, accountId]);
+    const o = cur.rows[0] as { status: string; items: unknown; coupon: string | null } | undefined;
+    if (!o) return { result: "none" };
+    if (from !== undefined && o.status !== from) return { result: "changed" };
     const held = holdsStock(o.status);
     const holds = holdsStock(status);
+    let notBack: StockLine[] = [];
     if (held !== holds) {
-      const lines = (Array.isArray(o.items) ? o.items : [])
-        .filter(isObj)
-        .map((it) => ({ id: it.id, qty: typeof it.qty === "number" && Number.isSafeInteger(it.qty) && it.qty > 0 ? it.qty : 0, ...(typeof it.size === "string" && it.size ? { size: it.size } : {}) }))
-        .filter((it) => it.qty > 0);
+      const items = Array.isArray(o.items) ? o.items : [];
+      const lines = items.flatMap((it: unknown, at: number) => {
+        if (!isObj(it)) return [];
+        const qty = typeof it.qty === "number" && Number.isSafeInteger(it.qty) && it.qty > 0 ? it.qty : 0;
+        /* an order placed before lines kept what they took: what it asked for (the stock it took then) */
+        const took = typeof it.took === "number" && Number.isSafeInteger(it.took) && it.took >= 0 ? Math.min(it.took, qty) : qty;
+        return qty > 0 ? [{ at, id: it.id, name: String(it.name ?? ""), qty, took, ...(typeof it.size === "string" && it.size ? { size: it.size } : {}) }] : [];
+      });
       const saved = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-products' FOR UPDATE`, [accountId]);
       const products = parse(saved.rows[0]?.value as string | undefined);
-      /* given back with a quantity below zero (safeOrder takeStock), taken again as when the order was placed */
-      if (Array.isArray(products) && lines.length)
-        await writeKey(c, accountId, "seen-products", JSON.stringify(takeStock(products, holds ? lines : lines.map((it) => ({ ...it, qty: -it.qty })), { online: true })));
+      const told = (it: { name: string; qty: number; size?: string }): StockLine => ({ name: it.name, qty: it.qty, ...(it.size ? { size: it.size } : {}) });
+      if (Array.isArray(products) && lines.length) {
+        if (holds) {
+          /* taken again, as when the order was placed: only while every product still in the shop has enough */
+          const taken = stockTaken(products, lines);
+          if (taken.short.length) return { result: "no-stock", short: taken.short.map(told) };
+          await writeKey(c, accountId, "seen-products", JSON.stringify(takeStock(products, taken.lines.map((it) => ({ ...it, qty: it.took })), { online: true })));
+          /* each line keeps what it took this time, for the next cancel */
+          const next = items.map((it: unknown, at: number) => {
+            const t = taken.lines.find((x) => x.at === at);
+            return t && isObj(it) ? { ...it, took: t.took } : it;
+          });
+          await c.query(`UPDATE store_orders SET items = $3 WHERE id = $1 AND account_id = $2`, [serverId, accountId, JSON.stringify(next)]);
+        } else {
+          /* given back with a quantity below zero (safeOrder takeStock): exactly what each line took */
+          notBack = stockNotBack(products, lines).map((it) => told({ ...it, qty: it.took }));
+          await writeKey(c, accountId, "seen-products", JSON.stringify(takeStock(products, lines.map((it) => ({ ...it, qty: -it.took })), { online: true })));
+        }
+      }
+      if (o.coupon) {
+        const kept = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-coupons' FOR UPDATE`, [accountId]);
+        const list = parse(kept.rows[0]?.value as string | undefined);
+        if (Array.isArray(list)) await writeKey(c, accountId, "seen-coupons", JSON.stringify(countCouponUse(list, o.coupon, { online: true, by: holds ? 1 : -1 })));
+      }
     }
-    return "ok" as const;
+    await c.query(`UPDATE store_orders SET status = $3, ${PAID_SET}, updated_at = now() WHERE id = $1 AND account_id = $2`, [serverId, accountId, status]);
+    return { result: "ok", notBack };
   });
 }
 
