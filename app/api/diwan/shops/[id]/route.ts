@@ -165,7 +165,11 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     } catch {
       setup = null;
     }
-    notReady = readyToSell(setup, await sellPlatform()).missing;
+    const platform = await sellPlatform();
+    notReady = readyToSell(setup, platform).missing;
+    /* a live store with no delivery choice saved delivers with Dukkan Ship by default while it serves a city (safeOrder
+       checkoutShipMode): it is not "without delivery"; its Delivery line says "Dukkan Ship (default, not chosen)" */
+    if (shop[0].published && !setup?.shipping && platform.shipCities.en.length > 0) notReady = notReady.filter((m) => m !== "delivery");
   }
   /* the theme columns leave the shop row: they go out as one "theme" */
   const { theme_id, theme_listed_name, theme_source, theme_list_price, theme_paid, theme_deleted_name, ...shopRow } = shop[0] ?? {};
