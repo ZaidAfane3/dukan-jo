@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { askConfirm, Dialog, type ConfirmOptions } from "@/components/diwan/dialogs";
+import { Dialog } from "@/components/diwan/dialogs";
+import { askOwnPassword, OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { PasswordField, ShowPasswordOnce, usePasswordProblem } from "@/components/diwan/StaffPassword";
 import { passwordWords, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
@@ -40,14 +41,18 @@ export default function StaffPage() {
     const w = passwordWords[r.data?.problem as keyof typeof passwordWords];
     if (res === "weak" && w) return t(w.en, w.ar);
     if (res === "invalid") return t("Check the name and the email.", "تحقق من الاسم والبريد.");
+    const again = passwordAgainWords(t, r.data);
+    if (again) return again;
     return t("That didn't work. Try again.", "لم ينجح ذلك. حاول مجددًا.");
   };
 
-  const act = async (m: Member, body: Record<string, unknown>, ask?: ConfirmOptions) => {
-    if (ask && !(await askConfirm(ask))) return;
+  /* ask: the question, answered with the staff member's own password (taking access away and the resets need it) */
+  const act = async (m: Member, body: Record<string, unknown>, ask?: { title: string; body: string; confirm: string; danger: boolean }) => {
+    const myPassword = ask ? await askOwnPassword(t, ask) : undefined;
+    if (myPassword === null) return;
     setBusy(m.id);
     setMsg(null);
-    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", body);
+    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", { ...body, myPassword });
     setBusy(null);
     if (r.ok) {
       setMsg({ ok: true, text: t("Saved.", "تم الحفظ.") });
@@ -132,7 +137,7 @@ export default function StaffPage() {
                             onClick={() =>
                               act(m, { action: "active", active: false }, {
                                 title: t("Deactivate", "إيقاف"),
-                                body: t(`Take away ${m.name}'s access? They are signed out everywhere.`, `إيقاف دخول ${m.name}؟ سيتم إخراجه من كل الأجهزة.`),
+                                body: t(`Take away ${m.name}'s access? They are signed out everywhere. Type your own password to confirm.`, `إيقاف دخول ${m.name}؟ سيتم إخراجه من كل الأجهزة. اكتب كلمة مرورك للتأكيد.`),
                                 confirm: t("Deactivate", "إيقاف"),
                                 danger: true,
                               })
@@ -152,7 +157,7 @@ export default function StaffPage() {
                           onClick={() =>
                             act(m, { action: "reset2step" }, {
                               title: t("Reset 2-step", "إعادة ضبط التحقق"),
-                              body: t(`Reset ${m.name}'s 2-step code? They set up a new one at the next sign-in, and are signed out now.`, `إعادة ضبط رمز التحقق لـ ${m.name}؟ سيعدّ رمزًا جديدًا عند الدخول التالي، ويُخرج الآن.`),
+                              body: t(`Reset ${m.name}'s 2-step code? They set up a new one at the next sign-in, and are signed out now. Type your own password to confirm.`, `إعادة ضبط رمز التحقق لـ ${m.name}؟ سيعدّ رمزًا جديدًا عند الدخول التالي، ويُخرج الآن. اكتب كلمة مرورك للتأكيد.`),
                               confirm: t("Reset", "إعادة الضبط"),
                               danger: true,
                             })
@@ -184,6 +189,7 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
   const t = useT();
   const problemOf = usePasswordProblem();
   const [password, setPassword] = useState("");
+  const [myPassword, setMyPassword] = useState("");
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -191,8 +197,9 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
     setChecked(true);
     setErr("");
     if (problemOf(password)) return;
+    if (!myPassword) return setErr(t("Type your own password to confirm.", "اكتب كلمة مرورك للتأكيد."));
     setBusy(true);
-    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", { action: "password", password });
+    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", { action: "password", password, myPassword });
     setBusy(false);
     if (r.ok) onSaved(password);
     else setErr(why(r));
@@ -218,6 +225,9 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
       }
     >
       <PasswordField id="st-new-pass" label={t("Temporary password", "كلمة مرور مؤقتة")} value={password} onChange={setPassword} checked={checked} autoFocus />
+      <div className="mt-4">
+        <OwnPasswordField t={t} value={myPassword} onChange={setMyPassword} />
+      </div>
       {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
     </Dialog>
   );
@@ -226,7 +236,7 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
 function AddForm({ onDone, why }: { onDone: (text: string, added: Shown) => void; why: (r: { data: any }) => string }) {
   const t = useT();
   const problemOf = usePasswordProblem();
-  const [v, setV] = useState({ name: "", email: "", password: "" });
+  const [v, setV] = useState({ name: "", email: "", password: "", myPassword: "" });
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -235,6 +245,7 @@ function AddForm({ onDone, why }: { onDone: (text: string, added: Shown) => void
     setChecked(true);
     setErr("");
     if (problemOf(v.password)) return;
+    if (!v.myPassword) return setErr(t("Type your own password to confirm.", "اكتب كلمة مرورك للتأكيد."));
     setBusy(true);
     const r = await send("/api/diwan/staff", "POST", v);
     setBusy(false);
@@ -257,6 +268,7 @@ function AddForm({ onDone, why }: { onDone: (text: string, added: Shown) => void
         <input id="st-email" type="email" dir="ltr" className={field} required maxLength={254} value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} />
       </div>
       <PasswordField id="st-pass" label={t("Temporary password", "كلمة مرور مؤقتة")} value={v.password} onChange={(password) => setV({ ...v, password })} checked={checked} />
+      <OwnPasswordField t={t} value={v.myPassword} onChange={(myPassword) => setV({ ...v, myPassword })} />
       {err && <p role="alert" className="text-sm text-red-600 sm:col-span-2">{err}</p>}
       <div className="sm:col-span-2">
         <Btn type="submit" disabled={busy}>{busy ? t("Adding…", "جارٍ الإضافة…") : t("Add", "إضافة")}</Btn>

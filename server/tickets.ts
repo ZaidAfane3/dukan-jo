@@ -69,13 +69,11 @@ export function checkPictures(v: unknown): Picture[] | null {
   return out;
 }
 
-/* A ticket's picture never changes once sent (there is no editing a picture, only adding new ones under new ids), so the
-   browser may keep its own private copy and show it again without asking: the chat's thumbnails appear at once when a
-   ticket is opened again, and the chat refreshing never downloads them again. "private" keeps every shared cache (a
-   proxy, Cloudflare) from keeping one, and each request that does reach the server is checked again (who is asking,
-   which ticket). A day, not longer, so a copy on a shared computer does not outlive its use by long; after that the
-   tag below still spares the download. */
-const PICTURE_CACHE = "private, max-age=86400, immutable";
+/* A ticket's picture can show private things (a screenshot of an order, a customer's details), so it is kept nowhere:
+   not by a shared cache (a proxy, Cloudflare: "private") and not by the browser either ("no-store", as documents are,
+   server/documents.ts), so it does not stay behind on a shared computer. Each request is checked again (who is asking,
+   which ticket). The tag below still answers a browser that kept a copy from before this change. */
+const PICTURE_CACHE = "private, no-store";
 const PICTURE_HEADERS = {
   "Cache-Control": PICTURE_CACHE,
   "X-Content-Type-Options": "nosniff",

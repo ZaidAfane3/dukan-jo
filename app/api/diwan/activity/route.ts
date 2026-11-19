@@ -30,10 +30,15 @@ export const GET = staffRoute("audit.read", async (req: NextRequest) => {
   const action = cleanLine(q.get("action") ?? "", 80);
   if (q.get("kind") === "signin") add("a.action = ANY(?)", SIGN_IN_ACTIONS);
   else if (action) add("a.action = ?", action);
+  /* a day that exists (from 1970): "2026-02-31" has the right shape but no such day (the database would refuse it, a
+     503), so it is answered 400 before any query; an empty value is no filter */
+  const realDay = (v: string) =>
+    DAY.test(v) && v >= "1970-01-01" && !isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
   const from = q.get("from") ?? "";
-  if (DAY.test(from) && !isNaN(Date.parse(from))) add("a.at >= ?::date", from);
   const to = q.get("to") ?? "";
-  if (DAY.test(to) && !isNaN(Date.parse(to))) add("a.at < ?::date + 1", to);
+  if ((from && !realDay(from)) || (to && !realDay(to))) return answer({ result: "invalid" }, 400);
+  if (from) add("a.at >= ?::date", from);
+  if (to) add("a.at < ?::date + 1", to);
   /* one store's lines only: the store itself, its tickets, the reports about it and its documents (?shop=, its page's
      "See all") */
   const shop = q.get("shop") ?? "";
