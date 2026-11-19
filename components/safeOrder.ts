@@ -65,15 +65,18 @@ export const deliveryCities = (mode: "own" | "seen" | null | undefined, ship: { 
     (server/storeOrders.ts). null: he has not chosen how he delivers yet, so home delivery is not offered at all (only
     pickup when he offers it; neither: no order can be placed, the server answers "no-delivery"). Otherwise the cities
     (deliveryCities) and the fee per order: his own courier's fee as saved (none ever set: null, the store confirms it,
-    never "Free"), or Dukkan Ship's price from Diwan. */
+    never "Free"), or Dukkan Ship's price from Diwan. No city to deliver to (Dukkan Ship with every city taken off in
+    Diwan): null too, so the checkout says the store has not set up delivery yet instead of an empty list of cities. */
 export function storeDelivery(
   mode: "own" | "seen" | null | undefined,
   ship: { price: number; cities: { en: readonly string[]; ar: readonly string[] } },
   own: { fee?: number; cities?: unknown } = {},
 ): { cities: { en: readonly string[]; ar: readonly string[] }; fee: number | null } | null {
   if (mode !== "own" && mode !== "seen") return null;
+  const cities = deliveryCities(mode, ship.cities, own.cities);
+  if (!cities.en.length) return null;
   return {
-    cities: deliveryCities(mode, ship.cities, own.cities),
+    cities,
     fee: mode === "own" ? (typeof own.fee === "number" && Number.isFinite(own.fee) ? toFils(own.fee) : null) : toFils(ship.price),
   };
 }
@@ -186,6 +189,11 @@ export const productKind = (v: unknown): ProductKind => (PRODUCT_KINDS.includes(
 export const kindHasSizes = (k: ProductKind) => k === "clothing" || k === "shoes";
 /** The kind is something delivered to an address (a code, a gift card or a service is not) */
 export const kindShips = (k: ProductKind) => k !== "digital" && k !== "service";
+/** A saved product is delivered to an address: its kind ships (kindShips) and he did not switch "Needs shipping" off
+    (`shipping: false`, the product form). Products saved before that switch ship. A cart of only products that don't
+    ship has no delivery fee and asks no city or address, the same in the cart (Cart.tsx) and on the server
+    (server/storeOrders.ts); a cart with one product that ships is delivered as usual. */
+export const productShips = (p: { kind?: unknown; shipping?: unknown }) => kindShips(productKind(p.kind)) && p.shipping !== false;
 
 /** One size of a product and how many of it the store has */
 export type SizeStock = { name: string; quantity: number };
@@ -303,8 +311,9 @@ export type CheckoutValue = { customer: string; phone: string; email: string; fu
     mobile (`phone`) and an email (`email`). The city and the address are asked only for delivery; "pickup" counts only
     when the store allows it (`pickup`); `delivery: false` (no delivery choice yet, see storeDelivery) refuses a
     delivered order ("fulfil"). `pays`: the ways to pay this store takes now (orderPays: Dukkan's and his own choice); one
-    that is off is refused like one that does not exist. */
-export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; delivery?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] } } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
+    that is off is refused like one that does not exist. `ships: false`: nothing in the cart is delivered to an address
+    (productShips), so no city, no address and no delivery choice are asked. */
+export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; delivery?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] }; ships?: boolean } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
   const errors: CheckoutField[] = [];
   const name = cleanText(f.name, ORDER_LIMITS.name).replace(/\s+/g, " ").trim();
   if (visible(name) < 2) errors.push("name");
@@ -313,7 +322,12 @@ export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boole
   const email = visitorEmail(f.email);
   if (!email) errors.push("email");
   const fulfil: Fulfil = opts.pickup && f.fulfil === "pickup" ? "pickup" : "delivery";
-  const delivered = fulfil === "delivery";
+  /* pickup asked for at a store that no longer offers it (he turned it off while the page was open): refused ("fulfil",
+     the delivery options changed), never quietly turned into a delivery the customer did not choose */
+  const pickupGone = f.fulfil === "pickup" && !opts.pickup;
+  if (pickupGone) errors.push("fulfil");
+  const ships = opts.ships !== false;
+  const delivered = fulfil === "delivery" && ships && !pickupGone;
   const deliverable = delivered && opts.delivery !== false;
   if (delivered && !deliverable) errors.push("fulfil");
   const city = deliverable && typeof f.city === "string" ? f.city : "";

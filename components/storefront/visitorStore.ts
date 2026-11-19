@@ -13,3 +13,8 @@ export const VisitorStoreContext = createContext<PublicStoreOpen | null>(null);
 
 /** The store sent by the server when the storefront is the public store, else null */
 export const useVisitorStore = () => useContext(VisitorStoreContext);
+
+/** The public store: reads the store from Dukkan's server again (after an order, so what just sold out shows as sold
+    out). Null everywhere else. */
+export const VisitorRefreshContext = createContext<(() => Promise<void>) | null>(null);
+export const useVisitorRefresh = () => useContext(VisitorRefreshContext);

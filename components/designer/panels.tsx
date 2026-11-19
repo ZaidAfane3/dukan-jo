@@ -3596,6 +3596,11 @@ const scT = {
     withTotal: "أيقونة ومبلغ السلة",
     iconAlone: "أيقونة فقط",
     pillCart: "زر دائري (شكل «لَمّة»)",
+    language: "اللغة",
+    langBtn: "زر تغيير اللغة",
+    langOn: "يظهر زر في رأس الصفحة يبدّل المتجر بين العربية والإنجليزية للزائر، ويتذكّر اختياره في هذا المتجر.",
+    langOff: "يظهر المتجر بلغة الزائر دون زر لتغييرها.",
+    langWrite: "اكتب عناوينك ونصوصك باللغتين: النص المكتوب بلغة واحدة يظهر كما هو في اللغة الأخرى.",
   },
   en: {
     search: "Search",
@@ -3621,6 +3626,11 @@ const scT = {
     withTotal: "Icon and cart total",
     iconAlone: "Icon only",
     pillCart: "Round button (Lamma style)",
+    language: "Language",
+    langBtn: "Language switch button",
+    langOn: "A button in the header switches the store between Arabic and English for the visitor, and remembers the choice for this store.",
+    langOff: "The store shows in the visitor's language, with no button to change it.",
+    langWrite: "Write your titles and texts in both languages: a text written in one language only shows as it is in the other.",
   },
 } as const;
 
@@ -3677,6 +3687,15 @@ function SearchCartForm({ lang, cfg, setCfg }: { lang: Lang; cfg: StorefrontConf
         <Blocked when={nav.style !== "links"} why={why(lang, `غير متاح لأن «${dc[lang].luxe.navStyle}» ليس «${dc[lang].luxe.navLinks}».`, `Not available because “${dc[lang].luxe.navStyle}” isn't “${dc[lang].luxe.navLinks}”.`)}>
           <Toggle on={nav.showSaved !== false} onChange={(showSaved) => setNav({ showSaved })} label={w.saved} />
         </Blocked>
+      </div>
+      {/* the visitors' language button (header.showLanguage), in every header look; off unless he turns it on */}
+      <div className="space-y-3 border-t border-fg/10 pt-4">
+        <h3 className={heading}>{w.language}</h3>
+        <div>
+          <Toggle on={cfg.header.showLanguage} onChange={(showLanguage) => setCfg((c) => ({ ...c, header: { ...c.header, showLanguage } }))} label={w.langBtn} />
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">{cfg.header.showLanguage ? w.langOn : w.langOff}</p>
+          {cfg.header.showLanguage && <p className="mt-1 text-[11px] leading-relaxed text-muted">{w.langWrite}</p>}
+        </div>
       </div>
     </div>
   );

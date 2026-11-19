@@ -1,13 +1,13 @@
 "use client";
 
-import { orderPays, storeDelivery, UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
+import { orderPays, storeDelivery, toFils, UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { cloneElement, createContext, Fragment, isValidElement, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
-import { copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { basketMost, copy, currency, fillColors, icons, moneyIn, mostWords, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { productCount, searchCopy } from "./search";
 import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
@@ -233,7 +233,7 @@ export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id
 /* the title look of the section being drawn, for its Heading */
 const SectionTitleLook = createContext<TitleLook | undefined>(undefined);
 
-function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string; /* a section with no products yet: its "view all" shows in the designer while the merchant edits that wording, to see where it goes */ moreHole?: boolean }) {
+function Heading({ title, ctx, more: moreOn, right, link, moreHole, onMore }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string; /* a section with no products yet: its "view all" shows in the designer while the merchant edits that wording, to see where it goes */ moreHole?: boolean; /* "view all" with no link: it shows every product of the section in place (Featured, Deals) */ onMore?: () => void }) {
   const c = copy[ctx.lang];
   const spots = useSpots();
   const more = moreOn || (!!moreHole && !!ctx.design && spots.some((x) => x.key === "viewall"));
@@ -255,7 +255,7 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
       return (
         <div className="mb-8 flex items-end justify-between gap-4">
           {h2}
-          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : <span data-spot="viewall" className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
+          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : onMore && !ctx.design ? <button type="button" onClick={onMore} className={cls}>{viewAll}</button> : <span data-spot="viewall" className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
           {right}
         </div>
       );
@@ -285,6 +285,8 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
           const inner = pop || light ? viewAll : <>{viewAll}{icons.arrow}</>;
           return link?.trim() && !ctx.design ? (
             <a {...linkProps(link, ctx)} className={`${cls} transition hover:opacity-70`} style={style}>{inner}</a>
+          ) : onMore && !ctx.design ? (
+            <button type="button" onClick={onMore} className={`${cls} transition hover:opacity-70`} style={style}>{inner}</button>
           ) : (
             <span data-spot="viewall" className={cls} style={style} onClick={designOpen(link, ctx)}>{inner}</span>
           );
@@ -388,6 +390,9 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
   const withAdd = k.showAdd ?? true;
   const plus = withAdd && k.add === "plus";
   const low = k.showStock && p.quantity > 0 && p.quantity <= 5;
+  /* the basket holds all it can take of it: + stops, and the card says why */
+  const most = basketMost(p.quantity);
+  const atMost = inBasket > 0 && !out && inBasket >= most;
   const row = (k.info ?? "stack") === "row";
   /* centered: the name, the material line and the price under the picture, in the middle, the name and price in the titles font */
   const centered = k.info === "center";
@@ -441,7 +446,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
           <h3 dir="auto" className={`mt-0.5 text-sm font-bold ltr:text-left rtl:text-right ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}><Say>{p.name}</Say></h3>
         ))}
         {/* the short line ("cotton · soft · light") is not on the card: it shows on the product page, under "Features" */}
-        {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
+        {atMost ? <p role="status" className="mt-0.5 text-xs font-semibold text-amber-600">{mostWords(p.quantity, ctx.lang)}</p> : low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
         </div>
         {k.showPrice && (
           <p dir="ltr" className={`${row ? "mt-0.5 max-w-[60%] shrink-0 justify-end" : centered ? "mt-2 justify-center" : `${pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} rtl:justify-end`} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-start`} style={{ ...priceInk(ctx, cardOn), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
@@ -468,7 +473,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-full border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]" style={surfaceInk(ctx, "#ffffff")}>
               <button type="button" onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket - 1)} aria-label={`${ctx.lang === "ar" ? "إنقاص" : "Remove one"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10">&minus;</button>
               <span aria-live="polite" className="min-w-[1.25rem] text-center tabular-nums">{inBasket}</span>
-              <button type="button" disabled={inBasket >= p.quantity} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
+              <button type="button" disabled={inBasket >= most} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
             </div>
             </div>
           ) : (
@@ -498,7 +503,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
             <span aria-live="polite" className="text-sm font-extrabold tabular-nums">{inBasket}</span>
             <button
               type="button"
-              disabled={inBasket >= p.quantity}
+              disabled={inBasket >= most}
               onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)}
               aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`}
               className="grid h-full w-12 place-items-center text-xl font-bold transition hover:bg-black/[0.07] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
@@ -748,11 +753,14 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   /* how many to add: chosen before adding; once it is in the basket the same buttons change the basket */
   const [pick, setPick] = useState(1);
   const [more, setMore] = useState(false);
-  const perkLine = perkLineWith(ctx.sells);
+  /* a product that is not delivered to an address (a code, a service: safeOrder productShips) promises no delivery */
+  const perkLine = perkLineWith(p.noShip ? { ...ctx.sells, delivers: false } : ctx.sells);
   useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
   useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
-  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, sizeLeft), n))));
+  /* the stepper stops at what the basket takes: the stock (of that size), at most one order's limit (99 with no limit) */
+  const most = basketMost(sizeLeft);
+  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, most), n))));
   /* a product in sizes waits for its size before it can be added */
   const needSize = sized && !size;
   const now = priceOf(p);
@@ -766,13 +774,14 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const about = p.description ?? "";
   const long = about.length > 360 || about.split("\n").length > 6;
   /* the free delivery offer follows what is already in the basket */
-  const basket = Object.entries(ctx.qty).reduce((t, [key, n]) => {
+  /* (kept to the fils, as the cart and the server test it) */
+  const basket = toFils(Object.entries(ctx.qty).reduce((t, [key, n]) => {
     const x = ctx.data.products.find((y) => String(y.id) === key.split("|")[0]);
     return t + (x ? n * priceOf(x) : 0);
-  }, 0);
+  }, 0));
   const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
-  /* free delivery is only promised by a store that delivers to a door */
-  if (fd?.on && ctx.sells.delivers) {
+  /* free delivery is only promised by a store that delivers to a door, on a product it delivers */
+  if (fd?.on && ctx.sells.delivers && !p.noShip) {
     perks.push(
       basket >= fd.min
         ? { icon: icons.truck, t: w.freeHere, bar: 1 }
@@ -781,7 +790,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
           : { icon: icons.truck, t: <>{w.freeFrom} {amount(fd.min)}</> },
     );
   }
-  if (pickup) perks.push({ icon: icons.pin, t: w.pickup, d: w.pickupD });
+  if (pickup && !p.noShip) perks.push({ icon: icons.pin, t: w.pickup, d: w.pickupD });
   const promises = sections?.find((x): x is Extract<SectionConfig, { type: "perks" }> => x.type === "perks" && x.visible)?.settings.items ?? [];
   const other = ctx.lang === "ar" ? "en" : "ar";
   const perkIcon = { truck: icons.truck, shield: icons.shield, returns: icons.returns, gift: icons.gift, clock: icons.clock, chat: icons.chat };
@@ -863,9 +872,10 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         <div dir="ltr" role="group" aria-label={w.qty} className={`inline-flex shrink-0 items-center ${s.stepper}`}>
           <button type="button" className={step} disabled={inBasket === 0 && pick <= 1} onClick={() => setCount(count - 1)} aria-label={`${w.less}: ${p.name}`}>−</button>
           <span aria-live="polite" className="min-w-[2.5rem] text-center text-base font-extrabold tabular-nums">{count}</span>
-          <button type="button" className={step} disabled={count >= sizeLeft} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
+          <button type="button" className={step} disabled={count >= most} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
         </div>
       )}
+      {!out && p.price !== null && !needSize && count >= most && <p role="status" className="w-full text-xs font-semibold text-amber-600">{mostWords(sizeLeft, ctx.lang)}</p>}
       {inBasket > 0 && !out ? (
         <p role="status" className={`flex min-w-[12rem] flex-1 flex-wrap items-center justify-center gap-x-2 text-center ${s.added}`}>
           <span className="inline-flex items-center gap-1.5">{icons.check}{w.inCart(inBasket)}</span>
@@ -2500,7 +2510,10 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
 }
 
 function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>["settings"]; ctx: Ctx }) {
-  const items = featuredItems(s, ctx.data);
+  /* "view all": every product of the section, not only the count he set (it goes once they all show) */
+  const [all, setAll] = useState(false);
+  const items = featuredItems(s, ctx.data, all);
+  const more = all ? false : featuredItems(s, ctx.data, true).length > items.length;
   if (!items.length) {
     if (!ctx.design) return null;
     return (
@@ -2512,7 +2525,7 @@ function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>[
   }
   return (
     <section className={section(ctx.compact)}>
-      <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more />
+      <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more={more || !!ctx.design} onMore={() => setAll(true)} />
       <Grid items={items} ctx={ctx} columns={4} />
     </section>
   );
@@ -2525,7 +2538,10 @@ const dealsBox = (ctx: Ctx): string | undefined => {
 };
 
 function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }>["settings"]; ctx: Ctx }) {
-  const items = discountItems(s, ctx.data);
+  /* "view all": every discounted product, not only the count he set (it goes once they all show) */
+  const [all, setAll] = useState(false);
+  const items = discountItems(s, ctx.data, all);
+  const more = all ? false : discountItems(s, ctx.data, true).length > items.length;
   if (!items.length) {
     if (!ctx.design) return null;
     return (
@@ -2538,7 +2554,7 @@ function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }
   return (
     <section className={section(ctx.compact)}>
       <div className="rounded-[var(--sf-r)] p-5" style={{ background: "color-mix(in srgb, var(--sf-primary) 8%, var(--sf-bg))" }}>
-        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more />
+        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more={more || !!ctx.design} onMore={() => setAll(true)} />
         <CardBehind.Provider value={dealsBox(ctx)}>
           <Grid items={items} ctx={ctx} columns={4} />
         </CardBehind.Provider>
@@ -3028,15 +3044,18 @@ function collectionItems(s: Settings<"collection">, data: PartData): StoreProduc
 }
 /** Featured products: the ones he picked for it, in his order; none picked: the ones marked featured, those that can be
     bought now first. None of either: nothing (customers don't see the block; the designer says to pick or mark some),
-    never every product under "Featured"; only the sample products of a preview fill it. */
-function featuredItems(s: Settings<"featured">, data: PartData): StoreProduct[] {
+    never every product under "Featured"; only the sample products of a preview fill it. `all`: every one, not only the
+    count he set (its "view all"). */
+function featuredItems(s: Settings<"featured">, data: PartData, all = false): StoreProduct[] {
   const picked = (s.productIds ?? []).map((id) => data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
   const featured = data.products.filter((p) => p.featured);
-  return (picked.length ? picked : buyableFirst(featured.length ? featured : data.isDemo ? data.products : [])).slice(0, s.count);
+  const list = picked.length ? picked : buyableFirst(featured.length ? featured : data.isDemo ? data.products : []);
+  return all ? list : list.slice(0, s.count);
 }
-/** Deals: the products with a discounted price, those that can be bought now first */
-function discountItems(s: Settings<"discounts">, data: PartData): StoreProduct[] {
-  return buyableFirst(data.products.filter((p) => p.sale !== null)).slice(0, s.count);
+/** Deals: the products with a discounted price, those that can be bought now first (`all`: every one, its "view all") */
+function discountItems(s: Settings<"discounts">, data: PartData, all = false): StoreProduct[] {
+  const list = buyableFirst(data.products.filter((p) => p.sale !== null));
+  return all ? list : list.slice(0, s.count);
 }
 
 /** Whether a part of the home page shows nothing to customers: hidden, or with nothing in it (no products to show, no

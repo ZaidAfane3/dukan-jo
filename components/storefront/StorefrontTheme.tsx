@@ -12,8 +12,8 @@ import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
 import { fontFamily, headingFamily } from "./config";
 import { categoriesOf, sampleProducts, storeDataReady, useStoreData, type StoreProduct } from "./useStoreData";
-import { cartQty, productId } from "../safeOrder";
-import { CartPanel } from "./Cart";
+import { cartQty, ORDER_LIMITS, productId, toFils } from "../safeOrder";
+import { CartPanel, type LostLine } from "./Cart";
 import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
 import { shownMobile } from "../phone";
 import { hasArabic } from "../safe";
@@ -21,6 +21,7 @@ import { useSpots } from "./spotSignal";
 import { ReportStore } from "./ReportStore";
 import { useVisitorStore } from "./visitorStore";
 import { sendVisit } from "../storeVisits";
+import { usePageTitle } from "../pageTitle";
 import { basketStorageKey, readBasket, writeBasket } from "./visitorBasket";
 
 /* The public store gives each product and each page of the store its own address: /<store>?p=<product id> or
@@ -125,6 +126,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   useEffect(() => {
     if (design) setMenu(showMenu);
   }, [design, showMenu]);
+  /* Escape closes the open sidebar, as it does the cart and the search (not in the designer, which opens it itself) */
+  useEffect(() => {
+    if (!menu || design) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(false); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [menu, design]);
   const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches), []);
   /* What is in the basket: how many of each product (by product id) */
@@ -132,12 +140,25 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   useEffect(() => setFd(visitor ? visitor.freeDelivery : loadFreeDelivery()), [visitor]);
   /* by product id, or "id|size" for clothing and shoes (one entry per size) */
   const [qty, setQtyMap] = useState<Record<string, number>>({});
+  const qtyNow = useRef(qty);
+  qtyNow.current = qty;
+  /* an add refused because the basket already holds as many different products as one order can (ORDER_LIMITS.lines):
+     said for a few seconds (when), instead of the checkout answering "products changed" again and again */
+  const [basketFull, setBasketFull] = useState(0);
+  useEffect(() => {
+    if (!basketFull) return;
+    const t = setTimeout(() => setBasketFull(0), 5000);
+    return () => clearTimeout(t);
+  }, [basketFull]);
   /* The public store only: the address follows the product or page open, and the basket is kept in the visitor's
      browser for this store (visitorBasket.ts). Both are taken back once the store's products are in (`settled`); until
      then the basket's count and total are not shown, so a kept basket never flashes as empty. */
   const routed = !!visitor && !design;
   const basketStore = routed && visitor ? basketStorageKey(visitor.setup.slug) : "";
   const [settled, setSettled] = useState(!routed);
+  /* the lines the kept basket lost when the page opened again (see readBasket), told in the cart */
+  const [basketLost, setBasketLost] = useState<LostLine[]>([]);
+  const noticeSeen = useCallback(() => setBasketLost([]), []);
 
   useEffect(() => {
     const el = root.current;
@@ -162,9 +183,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       if (n > 0) latest.current.openProduct(p.id);
       return;
     }
+    const key = basketKey(p.id, size);
+    /* a new product (or size) once the basket holds as many as one order takes: not added, and he is told why */
+    const full = (m: Record<string, number>) => n > 0 && !m[key] && Object.keys(m).length >= ORDER_LIMITS.lines;
+    if (full(qtyNow.current)) {
+      setBasketFull(Date.now());
+      return;
+    }
     setQtyMap((m) => {
+      if (full(m)) return m;
       const next = { ...m };
-      const key = basketKey(p.id, size);
       /* Never more than the store has (of that size), and a quantity of 0 takes it out of the basket */
       const v = cartQty(n, size ? p.sizes?.find((z) => z.name === size)?.quantity ?? 0 : p.quantity);
       if (v === 0) delete next[key];
@@ -209,12 +237,17 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     return () => { on.removeEventListener("scroll", place); window.removeEventListener("resize", place); };
   }, [design, showCart]);
   const cartLines = Object.entries(qty).flatMap(([key, n]) => {
-    const [id, size] = key.split("|");
+    /* "id|size": split at the first bar only, so a size whose name has a bar ("S|M") stays whole (visitorBasket.ts reads it the same way) */
+    const bar = key.indexOf("|");
+    const id = bar < 0 ? key : key.slice(0, bar);
+    const size = bar < 0 ? "" : key.slice(bar + 1);
     const p = data.products.find((x) => String(x.id) === id);
     return p && n > 0 ? [{ p, qty: n, ...(size ? { size } : {}) }] : [];
   });
   /* every entry of the basket (each size of a product counts on its own) */
-  const cart = cartLines.reduce((k, l) => ({ count: k.count + l.qty, total: k.total + l.qty * priceOf(l.p) }), { count: 0, total: 0 });
+  const cartSum = cartLines.reduce((k, l) => ({ count: k.count + l.qty, total: k.total + l.qty * priceOf(l.p) }), { count: 0, total: 0 });
+  /* the total kept to the fils, as the cart and the server work it out (the free delivery offer is tested on it) */
+  const cart = { count: cartSum.count, total: toFils(cartSum.total) };
   /* A page of the store (an info page) shown in place of the home page */
   const [ownPage, setPageId] = useState<number | null>(null);
   /* In the designer the page shown is chosen by the designer (its page menu, or a button that leads to a page) */
@@ -264,7 +297,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
      the first paint, so neither the empty basket nor the home page flashes first. */
   useLayoutEffect(() => {
     if (settled || !storeDataReady(saved)) return;
-    setQtyMap(readBasket(basketStore, data.products));
+    const kept = readBasket(basketStore, data.products);
+    setQtyMap(kept.qty);
+    /* what the kept basket lost since he was last here (sold out, gone, fewer left): the cart names it */
+    setBasketLost(kept.lost);
     const v = viewInAddress();
     const product = v.product !== null && data.products.some((p) => p.id === v.product) ? v.product : null;
     const page = product === null && v.page !== null && data.pages.some((p) => p.id === v.page) ? v.page : null;
@@ -296,7 +332,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   useEffect(() => {
     if (!settled || !basketStore) return;
     const onStorage = (e: StorageEvent) => {
-      if (e.key === basketStore) setQtyMap(readBasket(basketStore, dataNow.current.products));
+      if (e.key === basketStore) setQtyMap(readBasket(basketStore, dataNow.current.products).qty);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -364,7 +400,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const viewNow = useRef({ product: productId, page: pageId });
   viewNow.current = { product: productId, page: pageId };
   /* the public store's address follows the search on the home page, a moment after the last key (one entry: Back
-     does not step through every letter) */
+     does not step through every letter). A search that starts there (typed, or a category of the sidebar) is a new
+     entry, so Back comes back to the home page as it was instead of leaving the store; the letters after it change
+     that entry only. */
+  const searchPush = useRef(false);
   const markQuery = (q: string, now: boolean) => {
     if (!routed) return;
     clearTimeout(searchTimers.current.url);
@@ -374,7 +413,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         const v = viewInAddress();
         if (v.product !== null || v.page !== null) return;
         const url = addressOf({ product: null, page: null, q });
-        if (url !== window.location.pathname + window.location.search) window.history.replaceState(window.history.state, "", url);
+        if (url === window.location.pathname + window.location.search) return;
+        if (searchPush.current && q) {
+          searchPush.current = false;
+          /* Back comes back to where he was on the home page */
+          window.history.replaceState({ ...window.history.state, sfY: homeY.current ?? window.scrollY }, "", window.location.href);
+          window.history.pushState({ sfY: 0 }, "", url);
+        } else window.history.replaceState(window.history.state, "", url);
       } catch {
         /* the address stays as it is; the search still works */
       }
@@ -412,7 +457,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       /* a search starts on the home page: kept where he was, and the results come into view */
       homeY.current = window.scrollY;
       scrollNext.current = "results";
+      searchPush.current = true;
     } else if (was && !now) {
+      searchPush.current = false;
       scrollNext.current = homeY.current ?? "top";
       homeY.current = null;
     }
@@ -546,6 +593,42 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* the search bar and the basket are always there, and the header always stays in view while scrolling (no longer
      switches in the designer; older saved designs that turned them off get them back) */
   const h = { ...config.header, showSearch: true, showCart: true, sticky: true };
+  /* The language button (header.showLanguage, off unless he turns it on): it switches the store between Arabic and
+     English for this visitor, and on the public store it is remembered for this store, so he finds it in his language
+     when he comes back. A text he wrote in one language only still shows in the other (the store falls back to it). In
+     the designer it shows where it goes, and a click picks the header as anywhere else. */
+  const langStore = routed && visitor ? `dukkan-store-lang:${visitor.setup.slug.trim().toLowerCase()}` : "";
+  const switchLang = (e: React.MouseEvent) => {
+    if (design) return;
+    e.stopPropagation();
+    const to = lang === "ar" ? "en" : "ar";
+    setLang(to);
+    if (langStore) {
+      try {
+        localStorage.setItem(langStore, to);
+      } catch {
+        /* storage turned off: the choice holds until the page is left */
+      }
+    }
+  };
+  const langPicked = useRef(false);
+  useEffect(() => {
+    if (!langStore || !h.showLanguage || langPicked.current) return;
+    langPicked.current = true;
+    try {
+      const kept = localStorage.getItem(langStore);
+      if ((kept === "ar" || kept === "en") && kept !== lang) setLang(kept);
+    } catch {
+      /* storage turned off: the visitor's own language */
+    }
+  }, [langStore, h.showLanguage]); // eslint-disable-line react-hooks/exhaustive-deps
+  const langLabel = lang === "ar" ? "Switch to English" : "التبديل إلى العربية";
+  const langButton = (className: string, style?: React.CSSProperties) =>
+    h.showLanguage ? (
+      <button type="button" onClick={switchLang} aria-label={langLabel} title={langLabel} lang={lang === "ar" ? "en" : "ar"} className={`${className} text-sm font-bold`} style={style}>
+        {lang === "ar" ? "EN" : "ع"}
+      </button>
+    ) : null;
   const tagline = config.identity.tagline?.[lang] || config.identity.tagline?.[lang === "ar" ? "en" : "ar"];
   /* the name shows beside the logo unless he switched it off; with no logo the name always shows */
   const nameShown = config.identity.showName !== false || !config.identity.showLogo;
@@ -566,8 +649,30 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const spots = useSpots();
   const spotted = (key: string) => !!design && spots.some((s) => s.key === key);
   const taglineHole = !tagline && spotted("identity:tagline");
+  /* The logo and name lead to the store's home page: its own address on the public store (a new tab opens it as any
+     link does), the home page in place everywhere else. In the designer a click edits them. */
+  const homeHref = routed && visitor ? `/${visitor.setup.slug}` : "#";
+  const goHome = () => {
+    setMenu(false);
+    if (queryNow.current.trim()) endSearch(true);
+    setOwnProduct(null);
+    setPageId(null);
+    moveTo({ product: null, page: null });
+    root.current?.scrollIntoView({ block: "start" });
+  };
+  const brandClick = (e: React.MouseEvent) => {
+    if (design) {
+      e.preventDefault();
+      e.stopPropagation();
+      design.select("identity");
+      return;
+    }
+    if (homeHref !== "#" && (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) return;
+    e.preventDefault();
+    goHome();
+  };
   const brand = (
-    <a href="#" data-spot="identity" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
+    <a href={homeHref} data-spot="identity" onClick={brandClick} className={`flex min-w-0 items-center gap-2.5 ${design ? "rounded-md outline-2 outline-offset-4 outline-transparent transition hover:outline-dashed hover:outline-[#14b8a6]" : ""}`}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
       {(nameShown || tagline || taglineHole) && (
         <span className={`flex min-w-0 flex-col ${centered ? "items-center" : nameEnd ? "items-end" : ""}`}>
@@ -691,6 +796,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const searchWidthMid = { small: "w-44", medium: "w-64", large: "w-80" }[searchSize];
   const actions = (
     <div className={`flex shrink-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>
+              {langButton(iconBtn, onWhite)}
               {searchIcon && searchPop(
                 <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={iconBtn} style={onWhite}>
                   {icons.search}
@@ -784,7 +890,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const [navOn, setNavOn] = useState(0);
   /* The pill header: the name in a dark pill, the links in a white pill (the chosen one colored), and a round basket button */
   const pillBrand = (
-    <a href="#" data-spot="identity" onClick={(e) => { e.preventDefault(); if (design) { e.stopPropagation(); design.select("identity"); } }} className="inline-flex min-w-0 max-w-full items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: pillNameColor, fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
+    <a href={homeHref} data-spot="identity" onClick={brandClick} className="inline-flex min-w-0 max-w-full items-center gap-2.5 px-5 py-2 text-xl font-extrabold" style={{ background: "var(--sf-text)", color: pillNameColor, fontFamily: "var(--sf-heading)", borderRadius: "var(--sf-r2)" }}>
       {config.identity.showLogo && <LogoMark logo={logo} name={data.name} />}
       {namePlace ?? <span dir="auto" className="min-w-0 truncate ltr:text-left rtl:text-right" style={{ fontSize: nameSizeOwn }}>{data.name}</span>}
     </a>
@@ -843,6 +949,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
   const pillExtras = (
     <>
+      {langButton(pillIcon, onWhite)}
       {h.showSearch && searchAlways && pillBar}
       {h.showSearch && !searchAlways && (
         <button type="button" data-search-zone onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={`${pillIcon} ${searchOpen ? "!bg-[var(--sf-text)] !text-[var(--sf-bg)]" : ""}`} style={searchOpen ? undefined : onWhite}>
@@ -866,6 +973,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const plainRow = nameEnd ? "flex-row-reverse justify-end" : "justify-end";
   const plainActions = textCart ? (
     <div className={`flex items-center gap-3 ${plainRow}`}>
+      {h.showLanguage && (
+        <>
+          <button type="button" onClick={switchLang} lang={lang === "ar" ? "en" : "ar"} className={wordBtn}>{lang === "ar" ? "English" : "العربية"}</button>
+          <span aria-hidden className="opacity-50">·</span>
+        </>
+      )}
       {h.showSearch && searchAlways && <div className={`shrink-0 ${searchWidthMid}`}>{search}</div>}
       {h.showSearch && !searchAlways && (
         <>
@@ -883,6 +996,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     </div>
   ) : (
     <div className={`flex items-center ${plainRow}`}>
+      {langButton(plain)}
       {h.showSearch && searchAlways && <div className={`me-1 shrink-0 ${searchWidthMid}`}>{search}</div>}
       {h.showSearch && !searchAlways && searchPop(
         <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={plain}>
@@ -903,6 +1017,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
 
   return (
     <div ref={root} dir={lang === "ar" ? "rtl" : "ltr"} className="store-preview relative isolate overflow-hidden text-[var(--sf-text)]" style={vars}>
+      {/* the public store's tab says what is open: the product or the page, then the store (the home page: the store) */}
+      {routed && settled && <StoreTabTitle title={[shownProduct?.name ?? (pageId !== null ? shownPage?.title : ""), data.name].map((x) => x?.trim()).filter(Boolean).join(" · ") || data.name} />}
       {/* The page background: behind the banners, products and everything else */}
       {bgUrl && (
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
@@ -1070,7 +1186,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         </div>
       )}
       {/* on the public store the order goes to Dukkan's server for the merchant (a test order: no payment yet), in his preview it is saved in his browser */}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
+      {basketFull > 0 && !design && (
+        <p role="status" className="fixed inset-x-4 bottom-4 z-[70] mx-auto max-w-md rounded-2xl bg-[#1c1a17] px-4 py-3 text-center text-sm font-semibold text-white shadow-2xl">
+          {lang === "ar"
+            ? `تتسع سلتك لـ ${ORDER_LIMITS.lines} منتجًا مختلفًا كحد أقصى. أكمل هذا الطلب أولًا، ثم أضف المزيد في طلب جديد.`
+            : `Your cart can hold up to ${ORDER_LIMITS.lines} different products. Place this order first, then add more in a new one.`}
+        </p>
+      )}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} notice={basketLost} onNoticeSeen={noticeSeen} />}
       <main>
         {shownProduct ? (
           <>
@@ -1601,4 +1724,10 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
       {bottom}
     </footer>
   );
+}
+
+/* the tab's title on the public store (pageTitle.ts keeps it when Next puts its own <title> back) */
+function StoreTabTitle({ title }: { title: string }) {
+  usePageTitle(title);
+  return null;
 }
