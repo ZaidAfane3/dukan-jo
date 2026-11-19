@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePrefs } from "./Prefs";
-import { SIGNED_OUT_NOTE } from "./accounts";
+import { SIGNED_OUT_ELSEWHERE, SIGNED_OUT_NOTE } from "./accounts";
 import { SAVE_REFUSED, THEME_NOT_BOUGHT } from "./serverSync";
 
 /* Says so when the server refused to keep a change for good (serverSync.ts SAVE_REFUSED): the page already shows the
@@ -18,6 +18,7 @@ const words = {
     "slug-taken": "Your store link was not saved: another store already uses it. Choose another link.",
     "slug-reserved": "Your store link was not saved: this name is reserved. Choose another link.",
     "signed-out": "You were signed out. Sign in again to keep working.",
+    "signed-out-elsewhere": "Your account was opened on another device, so this one was signed out. Your account works on one device at a time. Sign in here to continue; the other device will be signed out.",
     stale: "Couldn't save some changes. Reload to see the latest.",
     "theme-not-bought": "This theme isn't bought yet. Buy it from the Theme store to use it.",
     "not-ready": "Not saved: your store isn't ready to sell. Turn on at least one way to pay and choose how customers get their orders on Delivery options.",
@@ -30,6 +31,7 @@ const words = {
     "slug-taken": "لم يُحفظ رابط متجرك: متجر آخر يستخدمه. اختر رابطًا آخر.",
     "slug-reserved": "لم يُحفظ رابط متجرك: هذا الاسم محجوز. اختر رابطًا آخر.",
     "signed-out": "تم تسجيل خروجك. سجّل الدخول مجددًا لمتابعة العمل.",
+    "signed-out-elsewhere": "فُتح حسابك على جهاز آخر، فتم تسجيل خروجك من هذا الجهاز. يعمل حسابك على جهاز واحد في كل مرة. سجّل الدخول هنا للمتابعة، وسيُسجَّل خروج الجهاز الآخر.",
     stale: "تعذّر حفظ بعض التعديلات. أعد تحميل الصفحة لترى أحدث نسخة.",
     "theme-not-bought": "لم تشترِ هذا الثيم بعد. اشترِه من متجر الثيمات لتستخدمه.",
     "not-ready": "لم يُحفظ: متجرك غير جاهز للبيع. فعّل طريقة دفع واحدة على الأقل واختر كيف يستلم العملاء طلباتهم من خيارات التوصيل.",
@@ -51,9 +53,10 @@ export function SaveNotice() {
   useEffect(() => {
     /* this tab was sent to sign in because its session ended (accounts.ts): said once, here */
     try {
-      if (sessionStorage.getItem(SIGNED_OUT_NOTE) === "1") {
+      const note = sessionStorage.getItem(SIGNED_OUT_NOTE);
+      if (note === "1" || note === SIGNED_OUT_ELSEWHERE) {
         sessionStorage.removeItem(SIGNED_OUT_NOTE);
-        setWhy("signed-out");
+        setWhy(note === SIGNED_OUT_ELSEWHERE ? "signed-out-elsewhere" : "signed-out");
       }
     } catch {
       /* storage blocked */

@@ -189,13 +189,16 @@ export async function logOut(): Promise<void> {
 
 /** Set in sessionStorage when a tab was sent to sign in because its session ended: the sign-in page says so (SaveNotice.tsx) */
 export const SIGNED_OUT_NOTE = "dukkan-signed-out";
+/* the note's value when the tab was signed out because the account was signed in on another device */
+export const SIGNED_OUT_ELSEWHERE = "elsewhere";
 const ACCOUNT_MARK = "dukkan-account";
 
 /* A page of the dashboard: the ones a signed-out tab must not stay on */
 const onDashboard = (path: string) => path !== "/" && path !== SUSPENDED_PATH && !path.startsWith("/signup") && !path.startsWith("/demo") && !path.startsWith("/diwan");
 
 let leaving = false;
-function leaveForSignIn() {
+/* elsewhere: the account was signed in on another device (one device at a time: server/auth.ts), said on the sign-in page */
+function leaveForSignIn(elsewhere = false) {
   if (leaving) return;
   leaving = true;
   stopSaves();
@@ -216,7 +219,7 @@ function leaveForSignIn() {
   const path = window.location.pathname;
   if (onDashboard(path)) {
     try {
-      sessionStorage.setItem(SIGNED_OUT_NOTE, "1");
+      sessionStorage.setItem(SIGNED_OUT_NOTE, elsewhere ? SIGNED_OUT_ELSEWHERE : "1");
     } catch {
       /* storage blocked */
     }
@@ -255,7 +258,7 @@ async function checkSession(lost = false) {
   }
   /* can't tell (offline, the server restarting): carry on, unless a save was just refused for it */
   if (!lost && (!me || (me.status !== 401 && me.status !== 200))) return;
-  leaveForSignIn();
+  leaveForSignIn(me?.status === 401 && (me.reply as { why?: unknown }).why === "elsewhere");
 }
 
 /* Looked at again when the tab comes back to the front, at most every 30 seconds (another device may have signed out) */
@@ -281,6 +284,10 @@ function watchSession() {
   });
   window.addEventListener("focus", recheck);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && recheck());
+  /* and while the tab is in front, every minute: an account works on one device at a time (server/auth.ts), so a
+     tab left open here learns soon that the account was signed in elsewhere, also when it is only being looked at
+     (a save would be refused at once anyway) */
+  setInterval(() => document.visibilityState === "visible" && recheck(), 60_000);
   /* a save or load answered "signed out" (serverSync.ts) */
   whenSignedOut(() => void checkSession(true));
 }

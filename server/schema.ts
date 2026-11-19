@@ -499,6 +499,8 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_secret TEXT;
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_on BOOLEAN NOT NULL DEFAULT false;
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pending_totp BOOLEAN NOT NULL DEFAULT false;
+  -- one device at a time (server/auth.ts onlyThisSession): when a newer sign-in took this session's place
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS replaced_at TIMESTAMPTZ;
   /* agent B: Diwan's shop list sorts and filters on these */
   CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at DESC);
   CREATE INDEX IF NOT EXISTS subscriptions_account ON subscriptions (account_id, created_at DESC);
