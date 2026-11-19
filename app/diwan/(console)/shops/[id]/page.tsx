@@ -336,8 +336,8 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 <p className="pt-2 text-xs text-muted">
                   {t(
-                    "The same numbers as the merchant's Home: card and CliQ test orders are not counted, and total sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
-                    "نفس أرقام الصفحة الرئيسية للتاجر: الطلبات التجريبية بالبطاقة وكليك غير محسوبة، وإجمالي المبيعات هو الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
+                    "Store page figures are counted by Dukkan from the orders customers placed; added figures are the orders the merchant added himself, which Dukkan can't check. Card and CliQ test orders are not counted, and sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
+                    "أرقام صفحة المتجر يحسبها دكّان من الطلبات التي قدّمها العملاء، والأرقام المضافة هي طلبات أضافها التاجر بنفسه ولا يستطيع دكّان التحقق منها. الطلبات التجريبية بالبطاقة وكليك غير محسوبة، والمبيعات هي الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
                   )}
                 </p>
               </Info>
