@@ -304,6 +304,31 @@ function checkoutKey(): string {
   }
 }
 
+/* A customer's details kept for one store in this browser (localStorage), so a reload or another visit finds them
+   filled in. Only what a person types for any order: name, mobile, email, city and address. */
+const detailsStore = (slug: string) => `dukkan-details:${slug.trim().toLowerCase()}`;
+const DETAIL_KEYS = ["name", "phone", "email", "city", "address"] as const;
+function keptDetails(slug: string): Partial<Record<(typeof DETAIL_KEYS)[number], string>> | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(detailsStore(slug)) ?? "null") as Record<string, unknown> | null;
+    if (!v || typeof v !== "object") return null;
+    const out: Partial<Record<(typeof DETAIL_KEYS)[number], string>> = {};
+    for (const k of DETAIL_KEYS) if (typeof v[k] === "string") out[k] = (v[k] as string).slice(0, 300);
+    return out;
+  } catch {
+    return null;
+  }
+}
+function keepDetails(slug: string, form: Record<(typeof DETAIL_KEYS)[number], string>) {
+  try {
+    const v = Object.fromEntries(DETAIL_KEYS.map((k) => [k, form[k]]));
+    if (DETAIL_KEYS.some((k) => form[k].trim())) localStorage.setItem(detailsStore(slug), JSON.stringify(v));
+    else localStorage.removeItem(detailsStore(slug));
+  } catch {
+    /* storage turned off: nothing kept */
+  }
+}
+
 /* how long one send of an order may take before it is given up (and sent once more with the same key) */
 const SEND_TIMEOUT = 20_000;
 
@@ -404,7 +429,12 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     if (!orderTo) return;
     const kept = keptAttempt(orderTo);
     attemptKey.current = kept;
-    if (!kept) return;
+    if (!kept) {
+      /* his details from his last visit to this store, in this browser (a reload no longer loses what he typed) */
+      const d = keptDetails(orderTo);
+      if (d) setForm((f) => ({ ...f, ...d }));
+      return;
+    }
     /* an order was on its way when the page was left: its details come back as they were sent, so sending it again
        keeps its key (the server then answers with that order if it got in) */
     try {
@@ -422,6 +452,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   }, [orderTo]);
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", email: "", city: "", address: "", note: "" });
+  /* what he types is kept for this store in this browser as he types it (not the note, which is for one order) */
+  useEffect(() => {
+    if (orderTo) keepDetails(orderTo, form);
+  }, [orderTo, form]);
   /* What Dukkan's staff set in Diwan (platform settings): the ways to pay that are on, and the flat delivery price of Dukkan
      Ship. A merchant with his own courier charges his own fee instead (set on the Delivery page). Orders reaching the
      free delivery amount pay nothing either way */
@@ -958,8 +992,20 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
      their own CliQ alias (then the checkout shows his alias instead) */
   const cliqOr = (p: Pay) => payNote(platform, storePayKey(p), lang) || (p === "cliq" ? w.cliqDefault : "");
   const choice = (on: boolean) => `min-h-11 px-2 py-2 text-xs font-bold transition ${s.choice} ${on ? s.choiceOn : s.choiceOff}`;
+  /* Enter in a field moves on to the next one still empty, and with all filled in places the order (a press of Enter
+     never does nothing); the note is a box of its own lines, where Enter starts a new line */
+  const enterMoves = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const at = e.target as HTMLElement;
+    if (e.key !== "Enter" || e.nativeEvent.isComposing || !(at instanceof HTMLInputElement || at instanceof HTMLSelectElement)) return;
+    e.preventDefault();
+    const fields = Array.from(e.currentTarget.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input[id^='co-'], select[id^='co-']"));
+    const after = fields.slice(fields.indexOf(at as HTMLInputElement) + 1);
+    const empty = [...after, ...fields].find((f) => f !== at && !f.value.trim());
+    if (empty) empty.focus();
+    else next();
+  };
   const detailsView = (
-    <div className={s.form}>
+    <div className={s.form} onKeyDown={enterMoves}>
       <div className="flex items-baseline justify-between gap-2">
         <h3 className={s.formTitle} style={luxe ? heading : undefined}>{w.details}</h3>
         <p className="text-[11px] opacity-60">{w.required.split("*")[0]}<span className="text-rose-600">*</span>{w.required.split("*")[1]}</p>

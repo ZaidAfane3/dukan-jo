@@ -21,6 +21,7 @@ import { useSpots } from "./spotSignal";
 import { ReportStore } from "./ReportStore";
 import { useVisitorStore } from "./visitorStore";
 import { sendVisit } from "../storeVisits";
+import { usePageTitle } from "../pageTitle";
 import { basketStorageKey, readBasket, writeBasket } from "./visitorBasket";
 
 /* The public store gives each product and each page of the store its own address: /<store>?p=<product id> or
@@ -125,6 +126,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   useEffect(() => {
     if (design) setMenu(showMenu);
   }, [design, showMenu]);
+  /* Escape closes the open sidebar, as it does the cart and the search (not in the designer, which opens it itself) */
+  useEffect(() => {
+    if (!menu || design) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(false); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [menu, design]);
   const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches), []);
   /* What is in the basket: how many of each product (by product id) */
@@ -392,7 +400,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const viewNow = useRef({ product: productId, page: pageId });
   viewNow.current = { product: productId, page: pageId };
   /* the public store's address follows the search on the home page, a moment after the last key (one entry: Back
-     does not step through every letter) */
+     does not step through every letter). A search that starts there (typed, or a category of the sidebar) is a new
+     entry, so Back comes back to the home page as it was instead of leaving the store; the letters after it change
+     that entry only. */
+  const searchPush = useRef(false);
   const markQuery = (q: string, now: boolean) => {
     if (!routed) return;
     clearTimeout(searchTimers.current.url);
@@ -402,7 +413,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         const v = viewInAddress();
         if (v.product !== null || v.page !== null) return;
         const url = addressOf({ product: null, page: null, q });
-        if (url !== window.location.pathname + window.location.search) window.history.replaceState(window.history.state, "", url);
+        if (url === window.location.pathname + window.location.search) return;
+        if (searchPush.current && q) {
+          searchPush.current = false;
+          /* Back comes back to where he was on the home page */
+          window.history.replaceState({ ...window.history.state, sfY: homeY.current ?? window.scrollY }, "", window.location.href);
+          window.history.pushState({ sfY: 0 }, "", url);
+        } else window.history.replaceState(window.history.state, "", url);
       } catch {
         /* the address stays as it is; the search still works */
       }
@@ -440,7 +457,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       /* a search starts on the home page: kept where he was, and the results come into view */
       homeY.current = window.scrollY;
       scrollNext.current = "results";
+      searchPush.current = true;
     } else if (was && !now) {
+      searchPush.current = false;
       scrollNext.current = homeY.current ?? "top";
       homeY.current = null;
     }
@@ -953,6 +972,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
 
   return (
     <div ref={root} dir={lang === "ar" ? "rtl" : "ltr"} className="store-preview relative isolate overflow-hidden text-[var(--sf-text)]" style={vars}>
+      {/* the public store's tab says what is open: the product or the page, then the store (the home page: the store) */}
+      {routed && settled && <StoreTabTitle title={[shownProduct?.name ?? (pageId !== null ? shownPage?.title : ""), data.name].map((x) => x?.trim()).filter(Boolean).join(" · ") || data.name} />}
       {/* The page background: behind the banners, products and everything else */}
       {bgUrl && (
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
@@ -1658,4 +1679,10 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
       {bottom}
     </footer>
   );
+}
+
+/* the tab's title on the public store (pageTitle.ts keeps it when Next puts its own <title> back) */
+function StoreTabTitle({ title }: { title: string }) {
+  usePageTitle(title);
+  return null;
 }

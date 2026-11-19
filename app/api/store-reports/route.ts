@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
-import { REPORT_LIMITS, REPORT_REASONS, type ReportReason } from "@/components/storeReports";
+import { REPORT_LIMITS, REPORT_REASONS, reportContact, type ReportReason } from "@/components/storeReports";
 import { answer, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
@@ -21,8 +21,10 @@ export const POST = guarded(async (req: NextRequest) => {
   const slug = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : "";
   const reason = REPORT_REASONS.includes(body?.reason as ReportReason) ? (body!.reason as ReportReason) : null;
   const text = cleanLines(body?.body, REPORT_LIMITS.body);
-  const contact = cleanLine(body?.contact ?? "", REPORT_LIMITS.contact);
+  /* an email or a Jordan mobile, or nothing (the form checks the same: storeReports reportContact) */
+  const contact = reportContact(cleanLine(body?.contact ?? "", REPORT_LIMITS.contact));
   if (!/^[a-z0-9-]{1,40}$/.test(slug) || !reason || visibleLength(text) < REPORT_LIMITS.min) return answer({ result: "invalid" }, 400);
+  if (contact === null) return answer({ result: "invalid", field: "contact" }, 400);
 
   const pool = await db();
   const { rows } = await pool.query(`SELECT account_id FROM shops WHERE lower(slug) = $1`, [slug]);
