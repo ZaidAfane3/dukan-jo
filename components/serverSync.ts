@@ -215,6 +215,9 @@ let leavingOnPurpose = false;
 export const leaveWithoutAsking = () => {
   leavingOnPurpose = true;
 };
+/** True when this tab is being left on purpose (signed out, or reloading itself): a page with work not sent keeps it
+    but does not ask the browser to hold the leave (components/Support.tsx drafts) */
+export const leaveUnasked = () => halted || leavingOnPurpose;
 
 function listen() {
   if (listening || typeof window === "undefined") return;

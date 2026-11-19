@@ -19,6 +19,8 @@ import { pageText, useMerchant } from "./FromDukkan";
 import type { MerchantPage } from "./dukkanPages";
 import { replyWithin, usePublicSettings } from "./platformPublic";
 import { signedInAs } from "./demoSandbox";
+import { leaveUnasked } from "./serverSync";
+import { DRAFTS_MAX, loadDrafts, newDraftId, putDraft, removeDraft, type TicketDraft } from "./ticketDrafts";
 
 /* Support tickets. Signed in (and not in the tour), tickets go to Dukkan (app/api/tickets): the list comes from the
    server, a ticket opens as a conversation with Dukkan's replies, and the merchant answers there. In the tour or signed
@@ -76,7 +78,8 @@ const draftKey = (owner: string) => `${DRAFT_KEY}:${owner}`;
 /* tickets of this page still on their way (kept across the app's own page changes): while one is, its kept draft is not
    brought back, it may still arrive */
 let onTheirWay = 0;
-type HeldDraft = { owner: string; subject: string; category: number; message: string; pictures: string[] };
+/* autoId, savedId: the drafts (ticketDrafts.ts) the ticket was written in, deleted once it has arrived */
+type HeldDraft = { owner: string; subject: string; category: number; message: string; pictures: string[]; autoId?: string; savedId?: string };
 
 function keepHeld(d: HeldDraft) {
   try {
@@ -113,6 +116,8 @@ function readHeld(owner: string): HeldDraft | null {
       message: d.message.slice(0, ACCOUNT_LIMITS.message),
       category: typeof d.category === "number" && Number.isInteger(d.category) && d.category >= 0 ? d.category : 0,
       pictures: Array.isArray(d.pictures) ? d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES) : [],
+      autoId: typeof d.autoId === "string" ? d.autoId : undefined,
+      savedId: typeof d.savedId === "string" ? d.savedId : undefined,
     };
   } catch {
     /* storage unavailable or a broken draft: nothing to bring back */
@@ -130,6 +135,62 @@ const holdWords = {
   en: { sending: "Sending your ticket…", undo: "Undo" },
   ar: { sending: "جارٍ إرسال تذكرتك…", undo: "تراجع" },
 };
+/* Drafts (components/ticketDrafts.ts), and what is asked when the form is left with words not sent */
+const draftWords = {
+  en: {
+    title: "Drafts",
+    note: "Drafts stay in this browser only, until you send or delete them.",
+    noSubject: "No subject",
+    unsaved: "Unsaved draft",
+    noPictures: "Saved without its pictures",
+    noPicturesHint: "This draft was saved without its pictures: they did not fit in this browser's storage. Add them again if you need them.",
+    continue: "Continue",
+    delete: "Delete",
+    save: "Save as draft",
+    saved: "Draft saved.",
+    savedNoPictures: "Draft saved without its pictures: they did not fit in this browser's storage.",
+    full: `You have ${DRAFTS_MAX} drafts. Delete one to save another.`,
+    failed: "The draft could not be saved in this browser.",
+    leaveAsk: "Leave this ticket?",
+    leaveBody: "You wrote something that is not sent yet. Save it as a draft to finish it later.",
+    discard: "Discard",
+    keep: "Keep writing",
+    deleteAsk: "Delete this draft?",
+    deleteBody: "It can't be brought back.",
+    deleteYes: "Delete draft",
+    deleteKeep: "Keep it",
+  },
+  ar: {
+    title: "مسودات",
+    note: "تبقى المسودات في هذا المتصفح فقط، حتى ترسلها أو تحذفها.",
+    noSubject: "بلا موضوع",
+    unsaved: "مسودة غير محفوظة",
+    noPictures: "حُفظت دون صورها",
+    noPicturesHint: "حُفظت هذه المسودة دون صورها: لم تتّسع لها مساحة التخزين في هذا المتصفح. أضفها مرة أخرى إن احتجت إليها.",
+    continue: "متابعة",
+    delete: "حذف",
+    save: "حفظ كمسودة",
+    saved: "حُفظت المسودة.",
+    savedNoPictures: "حُفظت المسودة دون صورها: لم تتّسع لها مساحة التخزين في هذا المتصفح.",
+    full: `لديك ${DRAFTS_MAX} مسودات. احذف واحدة لتحفظ غيرها.`,
+    failed: "تعذّر حفظ المسودة في هذا المتصفح.",
+    leaveAsk: "مغادرة هذه التذكرة؟",
+    leaveBody: "كتبتَ شيئاً لم يُرسل بعد. احفظه كمسودة لتكمله لاحقاً.",
+    discard: "تجاهل",
+    keep: "متابعة الكتابة",
+    deleteAsk: "حذف هذه المسودة؟",
+    deleteBody: "لا يمكن استعادتها بعد حذفها.",
+    deleteYes: "حذف المسودة",
+    deleteKeep: "إبقاؤها",
+  },
+};
+/* the form's words as one value, to tell whether they changed since the draft was opened */
+type FormWords = { subject: string; category: number; message: string; pictures: string[] };
+const snap = (f: FormWords) => JSON.stringify([f.subject, f.category, f.message, f.pictures]);
+const EMPTY_FORM = snap({ subject: "", category: 0, message: "", pictures: [] });
+/* how long typing pauses before the words are kept by themselves (an auto draft) */
+const AUTOSAVE_MS = 800;
+
 /* said in the form when it opens with a ticket kept on its way (see DRAFT_KEY) */
 const maybeSentWords = {
   en: "This ticket may not have been sent when you left the page. Check that it is not in your tickets, then send it again.",
@@ -170,6 +231,20 @@ export function Support() {
   const alive = useRef(true);
   /* the page is being closed or reloaded (pagehide): an answer may never come, so a failed send keeps its draft */
   const leaving = useRef(false);
+  /* Drafts: this account's list, the drafts the open form writes to (autoId: kept by itself while typing; savedId: the
+     saved draft being continued), the words the form opened with (a change from them is something to save), what
+     leaving the form waits for while "Save as draft / Discard / Keep writing" is asked, and the draft to delete. */
+  const dw = draftWords[lang];
+  const [drafts, setDrafts] = useState<TicketDraft[]>([]);
+  const autoId = useRef<string | null>(null);
+  const savedId = useRef<string | null>(null);
+  const baseline = useRef(EMPTY_FORM);
+  const [leaveAsk, setLeaveAsk] = useState<{ then: () => void } | null>(null);
+  const [deleteAsk, setDeleteAsk] = useState<TicketDraft | null>(null);
+  const [draftNote, setDraftNote] = useState("");
+  const [draftError, setDraftError] = useState("");
+  /* a link clicked again on purpose after the question was answered: let through */
+  const passing = useRef(false);
   /* back from the browser's back-forward cache: the page is in use again */
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => {
@@ -199,7 +274,17 @@ export function Support() {
     const d = readHeld(owner);
     if (!d) return;
     dropHeld(owner);
-    if (server && remote && arrived(d, remote)) return;
+    if (server && remote && arrived(d, remote)) {
+      removeDraft(d.autoId);
+      removeDraft(d.savedId);
+      setDrafts(loadDrafts());
+      return;
+    }
+    /* the form goes on writing to the drafts it was written in */
+    autoId.current = d.autoId ?? null;
+    savedId.current = d.savedId ?? null;
+    const saved = d.savedId ? loadDrafts().find((x) => x.id === d.savedId) : undefined;
+    baseline.current = saved ? snap(saved) : EMPTY_FORM;
     setSubject(d.subject);
     setMessage(d.message);
     if (d.category < content[lang].support.categories.length) setCategory(d.category);
@@ -253,6 +338,7 @@ export function Support() {
       const n = Number(new URLSearchParams(window.location.search).get("ticket"));
       if (Number.isInteger(n) && n > 0) setOpenNo(n);
     } else setTickets(loadTickets());
+    setDrafts(loadDrafts());
     setReady(true);
   }, [reload]);
 
@@ -279,7 +365,12 @@ export function Support() {
   useEffect(() => {
     if (!creating) return;
     subjectRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setCreating(false);
+    /* Escape closes the question first, then the form (asking first when something is written, see closeForm) */
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (leaveAskRef.current) setLeaveAsk(null);
+      else closeFormRef.current();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [creating]);
@@ -299,6 +390,188 @@ export function Support() {
     setPictures((p) => [...p, ...read].slice(0, TICKET_PICTURES));
   };
 
+  /* ---------------- drafts ---------------- */
+
+  const words: FormWords = { subject, category, message, pictures };
+  const now = useMemo(() => snap({ subject, category, message, pictures }), [subject, category, message, pictures]);
+  const hasWords = !!(subject.trim() || message.trim() || pictures.length);
+  /* the open form has words that are not kept anywhere yet: leaving it asks, and they are kept by themselves meanwhile */
+  const dirty = creating && hasWords && now !== baseline.current;
+
+  /** Starts a new, empty ticket (the last form's words were saved or discarded when it was left) */
+  const resetForm = () => {
+    setSubject("");
+    setMessage("");
+    setPictures([]);
+    setPictureNote("");
+    setCategory(0);
+    setErrors({});
+    setFormError("");
+    setDraftError("");
+    autoId.current = null;
+    savedId.current = null;
+    baseline.current = EMPTY_FORM;
+    /* at once, not at the next render: a link followed right after "Save as draft" or "Discard" must not keep the old
+       words again as the page goes (saveAuto) */
+    dirtyRef.current = false;
+  };
+  const openNew = () => {
+    resetForm();
+    setDraftNote("");
+    setCreating(true);
+  };
+
+  /** Keeps the words by themselves (an auto draft, "Unsaved draft"): while typing, and when the page is being left */
+  const saveAuto = () => {
+    if (!dirtyRef.current) return;
+    const id = autoId.current ?? newDraftId();
+    const r = putDraft({ id, ...words, at: Date.now(), auto: true, of: savedId.current ?? undefined });
+    if (r === "ok" || r === "no-pictures") autoId.current = id;
+    if (alive.current) setDrafts(loadDrafts());
+  };
+
+  /** "Save as draft": kept as a saved draft (in place of the one being continued), and the form closes. False when it
+      could not be kept (the form stays open and says why). */
+  const saveAsDraft = (): boolean => {
+    const id = savedId.current ?? newDraftId();
+    const r = putDraft({ id, ...words, at: Date.now(), auto: false });
+    if (r === "full" || r === "error") {
+      setDraftError(r === "full" ? dw.full : dw.failed);
+      return false;
+    }
+    if (autoId.current && autoId.current !== id) removeDraft(autoId.current);
+    resetForm();
+    setCreating(false);
+    setDraftNote(r === "no-pictures" ? dw.savedNoPictures : dw.saved);
+    setDrafts(loadDrafts());
+    return true;
+  };
+
+  /** "Discard": the words kept by themselves go too (a saved draft being continued stays as it was saved) */
+  const discard = () => {
+    removeDraft(autoId.current);
+    resetForm();
+    setCreating(false);
+    setDrafts(loadDrafts());
+  };
+
+  /** Cancel, Escape or a click outside the form: asks first when something written would be lost */
+  const closeForm = () => {
+    if (dirty) setLeaveAsk({ then: () => {} });
+    else setCreating(false);
+  };
+
+  /** Opens a draft in the form. A saved one: the changes go to a new auto draft that points at it, so it stays as saved
+      until he saves again. An auto one: it goes on being written. */
+  const continueDraft = (d: TicketDraft) => {
+    const saved = d.auto ? loadDrafts().find((x) => x.id === d.of && !x.auto) : d;
+    resetForm();
+    setDraftNote("");
+    savedId.current = saved?.id ?? null;
+    autoId.current = d.auto ? d.id : null;
+    const f = { subject: d.subject, category: d.category < s.categories.length ? d.category : 0, message: d.message, pictures: d.pictures };
+    baseline.current = saved ? snap({ ...saved, category: saved.category < s.categories.length ? saved.category : 0 }) : EMPTY_FORM;
+    setSubject(f.subject);
+    setMessage(f.message);
+    setCategory(f.category);
+    setPictures(f.pictures);
+    if (d.noPictures) setPictureNote(dw.noPicturesHint);
+    setCreating(true);
+  };
+
+  const deleteDraft = (d: TicketDraft) => {
+    removeDraft(d.id);
+    setDeleteAsk(null);
+    setDrafts(loadDrafts());
+  };
+
+  /* the newest of these for the listeners below, which are added once */
+  const saveAutoRef = useRef(saveAuto);
+  saveAutoRef.current = saveAuto;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const closeFormRef = useRef(closeForm);
+  closeFormRef.current = closeForm;
+  const leaveAskRef = useRef(leaveAsk);
+  leaveAskRef.current = leaveAsk;
+
+  /* Kept by itself a moment after typing stops, so a closed tab or a crash never loses his words. Back to the words the
+     form opened with: nothing new to keep, the auto draft goes. */
+  useEffect(() => {
+    if (!creating) return;
+    if (!dirty) {
+      if (autoId.current) {
+        removeDraft(autoId.current);
+        autoId.current = null;
+        setDrafts(loadDrafts());
+      }
+      return;
+    }
+    const t = setTimeout(() => saveAutoRef.current(), AUTOSAVE_MS);
+    return () => clearTimeout(t);
+  }, [creating, dirty, now]);
+
+  /* Leaving with words not kept yet. A link of the app (a menu item, the bell, "Log out"): the page asks "Save as draft /
+     Discard / Keep writing" first, then follows it. The tab closing or reloading: the words are kept at once, and the
+     browser asks too (a page can't show its own question then). The app moving to another page any other way (the
+     browser's Back button): kept as it goes (below). */
+  useEffect(() => {
+    if (!dirty) return;
+    const onClick = (e: MouseEvent) => {
+      if (passing.current || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as Element | null)?.closest?.("a[href]");
+      if (!(a instanceof HTMLAnchorElement)) return;
+      /* a new tab, a download or another site: this page stays (another site in this tab: the browser asks, below) */
+      if ((a.target && a.target !== "_self") || a.hasAttribute("download") || new URL(a.href, window.location.href).origin !== window.location.origin) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setLeaveAsk({
+        then: () => {
+          passing.current = true;
+          try {
+            a.click();
+          } finally {
+            passing.current = false;
+          }
+        },
+      });
+    };
+    const onUnload = (e: BeforeUnloadEvent) => {
+      saveAutoRef.current();
+      /* signed out by another tab, or the page reloading itself on purpose: nothing to ask (the words are kept) */
+      if (leaveUnasked()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    const onHide = () => saveAutoRef.current();
+    document.addEventListener("click", onClick, true);
+    window.addEventListener("beforeunload", onUnload);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      window.removeEventListener("beforeunload", onUnload);
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, [dirty]);
+  /* the page goes away inside the app with words not kept yet: kept now */
+  useEffect(
+    () => () => {
+      if (dirtyRef.current) saveAutoRef.current();
+    },
+    [],
+  );
+
+  const keepRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (leaveAsk || deleteAsk) keepRef.current?.focus();
+  }, [leaveAsk, deleteAsk]);
+  useEffect(() => {
+    if (!deleteAsk) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setDeleteAsk(null);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [deleteAsk]);
+
   const failText = (r: Sent<unknown>) => (r.ok ? "" : r.why === "too-many" ? sv.tooMany : r.field === "pictures" ? sv.picturesBad : sv.sendFailed);
 
   const submit = async (e: React.FormEvent) => {
@@ -310,7 +583,10 @@ export function Support() {
     setFormError("");
     if (Object.keys(next).length) return;
     if (busy || holding) return;
-    /* held for HOLD_MS before it is sent (deliver below); the form's words stay as they are until then */
+    /* held for HOLD_MS before it is sent (deliver below); the form's words stay as they are until then. From here it
+       is a ticket on its way, not a draft: nothing is asked when leaving (its own path keeps it, see DRAFT_KEY) */
+    setDraftError("");
+    setDraftNote("");
     setCreating(false);
     setHolding(true);
     holdTimer.current = setTimeout(() => {
@@ -333,13 +609,15 @@ export function Support() {
   const deliver = async () => {
     setHolding(false);
     let id: string;
+    /* the drafts it was written in: deleted once it is sent */
+    const fromDrafts = { autoId: autoId.current ?? undefined, savedId: savedId.current ?? undefined };
     if (server) {
       /* the account it is sent as, taken now: the browser may be signed out (or into another account) by the time the
          answer comes */
       const owner = draftOwner();
       /* kept before it goes, and crossed out only when the server says it has it: a page closed or reloaded meanwhile
          may never hear the answer (see DRAFT_KEY) */
-      keepHeld({ owner, subject, category, message, pictures });
+      keepHeld({ owner, subject, category, message, pictures, ...fromDrafts });
       setBusy(true);
       onTheirWay++;
       const r = await createTicket(
@@ -378,11 +656,19 @@ export function Support() {
       }
     }
     pushNotification("ticketCreated", { id });
+    /* sent: it is no longer a draft */
+    removeDraft(fromDrafts.autoId);
+    removeDraft(fromDrafts.savedId);
+    if (!alive.current) return;
+    setDrafts(loadDrafts());
     setSubject("");
     setMessage("");
     setPictures([]);
     setPictureNote("");
     setCategory(0);
+    autoId.current = null;
+    savedId.current = null;
+    baseline.current = EMPTY_FORM;
     setCreating(false);
   };
 
@@ -420,11 +706,42 @@ export function Support() {
 
       <main data-lang-fade className="mx-auto max-w-[1720px] space-y-6 px-5 py-8 md:px-10">
         <section className={card}>
-          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-extrabold">{s.title}</h1><button type="button" disabled={holding || busy} onClick={() => { setFormError(""); setCreating(true); }} className="shrink-0 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-50"> + {s.newTicket} </button></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-extrabold">{s.title}</h1><button type="button" disabled={holding || busy} onClick={openNew} className="shrink-0 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-50"> + {s.newTicket} </button></div>
           <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-soft px-3 py-1 text-xs font-semibold text-fg">{clockIcon}{replyWithin(replyHours, lang)}</p>
           {server !== null && <p className="mt-2 text-xs text-muted">{server ? sv.note : s.note}</p>}
 
           <HelpArticles />
+
+          {draftNote && <p role="status" className="mt-4 rounded-xl bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">{draftNote}</p>}
+          {!!drafts.length && (
+            <section aria-labelledby="ticket-drafts" className="mt-5 border-t border-fg/10 pt-5">
+              <h2 id="ticket-drafts" className="flex items-center gap-2 text-base font-bold">
+                {dw.title}
+                <span dir="ltr" className="rounded-full bg-soft px-2 py-0.5 text-[11px] font-semibold tabular-nums text-muted">{drafts.length}/{DRAFTS_MAX}</span>
+              </h2>
+              <p className="mt-1 text-xs text-muted">{dw.note}</p>
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {drafts.map((d) => (
+                  <li key={d.id} className="flex min-w-0 flex-col rounded-xl bg-soft/50 px-4 py-3 ring-1 ring-fg/10">
+                    <p className="flex flex-wrap items-center gap-2">
+                      <span dir="auto" className={`min-w-0 break-words text-sm font-semibold ${d.subject.trim() ? "" : "text-muted"}`}>{d.subject.trim() || dw.noSubject}</span>
+                      {d.auto && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:text-amber-400">{dw.unsaved}</span>}
+                    </p>
+                    {d.message.trim() && <p dir="auto" className="mt-0.5 line-clamp-2 break-words text-xs text-muted">{d.message}</p>}
+                    <p className="mt-1 text-[11px] text-muted">
+                      {when(d.at)}
+                      {!!d.pictures.length && ` · ${d.pictures.length} ${s.picturesCount}`}
+                      {d.noPictures && ` · ${dw.noPictures}`}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" disabled={holding || busy} onClick={() => continueDraft(d)} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-deep disabled:opacity-50">{dw.continue}</button>
+                      <button type="button" onClick={() => setDeleteAsk(d)} className="rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-500/10">{dw.delete}</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {kinded && (
             <div role="radiogroup" aria-label={s.filterLabel} className="mt-4 flex flex-wrap items-center gap-2">
@@ -534,7 +851,7 @@ export function Support() {
               <div className="px-4 py-14 text-center">
                 <p className="font-bold">{s.empty}</p>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted">{s.emptyHint}</p>
-                <button type="button" disabled={holding || busy} onClick={() => setCreating(true)} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white disabled:opacity-50">
+                <button type="button" disabled={holding || busy} onClick={openNew} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white disabled:opacity-50">
                   {s.newTicket}
                 </button>
               </div>
@@ -552,7 +869,7 @@ export function Support() {
         </div>
       )}
       {creating && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setCreating(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && closeForm()}>
           <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={s.newTicket} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
             <h2 className="text-lg font-bold">{s.newTicket}</h2>
             {hasErrors(errors) && <div className="mt-2"><RequiredNote text={requiredNote[lang]} show /></div>}
@@ -605,11 +922,65 @@ export function Support() {
             </div>
             <p className="mt-4 text-xs text-muted">{server ? sv.note : s.note}</p>
             {formError && <p role="alert" className="mt-3 rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">{formError}</p>}
-            <div className="mt-6 flex gap-3">
-              <button type="submit" disabled={busy} className="h-12 flex-1 rounded-xl bg-ink text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep disabled:opacity-60">{busy ? sv.sending : s.send}</button>
-              <button type="button" onClick={() => setCreating(false)} className="h-12 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{s.cancel}</button>
+            {draftError && !leaveAsk && <p role="alert" className="mt-3 rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">{draftError}</p>}
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button type="submit" disabled={busy} className="h-12 flex-1 rounded-xl bg-ink px-4 text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep disabled:opacity-60">{busy ? sv.sending : s.send}</button>
+              <button type="button" disabled={!hasWords} onClick={() => void saveAsDraft()} className="h-12 rounded-xl border border-primary/50 px-5 text-sm font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50">{dw.save}</button>
+              <button type="button" onClick={closeForm} className="h-12 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{s.cancel}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* leaving the form with words not sent: asked in the page (the dashboard never uses the browser's own windows) */}
+      {leaveAsk && (
+        <div className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setLeaveAsk(null)}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="leave-ask" aria-describedby="leave-body" className="dash my-8 w-full max-w-md rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
+            <p id="leave-ask" className="text-base font-bold leading-relaxed">{dw.leaveAsk}</p>
+            <p id="leave-body" className="mt-1 text-sm text-muted">{dw.leaveBody}</p>
+            {draftError && <p role="alert" className="mt-3 rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">{draftError}</p>}
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const then = leaveAsk.then;
+                  if (!saveAsDraft()) return;
+                  setLeaveAsk(null);
+                  then();
+                }}
+                className="h-11 flex-1 whitespace-nowrap rounded-xl bg-ink px-4 text-sm font-semibold text-onink transition hover:bg-deep"
+              >
+                {dw.save}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const then = leaveAsk.then;
+                  discard();
+                  setLeaveAsk(null);
+                  then();
+                }}
+                className="h-11 flex-1 whitespace-nowrap rounded-xl border border-rose-500/50 px-4 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10"
+              >
+                {dw.discard}
+              </button>
+              <button ref={keepRef} type="button" onClick={() => setLeaveAsk(null)} className="h-11 flex-1 whitespace-nowrap rounded-xl border border-fg/20 px-4 text-sm font-semibold transition hover:bg-soft">{dw.keep}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {deleteAsk && (
+        <div className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setDeleteAsk(null)}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-draft-ask" aria-describedby="delete-draft-body" className="dash my-8 w-full max-w-md rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
+            <p id="delete-draft-ask" className="text-base font-bold leading-relaxed">{dw.deleteAsk}</p>
+            <p id="delete-draft-body" className="mt-1 text-sm text-muted">
+              <span dir="auto" className="font-semibold text-fg">{deleteAsk.subject.trim() || dw.noSubject}</span> · {dw.deleteBody}
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button ref={keepRef} type="button" onClick={() => setDeleteAsk(null)} className="h-11 flex-1 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{dw.deleteKeep}</button>
+              <button type="button" onClick={() => deleteDraft(deleteAsk)} className="h-11 flex-1 rounded-xl border border-rose-500/50 px-6 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{dw.deleteYes}</button>
+            </div>
+          </div>
         </div>
       )}
 
