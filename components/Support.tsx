@@ -64,17 +64,76 @@ const picIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke=
 /* A new ticket is held for a moment before it goes to Dukkan, with an Undo (like an email's "undo send"): the form
    closes at once, a bar says it is being sent, and Undo opens the form again with everything still in it. */
 const HOLD_MS = 3000;
-/* a ticket that could not be sent after its page was left: kept for this browser session, and the form opens with it
-   the next time the Support page is opened. The tab's storage is not kept per account (only localStorage is, see
-   demoSandbox.ts installAccounts), so each account's draft has its own key and names the account that wrote it ("" signed
-   out or in the tour). It is only ever brought back for that account: someone else signing in on this tab never sees
-   it, nor writes over it. */
+/* a ticket on its way: kept for this browser session BEFORE it is sent, and crossed out only once the server says it
+   has it. A page that is closed or reloaded while it is on its way may never hear the answer, so the next time the
+   Support page is opened the form opens with it, unless the list shows it arrived after all.
+   The tab's storage is not kept per account (only localStorage is, see demoSandbox.ts installAccounts), so each
+   account's draft has its own key and names the account that wrote it ("" signed out or in the tour). It is only ever
+   brought back for that account: someone else signing in on this tab never sees it, nor writes over it. */
 const DRAFT_KEY = "seen-ticket-draft";
 const draftOwner = () => signedInAs() ?? "";
 const draftKey = (owner: string) => `${DRAFT_KEY}:${owner}`;
+/* tickets of this page still on their way (kept across the app's own page changes): while one is, its kept draft is not
+   brought back, it may still arrive */
+let onTheirWay = 0;
+type HeldDraft = { owner: string; subject: string; category: number; message: string; pictures: string[] };
+
+function keepHeld(d: HeldDraft) {
+  try {
+    sessionStorage.setItem(draftKey(d.owner), JSON.stringify(d));
+  } catch {
+    try {
+      /* the pictures did not fit: the words alone */
+      sessionStorage.setItem(draftKey(d.owner), JSON.stringify({ ...d, pictures: [] }));
+    } catch {
+      /* storage unavailable */
+    }
+  }
+}
+
+function dropHeld(owner: string) {
+  try {
+    sessionStorage.removeItem(draftKey(owner));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** This account's ticket kept on its way (keepHeld), or null */
+function readHeld(owner: string): HeldDraft | null {
+  try {
+    const raw = sessionStorage.getItem(draftKey(owner));
+    if (!raw) return null;
+    const d = JSON.parse(raw) as Record<string, unknown>;
+    /* never another account's words (a key written by hand, say) */
+    if (d.owner !== owner || typeof d.subject !== "string" || typeof d.message !== "string") return null;
+    return {
+      owner,
+      subject: d.subject.slice(0, ACCOUNT_LIMITS.subject),
+      message: d.message.slice(0, ACCOUNT_LIMITS.message),
+      category: typeof d.category === "number" && Number.isInteger(d.category) && d.category >= 0 ? d.category : 0,
+      pictures: Array.isArray(d.pictures) ? d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES) : [],
+    };
+  } catch {
+    /* storage unavailable or a broken draft: nothing to bring back */
+    return null;
+  }
+}
+
+/* The kept ticket reached Dukkan after all: the list has a ticket with its subject and first words */
+const arrived = (d: HeldDraft, list: ServerTicket[]) => {
+  const subject = cleanLine(d.subject, ACCOUNT_LIMITS.subject);
+  const words = cleanLines(d.message, ACCOUNT_LIMITS.message).slice(0, 140).trim();
+  return list.some((t) => t.subject === subject && t.preview.trim().startsWith(words));
+};
 const holdWords = {
   en: { sending: "Sending your ticket…", undo: "Undo" },
   ar: { sending: "جارٍ إرسال تذكرتك…", undo: "تراجع" },
+};
+/* said in the form when it opens with a ticket kept on its way (see DRAFT_KEY) */
+const maybeSentWords = {
+  en: "This ticket may not have been sent when you left the page. Check that it is not in your tickets, then send it again.",
+  ar: "ربما لم تُرسل هذه التذكرة عند مغادرتك الصفحة. تأكّد أنها ليست ضمن تذاكرك، ثم أرسلها مرة أخرى.",
 };
 
 export function Support() {
@@ -109,6 +168,16 @@ export function Support() {
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deliverRef = useRef<() => Promise<void> | void>(() => {});
   const alive = useRef(true);
+  /* the page is being closed or reloaded (pagehide): an answer may never come, so a failed send keeps its draft */
+  const leaving = useRef(false);
+  /* back from the browser's back-forward cache: the page is in use again */
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) leaving.current = false;
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, []);
   /* leaving the page while a ticket is held sends it at once (it is never dropped quietly) */
   useEffect(() => {
     alive.current = true;
@@ -120,28 +189,25 @@ export function Support() {
       void deliverRef.current();
     };
   }, []);
-  /* a ticket that could not be sent after the page was left (DRAFT_KEY): the form opens with it and says so */
+  /* a ticket kept on its way when the page was left (DRAFT_KEY): once the list is in, it is crossed out when it arrived
+     after all, else the form opens with it and says so (the list could not load: it opens, as it may not have) */
+  const heldChecked = useRef(false);
   useEffect(() => {
-    try {
-      const key = draftKey(draftOwner());
-      const raw = sessionStorage.getItem(key);
-      if (!raw) return;
-      const d = JSON.parse(raw) as Record<string, unknown>;
-      /* never another account's words (a key written by hand, say) */
-      if (d.owner !== draftOwner()) return;
-      sessionStorage.removeItem(key);
-      if (typeof d.subject !== "string" || typeof d.message !== "string") return;
-      setSubject(d.subject.slice(0, ACCOUNT_LIMITS.subject));
-      setMessage(d.message.slice(0, ACCOUNT_LIMITS.message));
-      if (typeof d.category === "number" && Number.isInteger(d.category) && d.category >= 0 && d.category < content[lang].support.categories.length) setCategory(d.category);
-      if (Array.isArray(d.pictures)) setPictures(d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES));
-      setFormError(content[lang].support.server.sendFailed);
-      setCreating(true);
-    } catch {
-      /* storage unavailable or a broken draft: nothing to bring back */
-    }
+    if (heldChecked.current || server === null || (server && remote === null && !loadError) || onTheirWay > 0) return;
+    heldChecked.current = true;
+    const owner = draftOwner();
+    const d = readHeld(owner);
+    if (!d) return;
+    dropHeld(owner);
+    if (server && remote && arrived(d, remote)) return;
+    setSubject(d.subject);
+    setMessage(d.message);
+    if (d.category < content[lang].support.categories.length) setCategory(d.category);
+    setPictures(d.pictures);
+    setFormError(maybeSentWords[lang]);
+    setCreating(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [server, remote, loadError]);
   /* closing the tab in those few seconds asks first: a tab that is gone can't send it */
   useEffect(() => {
     if (!holding) return;
@@ -149,11 +215,13 @@ export function Support() {
       e.preventDefault();
       e.returnValue = "";
     };
-    /* the tab is going anyway (a phone often asks nothing): it is sent now, as well as the browser still allows */
+    /* the tab is going anyway (a phone often asks nothing): it is sent now, as well as the browser still allows (its
+       draft is kept first, see deliver) */
     const onHide = () => {
       if (!holdTimer.current) return;
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
+      leaving.current = true;
       void deliverRef.current();
     };
     window.addEventListener("beforeunload", onLeave);
@@ -269,26 +337,24 @@ export function Support() {
       /* the account it is sent as, taken now: the browser may be signed out (or into another account) by the time the
          answer comes */
       const owner = draftOwner();
+      /* kept before it goes, and crossed out only when the server says it has it: a page closed or reloaded meanwhile
+         may never hear the answer (see DRAFT_KEY) */
+      keepHeld({ owner, subject, category, message, pictures });
       setBusy(true);
-      const r = await createTicket({ subject: cleanLine(subject, ACCOUNT_LIMITS.subject), category, message: cleanLines(message, ACCOUNT_LIMITS.message), pictures, kind: "support" });
+      onTheirWay++;
+      const r = await createTicket(
+        { subject: cleanLine(subject, ACCOUNT_LIMITS.subject), category, message: cleanLines(message, ACCOUNT_LIMITS.message), pictures, kind: "support" },
+        { leaving: leaving.current },
+      );
+      onTheirWay--;
       setBusy(false);
-      if (!r.ok) {
-        /* not sent, and he has left the page meanwhile: his words are kept, and the form opens with them next time */
-        if (!alive.current) {
-          const draft = { owner, subject, category, message };
-          try {
-            sessionStorage.setItem(draftKey(owner), JSON.stringify({ ...draft, pictures }));
-          } catch {
-            try {
-              /* the pictures did not fit: the words alone */
-              sessionStorage.setItem(draftKey(owner), JSON.stringify(draft));
-            } catch {
-              /* storage unavailable */
-            }
-          }
-          return;
-        }
-        /* not sent: the form comes back with his words and says why */
+      if (r.ok) dropHeld(owner);
+      else {
+        /* not sent, and he has left the page meanwhile (or it is closing): his words stay kept, and the form opens with
+           them next time */
+        if (!alive.current || leaving.current) return;
+        /* not sent: the form comes back with his words and says why (nothing left to bring back later) */
+        dropHeld(owner);
         setCreating(true);
         return setFormError(failText(r));
       }

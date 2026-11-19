@@ -22,14 +22,18 @@ export type Thread = Omit<ServerTicket, "preview" | "pictures" | "unread"> & { w
 /** "ok", or why it failed: "bad" (refused: field says which), "too-many", "signed-out", "error" (offline or server down) */
 export type Sent<T> = { ok: true; data: T } | { ok: false; why: "bad" | "too-many" | "signed-out" | "none" | "error"; field?: string };
 
-async function call<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", body?: unknown): Promise<Sent<T>> {
+/* opts.keepalive: the request may finish after the page is closed (browsers allow it only for small bodies: 64 KiB
+   for all of them together, so a large one goes as a normal request) */
+async function call<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", body?: unknown, opts: { keepalive?: boolean } = {}): Promise<Sent<T>> {
   try {
+    const text = body ? JSON.stringify(body) : undefined;
     const r = await fetch(path, {
       method,
       credentials: "same-origin",
       cache: "no-store",
       headers: body ? { "Content-Type": "application/json" } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
+      body: text,
+      keepalive: !!opts.keepalive && !!text && new TextEncoder().encode(text).length < 32_000,
     });
     const j = await r.json().catch(() => ({}));
     if (r.ok) return { ok: true, data: j as T };
@@ -42,8 +46,10 @@ async function call<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", b
 
 export const fetchTickets = () => call<{ tickets: ServerTicket[] }>("/api/tickets");
 export const fetchThread = (n: number) => call<{ ticket: Thread }>(`/api/tickets/${n}`);
-export const createTicket = (t: { subject: string; category: number; message: string; pictures: string[]; kind?: "support" | "bug" | "idea"; where?: string }) =>
-  call<{ number: number }>("/api/tickets", "POST", t);
+/* opts.leaving: the page is being closed, so the ticket is sent to outlive it when it is small enough (with pictures it
+   rarely is: the caller keeps a draft for that) */
+export const createTicket = (t: { subject: string; category: number; message: string; pictures: string[]; kind?: "support" | "bug" | "idea"; where?: string }, opts: { leaving?: boolean } = {}) =>
+  call<{ number: number }>("/api/tickets", "POST", t, { keepalive: opts.leaving });
 export const replyTicket = (n: number, message: string, pictures: string[]) => call<{ status: MerchantStatus }>(`/api/tickets/${n}/reply`, "POST", { message, pictures });
 export const setTicketOpen = (n: number, open: boolean) => call<{ status: MerchantStatus }>(`/api/tickets/${n}`, "PATCH", { action: open ? "reopen" : "close" });
 export const pictureUrl = (n: number, id: string) => `/api/tickets/${n}/pictures/${id}`;
