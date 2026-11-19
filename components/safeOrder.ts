@@ -320,8 +320,12 @@ export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boole
   const email = visitorEmail(f.email);
   if (!email) errors.push("email");
   const fulfil: Fulfil = opts.pickup && f.fulfil === "pickup" ? "pickup" : "delivery";
+  /* pickup asked for at a store that no longer offers it (he turned it off while the page was open): refused ("fulfil",
+     the delivery options changed), never quietly turned into a delivery the customer did not choose */
+  const pickupGone = f.fulfil === "pickup" && !opts.pickup;
+  if (pickupGone) errors.push("fulfil");
   const ships = opts.ships !== false;
-  const delivered = fulfil === "delivery" && ships;
+  const delivered = fulfil === "delivery" && ships && !pickupGone;
   const deliverable = delivered && opts.delivery !== false;
   if (delivered && !deliverable) errors.push("fulfil");
   const city = deliverable && typeof f.city === "string" ? f.city : "";
