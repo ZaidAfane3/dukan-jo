@@ -171,13 +171,28 @@ export async function slugTaken(slug: string, accountId: string | number | null)
   return rows.length > 0;
 }
 
-/* at most once a minute per server: accounts made before the shops table (or by hand) get their row. Dukkan has no plans
-   and no free trial, so nothing about a subscription is made here (the old plans and subscriptions tables are unused). */
-let lastPrepared = 0;
-/** Gets the shops table ready for Diwan: a row for every account that has none */
-export async function prepareShops(): Promise<void> {
-  if (Date.now() - lastPrepared < 60_000) return;
-  lastPrepared = Date.now();
+/* One-time data fixes: accounts made before the shops table (or by hand) get their row (sign-up makes it for every new
+   one), older accounts get their name's fingerprints, and rows counted by an older rule are counted again. They run once
+   when the server starts (instrumentation.ts), not inside staff requests: Diwan's pages still call prepareShops, which
+   costs nothing once they are done, and runs them (once, shared) only when the start-up run has not finished or failed
+   (the database was not reachable yet). Dukkan has no plans and no free trial, so nothing about a subscription is made
+   here (the old plans and subscriptions tables are unused). */
+/* kept on the process, not this module: the start-up code and the routes are bundled apart, each with its own copy */
+const prep = ((globalThis as { __dukkanShopsPrep?: { done: boolean; running: Promise<void> | null } }).__dukkanShopsPrep ??= { done: false, running: null });
+/** Gets the shops table ready for Diwan (see above) */
+export function prepareShops(): Promise<void> {
+  if (prep.done) return Promise.resolve();
+  prep.running ??= (async () => {
+    while (await prepareBatch());
+    prep.done = true;
+  })().finally(() => {
+    prep.running = null;
+  });
+  return prep.running;
+}
+
+/* one round of the fixes; true when there may be more to do */
+async function prepareBatch(): Promise<boolean> {
   const pool = await db();
   const { rows } = await pool.query(`SELECT a.id, a.created_at FROM accounts a WHERE NOT EXISTS (SELECT 1 FROM shops s WHERE s.account_id = a.id) LIMIT 500`);
   for (const r of rows) {
@@ -192,7 +207,7 @@ export async function prepareShops(): Promise<void> {
   /* rows counted by an older rule (SHOP_COUNTS_VERSION): counted again, 200 at a time */
   const stale = await pool.query(`SELECT account_id FROM shops WHERE counts_v < $1 LIMIT 200`, [SHOP_COUNTS_VERSION]);
   for (const r of stale.rows) await syncShop(r.account_id, pool).catch((e) => console.error("[shops] recount", r.account_id, e));
-  if (rows.length === 500 || named.rows.length === 500 || stale.rows.length === 200) lastPrepared = 0;
+  return rows.length === 500 || named.rows.length === 500 || stale.rows.length === 200;
 }
 
 /** Notes that the merchant was here, at most once every 5 minutes */

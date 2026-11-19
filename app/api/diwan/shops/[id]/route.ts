@@ -2,7 +2,7 @@ import { answer } from "@/server/auth";
 import { aboutShopSql, describeActivity } from "@/server/activityDetail";
 import { db } from "@/server/db";
 import { notFound, shopId } from "@/server/shopActions";
-import { ORDERS_SQL, prepareShops, SALES_SQL, STATUS_SQL, STORE_ORDERS_SQL, STORE_PAGE_SQL, syncShop } from "@/server/shops";
+import { ORDERS_SQL, prepareShops, SALES_SQL, SHOP_KEYS, STATUS_SQL, STORE_ORDERS_SQL, STORE_PAGE_SQL, syncShop } from "@/server/shops";
 import { SHOWN_SQL } from "@/components/diwan/activityWords";
 import { can, staffRoute } from "@/server/staff";
 import { shopVisitors30 } from "@/server/storeVisits";
@@ -85,6 +85,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
                  left out of both: counts only, never the orders (they are the shop's) */
               so.n AS storefront_orders, so.test AS storefront_test,
               (${STATUS_SQL}) AS status,
+              /* its saved data changed since its row was worked out (server/shops.ts SHOP_KEYS) */
+              COALESCE((SELECT max(d.updated_at) FROM store_data d WHERE d.account_id = s.account_id AND d.key = ANY('{${[...SHOP_KEYS].join(",")}}'::text[])) > s.updated_at, false) AS changed,
               /* the theme in use (themeInUse above): its row in the theme store's list, the store's purchase of it, and for
                  one deleted from the list the name the activity log kept */
               s.theme_id, ct.name AS theme_listed_name, ct.source AS theme_source, ct.price::float AS theme_list_price,
@@ -140,9 +142,11 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     ),
   ]);
   /* a store whose row counts products or orders without the date of the first one (counted before those dates were
-     worked out from the saved data): worked out again now, once, from its saved products' and orders' own times */
-  const sh0 = shop[0];
-  if (sh0 && ((sh0.product_count > 0 && !sh0.first_product_at) || (sh0.order_count > 0 && !sh0.first_order_at))) {
+     worked out from the saved data): worked out again from its saved products' and orders' own times, only when its
+     saved data changed since its row was (a store whose dates were never recorded is not worked out again on every visit) */
+  const { changed, ...sh0 } = shop[0] ?? {};
+  if (shop[0]) shop[0] = sh0;
+  if (shop[0] && changed && ((sh0.product_count > 0 && !sh0.first_product_at) || (sh0.order_count > 0 && !sh0.first_order_at))) {
     await syncShop(id, pool).catch((e) => console.error("[shops] sync", id, e));
     const again = await q(
       `SELECT s.first_product_at, LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at
