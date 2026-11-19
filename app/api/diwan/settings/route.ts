@@ -6,6 +6,8 @@ import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { forgetConfirmation, hasRealPassword, staffConfirmed } from "@/server/staffConfirm";
 import { inTransaction } from "@/server/tickets";
+import { notify } from "@/server/notify";
+import type { DukkanShip } from "@/components/diwan/platformSettings";
 import { plainParams } from "@/server/crypto";
 
 export const dynamic = "force-dynamic";
@@ -84,5 +86,23 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
     ...(out.first ? { first: true } : {}),
   });
   if (key === "store_legal_templates") await forgetConfirmation(req);
+  if (key === "dukkan_ship") await tellCityGone(out.before as DukkanShip, value as DukkanShip);
   return answer({ result: "ok", value });
 });
+
+/* Cities taken off Dukkan Ship's list: the merchants whose saved pickup city is one of them (saved in English or Arabic)
+   get a message in their bell saying to choose another pickup city (their Home and Delivery options say so too). Sent
+   after the save, once per store; a failure is logged and does not undo the save. */
+async function tellCityGone(before: DukkanShip, after: DukkanShip) {
+  const gone = before.cities.filter((c) => !after.cities.some((x) => x.en === c.en || x.ar === c.ar));
+  if (!gone.length) return;
+  try {
+    const pool = await db();
+    const { rows } = await pool.query(`SELECT account_id, pickup_city FROM shops WHERE ship_mode = 'seen' AND pickup_city = ANY($1::text[])`, [
+      gone.flatMap((c) => [c.en, c.ar]),
+    ]);
+    for (const r of rows as { account_id: string; pickup_city: string }[]) await notify(r.account_id, "shipCityGone", { city: r.pickup_city });
+  } catch (e) {
+    console.error("[settings] ship city notices", e);
+  }
+}

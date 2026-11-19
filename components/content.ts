@@ -382,6 +382,8 @@ export type Content = {
       supportViewed: string;
       /* a customer placed an order on the public store (a test order: nothing was paid) */
       orderPlaced: string;
+      /* Dukkan Ship no longer picks up from his pickup city ({city}) */
+      shipCityGone: string;
       statusWords: Record<string, string>;
       sep: string;
       announcement: string;
@@ -968,6 +970,7 @@ export const content: Record<Lang, Content> = {
         methods: { bank: "bank transfer", cliq: "CliQ", cash: "cash", card: "card" },
         supportViewed: "Dukkan support opened your store to help you",
         orderPlaced: "New test order #{number} from {name}: {total} JOD, not paid",
+        shipCityGone: "Dukkan Ship no longer picks up from {city}. Choose another pickup city on Delivery options so your orders can be collected.",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
@@ -1549,6 +1552,7 @@ export const content: Record<Lang, Content> = {
         methods: { bank: "تحويل بنكي", cliq: "كليك", cash: "نقدًا", card: "بطاقة" },
         supportViewed: "فتح فريق دعم دكّان متجرك لمساعدتك",
         orderPlaced: "طلب تجريبي جديد رقم {number} من {name}: {total} د.أ، غير مدفوع",
+        shipCityGone: "لم يعد شحن دكان يستلم الطلبات من {city}. اختر مدينة استلام أخرى في خيارات التوصيل ليتمكّن من استلام طلباتك.",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
         announcement: "من دكّان",
