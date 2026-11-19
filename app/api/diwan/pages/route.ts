@@ -5,6 +5,7 @@ import { cleanPage } from "@/server/dukkanPages";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
 import { onePage, pageRow, pageRowsSql } from "./rows";
+import { onceByKey } from "@/server/onceKey";
 
 export const dynamic = "force-dynamic";
 
@@ -37,15 +38,19 @@ export const POST = staffRoute("announce", async (req: NextRequest, me) => {
   if (!body) return answer({ result: "bad" }, 400);
   const p = await cleanPage(body);
   if ("bad" in p) return answer({ result: "bad", field: p.bad }, 400);
-  const { rows } = await (await db()).query(
-    `INSERT INTO dukkan_pages (slug, title_en, title_ar, summary_en, summary_ar, body_en, body_ar, in_menu, sort, audience, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-     ON CONFLICT (slug) DO NOTHING RETURNING id`,
-    plainParams([p.slug, p.titleEn, p.titleAr, p.summaryEn ?? "", p.summaryAr ?? "", p.bodyEn ?? "", p.bodyAr ?? "", p.inMenu ?? false, p.sort ?? 100, JSON.stringify(p.audience ?? { all: true }), me.id]),
-  );
-  if (!rows[0]) return answer({ result: "taken", field: "slug" }, 409);
-  const id = String(rows[0].id);
-  await audit(req, me.id, "page.create", { type: "page", id }, null, { slug: p.slug, title: p.titleEn, titleEn: p.titleEn, titleAr: p.titleAr });
-  /* the new row as the list shows it, so Diwan can put it in the list at once */
-  return answer({ result: "ok", id, row: await onePage(id) });
+  /* sent twice (a double click, a retry) with the same key: made once, not answered "taken" the second time
+     (server/onceKey.ts) */
+  return onceByKey(`page:${me.id}`, body.requestKey, async () => {
+    const { rows } = await (await db()).query(
+      `INSERT INTO dukkan_pages (slug, title_en, title_ar, summary_en, summary_ar, body_en, body_ar, in_menu, sort, audience, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+       ON CONFLICT (slug) DO NOTHING RETURNING id`,
+      plainParams([p.slug, p.titleEn, p.titleAr, p.summaryEn ?? "", p.summaryAr ?? "", p.bodyEn ?? "", p.bodyAr ?? "", p.inMenu ?? false, p.sort ?? 100, JSON.stringify(p.audience ?? { all: true }), me.id]),
+    );
+    if (!rows[0]) return answer({ result: "taken", field: "slug" }, 409);
+    const id = String(rows[0].id);
+    await audit(req, me.id, "page.create", { type: "page", id }, null, { slug: p.slug, title: p.titleEn, titleEn: p.titleEn, titleAr: p.titleAr });
+    /* the new row as the list shows it, so Diwan can put it in the list at once */
+    return answer({ result: "ok", id, row: await onePage(id) });
+  });
 });

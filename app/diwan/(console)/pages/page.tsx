@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { AudiencePicker, audienceBody, audienceForm, blankAudience, useAudienceText, type Audience, type AudienceForm, type ShopNames } from "@/components/diwan/AudiencePicker";
 import { MockDashboard, PreviewPanel, PreviewTabs, Screens, type Look } from "@/components/diwan/MerchantPreview";
 import { fromDukkanWords, PageArticle, PageListCard } from "@/components/FromDukkan";
-import { area, Badge, Btn, card, field, Loaded, PageHead, reachOf, SavedNote, send, useApi, useFmt, useJustSaved, useStaff, useT, type Tone } from "@/components/diwan/ui";
+import { area, Badge, Btn, card, field, Loaded, PageHead, reachOf, SavedNote, send, useApi, useCreateOnce, useFmt, useJustSaved, useStaff, useT, type Tone } from "@/components/diwan/ui";
 import { PagesSkeleton } from "@/components/diwan/skeletons";
 import { PAGE_LIMITS, PAGE_NEXT, PAGE_SLUG, type PageStatus } from "@/components/dukkanPages";
 
@@ -194,6 +194,7 @@ function PageRow({ r, d, ring, onEdit, reload }: { r: Row; d: Data; ring: string
 function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: (id: string | null, body: Body, row: Row | null) => void }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
+  const once = useCreateOnce();
   const [err, setErr] = useState("");
   /* a message about the form goes as soon as the form is changed: it may be fixed now, and Publish checks again */
   useEffect(() => setErr(""), [form]);
@@ -214,13 +215,17 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
     e.preventDefault();
     setErr("");
     if (!PAGE_SLUG.test(slug)) return setErr(fields.slug);
+    /* a second click while it is being saved does nothing; a new one is made once (useCreateOnce) */
+    if (!once.begin()) return;
     const body: Body = {
       slug, titleEn: form.titleEn, titleAr: form.titleAr, summaryEn: form.summaryEn, summaryAr: form.summaryAr, bodyEn: form.bodyEn, bodyAr: form.bodyAr,
       inMenu: form.inMenu, sort: Number(form.sort || 100), audience: audienceBody(form.audience),
     };
     setBusy(true);
-    const r = form.id ? await send(`/api/diwan/pages/${form.id}`, "PATCH", body) : await send("/api/diwan/pages", "POST", body);
+    const r = form.id ? await send(`/api/diwan/pages/${form.id}`, "PATCH", body) : await send("/api/diwan/pages", "POST", { ...body, requestKey: once.key() });
     setBusy(false);
+    once.end();
+    if (r.ok && !form.id) once.made();
     /* an edit keeps its id; a new one has the id the server answered with */
     if (r.ok) return onSaved(form.id ?? (r.data?.id ? String(r.data.id) : null), body, (r.data?.row as Row | undefined) ?? null);
     if (r.data?.result === "taken") return setErr(t("Another page has this address.", "توجد صفحة أخرى بهذا العنوان."));
