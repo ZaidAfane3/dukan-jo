@@ -239,7 +239,17 @@ async function checkSession(lost = false) {
   lastCheck = Date.now();
   const me = await call("/api/auth/me", "GET");
   asking = false;
-  if (leaving || signedInAs() !== email) return;
+  if (leaving) return;
+  if (signedInAs() !== email) {
+    /* this tab took the account's new email meanwhile (Settings.tsx) and the session is that account's: what stopped
+       waits in the outbox and goes now */
+    const now = signedInAs();
+    if (lost && now && me?.status === 200 && me.reply.account?.email === now) {
+      dropSaves({ keepOutbox: true });
+      resumeSaves();
+    }
+    return;
+  }
   const suspension = me ? asSuspension(me.reply) : null;
   if (suspension) {
     /* the store's own page says why (it signs the tab out, see syncOnOpen) */
