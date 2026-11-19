@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { brandName } from "./content";
 import { usePrefs } from "./Prefs";
 import { isStoreAddress } from "./safe";
@@ -70,11 +69,18 @@ function SadMark() {
 
 /** An address that leads nowhere: a big 404 and a sad store, then one part (where a store would be) says there is no
     store there, a longer one that the page doesn't exist. In the visitor's language, with a link to Dukkan's main page
-    to create a store. */
-export function MissingPage() {
+    to create a store.
+    The words depend on the address, which is read in the browser once the page is there: the not-found page is drawn
+    ahead of time (app/not-found.tsx, for every address at once), so an address read while drawing would be another one
+    than in the browser, and the page then failed to take over its own HTML (React error 418). `kind`: known ahead
+    (app/[slug] knows a store link with no store), so the words are right from the start. */
+export function MissingPage({ kind }: { kind?: "store" | "page" } = {}) {
   const { lang } = usePrefs();
-  const parts = (usePathname() || "/").split("/").filter(Boolean);
-  const w = missing[parts.length === 1 ? "store" : "page"][lang];
+  const [path, setPath] = useState<string | null>(null);
+  /* before the first paint after the page takes over, so the other words never show */
+  useLayoutEffect(() => setPath(window.location.pathname), []);
+  const parts = (path ?? "/").split("/").filter(Boolean);
+  const w = missing[kind ?? (path === null ? "page" : parts.length === 1 ? "store" : "page")][lang];
   /* an address inside a store (/<store>/...) that leads nowhere: when that store exists, a way back to its home page */
   const storeSlug = parts.length > 1 && isStoreAddress(`/${parts[0]}`) ? parts[0].toLowerCase() : "";
   const [store, setStore] = useState<{ slug: string; name: string } | null>(null);
