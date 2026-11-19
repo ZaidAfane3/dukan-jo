@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
-import { copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { basketMost, copy, currency, fillColors, icons, moneyIn, mostWords, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { productCount, searchCopy } from "./search";
 import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
@@ -390,6 +390,9 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
   const withAdd = k.showAdd ?? true;
   const plus = withAdd && k.add === "plus";
   const low = k.showStock && p.quantity > 0 && p.quantity <= 5;
+  /* the basket holds all it can take of it: + stops, and the card says why */
+  const most = basketMost(p.quantity);
+  const atMost = inBasket > 0 && !out && inBasket >= most;
   const row = (k.info ?? "stack") === "row";
   /* centered: the name, the material line and the price under the picture, in the middle, the name and price in the titles font */
   const centered = k.info === "center";
@@ -443,7 +446,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
           <h3 dir="auto" className={`mt-0.5 text-sm font-bold ltr:text-left rtl:text-right ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}><Say>{p.name}</Say></h3>
         ))}
         {/* the short line ("cotton · soft · light") is not on the card: it shows on the product page, under "Features" */}
-        {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
+        {atMost ? <p role="status" className="mt-0.5 text-xs font-semibold text-amber-600">{mostWords(p.quantity, ctx.lang)}</p> : low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
         </div>
         {k.showPrice && (
           <p dir="ltr" className={`${row ? "mt-0.5 max-w-[60%] shrink-0 justify-end" : centered ? "mt-2 justify-center" : `${pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} rtl:justify-end`} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-start`} style={{ ...priceInk(ctx, cardOn), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
@@ -470,7 +473,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-full border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]" style={surfaceInk(ctx, "#ffffff")}>
               <button type="button" onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket - 1)} aria-label={`${ctx.lang === "ar" ? "إنقاص" : "Remove one"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10">&minus;</button>
               <span aria-live="polite" className="min-w-[1.25rem] text-center tabular-nums">{inBasket}</span>
-              <button type="button" disabled={inBasket >= p.quantity} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
+              <button type="button" disabled={inBasket >= most} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
             </div>
             </div>
           ) : (
@@ -500,7 +503,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
             <span aria-live="polite" className="text-sm font-extrabold tabular-nums">{inBasket}</span>
             <button
               type="button"
-              disabled={inBasket >= p.quantity}
+              disabled={inBasket >= most}
               onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)}
               aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`}
               className="grid h-full w-12 place-items-center text-xl font-bold transition hover:bg-black/[0.07] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
@@ -755,7 +758,9 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
   useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
-  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, sizeLeft), n))));
+  /* the stepper stops at what the basket takes: the stock (of that size), at most one order's limit (99 with no limit) */
+  const most = basketMost(sizeLeft);
+  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, most), n))));
   /* a product in sizes waits for its size before it can be added */
   const needSize = sized && !size;
   const now = priceOf(p);
@@ -867,9 +872,10 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         <div dir="ltr" role="group" aria-label={w.qty} className={`inline-flex shrink-0 items-center ${s.stepper}`}>
           <button type="button" className={step} disabled={inBasket === 0 && pick <= 1} onClick={() => setCount(count - 1)} aria-label={`${w.less}: ${p.name}`}>−</button>
           <span aria-live="polite" className="min-w-[2.5rem] text-center text-base font-extrabold tabular-nums">{count}</span>
-          <button type="button" className={step} disabled={count >= sizeLeft} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
+          <button type="button" className={step} disabled={count >= most} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
         </div>
       )}
+      {!out && p.price !== null && !needSize && count >= most && <p role="status" className="w-full text-xs font-semibold text-amber-600">{mostWords(sizeLeft, ctx.lang)}</p>}
       {inBasket > 0 && !out ? (
         <p role="status" className={`flex min-w-[12rem] flex-1 flex-wrap items-center justify-center gap-x-2 text-center ${s.added}`}>
           <span className="inline-flex items-center gap-1.5">{icons.check}{w.inCart(inBasket)}</span>

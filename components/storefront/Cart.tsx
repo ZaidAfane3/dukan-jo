@@ -9,7 +9,7 @@ import { jordanMobile } from "../phone";
 import { checkCheckout, orderPays, ORDER_LIMITS, savedPays, storeDelivery, storeFulfils, type Payment, priceCart, productSizes, sellableStock, takeStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type CouponRefusal } from "../records";
 import type { CartStyle } from "./config";
-import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
+import { basketMost, currency, icons, moneyIn, mostWords, priceOf, ProductImage } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
 import { useVisitorRefresh } from "./visitorStore";
 
@@ -821,11 +821,13 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     </div>
   );
 
+  /* the stock of a line (its size's for clothing and shoes) */
+  const lineStock = (p: StoreProduct, size?: string) => (size ? p.sizes?.find((z) => z.name === size)?.quantity ?? 0 : p.quantity);
   const qtyControl = (p: StoreProduct, qty: number, size?: string) => (
     <div dir="ltr" className={s.qty}>
       <button type="button" onClick={() => setQty(p, qty - 1, size)} aria-label={w.less} className={s.qtyBtn}>−</button>
       <span className={s.qtyNum}>{qty}</span>
-      <button type="button" onClick={() => setQty(p, qty + 1, size)} disabled={qty >= Math.min(size ? p.sizes?.find((z) => z.name === size)?.quantity ?? 0 : p.quantity, ORDER_LIMITS.qty)} aria-label={w.more} className={`${s.qtyBtn} disabled:opacity-30`}>+</button>
+      <button type="button" onClick={() => setQty(p, qty + 1, size)} disabled={qty >= basketMost(lineStock(p, size))} aria-label={w.more} className={`${s.qtyBtn} disabled:opacity-30`}>+</button>
     </div>
   );
 
@@ -846,6 +848,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
         </div>
         {size && <p className="text-xs font-semibold opacity-70">{lang === "ar" ? "المقاس" : "Size"}: <bdi>{size}</bdi></p>}
         <p className={s.unit} dir="auto">{amount(priceAt(p))}</p>
+        {/* all it can take of it: + stops, and it says why */}
+        {qty >= basketMost(lineStock(p, size)) && <p role="status" className="mt-0.5 text-xs font-semibold text-amber-600">{mostWords(lineStock(p, size), lang)}</p>}
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pt-2">
           <div className="flex items-center gap-3">
             {qtyControl(p, qty, size)}
