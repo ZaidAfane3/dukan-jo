@@ -60,6 +60,14 @@ const searchIcon = <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stro
 const xIcon = <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>;
 const picIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 21" /></svg>;
 
+/* A new ticket is held for a moment before it goes to Dukkan, with an Undo (like an email's "undo send"): the form
+   closes at once, a bar says it is being sent, and Undo opens the form again with everything still in it. */
+const HOLD_MS = 3000;
+const holdWords = {
+  en: { sending: "Sending your ticket…", undo: "Undo" },
+  ar: { sending: "جارٍ إرسال تذكرتك…", undo: "تراجع" },
+};
+
 export function Support() {
   const { lang } = usePrefs();
   const s = content[lang].support;
@@ -87,6 +95,30 @@ export function Support() {
   const [openNo, setOpenNo] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
+  /* a new ticket held before it is sent (HOLD_MS): its timer, and the send as the newest render made it */
+  const [holding, setHolding] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deliverRef = useRef<() => Promise<void> | void>(() => {});
+  /* leaving the page while a ticket is held sends it at once (it is never dropped quietly) */
+  useEffect(
+    () => () => {
+      if (!holdTimer.current) return;
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+      void deliverRef.current();
+    },
+    [],
+  );
+  /* closing the tab in those few seconds asks first: a tab that is gone can't send it */
+  useEffect(() => {
+    if (!holding) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [holding]);
   /* how soon Dukkan usually answers: set in Diwan (platform setting support_reply_hours) */
   const replyHours = usePublicSettings().support_reply_hours;
 
@@ -165,14 +197,37 @@ export function Support() {
     setErrors(next);
     setFormError("");
     if (Object.keys(next).length) return;
+    if (busy || holding) return;
+    /* held for HOLD_MS before it is sent (deliver below); the form's words stay as they are until then */
+    setCreating(false);
+    setHolding(true);
+    holdTimer.current = setTimeout(() => {
+      holdTimer.current = null;
+      void deliverRef.current();
+    }, HOLD_MS);
+  };
 
+  /** Undo, while the ticket is held: nothing was sent, and the form opens again as he left it */
+  const undoSend = () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    setHolding(false);
+    setCreating(true);
+  };
+
+  /** Sends the held ticket (the time to undo is over, or the page is being left) */
+  const deliver = async () => {
+    setHolding(false);
     let id: string;
     if (server) {
-      if (busy) return;
       setBusy(true);
       const r = await createTicket({ subject: cleanLine(subject, ACCOUNT_LIMITS.subject), category, message: cleanLines(message, ACCOUNT_LIMITS.message), pictures, kind: "support" });
       setBusy(false);
-      if (!r.ok) return setFormError(failText(r));
+      if (!r.ok) {
+        /* not sent: the form comes back with his words and says why */
+        setCreating(true);
+        return setFormError(failText(r));
+      }
       id = `#${r.data.number}`;
       /* the new ticket is in the list at once (so nobody sends it twice while the list is fetched again), then the
          server's copy replaces it */
@@ -193,6 +248,8 @@ export function Support() {
     setCategory(0);
     setCreating(false);
   };
+
+  deliverRef.current = deliver;
 
   const toggle = (id: string) => setTickets((list) => list.map((t) => (t.id === id ? { ...t, status: t.status === 0 ? 1 : 0 } : t)));
 
@@ -226,7 +283,7 @@ export function Support() {
 
       <main data-lang-fade className="mx-auto max-w-[1720px] space-y-6 px-5 py-8 md:px-10">
         <section className={card}>
-          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-extrabold">{s.title}</h1><button type="button" onClick={() => { setFormError(""); setCreating(true); }} className="shrink-0 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-onink transition hover:bg-deep"> + {s.newTicket} </button></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-extrabold">{s.title}</h1><button type="button" disabled={holding || busy} onClick={() => { setFormError(""); setCreating(true); }} className="shrink-0 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-50"> + {s.newTicket} </button></div>
           <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-soft px-3 py-1 text-xs font-semibold text-fg">{clockIcon}{replyWithin(replyHours, lang)}</p>
           {server !== null && <p className="mt-2 text-xs text-muted">{server ? sv.note : s.note}</p>}
 
@@ -340,7 +397,7 @@ export function Support() {
               <div className="px-4 py-14 text-center">
                 <p className="font-bold">{s.empty}</p>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted">{s.emptyHint}</p>
-                <button type="button" onClick={() => setCreating(true)} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">
+                <button type="button" disabled={holding || busy} onClick={() => setCreating(true)} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white disabled:opacity-50">
                   {s.newTicket}
                 </button>
               </div>
@@ -349,6 +406,14 @@ export function Support() {
         </section>
       </main>
 
+      {holding && (
+        <div role="status" className="fixed inset-x-0 bottom-6 z-50 mx-auto flex w-fit max-w-[92vw] items-center gap-4 rounded-full border-2 border-primary bg-transparent px-5 py-3 text-sm font-semibold text-primary backdrop-blur-md">
+          <span>{holdWords[lang].sending}</span>
+          <button type="button" onClick={undoSend} className="rounded-full border border-primary px-4 py-1.5 transition hover:bg-primary/10">
+            {holdWords[lang].undo}
+          </button>
+        </div>
+      )}
       {creating && (
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setCreating(false)}>
           <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={s.newTicket} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">

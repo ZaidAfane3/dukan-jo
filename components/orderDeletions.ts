@@ -57,6 +57,20 @@ export function logDeletion(orderId: number, reason: string): boolean {
 /* Sends one deletion to Dukkan. The server keeps one record per order, so sending it twice does no harm: when the
    server could not be reached, it is tried again a little later (twice at most). */
 async function sendDeletion(rec: OrderDeletion, tries = 0): Promise<void> {
+  /* undone meanwhile (unlogDeletion): nothing to send again */
+  if (tries > 0 && !loadDeletions().some((d) => d.orderId === rec.orderId)) return;
   const r = await merchantCall("/api/order-deletions", "POST", { orderId: rec.orderId, orderNo: rec.orderNo, reason: rec.reason });
   if ((r === null || r.status >= 500) && tries < 2) setTimeout(() => void sendDeletion(rec, tries + 1), 5_000 * (tries + 1));
+}
+
+/** Takes back the record of a deletion that was undone (the order is back in the list): from this browser, and from
+    Dukkan's side for a signed-in account (the server takes back only a record made in the last few minutes). Without
+    this an order that was put back would still be listed as deleted, with its reason, in Diwan. */
+export function unlogDeletion(orderId: number): void {
+  try {
+    localStorage.setItem(DELETED_KEY, JSON.stringify(loadDeletions().filter((d) => d.orderId !== orderId)));
+  } catch {
+    /* storage unavailable: the server's record still goes */
+  }
+  if (onServer()) void merchantCall(`/api/order-deletions?orderId=${orderId}`, "DELETE");
 }

@@ -78,6 +78,16 @@ export function storeDelivery(
   };
 }
 
+/** The delivery way a store's checkout goes by: the merchant's own choice. A store that is live with neither a choice nor
+    pickup can only be one from before a choice was asked for (a store can no longer open without one: readyToSell), and
+    it delivered with Dukkan Ship then; it still does, so it keeps taking orders until he chooses (his dashboard and
+    Diwan still say what is missing). The public store (server/publicStore.ts) and the order (server/storeOrders.ts)
+    both ask this, so the checkout offers what the server accepts. */
+export const checkoutShipMode = (setup: { pickup?: boolean; shipping?: { mode?: "own" | "seen" | null } | null } | null | undefined): "own" | "seen" | null => {
+  const mode = setup?.shipping?.mode;
+  return mode === "own" || mode === "seen" ? mode : setup?.pickup === true ? null : "seen";
+};
+
 /** How the order can reach the customer at this store: delivery when storeDelivery offers it, pickup when he allows it.
     Neither: the store hasn't set up delivery, no order is taken. */
 export const storeFulfils = (delivery: boolean, pickup: boolean): Fulfil[] => [...(delivery ? (["delivery"] as const) : []), ...(pickup ? (["pickup"] as const) : [])];
@@ -343,9 +353,13 @@ export function takeStock(list: unknown[], items: { id?: unknown; qty: number; s
     /* an order from the public store also counts, on the product, how many it sold online (per size): see SOLD_ONLINE */
     if (o.online) {
       const sold = { ...soldOnline(p.soldOnline) };
+      /* a line with a quantity below zero gives stock back (an order cancelled: server/storeOrders.ts), and the count
+         goes down with it; a count that reaches zero is left out */
       for (const x of mine) {
         const k = sizes.length ? sizeName(x.size) : "";
-        sold[k] = (sold[k] ?? 0) + x.qty;
+        const n = (sold[k] ?? 0) + x.qty;
+        if (n > 0) sold[k] = n;
+        else delete sold[k];
       }
       p = { ...p, soldOnline: sold };
     }
@@ -391,7 +405,8 @@ export function mergeSoldOnline(incoming: unknown[], stored: unknown[]): unknown
     if (!s || typeof s !== "object" || Array.isArray(s)) continue;
     const id = productId((s as Record<string, unknown>).id);
     const sold = soldOnline((s as Record<string, unknown>).soldOnline);
-    if (id !== null && Object.keys(sold).length) server.set(id, sold);
+    /* every product the server has, also one with no online sales left (all of them cancelled since) */
+    if (id !== null) server.set(id, sold);
   }
   if (!server.size) return incoming;
   return incoming.map((raw) => {
@@ -401,10 +416,13 @@ export function mergeSoldOnline(incoming: unknown[], stored: unknown[]): unknown
     const known = id !== null ? server.get(id) : undefined;
     if (!known) return p;
     const mine = soldOnline(p.soldOnline);
-    const behind = Object.entries(known).map(([size, n]) => ({ id, size: size || undefined, qty: n - (mine[size] ?? 0) })).filter((x) => x.qty > 0);
-    const counts = { ...mine };
-    for (const [k, n] of Object.entries(known)) counts[k] = Math.max(n, counts[k] ?? 0);
-    const taken = behind.length ? (takeStock([p], behind)[0] as Record<string, unknown>) : p;
-    return { ...taken, soldOnline: counts };
+    /* the server's count is the one that holds. Where his copy is behind it (orders placed since), that many are taken
+       again; where it is ahead of it (orders cancelled or refunded since, whose stock went back), that many are given
+       back. Either way his copy ends on the server's count, so saving it again changes nothing more. */
+    const sizes = Array.from(new Set([...Object.keys(known), ...Object.keys(mine)]));
+    const diff = sizes.map((size) => ({ id, size: size || undefined, qty: (known[size] ?? 0) - (mine[size] ?? 0) })).filter((x) => x.qty !== 0);
+    if (!diff.length) return p;
+    const { soldOnline: _was, ...moved } = takeStock([p], diff)[0] as Record<string, unknown>;
+    return Object.keys(known).length ? { ...moved, soldOnline: known } : moved;
   });
 }

@@ -14,7 +14,7 @@ import { shipCityLists, usePublicSettings } from "./platformPublic";
 import { loadSetup } from "./setup";
 import { loadFreeDelivery } from "./freeDeliveryStore";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
-import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion } from "./orderDeletions";
+import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion, unlogDeletion } from "./orderDeletions";
 import { serverMode } from "./notifications";
 import { onlineRev, pullOnlineKeys } from "./serverSync";
 import { dropUndos, listUndo, offerUndo } from "./undo";
@@ -181,23 +181,29 @@ export function Orders() {
   useEffect(() => () => dropUndos("orders"), []);
   /** A change to the orders kept in this browser, saved like any edit (below), with an Undo at the bottom that puts back
       exactly the orders it changed, unless one of them changed again since */
-  const change = (next: Order[], label: (l: Lang) => string) => {
+  /* `afterUndo`: runs after an undo was tried, whether or not it put the orders back (a deletion takes its record back) */
+  const change = (next: Order[], label: (l: Lang) => string, afterUndo?: () => void) => {
     const before = ordersNow.current;
     ordersNow.current = next;
     setOrders(next);
+    const back = listUndo({
+      before,
+      after: next,
+      key: (x: Order) => x.id,
+      now: () => ordersNow.current,
+      put: (list: Order[]) => {
+        ordersNow.current = list;
+        setOrders(list);
+      },
+    });
     offerUndo({
       scope: "orders",
       label,
-      undo: listUndo({
-        before,
-        after: next,
-        key: (x) => x.id,
-        now: () => ordersNow.current,
-        put: (list) => {
-          ordersNow.current = list;
-          setOrders(list);
-        },
-      }),
+      undo: () => {
+        const ok = back();
+        afterUndo?.();
+        return ok;
+      },
     });
   };
 
@@ -516,7 +522,11 @@ export function Orders() {
     if (deleting.current || !deleteReasonOk(reason)) return;
     deleting.current = true;
     logDeletion(id, cleanDeleteReason(reason));
-    change(ordersNow.current.filter((x) => x.id !== id), (l) => undoWords[l].deleted(id));
+    /* an Undo puts the order back and takes the deletion's record back with it. The record also goes when the undo had
+       nothing to do because the order is in the list again anyway (another device's copy brought it back). */
+    change(ordersNow.current.filter((x) => x.id !== id), (l) => undoWords[l].deleted(id), () => {
+      if (ordersNow.current.some((x) => x.id === id)) unlogDeletion(id);
+    });
     setSelected(null);
     setConfirmDelete(false);
   };

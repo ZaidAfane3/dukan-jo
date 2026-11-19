@@ -3,6 +3,7 @@ import { PUBLIC_PRODUCT_FIELDS, type PublicSetup, type PublicStore } from "@/com
 import { money } from "@/components/records";
 import { cleanLines, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
+import { checkoutShipMode } from "@/components/safeOrder";
 import { sanitizeDesign, sanitizePages } from "@/components/safeDesign";
 import { defaultConfig, type PageRef } from "@/components/storefront/config";
 import { stripPaidLooks, withLookOf } from "@/components/themeLooks";
@@ -111,7 +112,11 @@ export async function shapePublicStore(
     slug: shop.slug,
     logo,
     pickup: setup?.pickup === true,
-    shipping: setup?.shipping ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}), ...(setup.shipping.cities ? { cities: setup.shipping.cities } : {}) } : null,
+    /* a live store from before a delivery choice was asked for, with no choice and no pickup, delivers with Dukkan Ship as
+       it did then (safeOrder checkoutShipMode): the checkout offers what the server will accept for its orders */
+    shipping: setup?.shipping
+      ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}), ...(setup.shipping.cities ? { cities: setup.shipping.cities } : {}) }
+      : checkoutShipMode(setup) === "seen" ? { mode: "seen" } : null,
     ...(setup?.pays ? { pays: setup.pays } : {}),
   };
 
