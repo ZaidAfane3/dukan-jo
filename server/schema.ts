@@ -764,4 +764,12 @@ export const DIWAN_SCHEMA = `
     FROM shops s
    WHERE o.ship_by IS NULL AND s.account_id = o.account_id;
   CREATE INDEX IF NOT EXISTS store_orders_dukkan_ship ON store_orders (id DESC) WHERE ship_by = 'dukkan';
+
+  /* ---------- announcements and pop-ups that were ended early ----------
+     "End now" in Diwan keeps the row (it moves to the "Past" list) and says here when and by whom. Null: it ran to its
+     own end, is still on, or was ended before these columns. "Start again" clears them. */
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
 `;

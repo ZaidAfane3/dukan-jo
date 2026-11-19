@@ -6,20 +6,24 @@ import { askConfirm } from "@/components/diwan/dialogs";
 import { HomeSketch, MockDashboard, PreviewPanel, Screens, type Look } from "@/components/diwan/MerchantPreview";
 import { AnnouncementCard } from "@/components/AnnouncementBanner";
 import { content } from "@/components/content";
-import { area, Badge, Btn, card, field, Loaded, PageHead, reachOf, SavedNote, send, useApi, useFmt, useJustSaved, useStaff, useT, type Tone } from "@/components/diwan/ui";
+import { RunTabs, StartAgain, type RunView } from "@/components/diwan/pastRuns";
+import { area, Badge, Btn, card, field, Loaded, LoadMore, PageHead, reachOf, SavedNote, send, useApi, useFmt, useJustSaved, useMore, useStaff, useT, type Tone } from "@/components/diwan/ui";
 import { AnnouncementsSkeleton } from "@/components/diwan/skeletons";
 
 /* Announcements to merchants: written in English and Arabic, for everyone, or chosen shops, shown in the
    merchants' bell (and as a banner on their home page when asked) between a start and an optional end. "Read by" counts
-   the shops that opened or dismissed it. Everything here is live from the database; every change is in the activity log. */
+   the shops that opened or dismissed it. Ended ones are kept, under "Past", with who ended them, and can be started again.
+   Everything here is live from the database; every change is in the activity log. */
 
 type Row = {
   id: string; titleEn: string; titleAr: string; bodyEn: string; bodyAr: string; audience: Audience; banner: boolean;
   startsAt: string; endsAt: string | null; createdAt: string; by: string | null; status: "scheduled" | "live" | "ended"; reads: number;
   /* null only for a row just saved, until the server has counted it */
   reach: number | null;
+  endedEarly: boolean; endedBy: string | null;
 };
 type Data = { announcements: Row[]; shops: ShopNames };
+type PastData = { rows: Row[]; shops: ShopNames; page: number; pages: number };
 /** What the form sends */
 type Body = { titleEn: string; titleAr: string; bodyEn: string; bodyAr: string; audience: Audience; banner: boolean; startsAt: string | null; endsAt: string | null };
 type Form = {
@@ -38,17 +42,28 @@ const STATUS_TONE: Record<Row["status"], Tone> = { scheduled: "blue", live: "gre
 
 export default function AnnouncementsPage() {
   const t = useT();
-  const f = useFmt();
   const s = useApi<Data>("/api/diwan/announcements");
+  const [view, setView] = useState<RunView>("now");
+  /* the past grows over time, so it comes 20 at a time, and only once its tab is opened */
+  const past = useMore<PastData>(view === "past" ? "/api/diwan/announcements?view=past" : null, (d, n) => (n < d.pages ? `page=${n + 1}` : null));
+  /* each batch of the past brings the names of the shops chosen in its own announcements: kept together */
+  const [pastShops, setPastShops] = useState<ShopNames>({});
+  useEffect(() => {
+    if (past.data) setPastShops((m) => ({ ...m, ...past.data!.shops }));
+  }, [past.data]);
   const [form, setForm] = useState<Form | null>(null);
   const staff = useStaff();
   const js = useJustSaved<Data, Row>(s.data);
+  const reloadBoth = () => {
+    s.reload();
+    past.reload();
+  };
 
   /* the saved announcement as the list will show it (the server's copy replaces it when the list has loaded again) */
   const saved = (d: Data, id: string | null, b: Body, answered: Row | null) => {
     const wasEdit = !!form?.id;
     setForm(null);
-    s.reload();
+    reloadBoth();
     if (!id) return;
     const prev = d.announcements.find((x) => x.id === id);
     const now = new Date();
@@ -57,33 +72,49 @@ export default function AnnouncementsPage() {
     const built: Row = {
       id, titleEn: b.titleEn.trim(), titleAr: b.titleAr.trim(), bodyEn: b.bodyEn.trim(), bodyAr: b.bodyAr.trim(), audience: b.audience, banner: b.banner,
       startsAt, endsAt: b.endsAt, createdAt: prev?.createdAt ?? now.toISOString(), by: prev ? prev.by : (staff?.name ?? null), status,
-      reads: prev?.reads ?? 0, reach: reachOf(b.audience, startsAt, d.announcements, prev, prev?.startsAt),
+      reads: prev?.reads ?? 0, reach: reachOf(b.audience, startsAt, d.announcements, prev, prev?.startsAt), endedEarly: false, endedBy: null,
     };
     /* the server's copy when it answered with one, else the row built from what was sent */
     const row = answered?.id === id ? answered : built;
+    /* one saved with its end already passed belongs under Past, which the reload above brings it into */
+    if (row.status === "ended") return;
     /* the names of the shops chosen in it, which the list may not know until it has loaded again */
     const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
     js.show(row, wasEdit ? t("Saved", "تم الحفظ") : row.status === "scheduled" ? t("Scheduled", "تمت الجدولة") : t("Published", "تم النشر"), names);
   };
 
-  const edit = (r: Row, d: Data) => {
+  const edit = (r: Row, shops: ShopNames) => {
     setForm({
       id: r.id, titleEn: r.titleEn, titleAr: r.titleAr, bodyEn: r.bodyEn, bodyAr: r.bodyAr,
-      audience: audienceForm(r.audience, d.shops),
+      audience: audienceForm(r.audience, shops),
       banner: r.banner, startsAt: toLocal(r.startsAt), endsAt: toLocal(r.endsAt),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  /* a past one as a new announcement: the same words and audience in the form, starting now, no end. The form opens
+     above the live and scheduled list, where the new one will be. */
+  const copy = (r: Row, shops: ShopNames) => {
+    edit(r, shops);
+    setForm((f) => f && { ...f, id: null, startsAt: toLocal(new Date().toISOString()), endsAt: "" });
+    setView("now");
+  };
+  /* the same announcement out again from now; the stores that read it already keep it read */
+  const startAgain = async (r: Row, endsAt: string | null) => {
+    const res = await send(`/api/diwan/announcements/${r.id}`, "PATCH", { restart: true, endsAt });
+    if (!res.ok) return t("It did not start. Try again.", "لم يبدأ. حاول مرة أخرى.");
+    reloadBoth();
+    return "";
   };
 
   const end = async (r: Row) => {
     const yes = await askConfirm({
       title: t("End this announcement", "إنهاء هذا الإعلان"),
-      body: t(`End “${r.titleEn}” now? Merchants stop seeing it.`, `إنهاء «${r.titleAr}» الآن؟ لن يراه التجار بعد ذلك.`),
+      body: t(`End “${r.titleEn}” now? Merchants stop seeing it. It stays under Past, where you can start it again.`, `إنهاء «${r.titleAr}» الآن؟ لن يراه التجار بعد ذلك. يبقى في «السابقة» ويمكنك تشغيله مجددًا من هناك.`),
       confirm: t("End now", "إنهاء الآن"),
     });
     if (!yes) return;
     await send(`/api/diwan/announcements/${r.id}`, "PATCH", { end: true });
-    s.reload();
+    reloadBoth();
   };
   const remove = async (r: Row) => {
     const yes = await askConfirm({
@@ -94,67 +125,109 @@ export default function AnnouncementsPage() {
     });
     if (!yes) return;
     await send(`/api/diwan/announcements/${r.id}`, "DELETE");
-    s.reload();
+    reloadBoth();
   };
-
-  const audienceOf = useAudienceText();
-  const audienceText = (r: Row, d: Data) => audienceOf(r.audience, d.shops);
 
   return (
     <div>
       <PageHead
         title={t("Announcements", "الإعلانات")}
         sub={t("Messages to merchants, in their bell and, if you choose, as a banner on their home page.", "رسائل للتجار تظهر في الإشعارات، وكشريط في صفحتهم الرئيسية إن اخترت ذلك.")}
-        actions={!form && <Btn onClick={() => setForm(blank())}>{t("New announcement", "إعلان جديد")}</Btn>}
+        actions={!form && <Btn onClick={() => (setForm(blank()), setView("now"))}>{t("New announcement", "إعلان جديد")}</Btn>}
       />
 
-      <Loaded s={s} skeleton={<AnnouncementsSkeleton />}>
-        {(raw) => {
-          const d = { ...raw, shops: js.names(raw.shops) };
-          return (
-            <>
-              {form && <Editor form={form} setForm={setForm} onSaved={(id, b, row) => saved(d, id, b, row)} />}
+      <RunTabs view={view} setView={setView} label={t("Which announcements", "أي الإعلانات")} />
 
-              <div className="relative">
-                <SavedNote note={form ? null : js.note} />
+      {view === "now" ? (
+        <Loaded s={s} skeleton={<AnnouncementsSkeleton />}>
+          {(raw) => {
+            const d = { ...raw, shops: js.names(raw.shops) };
+            return (
+              <>
+                {form && <Editor form={form} setForm={setForm} onSaved={(id, b, row) => saved(d, id, b, row)} />}
+
+                <div className="relative">
+                  <SavedNote note={form ? null : js.note} />
+                  <div className="space-y-3">
+                    {js.rows(d.announcements).length === 0 && <p className={`${card} text-center text-sm text-muted`}>{t("Nothing live or scheduled. Ended ones are under Past.", "لا يوجد إعلان ظاهر أو مجدول. المنتهية في «السابقة».")}</p>}
+                    {js.rows(d.announcements).map((r) => (
+                      <article key={r.id} id={`row-${r.id}`} className={`${card} ${js.ring(r.id)}`}>
+                        <Summary r={r} shops={d.shops} />
+                        <div className="mt-3 flex flex-wrap gap-2 border-t border-fg/10 pt-3">
+                          <Btn kind="ghost" onClick={() => edit(r, d.shops)}>{t("Edit", "تعديل")}</Btn>
+                          {r.status !== "ended" && <Btn kind="ghost" onClick={() => void end(r)}>{t("End now", "إنهاء الآن")}</Btn>}
+                          <Btn kind="danger" onClick={() => void remove(r)}>{t("Delete", "حذف")}</Btn>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </>
+            );
+          }}
+        </Loaded>
+      ) : (
+        <Loaded s={past} skeleton={<AnnouncementsSkeleton />}>
+          {(d) => {
+            const shops = { ...pastShops, ...d.shops };
+            return (
+              <>
                 <div className="space-y-3">
-                  {js.rows(d.announcements).length === 0 && <p className={`${card} text-center text-sm text-muted`}>{t("No announcements yet.", "لا توجد إعلانات بعد.")}</p>}
-                  {js.rows(d.announcements).map((r) => (
-                    <article key={r.id} id={`row-${r.id}`} className={`${card} ${js.ring(r.id)}`}>
-                      <div className="flex flex-wrap items-start gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge tone={STATUS_TONE[r.status]}>
-                              {r.status === "scheduled" ? t("Scheduled", "مجدول") : r.status === "live" ? t("Live", "ظاهر الآن") : t("Ended", "انتهى")}
-                            </Badge>
-                            {r.banner && <Badge tone="primary">{t("Banner", "شريط")}</Badge>}
-                            <span className="text-xs text-muted">{audienceText(r, d)}</span>
-                          </div>
-                          <h2 dir="auto" className="mt-2 break-words font-bold ltr:text-left rtl:text-right">{t(r.titleEn, r.titleAr)}</h2>
-                          <p dir="auto" className="mt-1 line-clamp-3 whitespace-pre-line break-words text-sm text-muted ltr:text-left rtl:text-right">{t(r.bodyEn, r.bodyAr)}</p>
-                          <p className="mt-2 text-xs text-muted">
-                            {f.dateTime(r.startsAt)} → {r.endsAt ? f.dateTime(r.endsAt) : t("no end", "بلا نهاية")}
-                            {r.by ? ` · ${t("by", "بواسطة")} ${r.by}` : ""}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-end">
-                          <p className="whitespace-nowrap text-2xl font-bold tabular-nums">{f.num(r.reads)}<span className="text-sm font-medium text-muted"> / {r.reach == null ? "—" : f.num(r.reach)}</span></p>
-                          <p className="whitespace-nowrap text-xs text-muted">{t("stores read it", "متجر قرأه")}</p>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2 border-t border-fg/10 pt-3">
-                        <Btn kind="ghost" onClick={() => edit(r, d)}>{t("Edit", "تعديل")}</Btn>
-                        {r.status !== "ended" && <Btn kind="ghost" onClick={() => void end(r)}>{t("End now", "إنهاء الآن")}</Btn>}
-                        <Btn kind="danger" onClick={() => void remove(r)}>{t("Delete", "حذف")}</Btn>
+                  {d.rows.length === 0 && <p className={`${card} text-center text-sm text-muted`}>{t("No past announcements yet.", "لا توجد إعلانات سابقة بعد.")}</p>}
+                  {/* the past is kept as it ran: no editing here, only starting it again or copying it into a new one */}
+                  {d.rows.map((r) => (
+                    <article key={r.id} className={card}>
+                      <Summary r={r} shops={shops} past />
+                      <div className="mt-3 flex flex-wrap items-start gap-2 border-t border-fg/10 pt-3">
+                        <StartAgain
+                          note={t("It shows again from now, at the top of their bell. Stores that read or closed it already won't be told again.", "سيظهر مجددًا من الآن في أعلى الإشعارات. المتاجر التي قرأته أو أغلقته لن تُنبَّه مجددًا.")}
+                          start={(endsAt) => startAgain(r, endsAt)}
+                        />
+                        <Btn kind="ghost" onClick={() => copy(r, shops)}>{t("Copy into a new one", "نسخه إلى إعلان جديد")}</Btn>
+                        {/* the history stays unless someone deletes one on purpose, from here (it asks first) */}
+                        <Btn kind="ghost" className="ms-auto !text-red-600" onClick={() => void remove(r)}>{t("Delete", "حذف")}</Btn>
                       </div>
                     </article>
                   ))}
                 </div>
-              </div>
-            </>
-          );
-        }}
-      </Loaded>
+                <LoadMore s={past} />
+              </>
+            );
+          }}
+        </Loaded>
+      )}
+    </div>
+  );
+}
+
+/** One announcement's words, who it is for, when it runs (or ran) and how many stores read it */
+function Summary({ r, shops, past }: { r: Row; shops: ShopNames; past?: boolean }) {
+  const t = useT();
+  const f = useFmt();
+  const audienceOf = useAudienceText();
+  return (
+    <div className="flex flex-wrap items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={STATUS_TONE[r.status]}>
+            {r.status === "scheduled" ? t("Scheduled", "مجدول") : r.status === "live" ? t("Live", "ظاهر الآن") : r.endedEarly ? t("Ended early", "أُنهي مبكرًا") : t("Ran to its end", "انتهى في موعده")}
+          </Badge>
+          {r.banner && <Badge tone="primary">{t("Banner", "شريط")}</Badge>}
+          <span className="text-xs text-muted">{audienceOf(r.audience, shops)}</span>
+        </div>
+        <h2 dir="auto" className="mt-2 break-words font-bold ltr:text-left rtl:text-right">{t(r.titleEn, r.titleAr)}</h2>
+        <p dir="auto" className="mt-1 line-clamp-3 whitespace-pre-line break-words text-sm text-muted ltr:text-left rtl:text-right">{t(r.bodyEn, r.bodyAr)}</p>
+        <p className="mt-2 text-xs text-muted">
+          {past ? `${t("Ran", "ظهر")} ` : ""}
+          {f.dateTime(r.startsAt)} → {r.endsAt ? f.dateTime(r.endsAt) : t("no end", "بلا نهاية")}
+          {r.by ? ` · ${t("by", "بواسطة")} ${r.by}` : ""}
+          {past && r.endedBy ? ` · ${t("ended by", "أنهاه")} ${r.endedBy}` : ""}
+        </p>
+      </div>
+      <div className="shrink-0 text-end">
+        <p className="whitespace-nowrap text-2xl font-bold tabular-nums">{f.num(r.reads)}<span className="text-sm font-medium text-muted"> / {r.reach == null ? "—" : f.num(r.reach)}</span></p>
+        <p className="whitespace-nowrap text-xs text-muted">{t("stores read it", "متجر قرأه")}</p>
+      </div>
     </div>
   );
 }
