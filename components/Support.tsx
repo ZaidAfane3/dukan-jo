@@ -63,6 +63,9 @@ const picIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke=
 /* A new ticket is held for a moment before it goes to Dukkan, with an Undo (like an email's "undo send"): the form
    closes at once, a bar says it is being sent, and Undo opens the form again with everything still in it. */
 const HOLD_MS = 3000;
+/* a ticket that could not be sent after its page was left: kept for this browser session, and the form opens with it
+   the next time the Support page is opened */
+const DRAFT_KEY = "seen-ticket-draft";
 const holdWords = {
   en: { sending: "Sending your ticket…", undo: "Undo" },
   ar: { sending: "جارٍ إرسال تذكرتك…", undo: "تراجع" },
@@ -99,16 +102,37 @@ export function Support() {
   const [holding, setHolding] = useState(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deliverRef = useRef<() => Promise<void> | void>(() => {});
+  const alive = useRef(true);
   /* leaving the page while a ticket is held sends it at once (it is never dropped quietly) */
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
       if (!holdTimer.current) return;
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
       void deliverRef.current();
-    },
-    [],
-  );
+    };
+  }, []);
+  /* a ticket that could not be sent after the page was left (DRAFT_KEY): the form opens with it and says so */
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(DRAFT_KEY);
+      const d = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof d.subject !== "string" || typeof d.message !== "string") return;
+      setSubject(d.subject.slice(0, ACCOUNT_LIMITS.subject));
+      setMessage(d.message.slice(0, ACCOUNT_LIMITS.message));
+      if (typeof d.category === "number" && Number.isInteger(d.category) && d.category >= 0 && d.category < content[lang].support.categories.length) setCategory(d.category);
+      if (Array.isArray(d.pictures)) setPictures(d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES));
+      setFormError(content[lang].support.server.sendFailed);
+      setCreating(true);
+    } catch {
+      /* storage unavailable or a broken draft: nothing to bring back */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /* closing the tab in those few seconds asks first: a tab that is gone can't send it */
   useEffect(() => {
     if (!holding) return;
@@ -116,8 +140,19 @@ export function Support() {
       e.preventDefault();
       e.returnValue = "";
     };
+    /* the tab is going anyway (a phone often asks nothing): it is sent now, as well as the browser still allows */
+    const onHide = () => {
+      if (!holdTimer.current) return;
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+      void deliverRef.current();
+    };
     window.addEventListener("beforeunload", onLeave);
-    return () => window.removeEventListener("beforeunload", onLeave);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", onLeave);
+      window.removeEventListener("pagehide", onHide);
+    };
   }, [holding]);
   /* how soon Dukkan usually answers: set in Diwan (platform setting support_reply_hours) */
   const replyHours = usePublicSettings().support_reply_hours;
@@ -209,7 +244,9 @@ export function Support() {
 
   /** Undo, while the ticket is held: nothing was sent, and the form opens again as he left it */
   const undoSend = () => {
-    if (holdTimer.current) clearTimeout(holdTimer.current);
+    /* too late: the time is over and it is being sent */
+    if (!holdTimer.current) return;
+    clearTimeout(holdTimer.current);
     holdTimer.current = null;
     setHolding(false);
     setCreating(true);
@@ -224,6 +261,21 @@ export function Support() {
       const r = await createTicket({ subject: cleanLine(subject, ACCOUNT_LIMITS.subject), category, message: cleanLines(message, ACCOUNT_LIMITS.message), pictures, kind: "support" });
       setBusy(false);
       if (!r.ok) {
+        /* not sent, and he has left the page meanwhile: his words are kept, and the form opens with them next time */
+        if (!alive.current) {
+          const draft = { subject, category, message };
+          try {
+            sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, pictures }));
+          } catch {
+            try {
+              /* the pictures did not fit: the words alone */
+              sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+            } catch {
+              /* storage unavailable */
+            }
+          }
+          return;
+        }
         /* not sent: the form comes back with his words and says why */
         setCreating(true);
         return setFormError(failText(r));
@@ -238,7 +290,14 @@ export function Support() {
     } else {
       /* the next number after the highest one, so a number is never used twice */
       id = `#${tickets.reduce((m, t) => Math.max(m, Number(t.id.slice(1))), 1000) + 1}`;
-      setTickets((list) => [{ id, subject: cleanLine(subject, ACCOUNT_LIMITS.subject), category, message: cleanLines(message, ACCOUNT_LIMITS.message), status: 0, created: Date.now(), pictures }, ...list]);
+      const list = [{ id, subject: cleanLine(subject, ACCOUNT_LIMITS.subject), category, message: cleanLines(message, ACCOUNT_LIMITS.message), status: 0 as const, created: Date.now(), pictures }, ...tickets];
+      setTickets(list);
+      /* written here too: when the page was left during the hold, the effect that keeps the list no longer runs */
+      try {
+        sessionStorage.setItem(KEY, JSON.stringify(list));
+      } catch {
+        /* storage unavailable */
+      }
     }
     pushNotification("ticketCreated", { id });
     setSubject("");

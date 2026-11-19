@@ -50,9 +50,18 @@ export function logDeletion(orderId: number, reason: string): boolean {
   } catch {
     /* storage unavailable: the order is still deleted */
   }
-  if (onServer()) void sendDeletion(rec);
+  if (onServer()) {
+    const going = sendDeletion(rec);
+    sending.set(rec.orderId, going);
+    void going.finally(() => {
+      if (sending.get(rec.orderId) === going) sending.delete(rec.orderId);
+    });
+  }
   return true;
 }
+
+/* the deletions being sent right now, by order: an undo waits for its deletion to arrive before it takes it back */
+const sending = new Map<number, Promise<void>>();
 
 /* Sends one deletion to Dukkan. The server keeps one record per order, so sending it twice does no harm: when the
    server could not be reached, it is tried again a little later (twice at most). */
@@ -72,5 +81,14 @@ export function unlogDeletion(orderId: number): void {
   } catch {
     /* storage unavailable: the server's record still goes */
   }
-  if (onServer()) void merchantCall(`/api/order-deletions?orderId=${orderId}`, "DELETE");
+  /* after the deletion itself has arrived (else the server would take back nothing, then save the record) */
+  if (onServer()) void (sending.get(orderId) ?? Promise.resolve()).then(() => takeBack(orderId));
+}
+
+/* Asks the server to take a deletion's record back; tried again a little later (twice at most) when the server could
+   not be reached, unless the order was deleted again meanwhile (that record is a new one, and stays). */
+async function takeBack(orderId: number, tries = 0): Promise<void> {
+  if (tries > 0 && loadDeletions().some((d) => d.orderId === orderId)) return;
+  const r = await merchantCall(`/api/order-deletions?orderId=${orderId}`, "DELETE");
+  if ((r === null || r.status >= 500) && tries < 2) setTimeout(() => void takeBack(orderId, tries + 1), 5_000 * (tries + 1));
 }

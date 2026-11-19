@@ -361,7 +361,12 @@ export function takeStock(list: unknown[], items: { id?: unknown; qty: number; s
         if (n > 0) sold[k] = n;
         else delete sold[k];
       }
-      p = { ...p, soldOnline: sold };
+      if (Object.keys(sold).length) p = { ...p, soldOnline: sold };
+      else {
+        /* nothing sold online any more: the product is as it was before its first online order */
+        const { soldOnline: _none, ...rest } = p as Record<string, unknown>;
+        p = rest as typeof p;
+      }
     }
     if (sizes.length) {
       const left = sizes.map((z) => ({ ...z, quantity: Math.max(0, z.quantity - mine.filter((x) => x.size === z.name).reduce((n, x) => n + x.qty, 0)) }));

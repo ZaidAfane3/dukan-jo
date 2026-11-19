@@ -484,10 +484,15 @@ export function Orders() {
       fetch(`/api/orders/${serverId}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(from ? { status: st, from } : { status: st }) }).then((r) => {
         if (!r.ok) throw new Error(String(r.status));
       });
+    /* cancelling or refunding gives the order's stock back on the server, and leaving those takes it again: this
+       browser's copy of the products is fetched again then, so the Products page shows the stock the server has */
+    const off = (st: StatusKey) => st === "cancelled" || st === "refunded";
+    const stockMoved = off(was) !== off(s);
     put(s);
     setStatusErr(false);
     send(s)
-      .then(() =>
+      .then(() => {
+        if (stockMoved) void pullOnlineKeys();
         /* a status change sends the customer nothing, so it can be undone: the old status goes back the same way */
         offerUndo({
           scope: "orders",
@@ -500,10 +505,11 @@ export function Orders() {
               return false;
             }
             put(was);
+            if (stockMoved) void pullOnlineKeys();
             return true;
           },
-        }),
-      )
+        });
+      })
       .catch(() => {
         put(was);
         setStatusErr(true);
