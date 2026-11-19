@@ -4,6 +4,7 @@ import { db } from "@/server/db";
 import { notify } from "@/server/notify";
 import { body, notFound, reasonOf, shopId, shopNameOf } from "@/server/shopActions";
 import { audit, staffRoute } from "@/server/staff";
+import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
@@ -12,16 +13,20 @@ export const dynamic = "force-dynamic";
    (after the right password) and in any tab they had open. So their own sessions are kept, though they count as
    signed out (server/auth.ts sessionRow), only to tell that tab why; ones still waiting for a 2-step code are
    deleted at once. Reactivating deletes every session, so nothing from before comes back to life and
-   the merchant signs in again. The merchant gets a message in their bell either way. */
+   the merchant signs in again. The merchant gets a message in their bell either way. Both need the staff member's own
+   password with them ({ myPassword }, server/staffConfirm.ts passwordAgain). */
 export const POST = staffRoute("shops.status", async (req, staff, ctx) => {
   const id = await shopId(ctx);
   if (!id) return notFound();
   const b = await body(req);
   const action = b?.action;
   const pool = await db();
+  if (action !== "suspend" && action !== "reactivate") return answer({ result: "invalid" }, 400);
+  if (action === "suspend" && !reasonOf(b?.reason)) return answer({ result: "reason-needed" }, 400);
+  const refused = await passwordAgain(req, staff, b?.myPassword, `shop.${action}`);
+  if (refused) return refused;
   if (action === "suspend") {
-    const reason = reasonOf(b?.reason);
-    if (!reason) return answer({ result: "reason-needed" }, 400);
+    const reason = reasonOf(b?.reason)!;
     const { rowCount } = await pool.query(
       `UPDATE shops SET status = 'suspended', suspend_reason = $2, suspended_at = now(), updated_at = now() WHERE account_id = $1 AND status <> 'suspended'`,
       /* staff-written text about the merchant: stored encrypted, like the other reasons (server/encryptData.ts) */

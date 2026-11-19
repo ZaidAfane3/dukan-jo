@@ -4,6 +4,7 @@ import { answer, hashPassword, readJson } from "@/server/auth";
 import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
@@ -24,14 +25,17 @@ export const GET = staffRoute("staff", async (_req, me) => {
 });
 
 /** Adds a staff member with a temporary password the owner gives them; they choose their own at the first sign-in,
-    and set up their 2-step code then too. Every staff member is an owner (Diwan has no roles).
-    Answers: "ok", "taken", "invalid", "weak". */
+    and set up their 2-step code then too. Every staff member is an owner (Diwan has no roles), so adding one needs the
+    acting member's own password with it ({ myPassword }, server/staffConfirm.ts passwordAgain).
+    Answers: "ok", "taken", "invalid", "weak", "password" (403), "slow-down" (429). */
 export const POST = staffRoute("staff", async (req: NextRequest, me) => {
   const body = await readJson(req, 2_000);
   const who = cleanStaff({ name: body?.name, email: body?.email });
   if (!who) return answer({ result: "invalid" }, 400);
   const problem = staffPasswordProblem(body?.password);
   if (problem) return answer({ result: "weak", problem }, 400);
+  const refused = await passwordAgain(req, me, body?.myPassword, "staff.add");
+  if (refused) return refused;
   const hash = await hashPassword(body!.password as string);
   let id: string;
   try {

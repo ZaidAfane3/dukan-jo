@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Select, StatusBadge, statusOptions, statusText, storeLink, storeLinkHref } from "@/components/diwan/shopBits";
-import { Btn, DataTable, downloadCsv, field, Loaded, PageHead, tdDense as td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { Btn, DataTable, downloadCsv, field, Loaded, PageHead, send, tdDense as td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { tell } from "@/components/diwan/dialogs";
+import { askOwnPassword, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { ShopsSkeleton } from "@/components/diwan/skeletons";
 import { FilterBar } from "@/components/diwan/Filters";
 import { oneOf, typedText, useListScroll, useListState } from "@/components/diwan/useListState";
@@ -66,12 +68,22 @@ export default function ShopsPage() {
   useListScroll(s);
   const setFilter = (k: keyof Filters) => (v: string) => setList({ [k]: v });
 
+  /* the file holds every merchant's contacts: the staff member's own password first (server/staffConfirm.ts passwordAgain) */
   const exportCsv = async () => {
+    const myPassword = await askOwnPassword(t, {
+      title: t("Export the store list", "تصدير قائمة المتاجر"),
+      body: t("The file holds the merchants' names, emails and mobiles. Type your own password to confirm.", "يحوي الملف أسماء التجار وبريدهم وجوالاتهم. اكتب كلمة مرورك للتأكيد."),
+      confirm: t("Export", "تصدير"),
+    });
+    if (myPassword === null) return;
     setExporting(true);
-    const r = await fetch(`/api/diwan/shops/export?${params}`, { credentials: "same-origin", cache: "no-store" });
-    const j = await r.json().catch(() => null);
+    const r = await send(`/api/diwan/shops/export?${params}`, "POST", { myPassword });
+    const j = r.data;
     setExporting(false);
-    if (!r.ok || !j?.rows) return;
+    if (!r.ok || !j?.rows) {
+      if (r.status !== 401) await tell({ title: t("Not exported", "لم يتم التصدير"), body: passwordAgainWords(t, j) ?? t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا.") });
+      return;
+    }
     downloadCsv(`dukkan-stores-${new Date().toISOString().slice(0, 10)}.csv`, [
       ["id", "store", "link", "owner", "email", "phone", "status", "setup", "published", "dukkan ship", "products", "orders", "total sales JOD", "last seen", "signed up"],
       ...(j.rows as Row[]).map((r) => [

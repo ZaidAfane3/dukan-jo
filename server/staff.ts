@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { answer, guarded, sameOrigin } from "./auth";
+import { answer, guarded, sameOrigin, secureCookies } from "./auth";
 import { db } from "./db";
 
 /* Diwan's staff: their sign-in, roles, 2-step codes and the activity log. Staff accounts are separate from merchant
@@ -16,7 +16,6 @@ const HOURS = 12;
 const IDLE_MIN = 60;
 const tokenHash = (t: string) => createHash("sha256").update(t).digest("hex");
 export const ipOf = (req: NextRequest) => req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
-const isHttps = (req: NextRequest) => (req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(":", "")) === "https";
 
 /* ---------------- sessions ---------------- */
 
@@ -37,14 +36,14 @@ export async function startStaffSession(res: NextResponse, req: NextRequest, sta
   );
   if (!r.rowCount) return false;
   if (Math.random() < 0.1) pool.query(`DELETE FROM staff_sessions WHERE expires_at < now()`).catch(() => {});
-  res.cookies.set(STAFF_COOKIE, token, { httpOnly: true, sameSite: "strict", secure: isHttps(req), path: "/", maxAge: HOURS * 3600 });
+  res.cookies.set(STAFF_COOKIE, token, { httpOnly: true, sameSite: "strict", secure: secureCookies(req), path: "/", maxAge: HOURS * 3600 });
   return true;
 }
 
 export async function endStaffSession(res: NextResponse, req: NextRequest): Promise<void> {
   const token = req.cookies.get(STAFF_COOKIE)?.value;
   if (token) await (await db()).query(`DELETE FROM staff_sessions WHERE token_hash = $1`, [tokenHash(token)]);
-  res.cookies.set(STAFF_COOKIE, "", { httpOnly: true, sameSite: "strict", secure: isHttps(req), path: "/", maxAge: 0 });
+  res.cookies.set(STAFF_COOKIE, "", { httpOnly: true, sameSite: "strict", secure: secureCookies(req), path: "/", maxAge: 0 });
 }
 
 /** Marks the current session as past the 2-step code */

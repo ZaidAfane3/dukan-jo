@@ -16,6 +16,7 @@ const W: Record<string, [en: string, ar: string]> = {
   "staff.password_changed": ["Changed their password", "غيّر كلمة المرور"],
   "staff.setup": ["Created the first owner", "أنشأ المالك الأول"],
   "staff.setup_wrong_key": ["Wrong setup key", "مفتاح إعداد خاطئ"],
+  "staff.password_again_failed": ["Typed a wrong password to confirm a change", "كتب كلمة مرور خاطئة لتأكيد تغيير"],
   /* the team */
   "staff.add": ["Added a team member", "أضاف عضوًا للفريق"],
   "staff.role": ["Changed a member's role", "غيّر دور عضو"],

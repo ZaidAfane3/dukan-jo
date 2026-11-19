@@ -9,6 +9,7 @@ import { MARK_METHODS, MethodBadge, methodText, Select, STATUS_LOOK, StatusBadge
 import { PRIORITY, STATUS as TICKET_STATUS, KIND, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { ShopSkeleton } from "@/components/diwan/skeletons";
+import { OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { REASON_WORDS, type ReportReason } from "@/components/storeReports";
 import type { Bi } from "@/components/storefront/config";
 import { findTheme } from "@/components/themes";
@@ -635,6 +636,8 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
   const [note, setNote] = useState("");
   const [pay, setPay] = useState({ amount: "", method: "cliq", reference: "", paidOn: todayJo() });
   const [busy, setBusy] = useState(false);
+  /* every action here needs the staff member's own password with it (server/staffConfirm.ts passwordAgain) */
+  const [myPassword, setMyPassword] = useState("");
   /* a second press before the first answer is ignored at once (the busy state can arrive a frame late) */
   const sending = useRef(false);
   /* this form's key for a payment: the server saves one payment per key, however many times it arrives */
@@ -655,10 +658,11 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
     sending.current = true;
     setBusy(true);
     setError("");
-    const r = await send(url, "POST", body);
+    const r = await send(url, "POST", { ...(body as object), myPassword });
     sending.current = false;
     setBusy(false);
-    if (!r.ok) return setError(errors[r.data?.result] ?? t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
+    if (!r.ok) return setError(passwordAgainWords(t, r.data) ?? errors[r.data?.result] ?? t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
+    setMyPassword("");
     /* the next payment marked from this form is a new one */
     setPayKey(newKey());
     done(shop);
@@ -760,13 +764,16 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
     <section className={`${card} mb-6 space-y-4 ring-2 ${danger ? "ring-red-500/40" : "ring-primary/30"}`}>
       <h2 className="text-lg font-bold">{title}</h2>
       {body}
+      <div className="max-w-sm">
+        <OwnPasswordField t={t} value={myPassword} onChange={setMyPassword} />
+      </div>
       {error && (
         <p role="alert" className="text-sm text-red-600">
           {error}
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Btn kind={danger ? "danger" : "primary"} disabled={busy || !ok} onClick={submit}>
+        <Btn kind={danger ? "danger" : "primary"} disabled={busy || !ok || !myPassword} onClick={submit}>
           {busy ? t("Working…", "جارٍ التنفيذ…") : t("Confirm", "تأكيد")}
         </Btn>
         <Btn kind="ghost" onClick={close}>

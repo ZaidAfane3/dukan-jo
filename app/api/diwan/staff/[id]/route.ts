@@ -4,6 +4,7 @@ import { staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, hashPassword, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,9 @@ export const dynamic = "force-dynamic";
      reset2step                                 forget their 2-step code: they set up a new one at the next sign-in
      password  { password }                     a new temporary password; they choose their own at the next sign-in
    Diwan always keeps one staff member who can sign in, and nobody can take away their own access here.
-   Answers: "ok", "invalid", "self", "last-owner", "missing", "weak". */
+   Taking access away and both resets need the acting member's own password with them ({ myPassword }), so nobody can
+   give himself another member's sign-in without it (server/staffConfirm.ts passwordAgain).
+   Answers: "ok", "invalid", "self", "last-owner", "missing", "weak", "password" (403), "slow-down" (429). */
 export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }) => {
   const id = /^\d{1,18}$/.test(params.id ?? "") ? params.id : null;
   const body = await readJson(req, 2_000);
@@ -25,8 +28,12 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
   if (action === "password") {
     const problem = staffPasswordProblem(body?.password);
     if (problem) return answer({ result: "weak", problem }, 400);
-    hash = await hashPassword(body!.password as string);
   }
+  if (action === "password" || action === "reset2step" || (action === "active" && body?.active === false)) {
+    const refused = await passwordAgain(req, me, body?.myPassword, `staff.${action}`);
+    if (refused) return refused;
+  }
+  if (action === "password") hash = await hashPassword(body!.password as string);
 
   const pool = await db();
   const c = await pool.connect();

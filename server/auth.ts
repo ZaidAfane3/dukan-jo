@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { SITE_HOST } from "@/components/siteAddress";
 import { db } from "./db";
 
 /* Passwords, sessions and the checks every account request goes through (docs/security-checklist.md, section 5). */
@@ -46,8 +47,11 @@ const COOKIE = "dukkan-session";
 const DAYS = 60;
 const tokenHash = (t: string) => createHash("sha256").update(t).digest("hex");
 
-const isHttps = (req: NextRequest) => (req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(":", "")) === "https";
-const cookieOptions = (req: NextRequest, maxAge: number) => ({ httpOnly: true, sameSite: "lax" as const, secure: isHttps(req), path: "/", maxAge });
+/** Whether the session cookies are sent only over https (Secure). Always on the live server (the production build): it
+    is reached by https only (http is sent on to https), so a request header, which a client could set, never decides
+    it. Locally (next dev) only when the page itself is on https, so signing in over http://localhost still works. */
+export const secureCookies = (req: NextRequest) => process.env.NODE_ENV === "production" || req.nextUrl.protocol === "https:";
+const cookieOptions = (req: NextRequest, maxAge: number) => ({ httpOnly: true, sameSite: "lax" as const, secure: secureCookies(req), path: "/", maxAge });
 
 /* opts.minutes: a shorter session (waiting for a 2-step code); opts.pendingTotp: the password was right, the code is
    still to come */
@@ -213,23 +217,36 @@ export function otherAccount(req: NextRequest, a: { id: string; email: string })
   return named !== a.email.trim().toLowerCase() && named !== a.id;
 }
 
-/** Requests that change something must come from Dukkan's own pages (against cross-site requests, CSRF) */
+/* a copy running on this computer */
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+
+/** Requests that change something must come from Dukkan's own pages (against cross-site requests, CSRF). The page's
+    address (Origin, set by the browser) is compared with the site's own configured address (components/siteAddress.ts
+    SITE_HOST, on https), never with the Host or X-Forwarded-Host headers, which a request can carry made up.
+    Also accepted: a copy on this computer (a localhost page talking to a server reached at localhost, as in local
+    development and a local production build), and, on the dev server only, any page on the same address as the server
+    (a phone on the same network trying the dev server). */
 export function sameOrigin(req: NextRequest): boolean {
   const origin = req.headers.get("origin");
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-  if (!origin || !host) return false;
+  if (!origin) return false;
+  let page: URL;
   try {
-    return new URL(origin).host === host;
+    page = new URL(origin);
   } catch {
     return false;
   }
+  if (page.protocol === "https:" && page.host === SITE_HOST) return true;
+  const host = req.headers.get("host");
+  if (LOCAL_HOST.test(page.host) && host && LOCAL_HOST.test(host)) return page.host === host;
+  return process.env.NODE_ENV === "development" && !!host && page.host === host;
 }
 
 /* A simple limit per visitor: at most `max` tries in `minutes`. Kept in memory, which is enough for one server. */
 const tries = new Map<string, { n: number; until: number }>();
+/** The visitor's address, as the limits count it */
+export const visitorIp = (req: NextRequest) => req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
 export function tooMany(req: NextRequest, what: string, max: number, minutes: number): boolean {
-  const ip = req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
-  return tooManyFor(`${what}:${ip}`, max, minutes);
+  return tooManyFor(`${what}:${visitorIp(req)}`, max, minutes);
 }
 
 /** The same limit for anything else than a visitor, such as one store for all its visitors together: at most `max`
@@ -263,8 +280,49 @@ export function noteFailure(key: string, minutes: number): void {
   if (!f || f.until < now) fails.set(key, { n: 1, until: now + minutes * 60_000 });
   else f.n++;
 }
-/** Forgets the wrong tries of this key (the right password was given) */
-export const clearFailures = (key: string): void => void fails.delete(key);
+/** Forgets the wrong tries of this key (the right password was given), and those counted for it per address
+    (signInTries) */
+export function clearFailures(key: string): void {
+  fails.delete(key);
+  fails.forEach((_v, k) => k.startsWith(`${key}|`) && fails.delete(k));
+}
+
+/* Wrong passwords (or 2-step codes) at a sign-in. Someone who only knows a merchant's or a staff member's email or mobile
+   must not be able to keep the real owner out by typing wrong passwords. So the wrong tries are counted twice:
+   - per account AND address: after `max` of them in `minutes`, that address waits ("slow-down") for this account. The
+     owner, on his own address, is not held back by tries from somewhere else.
+   - per account, from every address together: never a refusal, only a wait before the password is checked that grows
+     with the wrong tries (slowDown), so guessing from many addresses gets slow while the right password still always gets
+     in. The wait comes before the check, for a right and a wrong password alike, so it gives nothing away.
+   A try is counted (failed) right after the look (blocked) and before the password is checked, so tries sent all at
+   once can't all pass the look while the first ones are still being checked, and the right password forgets them again (passed). A new password set by a reset
+   forgets them from every address (clearFailures). `key` names the account, or
+   for an email nobody has what was typed, so an unknown account waits the same way as a real one. */
+export function signInTries(req: NextRequest, key: string, max: number, minutes: number) {
+  const here = `${key}|${visitorIp(req)}`;
+  return {
+    /** True while this address has had too many wrong tries for this account */
+    blocked: () => failedTooOften(here, max),
+    /** The growing wait, after `failed`: none for the first five tries on the account since its last right one, then
+        0.5 s, doubling, at most 8 s */
+    slowDown: async () => {
+      const f = fails.get(key);
+      const n = f && f.until > Date.now() ? f.n : 0;
+      if (n > 5) await new Promise((r) => setTimeout(r, Math.min(500 * 2 ** (n - 6), 8_000)));
+    },
+    /** Counts one try as wrong, for the account and for this address */
+    failed: () => {
+      noteFailure(key, minutes);
+      noteFailure(here, minutes);
+    },
+    /** The right password (or code): the account's wrong tries are forgotten, and this address's. Another address
+        that was guessing stays held back. */
+    passed: () => {
+      fails.delete(key);
+      fails.delete(here);
+    },
+  };
+}
 
 /** Reads a JSON object body of at most `max` bytes, or null. The body is read piece by piece and dropped as soon as it
     is longer than `max`, so a huge body (sent without a Content-Length, or with a false one) is never held in memory. */
