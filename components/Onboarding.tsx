@@ -1505,7 +1505,9 @@ function ShippingStep({ store, onSave }: StepProps) {
     }
     keepProofs();
     syncProofPartner(cleanLine(name, ACCOUNT_LIMITS.shipName), kind);
-    onSave({ pickup, pays, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: "", address: "", fee: Number(amount) || 0, cities: savedCities(cities) } });
+    /* the Dukkan Ship pickup city and address saved before stay with it (only used while Dukkan Ship is chosen), so
+       switching back to Dukkan Ship finds them filled */
+    onSave({ pickup, pays, shipping: { mode: "own", kind, name: cleanLine(name, ACCOUNT_LIMITS.shipName), phone: savedMobile(phone), proofs, city: saved?.city ?? "", address: saved?.address ?? "", fee: Number(amount) || 0, cities: savedCities(cities) } });
   };
 
   return (

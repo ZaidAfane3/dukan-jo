@@ -165,7 +165,10 @@ export function Delivery() {
       if (fee.trim() === "") next.fee = w.feeEmpty;
       else if (amount === "") next.fee = w.feeBad.replace("{max}", String(ACCOUNT_LIMITS.shipFee));
       if (!savedCities(cities).length) next.cities = cityWords[lang].none;
-      shipping = { mode: "own", kind, name: cleanLine(name, 60), phone: savedMobile(phone), city: "", address: "", fee: Number(amount) || 0, cities: savedCities(cities) };
+      /* the Dukkan Ship pickup city and address saved before stay with it (only used while Dukkan Ship is chosen), so
+         switching back to Dukkan Ship finds them filled */
+      const was = (loadSetup() ?? setup)?.shipping;
+      shipping = { mode: "own", kind, name: cleanLine(name, 60), phone: savedMobile(phone), city: was?.city ?? "", address: was?.address ?? "", fee: Number(amount) || 0, cities: savedCities(cities) };
     }
     setErrors(next);
     const first = (["city", "address", "name", "phone", "fee", "cities"] as const).find((k) => next[k]);
