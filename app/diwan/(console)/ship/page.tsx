@@ -6,10 +6,14 @@ import { LIMITS, type Bi, type DukkanShip } from "@/components/diwan/platformSet
 import { Dialog } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, DataTable, field, Loaded, LoadMore, PageHead, send, td, useApi, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { ShipSkeleton } from "@/components/diwan/skeletons";
+import { useUrlParam } from "@/components/diwan/shopBits";
+import { ShipOrders } from "@/components/diwan/ShipOrders";
 import { typedText, useListScroll, useListState } from "@/components/diwan/useListState";
 
-/* Dukkan Ship, Dukkan's own delivery (owners). Its one price for every order and every city comes first: the checkout
-   charges it on every new order of a store that delivers with Dukkan Ship (the server prices each order again from this
+/* Dukkan Ship, Dukkan's own delivery. Two tabs, kept in the address (?tab=settings) so a reload or a shared link opens
+   the same one: Orders (the first), the customer orders of stores that deliver with it, for staff to pick up, deliver
+   and mark (components/diwan/ShipOrders.tsx); and Settings. In Settings its one price for every order and every city
+   comes first: the checkout charges it on every new order of a store that delivers with Dukkan Ship (the server prices each order again from this
    setting, server/storeOrders.ts; an order already placed keeps the delivery fee it was placed with). Then the cities it
    picks up from and delivers to, what merchants read about it, and the stores that use it. Everything is the one
    platform setting "dukkan_ship", saved with PUT /api/diwan/settings (checked by the server, written to the activity log
@@ -29,18 +33,39 @@ type Data = {
 export default function ShipPage() {
   const t = useT();
   const f = useFmt();
-  const s = useApi<Data>("/api/diwan/ship");
+  const [tabParam, setTab] = useUrlParam("tab");
+  const tab = tabParam === "settings" ? "settings" : "orders";
+  /* the settings load only when their tab is open */
+  const s = useApi<Data>(tab === "settings" ? "/api/diwan/ship" : null);
+  const tabs = [
+    { key: "orders", label: t("Orders", "الطلبات") },
+    { key: "settings", label: t("Settings", "الإعدادات") },
+  ] as const;
   return (
     <div>
       <PageHead
         title={t("Dukkan Ship", "شحن دكّان")}
         sub={
-          s.data
+          tab === "settings" && s.data
             ? `${t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكّان.")} ${s.data.stores === 0 ? t("No store delivers with it yet.", "لا يوصّل بها أي متجر بعد.") : f.count(s.data.stores, ["store delivers with it.", "stores deliver with it."], { one: "يوصّل بها متجر واحد.", two: "يوصّل بها متجران.", few: "متاجر توصّل بها.", many: "متجرًا يوصّل بها." })}`
             : t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكّان.")
         }
       />
-      <Loaded s={s} skeleton={<ShipSkeleton />}>
+      <div role="tablist" aria-label={t("Dukkan Ship", "شحن دكّان")} className="mb-6 flex flex-wrap gap-2">
+        {tabs.map((x) => (
+          <button
+            key={x.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === x.key}
+            onClick={() => setTab(x.key === "orders" ? "" : x.key)}
+            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === x.key ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
+          >
+            {x.label}
+          </button>
+        ))}
+      </div>
+      {tab === "orders" ? <ShipOrders /> : <Loaded s={s} skeleton={<ShipSkeleton />}>
         {(d) => (
           <div className="space-y-6">
             <PriceCard d={d} onSaved={s.reload} />
@@ -55,7 +80,7 @@ export default function ShipPage() {
             )}
           </div>
         )}
-      </Loaded>
+      </Loaded>}
     </div>
   );
 }
@@ -448,7 +473,7 @@ function LineArea({ id, label, value, onChange }: { id: string; label: string; v
 
 /* ---------------- the stores using it ---------------- */
 
-type StoreRow = { id: string; name: string; slug: string | null; owner: string | null; city: string; status: "open" | "paused" | "suspended"; published: boolean; order_count: number; served?: boolean };
+type StoreRow = { id: string; name: string; slug: string | null; owner: string | null; city: string; status: "open" | "paused" | "suspended"; published: boolean; order_count: number; ship_orders?: number; served?: boolean };
 type StoresData = { rows: StoreRow[]; total: number; page: number; pages: number };
 
 /* the stores' search, kept in the address (?q=) so Back from a store brings the list back as it was */
@@ -486,7 +511,7 @@ function Stores({ total }: { total: number }) {
         <p role="alert" className={`${card} text-sm text-red-600 dark:text-red-400`}>{t("The stores couldn't be loaded.", "تعذّر تحميل المتاجر.")} <button type="button" className="font-semibold underline" onClick={s.reload}>{t("Try again", "حاول مجددًا")}</button></p>
       ) : (
         <DataTable
-          head={[t("Store", "المتجر"), t("Link", "الرابط"), t("Pickup city", "مدينة الاستلام"), t("Status", "الحالة"), t("Orders", "الطلبات")]}
+          head={[t("Store", "المتجر"), t("Link", "الرابط"), t("Pickup city", "مدينة الاستلام"), t("Status", "الحالة"), t("Orders", "الطلبات"), t("Dukkan Ship orders", "طلبات شحن دكّان")]}
           empty={s.data && !s.data.rows.length ? (q ? t("No store matches this search.", "لا يوجد متجر يطابق هذا البحث.") : t("No store delivers with Dukkan Ship yet.", "لا يوجد متجر يوصّل عبر شحن دكّان بعد.")) : false}
         >
           {/* while the first rows load: pulsing rows in the table's own columns, not bare headers (the empty message only
@@ -494,7 +519,7 @@ function Stores({ total }: { total: number }) {
           {!s.data &&
             [0, 1, 2, 3].map((i) => (
               <tr key={`sk-${i}`} aria-hidden className="animate-pulse motion-reduce:animate-none">
-                {["w-32", "w-20", "w-16", "w-14", "w-8"].map((w, j) => (
+                {["w-32", "w-20", "w-16", "w-14", "w-8", "w-8"].map((w, j) => (
                   <td key={j} className={td}>
                     <div className={`h-3 rounded-full bg-fg/10 ${w}`} />
                     {j === 0 && <div className="mt-2 h-2.5 w-20 rounded-full bg-fg/[0.06]" />}
@@ -518,6 +543,8 @@ function Stores({ total }: { total: number }) {
                 </td>
                 <td className={td}>{statusWord(r)}</td>
                 <td className={`${td} tabular-nums`}>{f.num(r.order_count)}</td>
+                {/* the ones Dukkan Ship delivers (or was asked to); 0 until the server sends it */}
+                <td className={`${td} tabular-nums`}>{f.num(r.ship_orders ?? 0)}</td>
               </tr>
             );
           })}

@@ -382,6 +382,9 @@ export type Content = {
       supportViewed: string;
       /* a customer placed an order on the public store (a test order: nothing was paid) */
       orderPlaced: string;
+      /* Dukkan Ship delivered one of his orders, or could not ({note}: why, with its separator) */
+      shipDelivered: string;
+      shipFailed: string;
       statusWords: Record<string, string>;
       sep: string;
       announcement: string;
@@ -968,6 +971,8 @@ export const content: Record<Lang, Content> = {
         methods: { bank: "bank transfer", cliq: "CliQ", cash: "cash", card: "card" },
         supportViewed: "Dukkan support opened your store to help you",
         orderPlaced: "New test order #{number} from {name}: {total} JOD, not paid",
+        shipDelivered: "Dukkan Ship delivered order #{number}",
+        shipFailed: "Dukkan Ship couldn't deliver order #{number}{note}",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
@@ -1549,6 +1554,8 @@ export const content: Record<Lang, Content> = {
         methods: { bank: "تحويل بنكي", cliq: "كليك", cash: "نقدًا", card: "بطاقة" },
         supportViewed: "فتح فريق دعم دكّان متجرك لمساعدتك",
         orderPlaced: "طلب تجريبي جديد رقم {number} من {name}: {total} د.أ، غير مدفوع",
+        shipDelivered: "سلّم شحن دكّان الطلب رقم {number}",
+        shipFailed: "تعذّر على شحن دكّان تسليم الطلب رقم {number}{note}",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
         announcement: "من دكّان",

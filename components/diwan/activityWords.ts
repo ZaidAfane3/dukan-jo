@@ -54,6 +54,7 @@ const W: Record<string, [en: string, ar: string]> = {
   "popup.edit": ["Edited a pop-up", "عدّل نافذة منبثقة"],
   "popup.status": ["Changed a pop-up's status", "غيّر حالة نافذة منبثقة"],
   "popup.delete": ["Deleted a pop-up", "حذف نافذة منبثقة"],
+  "ship.order.mark": ["Marked a Dukkan Ship order", "علّم طلب شحن دكّان"],
   "page.create": ["Created a page", "أنشأ صفحة"],
   "page.edit": ["Edited a page", "عدّل صفحة"],
   "page.status": ["Changed a page's status", "غيّر حالة صفحة"],

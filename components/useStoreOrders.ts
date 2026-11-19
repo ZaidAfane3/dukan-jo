@@ -13,7 +13,16 @@ import type { CountedOrder } from "./storeNumbers";
 
 /** A store order as the Orders page and the numbers read it: serverId is its id on the server, payment "test" means it
     was placed while payment is not open (nothing was charged). */
-export type StoreOrderRow = CountedOrder & { serverId?: string };
+export type StoreOrderRow = CountedOrder & { serverId?: string; ship?: Ship };
+
+/** Dukkan Ship's delivery of a store order, when Dukkan Ship delivers it (staff mark it in Diwan) */
+export type Ship = { state: "waiting" | "delivered" | "failed"; note?: string; at?: number };
+function shipOf(v: unknown): { ship?: Ship } {
+  if (!v || typeof v !== "object") return {};
+  const s = v as Record<string, unknown>;
+  if (s.state !== "waiting" && s.state !== "delivered" && s.state !== "failed") return {};
+  return { ship: { state: s.state, ...(typeof s.note === "string" && s.note ? { note: s.note.slice(0, 300) } : {}), ...(typeof s.at === "number" ? { at: s.at } : {}) } };
+}
 
 /** The server's answer, checked like the orders read from storage (cleanOrder). Every one is a store order (channel 1). */
 export function serverRows(list: unknown): StoreOrderRow[] {
@@ -23,7 +32,7 @@ export function serverRows(list: unknown): StoreOrderRow[] {
     if (!x || typeof x !== "object") continue;
     const r = x as Record<string, unknown>;
     const o = cleanOrder(r);
-    if (o && typeof r.serverId === "string" && /^\d+$/.test(r.serverId)) out.push({ ...o, channel: 1, serverId: r.serverId, payment: r.payment === "unpaid" ? "unpaid" : "test" });
+    if (o && typeof r.serverId === "string" && /^\d+$/.test(r.serverId)) out.push({ ...o, channel: 1, serverId: r.serverId, payment: r.payment === "unpaid" ? "unpaid" : "test", ...shipOf(r.ship) });
   }
   return out;
 }

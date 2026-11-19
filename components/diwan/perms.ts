@@ -8,7 +8,9 @@ export type Role = "owner";
 export type Perm =
   | "shops.read" | "shops.status" | "shops.export"
   | "billing" | "tickets" | "documents" | "complaints"
-  | "announce" | "settings" | "marketplace" | "staff" | "audit.read" | "delete";
+  | "announce" | "settings" | "marketplace" | "staff" | "audit.read" | "delete"
+  /* the orders Dukkan Ship delivers: the customer's name, phone and address, and marking them delivered or not */
+  | "ship.orders";
 
 export const can = (_s: unknown, _p: Perm) => true;
 

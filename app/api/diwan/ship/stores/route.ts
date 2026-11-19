@@ -10,7 +10,7 @@ const PAGE = 50;
 
 /* The stores that deliver with Dukkan Ship (shops.ship_mode = 'seen'), newest first, 50 at a time, with the shop list's
    own search (store name or link; an owner's email or mobile only when typed in full). Each row: the store's name, its
-   owner's name, link, pickup city, status and how many orders it has. Never an email, a phone or an address. The shops
+   owner's name, link, pickup city, status, how many orders it has and how many of them Dukkan Ship delivers (ship_orders). Never an email, a phone or an address. The shops
    row has no date for when Dukkan Ship was chosen, so none is given. `served`: false when its pickup city is no longer on
    Dukkan Ship's list (taken off in Diwan since it was saved), so the page marks it instead of listing it as usual. */
 export const GET = staffRoute("shops.read", async (req) => {
@@ -21,7 +21,8 @@ export const GET = staffRoute("shops.read", async (req) => {
   const pool = await db();
   const [rows, count, setting] = await Promise.all([
     pool.query(
-      `SELECT s.account_id AS id, s.name, s.slug, a.name AS owner, s.pickup_city AS city, (${STATUS_SQL}) AS status, s.published, ${ORDERS_SQL} AS order_count
+      `SELECT s.account_id AS id, s.name, s.slug, a.name AS owner, s.pickup_city AS city, (${STATUS_SQL}) AS status, s.published, ${ORDERS_SQL} AS order_count,
+              (SELECT count(*)::int FROM store_orders o WHERE o.account_id = s.account_id AND o.ship_by = 'dukkan') AS ship_orders
        ${sql} ORDER BY s.created_at DESC, s.account_id DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`,
       params,
     ),
