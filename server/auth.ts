@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import type { PoolClient } from "pg";
 import { db } from "./db";
 
 /* Passwords, sessions and the checks every account request goes through (docs/security-checklist.md, section 5). */
@@ -58,23 +59,44 @@ export async function startSession(
   opts: { minutes?: number; pendingTotp?: boolean } = {},
 ): Promise<void> {
   const token = randomBytes(32).toString("base64url");
-  const pool = await db();
   const minutes = opts.minutes ?? DAYS * 1440;
-  await pool.query(
-    `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(mins => $3), $4)`,
-    [tokenHash(token), accountId, minutes, !!opts.pendingTotp],
-  );
-  /* a full sign-in is the account's only session from now on (a session still waiting for its code replaces nothing) */
-  if (!opts.pendingTotp) await onlyThisSession(accountId, tokenHash(token));
+  await underAccountLock(accountId, async (c) => {
+    await c.query(
+      `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(mins => $3), $4)`,
+      [tokenHash(token), accountId, minutes, !!opts.pendingTotp],
+    );
+    /* a full sign-in is the account's only session from now on (a session still waiting for its code replaces nothing) */
+    if (!opts.pendingTotp) await onlyThisSession(c, accountId, tokenHash(token));
+  });
   /* now and then, clear out the sessions that have run out, and those replaced more than a day ago */
-  if (Math.random() < 0.05) pool.query(`DELETE FROM sessions WHERE expires_at < now() OR replaced_at < now() - interval '1 day'`).catch(() => {});
+  if (Math.random() < 0.05) (await db()).query(`DELETE FROM sessions WHERE expires_at < now() OR replaced_at < now() - interval '1 day'`).catch(() => {});
   res.cookies.set(COOKIE, token, cookieOptions(req, minutes * 60));
 }
 
+/* Making a session and ending the account's others happen one sign-in at a time per account, in one transaction.
+   Without it two devices signing in at the same moment could each add their session and then each mark the other's
+   replaced, so both were told "signed in" and both cookies were refused. Under the lock the later sign-in always
+   sees the earlier one's session and replaces it: the newest still wins, and exactly one stays. */
+async function underAccountLock(accountId: string, work: (c: PoolClient) => Promise<void>): Promise<void> {
+  const c = await (await db()).connect();
+  try {
+    await c.query("BEGIN");
+    await c.query(`SELECT pg_advisory_xact_lock(71005, ($1::bigint % 2147483647)::int)`, [accountId]);
+    await work(c);
+    await c.query("COMMIT");
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    c.release();
+  }
+}
+
 /* Every other session of the account ends: it is kept for a day, marked, so its browser can be told that the account
-   was opened on another device (sessionReplaced), and counts as no session at all (sessionRow). */
-async function onlyThisSession(accountId: string, keepHash: string): Promise<void> {
-  await (await db()).query(`UPDATE sessions SET replaced_at = now() WHERE account_id = $1 AND token_hash <> $2 AND replaced_at IS NULL`, [accountId, keepHash]);
+   was opened on another device (sessionReplaced), and counts as no session at all (sessionRow). Only ever called
+   inside underAccountLock. */
+async function onlyThisSession(c: PoolClient, accountId: string, keepHash: string): Promise<void> {
+  await c.query(`UPDATE sessions SET replaced_at = now() WHERE account_id = $1 AND token_hash <> $2 AND replaced_at IS NULL`, [accountId, keepHash]);
 }
 
 /** True when this browser's session ended because the account was signed in on another device since */
@@ -172,12 +194,17 @@ export async function pendingAccount(req: NextRequest): Promise<{ id: string; em
 export async function finishPendingSession(res: NextResponse, req: NextRequest): Promise<void> {
   const token = req.cookies.get(COOKIE)?.value;
   if (!token) return;
-  const { rows } = await (await db()).query(
-    `UPDATE sessions SET pending_totp = false, expires_at = now() + make_interval(days => $2) WHERE token_hash = $1 AND replaced_at IS NULL RETURNING account_id`,
-    [tokenHash(token), DAYS],
-  );
-  /* the sign-in is complete now: it is the account's only session (see ONE DEVICE AT A TIME) */
-  if (rows[0]) await onlyThisSession(String(rows[0].account_id), tokenHash(token));
+  /* whose session it is, to take that account's sign-in lock (see underAccountLock) */
+  const { rows: owner } = await (await db()).query(`SELECT account_id FROM sessions WHERE token_hash = $1`, [tokenHash(token)]);
+  if (owner[0])
+    await underAccountLock(String(owner[0].account_id), async (c) => {
+      const { rows } = await c.query(
+        `UPDATE sessions SET pending_totp = false, expires_at = now() + make_interval(days => $2) WHERE token_hash = $1 AND replaced_at IS NULL RETURNING account_id`,
+        [tokenHash(token), DAYS],
+      );
+      /* the sign-in is complete now: it is the account's only session (see ONE DEVICE AT A TIME) */
+      if (rows[0]) await onlyThisSession(c, String(rows[0].account_id), tokenHash(token));
+    });
   res.cookies.set(COOKIE, token, cookieOptions(req, DAYS * 86400));
 }
 
