@@ -13,7 +13,7 @@ import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
 import { fontFamily, headingFamily } from "./config";
 import { categoriesOf, sampleProducts, storeDataReady, useStoreData, type StoreProduct } from "./useStoreData";
 import { cartQty, ORDER_LIMITS, productId, toFils } from "../safeOrder";
-import { CartPanel } from "./Cart";
+import { CartPanel, type LostLine } from "./Cart";
 import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
 import { shownMobile } from "../phone";
 import { hasArabic } from "../safe";
@@ -148,6 +148,9 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const routed = !!visitor && !design;
   const basketStore = routed && visitor ? basketStorageKey(visitor.setup.slug) : "";
   const [settled, setSettled] = useState(!routed);
+  /* the lines the kept basket lost when the page opened again (see readBasket), told in the cart */
+  const [basketLost, setBasketLost] = useState<LostLine[]>([]);
+  const noticeSeen = useCallback(() => setBasketLost([]), []);
 
   useEffect(() => {
     const el = root.current;
@@ -286,7 +289,10 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
      the first paint, so neither the empty basket nor the home page flashes first. */
   useLayoutEffect(() => {
     if (settled || !storeDataReady(saved)) return;
-    setQtyMap(readBasket(basketStore, data.products));
+    const kept = readBasket(basketStore, data.products);
+    setQtyMap(kept.qty);
+    /* what the kept basket lost since he was last here (sold out, gone, fewer left): the cart names it */
+    setBasketLost(kept.lost);
     const v = viewInAddress();
     const product = v.product !== null && data.products.some((p) => p.id === v.product) ? v.product : null;
     const page = product === null && v.page !== null && data.pages.some((p) => p.id === v.page) ? v.page : null;
@@ -318,7 +324,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   useEffect(() => {
     if (!settled || !basketStore) return;
     const onStorage = (e: StorageEvent) => {
-      if (e.key === basketStore) setQtyMap(readBasket(basketStore, dataNow.current.products));
+      if (e.key === basketStore) setQtyMap(readBasket(basketStore, dataNow.current.products).qty);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -1099,7 +1105,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             : `Your cart can hold up to ${ORDER_LIMITS.lines} different products. Place this order first, then add more in a new one.`}
         </p>
       )}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
+      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} notice={basketLost} onNoticeSeen={noticeSeen} />}
       <main>
         {shownProduct ? (
           <>

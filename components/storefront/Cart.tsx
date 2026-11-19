@@ -11,6 +11,7 @@ import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type 
 import type { CartStyle } from "./config";
 import { currency, icons, moneyIn, priceOf, ProductImage } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
+import { useVisitorRefresh } from "./visitorStore";
 
 /* The customer's basket: what is in it, the free delivery progress and a few suggestions, then the checkout (who, where,
    how to pay) in the same place, and a thank-you. It has four looks a design picks (`look`, see the skins at the end). The order is saved with
@@ -78,6 +79,12 @@ const words = {
     errNet: "Your order couldn't be sent. Check your connection and try again.",
     errSlow: "Too many orders were sent from here. Please wait a few minutes and try again.",
     errClosed: "This store isn't taking orders right now. Please try again later.",
+    /* the other answers, each said as it is */
+    errGone: "This store is no longer at this address, so your order was not placed.",
+    errForbidden: "Your order couldn't be sent from this page. Reload the page, then try again.",
+    errBig: "Your order is too large to send. Shorten your note or remove some products, then try again.",
+    errServer: "The store can't take your order for a moment (a problem on Dukkan's side). Please try again in a few minutes.",
+    errTimeout: "The store took too long to answer. Your order may already be in: press the button again, it will not be placed twice.",
     errPay: "This way to pay is no longer available. Choose another one.",
     errSave: "Your order couldn't be saved in this browser. Check that site storage is allowed, then try again.",
     errCheck: "Some of your details couldn't be accepted. Check them, then try again.",
@@ -98,6 +105,12 @@ const words = {
     changedAsk: "The store will now confirm the delivery fee with you. Check the new total and place the order again.",
     changedBoth: "Some products in your cart and the delivery price changed. Check your cart and the new total, then place the order.",
     changedTotal: "Your order's total changed. Check the new total and place the order again.",
+    /* products that sold out (or went) while he shopped: each named, with what is left of it */
+    lostGone: "{name} has just sold out or is no longer available, so it was taken out of your cart.",
+    lostFewer: "{name}: only {n} left now, so your cart has {n}.",
+    lostUnknown: "A product in your cart is no longer available, so it was taken out.",
+    soldOutTitle: "Just sold out",
+    soldOutAll: "Sorry, the products in your cart have just sold out or are no longer available. Please try again later.",
     doneTitle: "Thank you, your order is in",
     doneText: "Order #{id}. The store will contact you to confirm it.",
     done: "Back to the store",
@@ -170,6 +183,11 @@ const words = {
     errNet: "تعذّر إرسال طلبك. تأكد من اتصالك وحاول مرة أخرى.",
     errSlow: "أُرسلت طلبات كثيرة من هنا. انتظر بضع دقائق ثم حاول مرة أخرى.",
     errClosed: "لا يستقبل هذا المتجر طلبات الآن. حاول مرة أخرى لاحقًا.",
+    errGone: "لم يعد هذا المتجر على هذا العنوان، فلم يُرسل طلبك.",
+    errForbidden: "تعذّر إرسال طلبك من هذه الصفحة. أعد تحميل الصفحة ثم حاول مرة أخرى.",
+    errBig: "طلبك أكبر من أن يُرسل. اختصر ملاحظتك أو أزل بعض المنتجات، ثم حاول مرة أخرى.",
+    errServer: "لا يستطيع المتجر استقبال طلبك لحظيًا (مشكلة لدى دكان). حاول مرة أخرى بعد بضع دقائق.",
+    errTimeout: "تأخر المتجر في الرد. ربما وصل طلبك بالفعل: اضغط الزر مرة أخرى، ولن يُسجَّل مرتين.",
     errPay: "طريقة الدفع هذه لم تعد متاحة. اختر طريقة أخرى.",
     errSave: "تعذّر حفظ طلبك في هذا المتصفح. تأكد من السماح بتخزين بيانات الموقع، ثم حاول مرة أخرى.",
     errCheck: "تعذّر قبول بعض معلوماتك. راجعها، ثم حاول مرة أخرى.",
@@ -189,6 +207,11 @@ const words = {
     changedAsk: "سيؤكد المتجر رسوم التوصيل معك الآن. راجع المجموع الجديد ثم أكّد الطلب.",
     changedBoth: "تغيّرت بعض المنتجات في سلتك وتغيّر سعر التوصيل. راجع سلتك والمجموع الجديد ثم أكّد الطلب.",
     changedTotal: "تغيّر مجموع طلبك. راجع المجموع الجديد ثم أكّد الطلب.",
+    lostGone: "نفد «{name}» للتو أو لم يعد متاحًا، فأُزيل من سلتك.",
+    lostFewer: "«{name}»: بقي {n} فقط الآن، فأصبح في سلتك {n}.",
+    lostUnknown: "منتج في سلتك لم يعد متاحًا، فأُزيل منها.",
+    soldOutTitle: "نفدت الكمية للتو",
+    soldOutAll: "عذرًا، نفدت المنتجات التي في سلتك للتو أو لم تعد متاحة. حاول مرة أخرى لاحقًا.",
     doneTitle: "شكرًا لك، وصلنا طلبك",
     doneText: "طلب رقم {id}. سيتواصل معك المتجر لتأكيده.",
     done: "العودة إلى المتجر",
@@ -221,6 +244,9 @@ export function suggestFor(all: StoreProduct[], base: StoreProduct[], n: number)
 }
 
 type Line = { p: StoreProduct; qty: number; /* the size chosen (clothing and shoes) */ size?: string };
+/** A line of the basket the store could not keep as it was: it sold out or went (qty 0), or fewer are left (qty: what
+    the basket has now). `name` "": a product the store no longer shows at all. */
+export type LostLine = { name: string; size?: string; qty: number };
 type Pay = "cliq" | "cash" | "card";
 
 function readList(key: string): Record<string, unknown>[] {
@@ -278,6 +304,32 @@ function checkoutKey(): string {
   }
 }
 
+/* how long one send of an order may take before it is given up (and sent once more with the same key) */
+const SEND_TIMEOUT = 20_000;
+
+/* The checkout's key in this tab's storage while the order is on its way (one per store), with the order it was made
+   for, so a reload in the middle finds both again: the checkout takes back the details, the way to pay and the coupon
+   of that order, and the same order sent again after the reload gets the order already placed, not a second one. */
+const attemptStore = (slug: string) => `dukkan-checkout:${slug.trim().toLowerCase()}`;
+function keptAttempt(slug: string): { key: string; fp: string } | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(attemptStore(slug)) ?? "null") as { key?: unknown; fp?: unknown } | null;
+    return v && typeof v.key === "string" && /^[A-Za-z0-9-]{16,64}$/.test(v.key) && typeof v.fp === "string" ? { key: v.key, fp: v.fp } : null;
+  } catch {
+    return null;
+  }
+}
+/* `fp` is the order as sent (JSON), so it is the order to take back too */
+function keepAttempt(slug: string, v: { key: string; fp: string } | null) {
+  if (!slug) return;
+  try {
+    if (v) sessionStorage.setItem(attemptStore(slug), JSON.stringify(v));
+    else sessionStorage.removeItem(attemptStore(slug));
+  } catch {
+    /* storage turned off: the key still holds until the page is left */
+  }
+}
+
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
 /* `orderTo`: the public store (app/[slug]) at this link name. The order is sent to Dukkan's server
    (POST /api/public/store/<link>/orders), which prices it again from the store's saved products, takes the stock and
@@ -289,8 +341,33 @@ function checkoutKey(): string {
    checkout says the store confirms it and charges none); null with Dukkan Ship (its price from Diwan) */
 /* `shipMode`: how he delivers; null: not chosen yet, home delivery is not offered (safeOrder storeDelivery).
    `chosenPays`: the ways to pay he chose (left out: every way Dukkan has on; safeOrder orderPays) */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fdIn, priceLanguage, onCleared, pickup: pickupSaved = false, ownFee = null, ownCities, shipMode, chosenPays, look = "drawer", contained = false, orderTo }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | "ask" | null; /* his own courier's cities as saved (none: all) */ ownCities?: string[]; shipMode: "own" | "seen" | null; chosenPays?: Payment[]; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string }) {
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fdIn, priceLanguage, onCleared, pickup: pickupSaved = false, ownFee = null, ownCities, shipMode, chosenPays, look = "drawer", contained = false, orderTo, notice, onNoticeSeen }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | "ask" | null; /* his own courier's cities as saved (none: all) */ ownCities?: string[]; shipMode: "own" | "seen" | null; chosenPays?: Payment[]; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string; /* lines a kept basket lost when the page opened again (visitorBasket.ts), and told once he has seen them */ notice?: LostLine[]; onNoticeSeen?: () => void }) {
   const w = words[lang];
+  /* the public store: after an order (or a "changed" answer) the store's products are read again, so what just sold out shows as sold out */
+  const refreshStore = useVisitorRefresh();
+  /* the lines the server (or the catalog) could not keep as they were at the last try, named for him */
+  const [lost, setLost] = useState<LostLine[]>([]);
+  const lostShown = [...(notice ?? []), ...lost];
+  const lostWords = (l: LostLine) => {
+    if (!l.name) return w.lostUnknown;
+    const name = l.size ? `${l.name} (${l.size})` : l.name;
+    return (l.qty > 0 ? w.lostFewer : w.lostGone).replace("{name}", name).replaceAll("{n}", String(l.qty));
+  };
+  /* the kept basket's note is his to read once: it goes when he closes the cart after seeing it */
+  const noticeOpen = useRef(false);
+  useEffect(() => {
+    if (open && notice?.length) noticeOpen.current = true;
+    else if (!open && noticeOpen.current) {
+      noticeOpen.current = false;
+      onNoticeSeen?.();
+    }
+  }, [open, notice, onNoticeSeen]);
+  /* what is in the basket against what the store can sell now: each line it lost or cut */
+  const lostOf = (fresh: Map<string, number>): LostLine[] =>
+    lines.flatMap((l) => {
+      const q = fresh.get(`${l.p.id}|${l.size ?? ""}`) ?? 0;
+      return q < l.qty ? [{ name: l.p.name, ...(l.size ? { size: l.size } : {}), qty: q }] : [];
+    });
   /* the public store: prices the server answered with when they changed since the page opened (by product id) */
   const [priceFix, setPriceFix] = useState<Record<number, number>>({});
   const priceAt = (p: StoreProduct) => priceFix[p.id] ?? priceOf(p);
@@ -319,8 +396,30 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const pickup = choicesFix ? choicesFix.pickup : pickupSaved;
   const fd = termsFix?.fd ?? fdIn;
   /* the public store: this checkout's own key, kept until the order is in, so sending it again (its answer was lost)
-     gets the same order back instead of a second one */
-  const attemptKey = useRef<string | null>(null);
+     gets the same order back instead of a second one. It belongs to the order as it was sent (`fp`): a change to the cart
+     or the details since makes a new key, so the edited order is not answered with the first one. Kept in this tab's
+     storage too while it waits, so a reload during the send cannot place a second order (keptAttempt). */
+  const attemptKey = useRef<{ key: string; fp: string } | null>(null);
+  useEffect(() => {
+    if (!orderTo) return;
+    const kept = keptAttempt(orderTo);
+    attemptKey.current = kept;
+    if (!kept) return;
+    /* an order was on its way when the page was left: its details come back as they were sent, so sending it again
+       keeps its key (the server then answers with that order if it got in) */
+    try {
+      const o = JSON.parse(kept.fp) as { customer?: Record<string, unknown>; coupon?: unknown };
+      const c = o.customer ?? {};
+      const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
+      setForm({ name: str(c.name, ORDER_LIMITS.name), phone: str(c.phone, 20), email: str(c.email, ORDER_LIMITS.email), city: str(c.city, 60), address: str(c.address, ORDER_LIMITS.address), note: str(c.note, ORDER_LIMITS.note) });
+      if (c.fulfil === "pickup" || c.fulfil === "delivery") setFulfil(c.fulfil);
+      if (c.pay === "cliq" || c.pay === "cash" || c.pay === "card") setPay(c.pay);
+      if (typeof o.coupon === "string" && o.coupon) void applyRemoteCoupon(o.coupon, true);
+    } catch {
+      /* a damaged entry: a new checkout */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderTo]);
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", email: "", city: "", address: "", note: "" });
   /* What Dukkan's staff set in Diwan (platform settings): the ways to pay that are on, and the flat delivery price of Dukkan
@@ -369,8 +468,14 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     if (!contained) panel.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose, contained]);
+  /* the thank-you goes once he has seen it: closed after it showed, the cart opens on the basket again. An order
+     that came in while the cart was closed (he closed it while it was being sent) keeps its thank-you for when he
+     opens it again. */
+  const doneSeen = useRef(false);
   useEffect(() => {
-    if (!open && step === "done") setStep("cart");
+    if (step !== "done") doneSeen.current = false;
+    else if (open) doneSeen.current = true;
+    else if (doneSeen.current) setStep("cart");
   }, [open, step]);
 
   /* The coupon: what he types, the code taken, and why a code was refused */
@@ -406,7 +511,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   };
   /* The public store: the server checks the code against the store's coupons and answers its terms, so the cart can
      show the discount as the basket changes (placing the order checks it again) */
-  const applyRemoteCoupon = async (typed: string) => {
+  /* `keep`: an order's coupon taken back after a reload, kept even while the basket is still loading (its minimum is
+     checked again as the basket changes, like any coupon taken) */
+  const applyRemoteCoupon = async (typed: string, keep = false) => {
     setCouponFail(false);
     try {
       const r = await fetch(`/api/public/store/${encodeURIComponent(orderTo ?? "")}/coupon`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: typed }) });
@@ -416,7 +523,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
         /* its minimum is checked here, against this basket */
         const r2 = checkCoupon(c.code, [c], subtotal);
         setRemoteCoupon(c);
-        if (r2.ok) {
+        if (r2.ok || keep) {
           setCoupon(c.code);
           setCouponText("");
           setCouponErr(null);
@@ -437,24 +544,43 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     setSendErr("");
     let j: { result?: string; order?: { number: number; items: PricedLine[]; total: number; subtotal?: number; discount?: number; delivery?: number; coupon?: string | null; fulfil?: string; feeOpen?: boolean }; items?: PricedLine[]; why?: CouponRefusal; fields?: string[]; terms?: { fee?: unknown; freeDelivery?: { on?: unknown; min?: unknown }; coupon?: unknown }; choices?: unknown } = {};
     let status = 0;
-    attemptKey.current ??= checkoutKey();
-    try {
-      const r = await fetch(`/api/public/store/${encodeURIComponent(orderTo ?? "")}/orders`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lines: lines.map((l) => ({ id: l.p.id, qty: l.qty, ...(l.size ? { size: l.size } : {}) })),
-          customer: { ...form, fulfil, pay },
-          ...(cp?.ok ? { coupon: cp.coupon.code } : {}),
-          expect: shown,
-          attempt: attemptKey.current,
-        }),
-      });
-      status = r.status;
-      j = (await r.json().catch(() => ({}))) as typeof j;
-    } catch {
-      /* no answer: offline, or the server is restarting */
+    /* the order itself (what he chose and typed): the same order keeps its key, any change gets a new one */
+    const order = {
+      lines: lines.map((l) => ({ id: l.p.id, qty: l.qty, ...(l.size ? { size: l.size } : {}) })),
+      customer: { ...form, fulfil, pay },
+      ...(cp?.ok ? { coupon: cp.coupon.code } : {}),
+    };
+    const fp = JSON.stringify(order);
+    if (attemptKey.current?.fp !== fp) attemptKey.current = { key: checkoutKey(), fp };
+    keepAttempt(orderTo ?? "", attemptKey.current);
+    /* one send, given up after a while; with no answer at all it is sent once more with the same key (if the first one
+       got in, the server answers with that order, never a second one) */
+    let timedOut = false;
+    const send = async (): Promise<boolean> => {
+      const stop = new AbortController();
+      const timer = window.setTimeout(() => stop.abort(), SEND_TIMEOUT);
+      try {
+        const r = await fetch(`/api/public/store/${encodeURIComponent(orderTo ?? "")}/orders`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...order, expect: shown, attempt: attemptKey.current?.key }),
+          signal: stop.signal,
+        });
+        status = r.status;
+        j = (await r.json().catch(() => ({}))) as typeof j;
+        return true;
+      } catch {
+        /* no answer: offline, the server is restarting, or it took too long */
+        timedOut = stop.signal.aborted;
+        return false;
+      } finally {
+        window.clearTimeout(timer);
+      }
+    };
+    if (!(await send())) {
+      await new Promise((r) => setTimeout(r, 1500));
+      await send();
     }
     placing.current = false;
     setSending(false);
@@ -481,20 +607,26 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       });
       /* the next checkout is a new one */
       attemptKey.current = null;
+      keepAttempt(orderTo ?? "", null);
       setTermsFix(null);
       setStep("done");
       setChanged(false);
+      setLost([]);
       setCoupon("");
       setRemoteCoupon(null);
       setCouponErr(null);
       setPriceFix({});
       onCleared();
+      void refreshStore?.();
       return;
     }
     if (j.result === "changed" && Array.isArray(j.items)) {
       /* the cart as the store can sell it now: quantities cut to the stock, sold out products out, today's prices */
       const fresh = new Map(j.items.map((it) => [`${it.id}|${it.size ?? ""}`, it.qty]));
+      setLost(lostOf(fresh));
       lines.forEach((l) => setQty(l.p, fresh.get(`${l.p.id}|${l.size ?? ""}`) ?? 0, l.size));
+      /* and the store's products read again: sold out ones show as sold out on the page too */
+      void refreshStore?.();
       setPriceFix((m) => ({ ...m, ...Object.fromEntries(j.items!.map((it) => [it.id, it.price])) }));
       /* and the store's delivery fee, free delivery offer and coupon as they are now, so the total shown is the one the
          server charges and the next try goes through */
@@ -567,7 +699,17 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       if (first) document.getElementById(`co-${first}`)?.focus();
       return;
     }
-    setSendErr(status === 429 ? w.errSlow : j.result === "closed" ? w.errClosed : w.errNet);
+    /* what really happened, not always "check your connection" */
+    setSendErr(
+      status === 429 ? w.errSlow
+      : j.result === "closed" ? w.errClosed
+      : status === 404 ? w.errGone
+      : status === 403 ? w.errForbidden
+      : status === 413 ? w.errBig
+      : status >= 500 ? w.errServer
+      : status === 0 && timedOut ? w.errTimeout
+      : w.errNet,
+    );
   };
   /* the store's choices a refusal carried (server/storeOrders.ts), checked: cities as two lists of names or null, the ways to pay known ones only */
   const takeChoices = (v: unknown): { cities: { en: string[]; ar: string[] } | null; pickup: boolean; pays: Payment[] } | null => {
@@ -612,6 +754,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     const priced = priceCart(lines.map((l) => ({ id: l.p.id, qty: l.qty, size: l.size })), currentCatalog(products));
     if (priced.changed || priced.items.length === 0) {
       const fresh = new Map(priced.items.map((it) => [`${it.id}|${it.size ?? ""}`, it.qty]));
+      setLost(lostOf(fresh));
       lines.forEach((l) => setQty(l.p, fresh.get(`${l.p.id}|${l.size ?? ""}`) ?? 0, l.size));
       setChanged(true);
       setStep("cart");
@@ -644,6 +787,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     setDoneId(id);
     setStep("done");
     setChanged(false);
+    setLost([]);
     setCoupon("");
     setCouponErr(null);
     onCleared();
@@ -792,10 +936,12 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
 
   const cartView = (
     <div className={s.stack}>
-      {changed && (
-        <p role="alert" className="rounded-[var(--sf-ri,10px)] bg-amber-500/15 px-3 py-2.5 text-xs font-semibold">
-          {changed.why === "delivery" ? (changed.ask ? w.changedAsk : changed.fee ? w.changedDelivery.replace("{fee}", amount(changed.fee)) : w.changedFree) : changed.why === "both" ? w.changedBoth : changed.why === "total" ? w.changedTotal : w.changed}
-        </p>
+      {(changed || lostShown.length > 0) && (
+        <div role="alert" className="rounded-[var(--sf-ri,10px)] bg-amber-500/15 px-3 py-2.5 text-xs font-semibold">
+          {changed && <p>{changed.why === "delivery" ? (changed.ask ? w.changedAsk : changed.fee ? w.changedDelivery.replace("{fee}", amount(changed.fee)) : w.changedFree) : changed.why === "both" ? w.changedBoth : changed.why === "total" ? w.changedTotal : w.changed}</p>}
+          {/* which product went or was cut, and to how many */}
+          {lostShown.length > 0 && <ul className={`${changed ? "mt-1.5 " : ""}list-disc space-y-0.5 ps-4`}>{lostShown.map((l, i) => <li key={i}>{lostWords(l)}</li>)}</ul>}
+        </div>
       )}
       {!luxe && freeLine}
       <ul className={s.list}>{lines.map(item)}</ul>
@@ -933,6 +1079,18 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     </div>
   ) : centered(check, w.doneTitle, w.doneText.replace("{id}", String(doneId)), w.done, pay === "cliq" ? cliqOr("cliq") : undefined);
   const emptyView = centered(icons.bag, w.empty, w.emptyHint, w.keepShopping);
+  /* every product he had sold out (or went) while he shopped, or since he left the page: said, never just "empty" */
+  const soldOutView = (
+    <div className="grid place-items-center py-10 text-center">
+      <div className="max-w-xs">
+        <span className={s.badge} style={s.badgeStyle}>{icons.bag}</span>
+        <h3 className={s.stateTitle} style={heading}>{w.soldOutTitle}</h3>
+        <p role="alert" className="mt-1.5 text-sm leading-relaxed opacity-70">{w.soldOutAll}</p>
+        <ul className="mt-2 space-y-0.5 text-xs font-semibold opacity-70">{lostShown.map((l, i) => <li key={i}>{lostWords(l)}</li>)}</ul>
+        <button type="button" onClick={onClose} className={`${s.cta} mx-auto mt-5 !w-auto px-7`} style={s.ctaStyle}>{w.keepShopping}</button>
+      </div>
+    </div>
+  );
 
   const back = (
     <button type="button" onClick={() => setStep("cart")} className={s.back}>
@@ -1002,7 +1160,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
           {step === "done" ? (
             doneView
           ) : lines.length === 0 && step === "cart" ? (
-            emptyView
+            lostShown.length ? soldOutView : emptyView
           ) : luxe ? (
             <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-[minmax(0,1fr)_330px] md:gap-10">
               <div>{step === "details" ? detailsView : cartView}</div>
