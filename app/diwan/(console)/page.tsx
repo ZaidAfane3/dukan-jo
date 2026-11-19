@@ -3,11 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { dateLocale } from "@/components/content";
-import { ArchWindow, Icon, iconForPath } from "@/components/diwan/icons";
-import { DIWAN_NAV } from "@/components/diwan/nav";
-import { can } from "@/components/diwan/perms";
+import { ArchWindow } from "@/components/diwan/icons";
 import { StatusBadge, storeLink } from "@/components/diwan/shopBits";
-import { ATTENTION, card, DataTable, Figures, Loaded, PageHead, tdDense, useApi, useFmt, useStaff, useT } from "@/components/diwan/ui";
+import { ATTENTION, card, DataTable, Figures, Loaded, tdDense, useApi, useFmt, useStaff, useT } from "@/components/diwan/ui";
 import { HomeSkeleton } from "@/components/diwan/skeletons";
 import { usePrefs } from "@/components/Prefs";
 
@@ -27,9 +25,6 @@ const RUQAA = { fontFamily: "var(--font-ruqaa), var(--font-sans)" };
 /* Diwan's first page: a welcome, the shops in figures and what waits for the team. Everything comes live from the database
    (counts and totals only: Diwan never looks at a merchant's products, orders or customers). */
 export default function OverviewPage() {
-  const staff = useStaff();
-  /* a staff member who can't see shops (the Marketing role) gets the marketing home instead of the shops' figures */
-  if (staff && !can(staff, "shops.read")) return <PortalHome />;
   return <ShopsOverview />;
 }
 
@@ -144,43 +139,6 @@ function ShopsOverview() {
           );
         }}
       </Loaded>
-    </>
-  );
-}
-
-/* The marketing home: the welcome, then an index of the pages this staff member may open */
-function PortalHome() {
-  const t = useT();
-  const staff = useStaff();
-  const about: Record<string, { en: string; ar: string }> = {
-    "/diwan/themes": { en: "Make, price and release themes in the theme store.", ar: "اصنع الثيمات وسعّرها وانشرها في متجر الثيمات." },
-    "/diwan/pages": { en: "Guides and news merchants read in their dashboard.", ar: "أدلة وأخبار يقرؤها التجار في لوحة التحكم." },
-    "/diwan/popups": { en: "Pop-ups merchants see once in their dashboard.", ar: "نوافذ يراها التجار مرة واحدة في لوحة التحكم." },
-    "/diwan/announcements": { en: "Notices in the merchants' bell and banner.", ar: "إشعارات في جرس التجار وشريط الإعلانات." },
-    "/diwan/marketplace": { en: "Outside developers and the work they send.", ar: "المطورون الخارجيون وما يرسلونه من أعمال." },
-    "/diwan/activity": { en: "Who changed what, and when.", ar: "من غيّر ماذا، ومتى." },
-  };
-  const list = staff ? DIWAN_NAV.filter((i) => i.href !== "/diwan" && can(staff, i.perm)) : [];
-  return (
-    <>
-      <Welcome line={t("What Dukkan sends out to merchants, in one place. Pick up where you left off.", "كل ما ترسله دكّان إلى التجار، في مكان واحد. تابع من حيث توقفت.")} />
-      <PageHead title={t("Marketing", "التسويق")} eyebrow={t("Your pages", "صفحاتك")} />
-      <ul className={`${card} divide-y divide-fg/[0.06] p-0`}>
-        {list.map((i) => (
-          <li key={i.href}>
-            <Link href={i.href} className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-fg/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
-              <Icon name={iconForPath(i.href)} className="h-5 w-5 shrink-0 text-fg/45 group-hover:text-primary" strokeWidth={1.6} />
-              <span className="min-w-0">
-                <span className="block font-bold">{t(i.en, i.ar)}</span>
-                {about[i.href] && <span className="mt-0.5 block text-sm text-muted">{t(about[i.href].en, about[i.href].ar)}</span>}
-              </span>
-              <span aria-hidden className="ms-auto text-fg/30 transition group-hover:translate-x-0.5 group-hover:text-primary rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5 motion-reduce:transform-none">
-                →
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
     </>
   );
 }

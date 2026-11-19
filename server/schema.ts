@@ -567,6 +567,8 @@ export const DIWAN_SCHEMA = `
       ALTER TABLE staff ADD CONSTRAINT staff_role_check CHECK (role IN ('owner', 'support', 'developer'));
     END IF;
   END $$;
+  -- Diwan has no roles any more (2026-11-19): every staff member is an owner
+  UPDATE staff SET role = 'owner' WHERE role <> 'owner';
 
   CREATE TABLE IF NOT EXISTS dukkan_pages (
     id           BIGSERIAL PRIMARY KEY,

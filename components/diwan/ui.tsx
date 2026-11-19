@@ -267,7 +267,7 @@ export const tdDense = "px-3 py-3.5 align-top";
     without one, a plain block (never number boxes a page doesn't have). */
 export function Loaded<T>({ s, children, skeleton }: { s: ApiState<T>; children: (d: T) => React.ReactNode; skeleton?: React.ReactNode }) {
   const t = useT();
-  if (s.error === "not-allowed") return <p className={`${card} text-sm text-muted`}>{t("Your role can't open this page. Ask an owner if you need it.", "دورك لا يسمح بفتح هذه الصفحة. اطلب من المالك إن احتجت إليها.")}</p>;
+  if (s.error === "not-allowed") return <p className={`${card} text-sm text-muted`}>{t("You can't open this page.", "لا يمكنك فتح هذه الصفحة.")}</p>;
   if (s.error) return <p className={`${card} text-sm text-red-600`}>{t("Could not load this: ", "تعذر التحميل: ")}{s.error}</p>;
   if (!s.data) return <Busy>{skeleton ?? <SkelBlock />}</Busy>;
   return <>{children(s.data)}</>;

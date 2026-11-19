@@ -7,7 +7,7 @@ import { usePageTitle } from "../pageTitle";
 import { LangSwitch, ThemeToggle } from "../Prefs";
 import { DiwanMark, GROUP_ICON, Icon, iconForPath } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS, type NavGroup } from "./nav";
-import { can, roleName as roleWords, type Role } from "./perms";
+import { can, type Role } from "./perms";
 import { send, StaffContext, useT } from "./ui";
 
 export type ShellStaff = { name: string; email: string; role: Role };
@@ -37,8 +37,6 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
   const [open, setOpen] = useState(false);
   const items = DIWAN_NAV.filter((i) => can(staff, i.perm));
   const active = (href: string) => (href === "/diwan" ? path === "/diwan" : path === href || path.startsWith(href + "/"));
-  const rw = roleWords(staff.role);
-  const roleName = t(rw.en, rw.ar);
   /* the phone menu closes with Escape, and on any page change */
   useEffect(() => {
     if (!open) return;
@@ -211,7 +209,7 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
               <ThemeToggle />
               <span className="hidden border-s border-fg/10 ps-3 text-start text-xs leading-tight md:block">
                 <span className="block font-semibold">{staff.name}</span>
-                <span className="text-muted">{roleName}</span>
+                <span dir="ltr" className="text-muted">{staff.email}</span>
               </span>
               <button onClick={signOut} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-fg/70 transition-colors hover:bg-fg/[0.05] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                 {t("Sign out", "خروج")}
@@ -259,7 +257,7 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
                 {/* on a phone the top bar has no room for who is signed in */}
                 <div className="border-b border-fg/10 px-7 py-3 text-xs md:hidden">
                   <p className="font-semibold">{staff.name}</p>
-                  <p className="text-muted">{roleName}</p>
+                  <p dir="ltr" className="text-muted rtl:text-end">{staff.email}</p>
                 </div>
                 {nav(false)}
               </aside>

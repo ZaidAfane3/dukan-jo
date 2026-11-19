@@ -68,7 +68,8 @@ export async function staffFromToken(token: string | undefined): Promise<(Staff 
   const s = rows[0];
   /* locally, a sign-in left halfway (no code given yet) doesn't stop the dev owner either */
   if (!s || (LOCAL_DEV && !s.verified)) return LOCAL_DEV ? devOwner() : null;
-  return { id: String(s.id), email: s.email, name: s.name, role: s.role, totpOn: s.totp_on, verified: s.verified };
+  /* no roles any more (components/diwan/perms.ts): everyone is an owner, whatever an old row still says */
+  return { id: String(s.id), email: s.email, name: s.name, role: "owner" as Role, totpOn: s.totp_on, verified: s.verified };
 }
 
 /* ---------------- local development: no sign-in ---------------- */
