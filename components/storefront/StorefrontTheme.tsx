@@ -12,7 +12,7 @@ import { useMediaUrl } from "./mediaStore";
 import { loadFreeDelivery, type FreeDelivery } from "../freeDeliveryStore";
 import { fontFamily, headingFamily } from "./config";
 import { categoriesOf, sampleProducts, storeDataReady, useStoreData, type StoreProduct } from "./useStoreData";
-import { cartQty, productId, toFils } from "../safeOrder";
+import { cartQty, ORDER_LIMITS, productId, toFils } from "../safeOrder";
 import { CartPanel } from "./Cart";
 import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
 import { shownMobile } from "../phone";
@@ -132,6 +132,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   useEffect(() => setFd(visitor ? visitor.freeDelivery : loadFreeDelivery()), [visitor]);
   /* by product id, or "id|size" for clothing and shoes (one entry per size) */
   const [qty, setQtyMap] = useState<Record<string, number>>({});
+  const qtyNow = useRef(qty);
+  qtyNow.current = qty;
+  /* an add refused because the basket already holds as many different products as one order can (ORDER_LIMITS.lines):
+     said for a few seconds (when), instead of the checkout answering "products changed" again and again */
+  const [basketFull, setBasketFull] = useState(0);
+  useEffect(() => {
+    if (!basketFull) return;
+    const t = setTimeout(() => setBasketFull(0), 5000);
+    return () => clearTimeout(t);
+  }, [basketFull]);
   /* The public store only: the address follows the product or page open, and the basket is kept in the visitor's
      browser for this store (visitorBasket.ts). Both are taken back once the store's products are in (`settled`); until
      then the basket's count and total are not shown, so a kept basket never flashes as empty. */
@@ -162,9 +172,16 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       if (n > 0) latest.current.openProduct(p.id);
       return;
     }
+    const key = basketKey(p.id, size);
+    /* a new product (or size) once the basket holds as many as one order takes: not added, and he is told why */
+    const full = (m: Record<string, number>) => n > 0 && !m[key] && Object.keys(m).length >= ORDER_LIMITS.lines;
+    if (full(qtyNow.current)) {
+      setBasketFull(Date.now());
+      return;
+    }
     setQtyMap((m) => {
+      if (full(m)) return m;
       const next = { ...m };
-      const key = basketKey(p.id, size);
       /* Never more than the store has (of that size), and a quantity of 0 takes it out of the basket */
       const v = cartQty(n, size ? p.sizes?.find((z) => z.name === size)?.quantity ?? 0 : p.quantity);
       if (v === 0) delete next[key];
@@ -1075,6 +1092,13 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         </div>
       )}
       {/* on the public store the order goes to Dukkan's server for the merchant (a test order: no payment yet), in his preview it is saved in his browser */}
+      {basketFull > 0 && !design && (
+        <p role="status" className="fixed inset-x-4 bottom-4 z-[70] mx-auto max-w-md rounded-2xl bg-[#1c1a17] px-4 py-3 text-center text-sm font-semibold text-white shadow-2xl">
+          {lang === "ar"
+            ? `تتسع سلتك لـ ${ORDER_LIMITS.lines} منتجًا مختلفًا كحد أقصى. أكمل هذا الطلب أولًا، ثم أضف المزيد في طلب جديد.`
+            : `Your cart can hold up to ${ORDER_LIMITS.lines} different products. Place this order first, then add more in a new one.`}
+        </p>
+      )}
       {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} />}
       <main>
         {shownProduct ? (
