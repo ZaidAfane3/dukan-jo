@@ -593,6 +593,42 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   /* the search bar and the basket are always there, and the header always stays in view while scrolling (no longer
      switches in the designer; older saved designs that turned them off get them back) */
   const h = { ...config.header, showSearch: true, showCart: true, sticky: true };
+  /* The language button (header.showLanguage, off unless he turns it on): it switches the store between Arabic and
+     English for this visitor, and on the public store it is remembered for this store, so he finds it in his language
+     when he comes back. A text he wrote in one language only still shows in the other (the store falls back to it). In
+     the designer it shows where it goes, and a click picks the header as anywhere else. */
+  const langStore = routed && visitor ? `dukkan-store-lang:${visitor.setup.slug.trim().toLowerCase()}` : "";
+  const switchLang = (e: React.MouseEvent) => {
+    if (design) return;
+    e.stopPropagation();
+    const to = lang === "ar" ? "en" : "ar";
+    setLang(to);
+    if (langStore) {
+      try {
+        localStorage.setItem(langStore, to);
+      } catch {
+        /* storage turned off: the choice holds until the page is left */
+      }
+    }
+  };
+  const langPicked = useRef(false);
+  useEffect(() => {
+    if (!langStore || !h.showLanguage || langPicked.current) return;
+    langPicked.current = true;
+    try {
+      const kept = localStorage.getItem(langStore);
+      if ((kept === "ar" || kept === "en") && kept !== lang) setLang(kept);
+    } catch {
+      /* storage turned off: the visitor's own language */
+    }
+  }, [langStore, h.showLanguage]); // eslint-disable-line react-hooks/exhaustive-deps
+  const langLabel = lang === "ar" ? "Switch to English" : "التبديل إلى العربية";
+  const langButton = (className: string, style?: React.CSSProperties) =>
+    h.showLanguage ? (
+      <button type="button" onClick={switchLang} aria-label={langLabel} title={langLabel} lang={lang === "ar" ? "en" : "ar"} className={`${className} text-sm font-bold`} style={style}>
+        {lang === "ar" ? "EN" : "ع"}
+      </button>
+    ) : null;
   const tagline = config.identity.tagline?.[lang] || config.identity.tagline?.[lang === "ar" ? "en" : "ar"];
   /* the name shows beside the logo unless he switched it off; with no logo the name always shows */
   const nameShown = config.identity.showName !== false || !config.identity.showLogo;
@@ -760,6 +796,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const searchWidthMid = { small: "w-44", medium: "w-64", large: "w-80" }[searchSize];
   const actions = (
     <div className={`flex shrink-0 items-center gap-2 ${nameEnd ? "flex-row-reverse" : ""}`}>
+              {langButton(iconBtn, onWhite)}
               {searchIcon && searchPop(
                 <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={iconBtn} style={onWhite}>
                   {icons.search}
@@ -912,6 +949,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   );
   const pillExtras = (
     <>
+      {langButton(pillIcon, onWhite)}
       {h.showSearch && searchAlways && pillBar}
       {h.showSearch && !searchAlways && (
         <button type="button" data-search-zone onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={`${pillIcon} ${searchOpen ? "!bg-[var(--sf-text)] !text-[var(--sf-bg)]" : ""}`} style={searchOpen ? undefined : onWhite}>
@@ -935,6 +973,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const plainRow = nameEnd ? "flex-row-reverse justify-end" : "justify-end";
   const plainActions = textCart ? (
     <div className={`flex items-center gap-3 ${plainRow}`}>
+      {h.showLanguage && (
+        <>
+          <button type="button" onClick={switchLang} lang={lang === "ar" ? "en" : "ar"} className={wordBtn}>{lang === "ar" ? "English" : "العربية"}</button>
+          <span aria-hidden className="opacity-50">·</span>
+        </>
+      )}
       {h.showSearch && searchAlways && <div className={`shrink-0 ${searchWidthMid}`}>{search}</div>}
       {h.showSearch && !searchAlways && (
         <>
@@ -952,6 +996,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     </div>
   ) : (
     <div className={`flex items-center ${plainRow}`}>
+      {langButton(plain)}
       {h.showSearch && searchAlways && <div className={`me-1 shrink-0 ${searchWidthMid}`}>{search}</div>}
       {h.showSearch && !searchAlways && searchPop(
         <button type="button" onClick={(e) => { e.stopPropagation(); setSearchOpen((v) => !v); }} aria-label={config.texts.search[lang] || c.search} aria-expanded={searchOpen} className={plain}>
