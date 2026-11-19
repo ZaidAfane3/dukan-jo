@@ -65,15 +65,18 @@ export const deliveryCities = (mode: "own" | "seen" | null | undefined, ship: { 
     (server/storeOrders.ts). null: he has not chosen how he delivers yet, so home delivery is not offered at all (only
     pickup when he offers it; neither: no order can be placed, the server answers "no-delivery"). Otherwise the cities
     (deliveryCities) and the fee per order: his own courier's fee as saved (none ever set: null, the store confirms it,
-    never "Free"), or Dukkan Ship's price from Diwan. */
+    never "Free"), or Dukkan Ship's price from Diwan. No city to deliver to (Dukkan Ship with every city taken off in
+    Diwan): null too, so the checkout says the store has not set up delivery yet instead of an empty list of cities. */
 export function storeDelivery(
   mode: "own" | "seen" | null | undefined,
   ship: { price: number; cities: { en: readonly string[]; ar: readonly string[] } },
   own: { fee?: number; cities?: unknown } = {},
 ): { cities: { en: readonly string[]; ar: readonly string[] }; fee: number | null } | null {
   if (mode !== "own" && mode !== "seen") return null;
+  const cities = deliveryCities(mode, ship.cities, own.cities);
+  if (!cities.en.length) return null;
   return {
-    cities: deliveryCities(mode, ship.cities, own.cities),
+    cities,
     fee: mode === "own" ? (typeof own.fee === "number" && Number.isFinite(own.fee) ? toFils(own.fee) : null) : toFils(ship.price),
   };
 }
