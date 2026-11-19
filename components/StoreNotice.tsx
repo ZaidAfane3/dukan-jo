@@ -15,9 +15,10 @@ const notices = {
     ar: { title: "هذا المتجر غير متاح", body: "لا يمكن زيارة هذا المتجر حاليًا. يرجى المحاولة لاحقًا." },
   },
 
+  /* a store never published yet: it is on its way, not broken ("under maintenance" said the wrong thing) */
   soon: {
-    en: { title: "This store is under maintenance", body: "We're getting the store ready for you. Please come back soon." },
-    ar: { title: "المتجر قيد الصيانة", body: "نجهّز المتجر لك. يرجى العودة قريبًا." },
+    en: { title: "This store is coming soon", body: "We're getting the store ready for you. Please come back soon." },
+    ar: { title: "المتجر قادم قريبًا", body: "نجهّز المتجر لك. يرجى العودة قريبًا." },
   },
 };
 
