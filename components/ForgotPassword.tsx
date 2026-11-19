@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { content } from "./content";
 import { jordanMobile, savedMobile } from "./phone";
 import { usePrefs } from "./Prefs";
@@ -50,6 +50,9 @@ const words = {
     save: "Change password",
     saving: "Saving…",
     tokenExpired: "This took too long. Ask for a new code.",
+    /* the answer to the last try was lost on the way, so it may have worked */
+    maybeSet: "We couldn't confirm your last try, and your new password may already be saved. Go back to log in and try it; if it doesn't work, ask for a new code.",
+    noAnswer: "No answer from Dukkan. Check your connection and try again: the code you typed is kept.",
     back: "Back to log in",
     fallback: "Can't get a code? Contact support",
     call: "Call",
@@ -88,6 +91,8 @@ const words = {
     save: "غيّر كلمة المرور",
     saving: "جارٍ الحفظ…",
     tokenExpired: "استغرق الأمر وقتًا طويلًا. اطلب رمزًا جديدًا.",
+    maybeSet: "لم نتمكن من تأكيد محاولتك الأخيرة، وقد تكون كلمة المرور الجديدة محفوظة بالفعل. عد إلى تسجيل الدخول وجرّبها، وإن لم تنجح فاطلب رمزًا جديدًا.",
+    noAnswer: "لا يوجد رد من دكّان. تحقق من اتصالك وحاول مجددًا: الرمز الذي كتبته محفوظ.",
     back: "العودة إلى تسجيل الدخول",
     fallback: "لم يصلك الرمز؟ تواصل مع الدعم",
     call: "اتصال",
@@ -175,6 +180,9 @@ export function ForgotPassword({
   /* resetting by code can't be done here (no sender in production): support is the way */
   const [noSender, setNoSender] = useState(false);
   const [busy, setBusy] = useState(false);
+  /* the answer to a try of the new password never came: the server may have kept it, so a later "expired" (its token
+     already used) does not mean it failed */
+  const lostAnswer = useRef(false);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
@@ -246,6 +254,12 @@ export function ForgotPassword({
       setStep("password");
       return;
     }
+    /* no answer (the connection dropped): the code he typed stays, to send again as it is */
+    if (!r) {
+      setError(w.noAnswer);
+      document.getElementById("fp-code")?.focus();
+      return;
+    }
     setCode("");
     /* a dead code: a new one can be asked for at once */
     if (r?.result === "expired" || r?.result === "too-many") setResendAt(0);
@@ -274,6 +288,12 @@ export function ForgotPassword({
     const r = await post("/api/auth/reset/set", { token, password });
     setBusy(false);
     if (r?.result === "ok") return onDone(sentTo, password);
+    if (!r) lostAnswer.current = true;
+    /* the token was used by a try whose answer was lost: the password was most likely changed then */
+    if (r?.result === "expired" && lostAnswer.current) {
+      setError(w.maybeSet);
+      return;
+    }
     if (r?.result === "expired") {
       /* back to the code step, where a new code can be asked for at once */
       setToken("");
@@ -363,7 +383,9 @@ export function ForgotPassword({
             </button>
             <button
               type="button"
+              disabled={busy}
               onClick={() => {
+                if (busy) return;
                 setStep("contact");
                 setError("");
                 setNote("");
@@ -439,7 +461,8 @@ export function ForgotPassword({
         </form>
       )}
 
-      <button type="button" onClick={onBack} className={`${linkBtn} mt-6`}>
+      {/* not while a request is on its way: its answer would land on a screen that has moved on */}
+      <button type="button" onClick={() => !busy && onBack()} disabled={busy} className={`${linkBtn} mt-6`}>
         {w.back}
       </button>
 

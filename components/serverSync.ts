@@ -16,7 +16,7 @@
    account sends them first (resumeSaves). Leaving the page while a change is still on its way asks first. */
 
 import { accountValue, replaceAccountValue, restoreAccountValue, signedInAs } from "./demoSandbox";
-import { LIST_KEYS, listMarks, mergeList, type ItemMarks } from "./listMerge";
+import { LIST_KEYS, listMarks, mergeList, VERSION_KEYS, type ItemMarks } from "./listMerge";
 import { bounceIfSuspended } from "./suspended";
 
 /* ---------------- store orders and the saved stock ----------------
@@ -63,7 +63,7 @@ export const onlineRev = (): number | null => {
     browser has a change of them waiting to go or on its way: the server takes the orders again from that save, and its
     answer brings the kept value). */
 export async function pullOnlineKeys(): Promise<void> {
-  if (!signedInAs() || running || !gate()) return;
+  if (!signedInAs() || running || paused || !gate()) return;
   const before = Object.fromEntries(ONLINE_KEYS.map((k) => [k, accountValue(k)]));
   try {
     const r = await fetch(`/api/store?keys=${ONLINE_KEYS.join(",")}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader() });
@@ -127,6 +127,51 @@ const onTheWay = new Map<string, Promise<unknown>>();
     "other-account" when the browser's session is now another account's (signed in from another tab) */
 export const ACCOUNT_HEADER = "X-Dukkan-Account";
 export const accountHeader = (owner: string | null = signedInAs()): Record<string, string> => (owner ? { [ACCOUNT_HEADER]: encodeURIComponent(owner) } : {});
+/* Sent with every save from this version of the page (server/auth.ts CLIENT_HEADER): such a save always names its
+   account too, so the server refuses one that does not. A tab opened before this version sends neither, and is not refused. */
+const CLIENT_HEADER = "X-Dukkan-Client";
+
+/* ---------------- the account's email changed (Settings.tsx) ----------------
+   The browser keeps everything under the account's email. A save, a confirmation or a merge that started under the old
+   email belongs to the same account under its new one: `follow` gives the email it goes by now. */
+const renamed = new Map<string, string>();
+const follow = (owner: string | null): string | null => (owner ? renamed.get(owner) ?? owner : null);
+const revsKeyOf = (owner: string) => `dukkan-revs:${owner}`;
+
+/** Moves this browser's waiting changes and saved versions of the account to its new email (the store itself is moved
+    by Settings.tsx). Saves already taken under the old email go on under the new one. */
+export function renameAccount(from: string, to: string) {
+  if (!from || !to || from === to) return;
+  renamed.delete(to);
+  renamed.forEach((v, k) => v === from && renamed.set(k, to));
+  renamed.set(from, to);
+  try {
+    const ls = window.localStorage;
+    for (const name of [outboxKey, basesKey, revsKeyOf]) {
+      const v = ls.getItem(name(from));
+      if (v === null) continue;
+      ls.setItem(name(to), v);
+      ls.removeItem(name(from));
+    }
+  } catch {
+    /* storage blocked: what waits still goes from memory */
+  }
+}
+
+/* While the account's email is being changed nothing is sent: a save naming the old email would be refused as another
+   account's and stop this tab. Changes made meanwhile wait (and are in the outbox) and go once it is over. */
+let paused = 0;
+/** Holds this tab's saves back; gives the function that lets them go again */
+export function pauseSaves(): () => void {
+  paused++;
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    paused = Math.max(0, paused - 1);
+    if (!paused && pending.size) schedule(300);
+  };
+}
 
 /* ---------------- the outbox ----------------
    { key: mark } in localStorage, per account, for each change not confirmed by the server yet. Only the key's name is
@@ -178,9 +223,27 @@ const inOutbox = (k: string) => {
    put back to go again: a list merged with the server's, see mergeStale) */
 function settle(owner: string | null, k: string, mark: string | undefined) {
   if (!mark || pending.has(k)) return;
-  if (marks.get(k) === mark) marks.delete(k);
-  if (owner) editOutbox(owner, (o) => o[k] === mark && delete o[k]);
+  if (marks.get(k) === mark) {
+    marks.delete(k);
+    replay.delete(k);
+  }
+  const o = follow(owner);
+  if (o) editOutbox(o, (box) => box[k] === mark && delete box[k]);
 }
+
+/* A failed save goes back to wait only for the account that made it, and only while that account is still the one
+   signed in here: never under another account, nor with none. Otherwise it stays in its own account's outbox, and goes
+   when that account signs in here again. */
+function putBack(owner: string | null, k: string, v: string | null) {
+  const o = follow(owner);
+  if (!o || o !== signedInAs() || pending.has(k)) return;
+  pending.set(k, v);
+}
+
+/* The keys this tab put back to wait from the outbox (resumeSaves) and has not changed itself since: for the keys that
+   are not lists (VERSION_KEYS), their save names the version of the server's copy they were made from, so a page that
+   closed long ago never puts its older value over what another device saved since. */
+const replay = new Set<string>();
 
 /* This tab's session is gone (signed out here or in another tab, another account signed in, the store suspended):
    nothing more is sent from it, since the browser's cookie may now be another account's. What is still waiting stays
@@ -239,6 +302,8 @@ export function queueSave(key: string, value: string | null) {
   /* not the account's active tab: nothing of it is sent */
   if (!gate()) return;
   pending.set(key, value);
+  /* this tab's own change now: saved as before */
+  replay.delete(key);
   const owner = signedInAs();
   if (owner) {
     const mark = newMark();
@@ -264,6 +329,7 @@ export function resumeSaves() {
     if (pending.has(k) || marks.has(k)) continue;
     pending.set(k, accountValue(k));
     marks.set(k, mark);
+    replay.add(k);
     any = true;
   }
   if (!any) return;
@@ -337,14 +403,20 @@ export function waitingKeys(): Set<string> {
 export function flushSaves(o: { quick?: boolean } = {}): Promise<void> {
   if (timer) clearTimeout(timer);
   timer = null;
-  if (halted || !gate()) return running ?? Promise.resolve();
+  if (halted || paused || !gate()) return running ?? Promise.resolve();
+  const owner = signedInAs();
+  /* nobody signed in here any more: nothing is sent with no account (each change is still in its own account's outbox,
+     for that account's next sign-in) */
+  if (!owner) {
+    pending = new Map();
+    return running ?? Promise.resolve();
+  }
   /* taken now, not when the save before it is done: the caller may sign out or drop what is left right after */
   const batch = pending;
   pending = new Map();
   if (!batch.size) return running ?? Promise.resolve();
   const n = ++taken;
   batch.forEach((_, k) => latest.set(k, n));
-  const owner = signedInAs();
   /* the mark of each change taken, so its confirmation crosses out only that change */
   const sent = new Map(Array.from(batch.keys(), (k) => [k, marks.get(k)] as const));
   if (o.quick) return sendBatch(batch, n, owner, true, sent);
@@ -399,9 +471,9 @@ export function adoptVersions(data: Record<string, string>, versions: unknown, k
   if (!owner || !versions || typeof versions !== "object") return;
   const v = versions as Record<string, unknown>;
   const change: Record<string, Base> = {};
-  LIST_KEYS.forEach((k) => {
+  [...Array.from(LIST_KEYS), ...Array.from(VERSION_KEYS)].forEach((k) => {
     if (keep.has(k)) return;
-    if (typeof v[k] === "string") change[k] = { v: v[k] as string, m: listMarks(data[k]) ?? {} };
+    if (typeof v[k] === "string") change[k] = { v: v[k] as string, m: (LIST_KEYS.has(k) && listMarks(data[k])) || {} };
     /* none on the server: a save of it must find none there either */
     else if (!(k in data)) change[k] = { v: "", m: {} };
   });
@@ -411,9 +483,12 @@ export function adoptVersions(data: Record<string, string>, versions: unknown, k
 const staleTries = new Map<string, number>();
 
 /* The server's list changed since this copy (another device saved it): merged item by item with this browser's newest
-   copy, shown, and sent again with the server's version. A list that can not be merged goes whole, as before. */
-function mergeStale(owner: string | null, k: string, sent: string, theirs: Stale) {
-  if (!owner || signedInAs() !== owner || halted) return;
+   copy, shown, and sent again with the server's version. A list that can not be merged goes whole, as before.
+   False when this tab is no longer that account's (signed out while the save was on its way): the change is not
+   dropped, it stays in the account's outbox and is merged after its next sign-in here. */
+function mergeStale(who: string | null, k: string, sent: string, theirs: Stale): boolean {
+  const owner = follow(who);
+  if (!owner || signedInAs() !== owner || halted) return false;
   const tries = (staleTries.get(k) ?? 0) + 1;
   if (tries > 3) {
     /* still changing under it: not kept. A reload brings the server's list (this tab takes it again) */
@@ -425,7 +500,7 @@ function mergeStale(owner: string | null, k: string, sent: string, theirs: Stale
       /* storage blocked */
     }
     refused("stale");
-    return;
+    return true;
   }
   staleTries.set(k, tries);
   const mine = accountValue(k) ?? sent;
@@ -441,6 +516,20 @@ function mergeStale(owner: string | null, k: string, sent: string, theirs: Stale
     pending.set(k, accountValue(k) ?? mine);
   }
   schedule(300);
+  return true;
+}
+
+/* A key that is not a list (VERSION_KEYS), put back from the outbox, that another device saved after this browser's
+   copy was made: the server keeps its newer copy and this browser takes it (a design sent is kept as the designer's
+   draft first), and the page says some changes were not saved. False as for mergeStale: it stays in the outbox. */
+function takeTheirs(who: string | null, k: string, sent: string, theirs: Stale): boolean {
+  const owner = follow(who);
+  if (!owner || signedInAs() !== owner || halted) return false;
+  writeBases(owner, { [k]: { v: theirs.v, m: {} } });
+  if (k === DESIGN_KEY && accountValue(k) === sent) keepRefusedDesign(sent);
+  if (restoreAccountValue(k, typeof theirs.value === "string" ? theirs.value : null, sent)) showAgain(k);
+  refused("stale");
+  return true;
 }
 
 function put(set: Record<string, string>, remove: string[], owner: string | null): Promise<Reply> {
@@ -454,21 +543,37 @@ function put(set: Record<string, string>, remove: string[], owner: string | null
 async function request(set: Record<string, string>, remove: string[], owner: string | null): Promise<Reply> {
   /* the session is gone: nothing is sent (it stays in the outbox) */
   if (halted) return null;
-  /* each list names the version of the server's copy it goes on from */
-  const bases = owner ? readBases(owner) : {};
-  const base = Object.fromEntries(Object.keys(set).filter((k) => LIST_KEYS.has(k) && bases[k]).map((k) => [k, bases[k].v]));
+  /* the account's email now (it may have changed since the save was taken: renameAccount) */
+  const me = follow(owner);
+  if (!me) return null;
+  /* each list names the version of the server's copy it goes on from, and so does a key that is not a list when it
+     comes from the outbox (see replay) */
+  const bases = readBases(me);
+  const based = (k: string) => !!bases[k] && (LIST_KEYS.has(k) || (VERSION_KEYS.has(k) && replay.has(k)));
+  const base = Object.fromEntries(Object.keys(set).filter(based).map((k) => [k, bases[k].v]));
   const body = JSON.stringify(Object.keys(base).length ? { set, remove, base } : { set, remove });
+  /* keepalive lets the request finish if the tab closes while it is on its way. Browsers allow it only while all such
+     requests still on their way carry at most 64 KiB together, counted in bytes (an Arabic letter takes 2): one that
+     does not fit goes the normal way (cut off by the closing tab, it stays in the outbox for the next load) */
+  const bytes = new TextEncoder().encode(body).length;
+  const keepalive = keptAlive + bytes <= KEEPALIVE_MAX;
+  if (keepalive) keptAlive += bytes;
   try {
-    /* keepalive lets the request finish if the tab closes while it is on its way; browsers allow it only for small
-       bodies (a bigger one cut off by the closing tab stays in the outbox and goes on the next load) */
-    const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json", ...accountHeader(owner) }, body, keepalive: body.length < 60_000, credentials: "same-origin" });
+    const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json", [CLIENT_HEADER]: "1", ...accountHeader(me) }, body, keepalive, credentials: "same-origin" });
     const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown; versions?: unknown; stale?: unknown; refused?: unknown };
     return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten: asObject(j.rewritten), versions: asObject(j.versions), stale: asObject(j.stale), refused: asObject(j.refused) };
   } catch {
     /* offline or the server is restarting */
     return null;
+  } finally {
+    if (keepalive) keptAlive -= bytes;
   }
 }
+
+/* the bytes of this page's keepalive requests still on their way (browsers allow 64 KiB in all; a little is left for
+   the page's other requests) */
+const KEEPALIVE_MAX = 60_000;
+let keptAlive = 0;
 
 /* What happened to a request: sent, worth trying again later, or refused for good */
 type Outcome = "ok" | "retry" | "stop";
@@ -523,19 +628,29 @@ function takeBackRefused(held: Record<string, Held> | undefined, sent: Record<st
   if (notReady) refused("not-ready");
 }
 
-function outcome(r: Reply, sent: Record<string, string>, owner: string | null = signedInAs()): Outcome {
+/* `keep` gets the keys that must stay waiting in the outbox although the server answered (a "changed elsewhere" answer
+   that came after this tab's account signed out); `removed`: the keys the save removed */
+function outcome(r: Reply, sent: Record<string, string>, owner: string | null = signedInAs(), keep?: Set<string>, removed: string[] = []): Outcome {
   if (!r) return "retry";
   if (r.status >= 200 && r.status < 300) {
-    /* the lists saved: their new version, and the marks of their items as saved */
+    const me = follow(owner);
+    /* the lists (and VERSION_KEYS) saved: their new version, and the marks of their items as saved */
     const kept: Record<string, Base> = {};
     for (const [k, v] of Object.entries(r.versions ?? {})) {
       if (typeof v !== "string" || typeof sent[k] !== "string") continue;
       staleTries.delete(k);
-      kept[k] = { v, m: listMarks(r.rewritten?.[k] ?? sent[k]) ?? {} };
+      kept[k] = { v, m: (LIST_KEYS.has(k) && listMarks(r.rewritten?.[k] ?? sent[k])) || {} };
     }
-    if (owner && Object.keys(kept).length) writeBases(owner, kept);
-    /* the lists not saved because another device changed them: merged and sent again */
-    for (const [k, st] of Object.entries(r.stale ?? {})) if (typeof sent[k] === "string" && st && typeof st.v === "string") mergeStale(owner, k, sent[k], st);
+    /* removed on the server: a later save of it must find none there */
+    for (const k of removed) if ((LIST_KEYS.has(k) || VERSION_KEYS.has(k)) && !r.refused?.[k]) kept[k] = { v: "", m: {} };
+    if (me && Object.keys(kept).length) writeBases(me, kept);
+    /* the lists not saved because another device changed them: merged and sent again; a key that is not a list takes
+       the server's newer copy */
+    for (const [k, st] of Object.entries(r.stale ?? {})) {
+      if (typeof sent[k] !== "string" || !st || typeof st.v !== "string") continue;
+      const handled = LIST_KEYS.has(k) ? mergeStale(owner, k, sent[k], st) : takeTheirs(owner, k, sent[k], st);
+      if (!handled) keep?.add(k);
+    }
     /* the server kept some values with their pictures as files: this browser keeps that smaller copy, unless the page
        changed the key again since */
     for (const [k, v] of Object.entries(r.rewritten ?? {})) {
@@ -564,6 +679,8 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
   }
   /* the browser's session is now another account's (signed in from another tab): the same, never a refusal to show */
   if (r.status === 409 && r.result === "other-account") {
+    /* sent under the account's old email just before it changed (renameAccount): the same account, sent again */
+    if (owner && follow(owner) !== owner && follow(owner) === signedInAs()) return "retry";
     lostSession();
     return "retry";
   }
@@ -582,7 +699,7 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
      Signing out is fine: its session still holds until logOut has waited for this. */
   const stillOwner = () => {
     const now = signedInAs();
-    return !halted && (now === owner || now === null);
+    return !halted && (now === follow(owner) || now === null);
   };
   const newer = (k: string) => pending.has(k) || (latest.get(k) ?? 0) > n;
   /* some keys were put back to wait for their pictures */
@@ -595,7 +712,7 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
       batch.forEach((v, k) => {
         if (v !== null && holdsPictures(k, v)) {
           batch.delete(k);
-          if (!pending.has(k)) pending.set(k, v);
+          putBack(owner, k, v);
         }
       });
       if (pending.size) schedule(1_500);
@@ -617,7 +734,7 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
     batch.forEach((v, k) => {
       if (v !== null && v.length > WAIT_OVER && v.includes("data:image/")) {
         batch.delete(k);
-        if (!pending.has(k)) pending.set(k, v);
+        putBack(owner, k, v);
         wait = true;
       }
     });
@@ -625,6 +742,13 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
       failures++;
       schedule(Math.min(60_000, 2_000 * 2 ** failures));
     }
+  }
+  /* the saves of one key reach the server in order: a request still carrying one of these keys (an older value: a quick
+     save as the tab hid does not wait in line with the others) is answered first */
+  const ahead = new Set(Array.from(batch.keys(), (k) => onTheWay.get(k)).filter((p): p is Promise<Reply> => !!p));
+  if (ahead.size) {
+    await Promise.all(Array.from(ahead));
+    if (!stillOwner()) return;
   }
   /* a key changed again while the pictures were going: its newer value goes with the next save instead */
   Array.from(batch.keys()).forEach((k) => newer(k) && batch.delete(k));
@@ -644,8 +768,10 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
       /* taken by a later save while the ones before it went (saveNow): that one sends it */
       const ks = keys.filter((k) => !newer(k));
       if (!ks.length) return;
-      const o = outcome(await put(Object.fromEntries(Object.entries(s).filter(([k]) => ks.includes(k))), r.filter((k) => ks.includes(k)), owner), s, owner);
-      ks.forEach((k) => (o === "retry" ? again.add(k) : settle(owner, k, sent.get(k))));
+      const rm = r.filter((k) => ks.includes(k));
+      const keep = new Set<string>();
+      const o = outcome(await put(Object.fromEntries(Object.entries(s).filter(([k]) => ks.includes(k))), rm, owner), s, owner, keep, rm);
+      ks.forEach((k) => (o === "retry" ? again.add(k) : !keep.has(k) && settle(owner, k, sent.get(k))));
     };
     /* closing: all at once, there may be no time to wait; otherwise in order */
     if (quick) await Promise.all(asks.map(run));
@@ -655,11 +781,14 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
   if (size > SPLIT && batch.size > 1) await oneByOne();
   else {
     const r = await put(set, remove, owner);
-    /* refused for its size or form with several keys in it: each key on its own, so only the one at fault is refused */
-    if (r && (r.status === 400 || r.status === 413) && batch.size > 1) await oneByOne();
-    else if (outcome(r, set, owner) === "retry") batch.forEach((_, k) => again.add(k));
+    /* refused with several keys in it, for one key's fault (its size or form, a store link taken or reserved) or for a
+       reason that may be one key's (403): each key on its own, so only the one at fault is refused and the rest is kept */
+    const oneKeys = !!r && (r.status === 400 || r.status === 413 || r.status === 403 || (r.status === 409 && (r.result === "slug-taken" || r.result === "slug-reserved")));
+    const keep = new Set<string>();
+    if (oneKeys && batch.size > 1) await oneByOne();
+    else if (outcome(r, set, owner, keep, remove) === "retry") batch.forEach((_, k) => again.add(k));
     /* kept, or refused for good (already said): either way no longer waiting */
-    else batch.forEach((_, k) => settle(owner, k, sent.get(k)));
+    else batch.forEach((_, k) => !keep.has(k) && settle(owner, k, sent.get(k)));
   }
 
   if (!again.size) {
@@ -668,7 +797,7 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
     return;
   }
   /* put them back (anything changed since is newer and wins) and try again a little later */
-  again.forEach((k) => !newer(k) && pending.set(k, batch.get(k) ?? null));
+  again.forEach((k) => !newer(k) && putBack(owner, k, batch.get(k) ?? null));
   failures++;
   schedule(Math.min(60_000, 2_000 * 2 ** failures));
 }
@@ -699,6 +828,7 @@ export function dropSaves(o: { keepOutbox?: boolean } = {}) {
   timer = null;
   pending = new Map();
   marks.clear();
+  replay.clear();
   halted = false;
   resumed = null;
   const me = signedInAs();
@@ -724,9 +854,10 @@ export async function saveNow(key: string, before: string): Promise<boolean> {
   /* changed again meanwhile (another tab), or another account signed in: that save is the one that counts */
   if (signedInAs() !== owner || pending.has(key) || latest.get(key) !== n) return true;
   const set: Record<string, string> = value === null ? {} : { [key]: value };
-  const o = outcome(await put(set, value === null ? [key] : [], owner), set, owner);
-  /* the session is gone: the tab leaves, and the change waits in the outbox for this account's next sign-in */
-  if (halted) return false;
+  const keep = new Set<string>();
+  const o = outcome(await put(set, value === null ? [key] : [], owner), set, owner, keep, value === null ? [key] : []);
+  /* the session is gone (or signed out while it went): the change waits in the outbox for this account's next sign-in */
+  if (halted || keep.has(key)) return false;
   /* kept, or not kept and not tried again (it is undone below): no longer waiting */
   settle(owner, key, mark);
   if (o === "ok") return true;

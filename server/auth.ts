@@ -226,11 +226,17 @@ export function renewCookie(res: NextResponse, req: NextRequest) {
     so a tab still open on the account signed in before could otherwise save that account's data under the new one. */
 export const ACCOUNT_HEADER = "x-dukkan-account";
 
-/** True when the request names another account than the session's (answer 409 { result: "other-account" }). Without
-    the header (a tab opened before it existed) it is not refused. */
+/** The header every save of the dashboard sends since 2026-11-19 (components/serverSync.ts CLIENT_HEADER). Such a page
+    always names its account as well, so a request with this one and without the account is refused like another
+    account's: it can only be a save left over from an account that is no longer signed in there. */
+export const CLIENT_HEADER = "x-dukkan-client";
+
+/** True when the request names another account than the session's (answer 409 { result: "other-account" }), or names
+    none although it comes from a page that always names one (CLIENT_HEADER). Without either header (a tab opened before
+    they existed) it is not refused, so a tab left open from before keeps saving. */
 export function otherAccount(req: NextRequest, a: { id: string; email: string }): boolean {
   const h = req.headers.get(ACCOUNT_HEADER);
-  if (h === null) return false;
+  if (h === null) return req.headers.get(CLIENT_HEADER) !== null;
   let named: string;
   try {
     named = decodeURIComponent(h).trim().toLowerCase();

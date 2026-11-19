@@ -13,7 +13,7 @@ import { ACCOUNT_LIMITS, cleanProfile, DOB_MIN, dobError, passwordError, type Pr
 import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { accountData, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
 import { merchantCall, onServer } from "./merchantApi";
-import { flushSaves } from "./serverSync";
+import { flushSaves, pauseSaves, renameAccount } from "./serverSync";
 import { TwoStepSettings } from "./TwoStepSettings";
 import { dropUndos, offerUndo, sameJson } from "./undo";
 import type { Lang } from "./content";
@@ -64,13 +64,14 @@ function keepProfile(clean: Profile) {
 }
 
 /* The browser keeps a signed-in account's store under its email (demoSandbox.ts): a new email moves it there, so the
-   pages keep finding it. The server keeps the store under the account itself, so nothing changes there. */
-async function moveStoreTo(email: string) {
-  await flushSaves();
+   pages keep finding it, with the changes still waiting to go and the saved versions of its lists (serverSync.ts
+   renameAccount). The server keeps the store under the account itself, so nothing changes there. */
+function moveStoreTo(from: string, email: string) {
   const data = accountData();
   replaceAccountData({});
   signInAs(email);
   replaceAccountData(data);
+  renameAccount(from, email);
 }
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 const field =
@@ -246,17 +247,26 @@ export function Settings() {
           setConfirm("");
         }
         const before = signedInAs();
-        /* the password as it is now: the new one when it was just changed above */
-        const r = await merchantCall("/api/account", "PUT", identity ? { ...clean, password: changing ? next : current } : clean);
-        if (r?.data.result === "password-needed") return void showErrors({ current: l.needCurrent });
-        if (r?.data.result === "wrong-password") return void showErrors({ current: l.wrongCurrent });
-        if (r?.data.result === "taken") return void showErrors({ email: l.takenEmail });
-        if (r?.data.result === "taken-phone") return void showErrors({ phone: l.takenPhone });
-        if (r?.data.result === "invalid") return void showErrors({ name: s.errors.name });
-        if (r?.status === 429) return flash(l.slow, 5000);
-        if (r?.status !== 200 || !r.data.profile) return flash(l.failed, 5000);
-        clean = cleanProfile(r.data.profile);
-        if (before && clean.email !== before) await moveStoreTo(clean.email);
+        /* a new email: the changes waiting go first, under the email the server still has, and nothing more is sent
+           until this browser follows the change (a save naming the old email would be refused as another account's) */
+        const renaming = !!before && clean.email !== before;
+        if (renaming) await flushSaves();
+        const resume = renaming ? pauseSaves() : () => {};
+        try {
+          /* the password as it is now: the new one when it was just changed above */
+          const r = await merchantCall("/api/account", "PUT", identity ? { ...clean, password: changing ? next : current } : clean);
+          if (r?.data.result === "password-needed") return void showErrors({ current: l.needCurrent });
+          if (r?.data.result === "wrong-password") return void showErrors({ current: l.wrongCurrent });
+          if (r?.data.result === "taken") return void showErrors({ email: l.takenEmail });
+          if (r?.data.result === "taken-phone") return void showErrors({ phone: l.takenPhone });
+          if (r?.data.result === "invalid") return void showErrors({ name: s.errors.name });
+          if (r?.status === 429) return flash(l.slow, 5000);
+          if (r?.status !== 200 || !r.data.profile) return flash(l.failed, 5000);
+          clean = cleanProfile(r.data.profile);
+          if (before && clean.email !== before) moveStoreTo(before, clean.email);
+        } finally {
+          resume();
+        }
       } finally {
         setSaving(false);
       }

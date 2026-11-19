@@ -10,7 +10,10 @@ import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, type 
 import { readyToSell, type SellNeed } from "@/components/safeOrder";
 import { cleanThemeState, themeOwner } from "@/server/themeOwnership";
 import { valueVersion } from "@/server/storeVersion";
-import { LIST_KEYS } from "@/components/listMerge";
+import { LIST_KEYS, VERSION_KEYS } from "@/components/listMerge";
+
+/* the keys whose save may name the version it was made from (see PUT "base") */
+const VERSIONED = (k: string) => LIST_KEYS.has(k) || VERSION_KEYS.has(k);
 
 export const dynamic = "force-dynamic";
 
@@ -90,7 +93,7 @@ export const GET = guarded(async (req: NextRequest) => {
   const versions: Record<string, string> = {};
   for (const r of rows) {
     data[r.key] = r.value;
-    if (LIST_KEYS.has(r.key)) versions[r.key] = valueVersion(r.value);
+    if (VERSIONED(r.key)) versions[r.key] = valueVersion(r.value);
   }
   const rev = rows.length ? Number(rows[0].rev) : await onlineRev(pool, a.id);
   return answer({ result: "ok", data, rev, versions });
@@ -112,10 +115,12 @@ export const PUT = guarded(async (req: NextRequest) => {
   for (const [k, v] of set) if (!okKey(k) || typeof v !== "string") return answer({ result: "invalid" }, 400);
   for (const k of remove) if (typeof k !== "string" || !okKey(k)) return answer({ result: "invalid" }, 400);
   /* the version each list's copy came from ("" when the browser had none on the server): a list changed since is not
-     saved, and the answer gives it as it is now ("stale"), for the browser to merge with its own and send again */
+     saved, and the answer gives it as it is now ("stale"), for the browser to merge with its own and send again. The
+     setup, design, pause and themes (VERSION_KEYS) name one only when the browser sends a change it kept waiting from
+     before (its outbox): one another device saved since is not kept either, and the browser takes the server's copy. */
   const base: Record<string, string> = {};
   if (body.base && typeof body.base === "object" && !Array.isArray(body.base))
-    for (const [k, v] of Object.entries(body.base as Record<string, unknown>)) if (LIST_KEYS.has(k) && typeof v === "string" && v.length <= 64) base[k] = v;
+    for (const [k, v] of Object.entries(body.base as Record<string, unknown>)) if (VERSIONED(k) && typeof v === "string" && v.length <= 64) base[k] = v;
   const online = set.filter(([k]) => (ONLINE_KEYS as readonly string[]).includes(k));
 
   /* pictures still inside the data become files, before anything is measured */
@@ -278,7 +283,7 @@ export const PUT = guarded(async (req: NextRequest) => {
   touchShop(a.id);
   /* the new version of each list saved, for the browser's next save of it */
   const versions: Record<string, string> = {};
-  for (const [k, v] of set) if (LIST_KEYS.has(k)) versions[k] = valueVersion(v as string);
+  for (const [k, v] of set) if (VERSIONED(k)) versions[k] = valueVersion(v as string);
   return answer({
     result: "ok",
     ...(Object.keys(rewritten).length ? { rewritten } : {}),
