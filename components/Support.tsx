@@ -18,6 +18,7 @@ import { usePageTitle } from "./pageTitle";
 import { pageText, useMerchant } from "./FromDukkan";
 import type { MerchantPage } from "./dukkanPages";
 import { replyWithin, usePublicSettings } from "./platformPublic";
+import { signedInAs } from "./demoSandbox";
 
 /* Support tickets. Signed in (and not in the tour), tickets go to Dukkan (app/api/tickets): the list comes from the
    server, a ticket opens as a conversation with Dukkan's replies, and the merchant answers there. In the tour or signed
@@ -64,8 +65,13 @@ const picIcon = <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke=
    closes at once, a bar says it is being sent, and Undo opens the form again with everything still in it. */
 const HOLD_MS = 3000;
 /* a ticket that could not be sent after its page was left: kept for this browser session, and the form opens with it
-   the next time the Support page is opened */
+   the next time the Support page is opened. The tab's storage is not kept per account (only localStorage is, see
+   demoSandbox.ts installAccounts), so each account's draft has its own key and names the account that wrote it ("" signed
+   out or in the tour). It is only ever brought back for that account: someone else signing in on this tab never sees
+   it, nor writes over it. */
 const DRAFT_KEY = "seen-ticket-draft";
+const draftOwner = () => signedInAs() ?? "";
+const draftKey = (owner: string) => `${DRAFT_KEY}:${owner}`;
 const holdWords = {
   en: { sending: "Sending your ticket…", undo: "Undo" },
   ar: { sending: "جارٍ إرسال تذكرتك…", undo: "تراجع" },
@@ -117,10 +123,13 @@ export function Support() {
   /* a ticket that could not be sent after the page was left (DRAFT_KEY): the form opens with it and says so */
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(DRAFT_KEY);
+      const key = draftKey(draftOwner());
+      const raw = sessionStorage.getItem(key);
       if (!raw) return;
-      sessionStorage.removeItem(DRAFT_KEY);
       const d = JSON.parse(raw) as Record<string, unknown>;
+      /* never another account's words (a key written by hand, say) */
+      if (d.owner !== draftOwner()) return;
+      sessionStorage.removeItem(key);
       if (typeof d.subject !== "string" || typeof d.message !== "string") return;
       setSubject(d.subject.slice(0, ACCOUNT_LIMITS.subject));
       setMessage(d.message.slice(0, ACCOUNT_LIMITS.message));
@@ -257,19 +266,22 @@ export function Support() {
     setHolding(false);
     let id: string;
     if (server) {
+      /* the account it is sent as, taken now: the browser may be signed out (or into another account) by the time the
+         answer comes */
+      const owner = draftOwner();
       setBusy(true);
       const r = await createTicket({ subject: cleanLine(subject, ACCOUNT_LIMITS.subject), category, message: cleanLines(message, ACCOUNT_LIMITS.message), pictures, kind: "support" });
       setBusy(false);
       if (!r.ok) {
         /* not sent, and he has left the page meanwhile: his words are kept, and the form opens with them next time */
         if (!alive.current) {
-          const draft = { subject, category, message };
+          const draft = { owner, subject, category, message };
           try {
-            sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, pictures }));
+            sessionStorage.setItem(draftKey(owner), JSON.stringify({ ...draft, pictures }));
           } catch {
             try {
               /* the pictures did not fit: the words alone */
-              sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+              sessionStorage.setItem(draftKey(owner), JSON.stringify(draft));
             } catch {
               /* storage unavailable */
             }
