@@ -7,7 +7,8 @@ import { load as loadPages, pagesScope, starterPages } from "../InfoPages";
 import type { PublicStoreOpen } from "../publicStore";
 import { useVisitorStore } from "./visitorStore";
 import type { SectionConfig } from "./config";
-import { isUnlimited, money, productId, productSizes, salePrice, sellableStock, type Payment, type SizeStock } from "../safeOrder";
+import { checkoutShipMode, isUnlimited, money, productId, productSizes, salePrice, sellableStock, type Payment, type SizeStock } from "../safeOrder";
+import { storeIsLive } from "./storage";
 import { safeStoredImage } from "../safe";
 import { noPhotoHue } from "./NoPhoto";
 import { productCategories } from "../records";
@@ -233,7 +234,8 @@ function build(lang: Lang, sample: boolean, visitor: PublicStoreOpen | null = nu
       return ship?.mode === "own" ? ship.fee ?? "ask" : null;
     })(),
     ownCities: (visitor ? visitor.setup.shipping : loadSetup()?.shipping)?.cities,
-    shipMode: (visitor ? visitor.setup.shipping : loadSetup()?.shipping)?.mode ?? null,
+    /* his own preview of a live store goes by the same rule as its checkout: no choice saved, Dukkan Ship (checkoutShipMode) */
+    shipMode: visitor ? visitor.setup.shipping?.mode ?? null : loadSetup()?.shipping?.mode ?? (storeIsLive() ? checkoutShipMode(loadSetup()) : null),
     ...(() => {
       const pays = visitor ? visitor.setup.pays : loadSetup()?.pays;
       return pays ? { pays } : {};

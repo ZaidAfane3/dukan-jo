@@ -23,8 +23,11 @@ type Row = {
   paused: boolean;
   ship_mode: string;
   product_count: number;
-  order_count: number;
-  total_sales: string;
+  /* through the store page (counted by the server) and added by the merchant himself (server/shops.ts STORE_PAGE_SQL) */
+  store_orders: number;
+  store_sales: string;
+  hand_orders: number;
+  hand_sales: string;
   last_seen_at: string | null;
   created_at: string;
 };
@@ -85,7 +88,7 @@ export default function ShopsPage() {
       return;
     }
     downloadCsv(`dukkan-stores-${new Date().toISOString().slice(0, 10)}.csv`, [
-      ["id", "store", "link", "owner", "email", "phone", "status", "setup", "published", "dukkan ship", "products", "orders", "total sales JOD", "last seen", "signed up"],
+      ["id", "store", "link", "owner", "email", "phone", "status", "setup", "published", "dukkan ship", "products", "store page orders", "store page sales JOD", "orders added by merchant", "sales added by merchant JOD", "last seen", "signed up"],
       ...(j.rows as Row[]).map((r) => [
         r.id,
         r.name,
@@ -96,10 +99,12 @@ export default function ShopsPage() {
         r.status,
         `${r.setup_done}/6`,
         r.published ? "yes" : "no",
-        r.ship_mode === "seen" ? "yes" : "no",
+        r.ship_mode === "seen" ? "yes" : r.ship_mode === "" && r.published ? "yes (default, not chosen)" : "no",
         r.product_count,
-        r.order_count,
-        r.total_sales,
+        r.store_orders,
+        r.store_sales,
+        r.hand_orders,
+        r.hand_sales,
         r.last_seen_at ?? "",
         r.created_at,
       ]),
@@ -185,8 +190,8 @@ export default function ShopsPage() {
             { value: "seen", label: t("Last seen", "آخر ظهور") },
             { value: "name", label: t("Name", "الاسم") },
             { value: "products", label: t("Products", "المنتجات") },
-            { value: "orders", label: t("Orders", "الطلبات") },
-            { value: "sales", label: t("Total sales", "إجمالي المبيعات") },
+            { value: "orders", label: t("Orders through the store page", "الطلبات عبر صفحة المتجر") },
+            { value: "sales", label: t("Sales through the store page", "المبيعات عبر صفحة المتجر") },
           ]}
         />
       </div>
@@ -203,8 +208,8 @@ export default function ShopsPage() {
                 t("Owner", "المالك"),
                 t("Status", "الحالة"),
                 t("Products", "المنتجات"),
-                t("Orders", "الطلبات"),
-                t("Total sales", "إجمالي المبيعات"),
+                t("Orders (store page / added)", "الطلبات (صفحة المتجر / مضافة)"),
+                t("Sales (store page / added)", "المبيعات (صفحة المتجر / مضافة)"),
                 t("Dates", "التواريخ"),
               ]}
               empty={
@@ -259,8 +264,15 @@ export default function ShopsPage() {
                     </p>
                   </td>
                   <td className={`${td} whitespace-nowrap tabular-nums`}>{f.num(r.product_count)}</td>
-                  <td className={`${td} whitespace-nowrap tabular-nums`}>{f.num(r.order_count)}</td>
-                  <td className={`${td} whitespace-nowrap tabular-nums`}>{f.jod(r.total_sales)}</td>
+                  {/* through the store page, and under it what the merchant added himself */}
+                  <td className={`${td} whitespace-nowrap tabular-nums`}>
+                    {f.num(r.store_orders)}
+                    <p className="mt-0.5 text-xs text-muted">{t("Added", "مضافة")} {f.num(r.hand_orders)}</p>
+                  </td>
+                  <td className={`${td} whitespace-nowrap tabular-nums`}>
+                    {f.jod(r.store_sales)}
+                    <p className="mt-0.5 text-xs text-muted">{t("Added", "مضافة")} {f.jod(r.hand_sales)}</p>
+                  </td>
                   <td className={`${td} whitespace-nowrap text-xs`}>
                     <p>
                       <span className="text-muted">{t("Seen", "ظهر")}</span> {f.ago(r.last_seen_at)}

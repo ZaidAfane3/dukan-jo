@@ -859,7 +859,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       </div>
       <div role="radiogroup" aria-label={w.pay}>
         <p className={s.label}>{w.pay}</p>
-        {!pays.length && <p role="alert" className="text-sm text-rose-600">{w.noPay}</p>}
+        {/* no way to pay: said once, above the order button (cantOrder) */}
         <div className={`grid gap-2 ${pays.length === 1 ? "grid-cols-1" : pays.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
           {pays.map((k) => (
             <button key={k} type="button" role="radio" aria-checked={pay === k} onClick={() => setPay(k)} className={choice(pay === k)}>

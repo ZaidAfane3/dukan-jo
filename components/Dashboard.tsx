@@ -8,7 +8,8 @@ import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./Reports";
 import { demoActive } from "./demoSandbox";
 import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";
-import { SellNeeds, sellWords, storeLiveNow, useSellReady } from "./ReadyToSell";
+import { shipServes, usePublicSettings } from "./platformPublic";
+import { liveMissing, SellNeeds, sellWords, ShipDefaultNote, storeLiveNow, useSellReady } from "./ReadyToSell";
 import { cleanOrder, money, parseList, typedMoney } from "./records";
 import { Skeleton } from "./Skeleton";
 import { latestOrders, ordersReport, rangeSpan, salesFigures, salesSeries } from "./storeNumbers";
@@ -167,6 +168,12 @@ export function Dashboard() {
   const [liveNow, setLiveNow] = useState(false);
   /* the store is published but paused (under maintenance): said at the top, so he never forgets it is closed */
   const [paused, setPaused] = useState(false);
+  /* his Dukkan Ship pickup city as saved ("" when he does not use Dukkan Ship): a city Diwan took off the list is said here
+     too, not only on Delivery options (the bell tells him once) */
+  const [shipCity, setShipCity] = useState("");
+  const platform = usePublicSettings();
+  /* live with no delivery choice saved: it delivers with Dukkan Ship by default (ReadyToSell shipsByDefault) */
+  const shipDefault = liveNow && sell.read && sell.shipDefault;
   const [goal, setGoal] = useState(0);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -187,6 +194,7 @@ export function Dashboard() {
   useEffect(() => {
     const s = loadSetup();
     setNoShipping(!s?.shipping);
+    setShipCity(s?.shipping?.mode === "seen" ? s.shipping.city : "");
     setLiveNow(storeLiveNow());
     if (s) {
       setName(s.name);
@@ -386,11 +394,23 @@ export function Dashboard() {
         {/* Not ready to sell: what is missing before the store can go live (the setup's own checklist), each a link to fix
             it on Delivery options. A store already live stays live (it is never taken offline for it): the same list
             then warns that customers can't complete an order, once Diwan's settings are in (a change there can cause it) */}
-        {!tour && setupRead && sell.read && !sell.ok && (!liveNow || sell.checked) && (
-          <SellNeeds lang={lang} missing={sell.missing} title={liveNow ? sellWords[lang].liveNotReady : undefined} />
+        {!tour && setupRead && sell.read && liveMissing(sell.missing, shipDefault).length > 0 && (!liveNow || sell.checked) && (
+          <SellNeeds lang={lang} missing={liveMissing(sell.missing, shipDefault)} title={liveNow ? sellWords[lang].liveNotReady : undefined} />
         )}
-        {/* ready to sell with pickup only: delivery is not offered until he chooses how he delivers */}
-        {!tour && setupRead && sell.ok && noShipping && (
+        {/* a live store that never chose how it delivers delivers with Dukkan Ship by default (pickup on or off): it says so
+            and asks him to choose, instead of "customers can't complete an order" */}
+        {!tour && setupRead && shipDefault && sell.checked && <ShipDefaultNote lang={lang} />}
+        {/* Dukkan Ship no longer picks up from his saved city: he chooses another on Delivery options */}
+        {!tour && setupRead && sell.checked && !shipServes(platform, shipCity) && (
+          <p role="alert" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">
+            {content[lang].onboarding.shipping.cityGone.split("{city}")[0]}
+            <bdi>{shipCity}</bdi>
+            {content[lang].onboarding.shipping.cityGone.split("{city}")[1] ?? ""}{" "}
+            <a href="/delivery" className="font-bold underline underline-offset-2">{lang === "ar" ? "خيارات التوصيل" : "Delivery options"}</a>
+          </p>
+        )}
+        {/* not live yet, ready to sell with pickup only: delivery is not offered until he chooses how he delivers */}
+        {!tour && setupRead && sell.ok && noShipping && !shipDefault && (
           <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">
             {lang === "ar" ? "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل." : "Customers can't order delivery until you choose how you deliver."}{" "}
             <a href="/delivery" className="font-bold underline underline-offset-2">{lang === "ar" ? "خيارات التوصيل" : "Delivery options"}</a>

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { dateLocale } from "../content";
 import { usePrefs } from "../Prefs";
 import { ArchOutline, type IconName } from "./icons";
@@ -60,6 +60,26 @@ export function useApi<T>(url: string | null): ApiState<T> {
 
 /** Sends a change to a Diwan API route. Resolves to the JSON answer and whether it worked. It never throws: with no
     connection it resolves to status 0 (like the sign-in form), so every page ends its "Saving…" and shows its message. */
+/** A form that makes something (an announcement, a pop-up, a page): `key()` is its request's key, the same for a repeat
+    of that request (a double click, a retry after a lost answer) and new once it was made (`made()`), so the server makes
+    it once (server/onceKey.ts); `begin()` is false while a save is already on its way (a second click does nothing), and
+    `end()` lets the next one go. */
+export function useCreateOnce() {
+  const key = useRef("");
+  const busy = useRef(false);
+  return {
+    key: () =>
+      (key.current ||= typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`),
+    made: () => {
+      key.current = "";
+    },
+    begin: () => !busy.current && (busy.current = true),
+    end: () => {
+      busy.current = false;
+    },
+  };
+}
+
 export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<{ ok: boolean; status: number; data: any }> {
   let r: Response;
   try {

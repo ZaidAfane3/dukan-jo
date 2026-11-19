@@ -46,10 +46,22 @@ async function call<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", b
 
 export const fetchTickets = () => call<{ tickets: ServerTicket[] }>("/api/tickets");
 export const fetchThread = (n: number) => call<{ ticket: Thread }>(`/api/tickets/${n}`);
+/* The same ticket sent twice (a double click, a retry after a lost answer) carries the same key, made from what it says,
+   so the server keeps one (server/onceKey.ts) */
+function ticketKey(t: { subject: string; category: number; message: string; pictures: string[]; kind?: string; where?: string }): string {
+  const text = JSON.stringify([t.subject, t.category, t.message, t.kind ?? "", t.where ?? "", t.pictures.length, t.pictures.map((p) => p.length)]);
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    a = Math.imul(a ^ text.charCodeAt(i), 16777619) >>> 0;
+    b = Math.imul(b + text.charCodeAt(i), 2246822507) >>> 0;
+  }
+  return `t${a.toString(36)}${b.toString(36)}${text.length.toString(36)}`;
+}
 /* opts.leaving: the page is being closed, so the ticket is sent to outlive it when it is small enough (with pictures it
    rarely is: the caller keeps a draft for that) */
 export const createTicket = (t: { subject: string; category: number; message: string; pictures: string[]; kind?: "support" | "bug" | "idea"; where?: string }, opts: { leaving?: boolean } = {}) =>
-  call<{ number: number }>("/api/tickets", "POST", t, { keepalive: opts.leaving });
+  call<{ number: number }>("/api/tickets", "POST", { ...t, requestKey: ticketKey(t) }, { keepalive: opts.leaving });
 export const replyTicket = (n: number, message: string, pictures: string[]) => call<{ status: MerchantStatus }>(`/api/tickets/${n}/reply`, "POST", { message, pictures });
 export const setTicketOpen = (n: number, open: boolean) => call<{ status: MerchantStatus }>(`/api/tickets/${n}`, "PATCH", { action: open ? "reopen" : "close" });
 export const pictureUrl = (n: number, id: string) => `/api/tickets/${n}/pictures/${id}`;

@@ -26,7 +26,7 @@ import { keepPicture } from "./media";
 import { merchantCall, onServer } from "./merchantApi";
 import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
 import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
-import { SellNeeds, sellWords, storeLiveNow, useSellReady } from "./ReadyToSell";
+import { liveMissing, SellNeeds, sellWords, ShipDefaultNote, storeLiveNow, useSellReady } from "./ReadyToSell";
 import { ProductPhoto } from "./storefront/NoPhoto";
 import { dropUndos, offerUndo } from "./undo";
 import { PRODUCT_MAX, typedMoney } from "./records";
@@ -1683,8 +1683,18 @@ function LiveMoment({ slug, name, chosen }: { slug: string; name: string; chosen
   };
   const ghost = "inline-flex h-11 items-center rounded-xl border border-primary/60 px-5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white";
   /* not ready to sell (safeOrder readyToSell): no "your store is live" yet, but what is missing, each a link to fix it.
-     A store already live stays live: the list then says customers can't complete an order */
-  if (sell.read && !sell.ok) return <SellNeeds lang={lang} missing={sell.missing} title={storeLiveNow() ? sellWords[lang].liveNotReady : undefined} className="mt-8" />;
+     A store already live stays live: the list then says customers can't complete an order, unless it delivers with
+     Dukkan Ship by default (ReadyToSell shipsByDefault): that is said instead, asking him to choose */
+  if (sell.read && !sell.ok) {
+    const live = storeLiveNow();
+    const missing = liveMissing(sell.missing, live && sell.shipDefault);
+    return (
+      <div className="mt-8 space-y-3">
+        {missing.length > 0 && <SellNeeds lang={lang} missing={missing} title={live ? sellWords[lang].liveNotReady : undefined} />}
+        {live && sell.shipDefault && <ShipDefaultNote lang={lang} />}
+      </div>
+    );
+  }
   return (
     <section className="mt-8 rounded-3xl border border-primary/40 bg-primary/5 p-6 text-center sm:p-8" aria-labelledby="ob-live-title">
       <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-primary text-white" aria-hidden>

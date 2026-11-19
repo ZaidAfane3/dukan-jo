@@ -385,6 +385,10 @@ export type Content = {
       /* Dukkan Ship delivered one of his orders, or could not ({note}: why, with its separator) */
       shipDelivered: string;
       shipFailed: string;
+      /* Dukkan Ship no longer picks up from his pickup city ({city}) */
+      shipCityGone: string;
+      /* Dukkan switched off the last way to pay his store had on */
+      payOff: string;
       statusWords: Record<string, string>;
       sep: string;
       announcement: string;
@@ -973,6 +977,8 @@ export const content: Record<Lang, Content> = {
         orderPlaced: "New test order #{number} from {name}: {total} JOD, not paid",
         shipDelivered: "Dukkan Ship delivered order #{number}",
         shipFailed: "Dukkan Ship couldn't deliver order #{number}{note}",
+        shipCityGone: "Dukkan Ship no longer picks up from {city}. Choose another pickup city on Delivery options so your orders can be collected.",
+        payOff: "Dukkan switched off a way to pay your store used, so customers can't complete an order now. Turn on another way to pay.",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
@@ -1556,6 +1562,8 @@ export const content: Record<Lang, Content> = {
         orderPlaced: "طلب تجريبي جديد رقم {number} من {name}: {total} د.أ، غير مدفوع",
         shipDelivered: "سلّم شحن دكّان الطلب رقم {number}",
         shipFailed: "تعذّر على شحن دكّان تسليم الطلب رقم {number}{note}",
+        shipCityGone: "لم يعد شحن دكان يستلم الطلبات من {city}. اختر مدينة استلام أخرى في خيارات التوصيل ليتمكّن من استلام طلباتك.",
+        payOff: "أوقف دكّان طريقة دفع كان متجرك يستخدمها، لذلك لا يستطيع العملاء إتمام الطلب الآن. فعّل طريقة دفع أخرى.",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
         announcement: "من دكّان",

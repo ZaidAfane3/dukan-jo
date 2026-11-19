@@ -17,7 +17,7 @@ import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs } from "./par
 import { dropUndos, offerUndo, valueUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
-import { sellCheck, sellWords, storeLiveNow } from "./ReadyToSell";
+import { sellCheck, sellWords, shipsByDefault, storeLiveNow } from "./ReadyToSell";
 
 /* The delivery options a merchant chose in setup. Until now there was no place to change them. With his own delivery
    partner he can also add or remove the partner's proof here, the same files as in the setup's shipping step: they go
@@ -224,7 +224,8 @@ export function Delivery() {
           <div>
             <h1 className="text-lg font-extrabold">{w.title}</h1>
             <p className="mt-1 text-sm text-muted">{w.sub}</p>
-            {ready && !setup?.shipping && <p className="mt-3 rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{w.notSet}</p>}
+            {/* no choice saved: a live store delivers with Dukkan Ship by default until he chooses (ReadyToSell shipsByDefault) */}
+            {ready && !setup?.shipping && <p className="mt-3 rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{storeLiveNow() && checked && shipsByDefault(platform, setup) ? sellWords[lang].shipDefault : w.notSet}</p>}
             {mode && hasErrors(errors) && <div className="mt-3"><RequiredNote text={requiredNote[lang]} show /></div>}
           </div>
 

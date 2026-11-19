@@ -7,7 +7,7 @@ import { HomeSketch, MockDashboard, PreviewPanel, Screens, type Look } from "@/c
 import { AnnouncementCard } from "@/components/AnnouncementBanner";
 import { content } from "@/components/content";
 import { RunTabs, StartAgain, type RunView } from "@/components/diwan/pastRuns";
-import { area, Badge, Btn, card, field, Loaded, LoadMore, PageHead, reachOf, SavedNote, send, useApi, useFmt, useJustSaved, useMore, useStaff, useT, type Tone } from "@/components/diwan/ui";
+import { area, Badge, Btn, card, field, Loaded, LoadMore, PageHead, reachOf, SavedNote, send, useApi, useCreateOnce, useFmt, useJustSaved, useMore, useStaff, useT, type Tone } from "@/components/diwan/ui";
 import { AnnouncementsSkeleton } from "@/components/diwan/skeletons";
 
 /* Announcements to merchants: written in English and Arabic, for everyone, or chosen shops, shown in the
@@ -235,6 +235,7 @@ function Summary({ r, shops, past }: { r: Row; shops: ShopNames; past?: boolean 
 function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: (id: string | null, body: Body, row: Row | null) => void }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
+  const once = useCreateOnce();
   const [err, setErr] = useState("");
   /* a message about the form goes as soon as the form is changed: it may be fixed now, and Publish checks again */
   useEffect(() => setErr(""), [form]);
@@ -253,6 +254,8 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    /* a second click while it is being saved does nothing; a new one is made once (useCreateOnce) */
+    if (!once.begin()) return;
     setErr("");
     const body: Body = {
       titleEn: form.titleEn, titleAr: form.titleAr, bodyEn: form.bodyEn, bodyAr: form.bodyAr, audience: audienceBody(form.audience), banner: form.banner,
@@ -260,8 +263,10 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
       endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
     };
     setBusy(true);
-    const r = form.id ? await send(`/api/diwan/announcements/${form.id}`, "PUT", body) : await send("/api/diwan/announcements", "POST", body);
+    const r = form.id ? await send(`/api/diwan/announcements/${form.id}`, "PUT", body) : await send("/api/diwan/announcements", "POST", { ...body, requestKey: once.key() });
     setBusy(false);
+    once.end();
+    if (r.ok && !form.id) once.made();
     if (!r.ok) return setErr(fields[r.data?.field] ?? t("It was not saved. Try again.", "لم يُحفظ. حاول مرة أخرى."));
     /* an edit keeps its id; a new one has the id the server answered with */
     onSaved(form.id ?? (r.data?.id ? String(r.data.id) : null), body, (r.data?.row as Row | undefined) ?? null);

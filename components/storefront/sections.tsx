@@ -3026,12 +3026,13 @@ function collectionItems(s: Settings<"collection">, data: PartData): StoreProduc
   const picked = (s.productIds ?? []).map((id) => data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
   return (picked.length ? picked : data.isDemo ? data.products : []).slice(0, s.count);
 }
-/** Featured products: the ones he picked for it, in his order; none picked: the ones marked featured (or, with none, all),
-    those that can be bought now first */
+/** Featured products: the ones he picked for it, in his order; none picked: the ones marked featured, those that can be
+    bought now first. None of either: nothing (customers don't see the block; the designer says to pick or mark some),
+    never every product under "Featured"; only the sample products of a preview fill it. */
 function featuredItems(s: Settings<"featured">, data: PartData): StoreProduct[] {
   const picked = (s.productIds ?? []).map((id) => data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
   const featured = data.products.filter((p) => p.featured);
-  return (picked.length ? picked : buyableFirst(featured.length ? featured : data.products)).slice(0, s.count);
+  return (picked.length ? picked : buyableFirst(featured.length ? featured : data.isDemo ? data.products : [])).slice(0, s.count);
 }
 /** Deals: the products with a discounted price, those that can be bought now first */
 function discountItems(s: Settings<"discounts">, data: PartData): StoreProduct[] {

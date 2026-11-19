@@ -23,6 +23,25 @@ function rememberProfile(a: PublicAccount) {
   }
 }
 
+/* Whether this tab was signed in to an account: its profile is kept here from the sign-in until a log out (forgetProfile) */
+function tabHadAccount(): boolean {
+  try {
+    return sessionStorage.getItem("seen-account-profile") !== null;
+  } catch {
+    return false;
+  }
+}
+
+/* A log out forgets the profile, so this tab no longer names the account (tabHadAccount) */
+function forgetProfile() {
+  try {
+    sessionStorage.removeItem("seen-account-phone");
+    sessionStorage.removeItem("seen-account-profile");
+  } catch {
+    /* storage blocked */
+  }
+}
+
 /** A call to the server: its answer, or null when it could not be reached */
 async function call(path: string, method: "GET" | "POST", body?: unknown): Promise<{ status: number; reply: Reply } | null> {
   try {
@@ -171,6 +190,7 @@ export async function logOut(): Promise<void> {
   /* another tab of this account may take over at once; the tab lease cookies go with the account (oneTab.ts) */
   releaseTab(true);
   signInAs(null);
+  forgetProfile();
   await sending;
   try {
     sessionStorage.removeItem(SYNCED);
@@ -313,7 +333,14 @@ export async function syncOnOpen() {
   if (checked || demoActive() || window.location.pathname.startsWith("/diwan")) return;
   checked = true;
   const email = signedInAs();
-  if (!email) return;
+  if (!email) {
+    /* the browser names no account, but this tab still does (its profile, kept until a log out): its session ended
+       without a log out here (a suspension signed it out, then Dukkan reactivated the store; another tab signed out).
+       A dashboard page then never shows the empty store of no account under that name: it goes to sign in, like any
+       ended session */
+    if (tabHadAccount() && onDashboard(window.location.pathname)) leaveForSignIn();
+    return;
+  }
   watchSession();
   /* not the account's active Dukkan tab (oneTab.ts): it loads and sends nothing until "Use here", which loads it again */
   if (tabState() === "inactive") return;

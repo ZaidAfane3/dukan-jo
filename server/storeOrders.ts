@@ -86,7 +86,7 @@ function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number
 }
 
 /** The ways to pay the store checkout offers now (Diwan's platform settings), as the cart names them */
-function storePaysFrom(methods: Record<string, { on: boolean }>): Payment[] {
+export function storePaysFrom(methods: Record<string, { on: boolean }>): Payment[] {
   return (["cliq", "cash", "card"] as const).filter((p) => methods[p === "cash" ? "cod" : p]?.on);
 }
 
@@ -200,7 +200,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
        chose (orderPays) */
     const setup = cleanSetup(parse(data.get("seen-setup")));
     const ship = settings.dukkan_ship;
-    /* no delivery choice yet: home delivery is not offered (pickup only, when he offers it) */
+    /* no delivery choice saved (a store from before one was asked for): Dukkan Ship, as it did then (checkoutShipMode) */
     const offer = storeDelivery(checkoutShipMode(setup), { price: ship.price, cities: { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) } }, setup?.shipping ?? {});
     const pickup = setup?.pickup === true;
     const pays = orderPays(storePaysFrom(settings.payment_methods as unknown as Record<string, { on: boolean }>), setup?.pays);

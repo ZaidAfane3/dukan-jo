@@ -17,7 +17,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ slug: stri
   try {
     const store = await publicStore(p.slug);
     if (!store) return NextResponse.json({ result: "none" }, { status: 404, headers });
-    return NextResponse.json({ result: "ok", store }, { headers });
+    /* a store Dukkan suspended says so in a header too, so middleware.ts can give its page a 404 without reading the body
+       (the answer itself stays 200 "unavailable": an open store page reads it to show the notice) */
+    return NextResponse.json({ result: "ok", store }, { headers: store.status === "unavailable" ? { ...headers, "X-Store-Status": "unavailable" } : headers });
   } catch (e) {
     console.error("[public store]", p.slug, e);
     return NextResponse.json({ result: "error" }, { status: 503, headers: { "Cache-Control": "no-store" } });

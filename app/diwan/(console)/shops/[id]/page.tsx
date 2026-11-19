@@ -39,6 +39,11 @@ type Shop = {
   /* order_count and total_sales are the merchant's Home's numbers (his own orders and his store page's, no test orders) */
   /* of order_count, the orders customers placed on its public page */
   storefront_orders: number;
+  /* the same apart: through the store page (store_orders) and added by the merchant (his saved orders) */
+  store_orders?: number;
+  store_sales?: string;
+  hand_orders?: number;
+  hand_sales?: string;
   /* card and CliQ orders placed on its page while payment is not open: test orders, in neither number */
   storefront_test?: number;
   /* visitors of its store at its link over the last 30 days (each day's visitors added up) */
@@ -279,7 +284,9 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 {d.theme && <ThemeLine theme={d.theme} link={!!d.can.themes} />}
                 <Line k={t("Paused for maintenance", "متوقف للصيانة")} v={sh.paused ? t("Yes", "نعم") : t("No", "لا")} />
-                {/* the way it delivers, as the merchant chose it: Dukkan Ship, its own courier (by name), pickup only, or none yet */}
+                {/* the way it delivers, as the merchant chose it: Dukkan Ship, its own courier (by name), pickup only, or none yet.
+                    A live store with no choice saved (from before one was asked for) delivers with Dukkan Ship by default
+                    (safeOrder checkoutShipMode, server/shops.ts SHIP_SQL), pickup on or off */}
                 <Line
                   k={t("Delivery", "التوصيل")}
                   v={(() => {
@@ -290,7 +297,9 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                           ? sh.ship_name
                             ? t(`Own courier: ${sh.ship_name}`, `مندوب خاص: ${sh.ship_name}`)
                             : t("Own courier", "مندوب خاص")
-                          : null;
+                          : sh.published
+                            ? t("Dukkan Ship (default, not chosen)", "شحن دكّان (تلقائي، لم يُختر)")
+                            : null;
                     if (way) return sh.pickup ? `${way}${t(" · pickup too", " · والاستلام من المتجر")}` : way;
                     return sh.pickup ? t("Pickup only", "استلام من المتجر فقط") : t("Not chosen yet", "لم يُختر بعد");
                   })()}
@@ -309,11 +318,14 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
               <Info title={t("Status and numbers", "الحالة والأرقام")}>
                 <Line k={t("Status", "الحالة")} v={<StatusBadge status={sh.status} />} />
                 <Line k={t("Products", "المنتجات")} v={f.num(sh.product_count)} />
-                <Line k={t("Orders", "الطلبات")} v={f.num(sh.order_count)} />
-                <Line k={t("Of them, from its store page", "منها من صفحة المتجر")} v={f.num(sh.storefront_orders ?? 0)} />
+                {/* two figures, each labelled: what came through the store page (counted by Dukkan's server) and what the
+                    merchant added himself (server/shops.ts STORE_PAGE_SQL) */}
+                <Line k={t("Orders through the store page", "الطلبات عبر صفحة المتجر")} v={f.num(sh.store_orders ?? 0)} />
+                <Line k={t("Orders the merchant added", "طلبات أضافها التاجر")} v={f.num(sh.hand_orders ?? 0)} />
                 {(sh.storefront_test ?? 0) > 0 && <Line k={t("Test orders not counted", "طلبات تجريبية غير محسوبة")} v={f.num(sh.storefront_test ?? 0)} />}
                 <Line k={t("Visitors, last 30 days", "الزوار، آخر 30 يومًا")} v={f.num(sh.visitors_30 ?? 0)} />
-                <Line k={t("Total sales", "إجمالي المبيعات")} v={f.jod(sh.total_sales)} />
+                <Line k={t("Sales through the store page", "المبيعات عبر صفحة المتجر")} v={f.jod(sh.store_sales ?? "0")} />
+                <Line k={t("Sales the merchant added", "مبيعات أضافها التاجر")} v={f.jod(sh.hand_sales ?? "0")} />
                 {/* a date, or why there is none: none yet, or some counted without the date of the first being recorded */}
                 <Line
                   k={t("First product", "أول منتج")}
@@ -325,8 +337,8 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 <p className="pt-2 text-xs text-muted">
                   {t(
-                    "The same numbers as the merchant's Home: card and CliQ test orders are not counted, and total sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
-                    "نفس أرقام الصفحة الرئيسية للتاجر: الطلبات التجريبية بالبطاقة وكليك غير محسوبة، وإجمالي المبيعات هو الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
+                    "Store page figures are counted by Dukkan from the orders customers placed; added figures are the orders the merchant added himself, which Dukkan can't check. Card and CliQ test orders are not counted, and sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
+                    "أرقام صفحة المتجر يحسبها دكّان من الطلبات التي قدّمها العملاء، والأرقام المضافة هي طلبات أضافها التاجر بنفسه ولا يستطيع دكّان التحقق منها. الطلبات التجريبية بالبطاقة وكليك غير محسوبة، والمبيعات هي الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
                   )}
                 </p>
               </Info>

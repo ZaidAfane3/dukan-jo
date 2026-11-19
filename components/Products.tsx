@@ -700,9 +700,10 @@ export function Products() {
 
             {shown.length === 0 ? (
               <div className="px-5 py-14 text-center">
-                <p className="font-bold">{items.length === 0 ? p.empty : p.noMatch}</p>
-                {items.length === 0 && <p className="mx-auto mt-1 max-w-xs text-sm text-muted">{p.emptyHint}</p>}
-                {items.length === 0 && (
+                {/* "no match" only when something was searched: an empty filter (Deleted products) says what it holds */}
+                <p className="font-bold">{items.length === 0 && filter !== "deleted" ? p.empty : query.trim() ? p.noMatch : filter === "deleted" ? p.binEmpty : p.noneHere}</p>
+                {items.length === 0 && filter !== "deleted" && <p className="mx-auto mt-1 max-w-xs text-sm text-muted">{p.emptyHint}</p>}
+                {items.length === 0 && filter !== "deleted" && (
                   <button type="button" onClick={openNew} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">
                     {p.newProduct}
                   </button>

@@ -216,8 +216,8 @@ function PriceCard({ d, onSaved }: { d: Data; onSaved: () => void }) {
           {history.map((h) => (
             <li key={h.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5">
               <span className="font-semibold tabular-nums">
-                {f.jod(h.from)} <span aria-hidden className="text-muted rtl:inline-block rtl:-scale-x-100">→</span>
-                <span className="sr-only">{t(" to ", " إلى ")}</span> {f.jod(h.to)}
+                {/* one arrow, read out as "to" (never the arrow and the word both) */}
+                {f.jod(h.from)} <span role="img" aria-label={t("to", "إلى")} className="text-muted rtl:inline-block rtl:-scale-x-100">→</span> {f.jod(h.to)}
               </span>
               <span className="text-muted">{h.by ?? t("Someone removed", "عضو محذوف")}</span>
               <span className="text-muted">{f.dateTime(h.at)}</span>

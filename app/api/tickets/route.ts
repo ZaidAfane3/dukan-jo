@@ -4,6 +4,7 @@ import { db } from "@/server/db";
 import { addMessage, checkPictures, inTransaction, merchantRoute, merchantStatus } from "@/server/tickets";
 import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS, TICKET_MIN } from "@/components/safeAccount";
+import { onceByKey } from "@/server/onceKey";
 
 export const dynamic = "force-dynamic";
 
@@ -61,13 +62,16 @@ export const POST = merchantRoute(async (req, me) => {
   const pictures = checkPictures(body.pictures);
   if (!pictures) return answer({ result: "bad", field: "pictures" }, 400);
 
-  const number = await inTransaction(async (c) => {
-    const { rows } = await c.query(
-      `INSERT INTO tickets (account_id, kind, category, subject, where_text) VALUES ($1, $2, $3, $4, $5) RETURNING id, number`,
-      [me.id, kind, category, seal(subject), seal(where)],
-    );
-    await addMessage(c, String(rows[0].id), { author: "merchant", body: message, pictures });
-    return Number(rows[0].number);
+  /* sent twice (a double click, a retry after a lost answer) with the same key: one ticket (server/onceKey.ts) */
+  return onceByKey(`ticket:${me.id}`, body.requestKey, async () => {
+    const number = await inTransaction(async (c) => {
+      const { rows } = await c.query(
+        `INSERT INTO tickets (account_id, kind, category, subject, where_text) VALUES ($1, $2, $3, $4, $5) RETURNING id, number`,
+        [me.id, kind, category, seal(subject), seal(where)],
+      );
+      await addMessage(c, String(rows[0].id), { author: "merchant", body: message, pictures });
+      return Number(rows[0].number);
+    });
+    return answer({ result: "ok", number });
   });
-  return answer({ result: "ok", number });
 });
