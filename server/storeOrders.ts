@@ -1,15 +1,16 @@
 import type { PoolClient } from "pg";
 import { STATUS_KEYS, type StatusKey } from "@/components/ordersContent";
-import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as recordMoney, parseList, type Coupon, type CouponRefusal } from "@/components/records";
-import { safeStoredImage, SLUG_RULE } from "@/components/safe";
+import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as recordMoney, orderMatches, parseList, PRODUCT_MAX, type Coupon, type CouponRefusal } from "@/components/records";
+import { cleanLine, safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import {
-  checkCheckout, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productSizes, salePrice, sellableStock, takeStock, toFils, money,
+  checkCheckout, checkoutShipMode, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productShips, productSizes, salePrice, sellableStock, stockNotBack, stockTaken, takeStock, toFils, money,
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
+import { highestOrderNumber, lastOrderNumber, ORDER_NUMBER_KEY, ORDER_NUMBER_START } from "@/components/orderNumbers";
 import { plainDeep, plainText, seal } from "./crypto";
 import { db } from "./db";
-import { notify } from "./notify";
+import { emailNotice, notify } from "./notify";
 import { readSettings } from "./settings";
 
 /* Orders customers place on a store's public page (app/[slug], POST /api/public/store/<slug>/orders), kept in
@@ -63,11 +64,13 @@ async function findShop(q: { query: PoolClient["query"] }, slug: unknown): Promi
 /* only an open store takes orders: not suspended by Dukkan, published, not paused by the merchant */
 const isOpen = (s: Shop) => s.status !== "suspended" && s.published && !s.paused;
 
-/** The products customers can buy (not in the bin, not hidden), as the cart prices them */
-function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number, string> } {
+/** The products customers can buy (not in the bin, not hidden), as the cart prices them. `noShip`: the ones that are not
+    delivered to an address (safeOrder productShips: a digital product, a service, or "Needs shipping" off). */
+function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number, string>; noShip: Set<number> } {
   const list = Array.isArray(products) ? products.filter(isObj) : [];
   const catalog: Sellable[] = [];
   const images = new Map<number, string>();
+  const noShip = new Set<number>();
   const seen = new Set<number>();
   for (const p of list) {
     if (p.deletedAt || p.hidden) continue;
@@ -76,16 +79,17 @@ function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number
     seen.add(id);
     const price = money(p.price);
     const sizes = productSizes(p);
-    catalog.push({ id, name: String(p.name ?? ""), price, sale: salePrice(price, p.sale), quantity: sellableStock(p), ...(sizes.length ? { sizes } : {}) });
+    catalog.push({ id, name: cleanLine(p.name, PRODUCT_MAX.name) || "—", price, sale: salePrice(price, p.sale), quantity: sellableStock(p), ...(sizes.length ? { sizes } : {}) });
+    if (!productShips(p)) noShip.add(id);
     /* the picture the merchant sees on the order: a file's address only, never picture data kept inside the product */
     const img = Array.isArray(p.images) ? safeStoredImage(p.images[0]) : "";
     if (img && !img.startsWith("data:") && img.length <= 300) images.set(id, img);
   }
-  return { catalog, images };
+  return { catalog, images, noShip };
 }
 
 /** The ways to pay the store checkout offers now (Diwan's platform settings), as the cart names them */
-function storePaysFrom(methods: Record<string, { on: boolean }>): Payment[] {
+export function storePaysFrom(methods: Record<string, { on: boolean }>): Payment[] {
   return (["cliq", "cash", "card"] as const).filter((p) => methods[p === "cash" ? "cod" : p]?.on);
 }
 
@@ -112,7 +116,13 @@ export type PlacedOrder = {
   /* delivered by his own courier with no fee set: none is in the total and the receipt says the store confirms it (never
      "Free"). Left out on an order sent again after its answer was lost (the cart then keeps what it showed). */
   feeOpen?: boolean;
+  /* a big order (more than BIG_ORDER_ITEMS pieces): it waits for the store to confirm it ("review"), its stock held */
+  review?: boolean;
 };
+
+/** An order with more pieces than this waits for the merchant to confirm it: it is placed as "review" (Awaiting review),
+    its stock is taken (held) as for any order, and goes back if he cancels it (cancelling gives stock back). */
+export const BIG_ORDER_ITEMS = 7;
 
 /** What the cart works the delivery and the discount out from, as the store has them now: sent back with a "changed"
     answer, so a customer whose page has older ones (a new delivery fee, offer or coupon) sees the right total */
@@ -136,6 +146,33 @@ export type PlaceResult =
   | { status: 409; body: { result: "changed"; items: PricedLine[]; total?: number; terms: Terms } }
   | { status: 409; body: { result: "coupon"; why: CouponRefusal } }
   | { status: 200; body: { result: "ok"; order: PlacedOrder } };
+
+/** The order a checkout's key placed at this store, as the checkout shows it, or null */
+async function orderByAttempt(c: PoolClient, account: string, key: string): Promise<PlacedOrder | null> {
+  const done = await c.query(
+    `SELECT number, items, subtotal, discount, delivery_fee, total, coupon, fulfil, payment_method, status FROM store_orders WHERE account_id = $1 AND attempt_key = $2`,
+    [account, key],
+  );
+  const o = done.rows[0];
+  if (!o) return null;
+  const items = (Array.isArray(o.items) ? o.items : []).map((it: Record<string, unknown>) => ({ id: Number(it.id), name: String(it.name ?? ""), qty: Number(it.qty), price: Number(it.price), ...(typeof it.size === "string" && it.size ? { size: it.size } : {}) }));
+  return { number: Number(o.number), items, subtotal: Number(o.subtotal), discount: Number(o.discount), delivery: Number(o.delivery_fee), total: Number(o.total), coupon: o.coupon ?? null, fulfil: o.fulfil === "pickup" ? "pickup" : "delivery", pay: o.payment_method as Payment, ...(o.status === "review" ? { review: true } : {}) };
+}
+
+/** Whether the order a checkout's key was sent with got in (a page reloaded while it was on its way: Cart keptAttempt).
+    Only reads: nothing is placed. */
+export async function findStoreAttempt(slug: unknown, key: unknown): Promise<{ status: 200; body: { result: "ok"; order: PlacedOrder } | { result: "not-placed" } } | { status: 400 | 404; body: { result: "invalid" | "none" } }> {
+  if (typeof key !== "string" || !ATTEMPT.test(key)) return { status: 400, body: { result: "invalid" } };
+  const c = await (await db()).connect();
+  try {
+    const shop = await findShop(c, slug);
+    if (!shop) return { status: 404, body: { result: "none" } };
+    const o = await orderByAttempt(c, shop.account_id, key);
+    return { status: 200, body: o ? { result: "ok", order: o } : { result: "not-placed" } };
+  } finally {
+    c.release();
+  }
+}
 
 /** Runs fn in a transaction: on the client given (a caller's transaction, left open), else on a new one */
 async function inTransaction<T>(client: PoolClient | undefined, fn: (c: PoolClient) => Promise<T>): Promise<T> {
@@ -165,9 +202,16 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
   const customer = isObj(body.customer) ? body.customer : {};
   const couponCode = typeof body.coupon === "string" ? body.coupon.slice(0, 40) : "";
   const attempt = typeof body.attempt === "string" && ATTEMPT.test(body.attempt) ? body.attempt : null;
+  /* the key of an order that was on its way when the page was reloaded (Cart keptAttempt). The basket may have changed
+     since (the stock it took makes the reloaded page cut it), so this send has a new key: if that earlier order got in,
+     it is the answer, never a second order */
+  const previous = typeof body.previous === "string" && ATTEMPT.test(body.previous) && body.previous !== attempt ? body.previous : null;
   const settings = await readSettings(["payment_methods", "dukkan_ship"] as const);
 
-  return inTransaction(client, async (c) => {
+  /* the owner's email about the order: sent once the order is committed (on a caller's client, the caller's COMMIT
+     comes later, so no email from here) */
+  const after: { notice?: () => void } = {};
+  const placed = await inTransaction(client, async (c): Promise<PlaceResult> => {
     const found = await findShop(c, slug);
     if (!found) return { status: 404, body: { result: "none" } };
     /* one order at a time per shop: the stock read below is the stock this order takes from */
@@ -177,20 +221,13 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     if (!shop) return { status: 404, body: { result: "none" } };
     const id = shop.account_id;
     /* this checkout's order is already in (its answer was lost): the same order again, whatever changed since */
-    if (attempt) {
-      const done = await c.query(
-        `SELECT number, items, subtotal, discount, delivery_fee, total, coupon, fulfil, payment_method FROM store_orders WHERE account_id = $1 AND attempt_key = $2`,
-        [id, attempt],
-      );
-      const o = done.rows[0];
-      if (o) {
-        const items = (Array.isArray(o.items) ? o.items : []).map((it: Record<string, unknown>) => ({ id: Number(it.id), name: String(it.name ?? ""), qty: Number(it.qty), price: Number(it.price), ...(typeof it.size === "string" && it.size ? { size: it.size } : {}) }));
-        return { status: 200, body: { result: "ok", order: { number: Number(o.number), items, subtotal: Number(o.subtotal), discount: Number(o.discount), delivery: Number(o.delivery_fee), total: Number(o.total), coupon: o.coupon ?? null, fulfil: o.fulfil === "pickup" ? "pickup" : "delivery", pay: o.payment_method as Payment } } };
-      }
+    for (const key of [attempt, previous]) {
+      const o = key ? await orderByAttempt(c, id, key) : null;
+      if (o) return { status: 200, body: { result: "ok", order: o } };
     }
     if (!isOpen(shop)) return { status: 409, body: { result: "closed" } };
 
-    const keys = ["seen-setup", "seen-products", "seen-freedelivery", "seen-orders", ...(couponCode ? ["seen-coupons"] : [])];
+    const keys = ["seen-setup", "seen-products", "seen-freedelivery", "seen-orders", ORDER_NUMBER_KEY, ...(couponCode ? ["seen-coupons"] : [])];
     const saved = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[]) FOR UPDATE`, [id, keys]);
     const data = new Map<string, string>(saved.rows.map((r: { key: string; value: string }) => [r.key, r.value]));
 
@@ -199,16 +236,25 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
        chose (orderPays) */
     const setup = cleanSetup(parse(data.get("seen-setup")));
     const ship = settings.dukkan_ship;
-    /* no delivery choice yet: home delivery is not offered (pickup only, when he offers it) */
-    const offer = storeDelivery(setup?.shipping?.mode, { price: ship.price, cities: { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) } }, setup?.shipping ?? {});
+    /* no delivery choice saved (a store from before one was asked for): Dukkan Ship, as it did then (checkoutShipMode) */
+    const offer = storeDelivery(checkoutShipMode(setup), { price: ship.price, cities: { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) } }, setup?.shipping ?? {});
     const pickup = setup?.pickup === true;
     const pays = orderPays(storePaysFrom(settings.payment_methods as unknown as Record<string, { on: boolean }>), setup?.pays);
     /* the store's choices as they are now, sent with a refusal: he may have changed his cities, delivery, pickup or ways
        to pay while the customer had the page open, so the cart offers these instead and the next try can go through
        (cities null: no home delivery) */
     const choices = { cities: offer ? offer.cities : null, pickup, pays };
-    if (!offer && !(pickup && customer.fulfil === "pickup")) return { status: 409, body: { result: "no-delivery", pickup, choices } };
-    const checked = checkCheckout(customer, { pickup, delivery: !!offer, pays, cities: offer?.cities });
+    /* every price and the stock from the shop's saved products, never from the customer's browser */
+    const products = parse(data.get("seen-products"));
+    const { catalog, images, noShip } = catalogOf(products);
+    /* a cart of only products that are not delivered (codes, gift cards, services: safeOrder productShips) has no
+       delivery: no fee, no city or address, and no delivery choice needed. One product that ships: as usual. */
+    const ships = (lines as { id?: unknown }[]).some((l) => {
+      const pid = productId(l?.id);
+      return pid === null || !noShip.has(pid);
+    });
+    if (ships && !offer && !(pickup && customer.fulfil === "pickup")) return { status: 409, body: { result: "no-delivery", pickup, choices } };
+    const checked = checkCheckout(customer, { pickup, delivery: !!offer, pays, cities: offer?.cities, ships });
     if (!checked.ok) return { status: 400, body: { result: "invalid", fields: checked.errors, ...(checked.errors.some((f) => f === "city" || f === "pay" || f === "fulfil") ? { choices } : {}) } };
 
     /* delivery: free above the store's free delivery amount, for pickup and with a free delivery coupon; otherwise the
@@ -218,12 +264,10 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const freeDelivery = { on: isObj(fd) && fd.on === true, min: fdMin !== null && fdMin > 0 ? fdMin : 25 };
     /* his own courier with no fee ever set (setup leaves it out): no fee is charged and the checkout says the store
        confirms it, never "Free"; a fee he set (0 included) is charged as set */
+    /* (sent as the store has it also with a cart that is not delivered: the cart charges it only when something ships) */
     const fee = offer ? offer.fee : 0;
     const terms: Terms = { fee, freeDelivery };
 
-    /* every price and the stock from the shop's saved products, never from the customer's browser */
-    const products = parse(data.get("seen-products"));
-    const { catalog, images } = catalogOf(products);
     const priced = priceCart(lines as { id: unknown; qty: unknown; size?: unknown }[], catalog);
     if (priced.changed || priced.items.length === 0) return { status: 409, body: { result: "changed", items: priced.items, terms } };
 
@@ -234,7 +278,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     if (couponCode.trim()) {
       const coupons = parseList(data.get("seen-coupons") ?? null, cleanCoupon);
       const cp = checkCoupon(couponCode, coupons, priced.subtotal);
-      if (!cp.ok) return { status: 409, body: { result: "coupon", why: cp.why } };
+      if (!cp.ok) return { status: 409, body: { result: "coupon", why: publicRefusal(cp.why) } };
       discount = cp.discount;
       freeByCoupon = cp.freeDelivery;
       couponUsed = cp.coupon.code;
@@ -242,52 +286,77 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     } else terms.coupon = null;
 
     const v = checked.value;
-    const delivery = (freeDelivery.on && priced.subtotal >= freeDelivery.min) || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
+    const delivery = !ships || (freeDelivery.on && priced.subtotal >= freeDelivery.min) || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
     const total = toFils(priced.subtotal - discount + delivery);
     /* the customer was shown another total (a price or the delivery changed since the page opened): he looks again */
     const expect = typeof body.expect === "number" && Number.isFinite(body.expect) ? body.expect : null;
     if (expect !== null && Math.abs(expect - total) > 0.0005) return { status: 409, body: { result: "changed", items: priced.items, total, terms } };
 
-    /* the order number goes on from the shop's own orders (those he added by hand or from his preview) and its earlier
-       store orders, so the merchant never sees two orders with one number */
+    /* the order number goes on from the last number the shop ever gave (components/orderNumbers.ts: never lowered by a
+       deletion), the shop's own orders (those he added by hand or from his preview) and its earlier store orders, so the
+       merchant never sees two orders with one number, and the last number is raised with it */
     const own = parse(data.get("seen-orders"));
-    const ownMax = Array.isArray(own) ? own.reduce((m: number, x) => (isObj(x) && typeof x.id === "number" && Number.isSafeInteger(x.id) && x.id < 1e9 ? Math.max(m, x.id) : m), 1000) : 1000;
     const last = await c.query(`SELECT COALESCE(MAX(number), 0) AS n FROM store_orders WHERE account_id = $1`, [id]);
-    const number = Math.max(ownMax, Number(last.rows[0].n)) + 1;
+    const number = Math.max(ORDER_NUMBER_START, lastOrderNumber(parse(data.get(ORDER_NUMBER_KEY))), Array.isArray(own) ? highestOrderNumber(own) : 0, Number(last.rows[0].n)) + 1;
 
-    const items = priced.items.map((it) => ({ ...it, ...(images.has(it.id) ? { image: images.get(it.id) } : {}) }));
+    /* each line keeps how many pieces it really took out of the stock (none from a product with no limit), so a cancel
+       gives back exactly that (setStoreOrderStatus) */
+    const items = stockTaken(Array.isArray(products) ? products : [], priced.items.map((it) => ({ ...it, ...(images.has(it.id) ? { image: images.get(it.id) } : {}) }))).lines;
+    /* who takes it to the customer, kept as it is now (the merchant may change his delivery later): the same rule as the
+       fee above (checkoutShipMode), so an order charged Dukkan Ship's price is one Dukkan Ship delivers (Diwan > Dukkan
+       Ship > Orders) */
+    /* who takes it to the customer; nothing to deliver (A2: only codes, services...): nobody, so it never reaches
+       Dukkan Ship's To deliver list */
+    const big = items.reduce((n, it) => n + Number(it.qty || 0), 0) > BIG_ORDER_ITEMS;
+    const shipBy = !ships ? "none" : v.fulfil === "pickup" ? "pickup" : checkoutShipMode(setup) === "own" ? "own" : "dukkan";
     await c.query(
       `INSERT INTO store_orders (account_id, number, items, subtotal, discount, delivery_fee, total, coupon, fulfil,
-                                 customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17)`,
+                                 customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key, ship_by, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17, $18, $19)`,
       [
         /* the lines (product names, sizes) and the coupon code are the shop's own words, kept unsealed: made safe first */
         id, number, JSON.stringify(plainDeep(items)), priced.subtotal, discount, delivery, total, plainText(couponUsed), v.fulfil,
         /* the customer's details are private: sealed, and opened again only for the shop's own owner (GET /api/orders) */
         seal(v.customer), v.phone ? seal(v.phone) : null, v.email ? seal(v.email) : null,
-        v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt,
+        v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt, shipBy, big ? "review" : "pending",
       ],
     );
 
     /* what was bought leaves the shop's saved stock, and the coupon counts one more use, in this same transaction; both
        are counted as online sales too (see above) */
-    if (Array.isArray(products)) await writeKey(c, id, "seen-products", JSON.stringify(takeStock(products, items, { online: true })));
+    if (Array.isArray(products)) await writeKey(c, id, "seen-products", JSON.stringify(takeStock(products, items.map((it) => ({ ...it, qty: it.took })), { online: true })));
     if (couponUsed) {
       const list = parse(data.get("seen-coupons"));
       if (Array.isArray(list)) await writeKey(c, id, "seen-coupons", JSON.stringify(countCouponUse(list, couponUsed, { online: true })));
     }
 
+    await c.query(
+      `INSERT INTO store_data (account_id, key, value, plain_len) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (account_id, key) DO UPDATE SET value = EXCLUDED.value, plain_len = EXCLUDED.plain_len, updated_at = now()`,
+      [id, ORDER_NUMBER_KEY, seal(String(number)), String(number).length],
+    );
+
     /* the merchant's bell: kept only if the order is */
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);
+    after.notice = () => emailNotice(id, "orderPlaced", { number, total: total.toFixed(3) });
 
-    const feeOpen = fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !(freeDelivery.on && priced.subtotal >= freeDelivery.min);
-    return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen } } };
+    const feeOpen = ships && fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !(freeDelivery.on && priced.subtotal >= freeDelivery.min);
+    return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen, ...(big ? { review: true } : {}) } } };
   });
+  if (!client && placed.status === 200) after.notice?.();
+  return placed;
 }
 
 /* saves one key of the shop's data the way PUT /api/store does: sealed, with its plain length for the size limit */
 async function writeKey(c: PoolClient, accountId: string, key: string, value: string) {
   await c.query(`UPDATE store_data SET value = $3, plain_len = $4, updated_at = now() WHERE account_id = $1 AND key = $2`, [accountId, key, seal(value), value.length]);
+}
+
+/** Why a code is refused, as a customer may be told: a code that does not exist, is paused, not started, ended or
+    used up all answer "unknown", so trying codes can't find which ones are real. Only "min" stays apart: the cart
+    needs it, and it comes only after a code that works. */
+function publicRefusal(why: CouponRefusal): CouponRefusal {
+  return why === "min" ? "min" : "unknown";
 }
 
 /** A coupon code a customer types on the store's page, checked against the shop's coupons (switched on, inside its
@@ -301,7 +370,7 @@ export async function checkStoreCoupon(slug: unknown, code: unknown): Promise<{ 
   const { rows } = await pool.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-coupons'`, [shop.account_id]);
   const coupons = parseList((rows[0]?.value as string | undefined) ?? null, cleanCoupon);
   const cp = checkCoupon(code, coupons, Number.MAX_SAFE_INTEGER);
-  if (!cp.ok) return { status: 200, body: { result: "refused", why: cp.why } };
+  if (!cp.ok) return { status: 200, body: { result: "refused", why: publicRefusal(cp.why) } };
   /* only the terms the cart works the discount out from */
   return { status: 200, body: { result: "ok", coupon: couponTerms(cp.coupon) } };
 }
@@ -327,7 +396,12 @@ export type MerchantStoreOrder = {
   created: number;
   /* "paid": a cash order marked delivered; "test": nothing paid yet (cash still to come, or card/CliQ: nothing charged) */
   payment: "test" | "unpaid" | "paid";
+  /* only on an order Dukkan Ship delivers: where its delivery is (staff mark it in Diwan), why not delivered, and when */
+  ship?: { state: ShipState; note?: string; at?: number };
 };
+
+export type ShipState = "waiting" | "delivered" | "failed";
+const SHIP_STATES: ShipState[] = ["waiting", "delivered", "failed"];
 
 /* one store order as the merchant's Orders page reads it */
 function merchantRow(r: Record<string, any>): MerchantStoreOrder {
@@ -350,11 +424,14 @@ function merchantRow(r: Record<string, any>): MerchantStoreOrder {
     created: new Date(r.created_at).getTime(),
     /* worked out from the status and the way to pay, so a cash order delivered before 'paid' was kept reads paid too */
     payment: r.payment_method === "cash" && r.status === "delivered" ? "paid" : r.payment_status === "unpaid" ? "unpaid" : "test",
+    ...(r.ship_by === "dukkan"
+      ? { ship: { state: (SHIP_STATES.includes(r.ship_state) ? r.ship_state : "waiting") as ShipState, ...(r.ship_state === "failed" && r.ship_note ? { note: String(r.ship_note) } : {}), ...(r.ship_at ? { at: new Date(r.ship_at).getTime() } : {}) } }
+      : {}),
   };
 }
 
 const ROW = `id, number, created_at, status, items, subtotal, discount, delivery_fee, total, coupon, fulfil, customer_name, customer_phone,
-             customer_email, city, address, notes, payment_method, payment_status`;
+             customer_email, city, address, notes, payment_method, payment_status, ship_by, ship_state, ship_note, ship_at`;
 
 /** How many store orders the Orders page asks for at a time */
 export const ORDERS_PAGE = 100;
@@ -363,7 +440,7 @@ export const ORDERS_PAGE = 100;
     the order `before` (its server id). `next`: what to ask for the page after, or null when there is none; `total`:
     how many store orders the shop has, so the page can say how many it has not loaded yet. The customer's details come
     opened (db() opens them). `q`: a client inside a transaction (tests), else the pool. */
-export async function listStoreOrders(accountId: string, before: string | null = null, q?: { query: PoolClient["query"] }): Promise<{ orders: MerchantStoreOrder[]; next: string | null; total: number }> {
+export async function listStoreOrders(accountId: string, before: string | null = null, q?: { query: PoolClient["query"] }): Promise<{ orders: MerchantStoreOrder[]; next: string | null; total?: number }> {
   const pool = q ?? (await db());
   const older = before && /^\d{1,18}$/.test(before) ? before : null;
   const { rows } = await pool.query(
@@ -372,8 +449,34 @@ export async function listStoreOrders(accountId: string, before: string | null =
   );
   const more = rows.length > ORDERS_PAGE;
   const page = rows.slice(0, ORDERS_PAGE);
-  const count = await pool.query(`SELECT count(*)::int AS n FROM store_orders WHERE account_id = $1`, [accountId]);
-  return { orders: page.map(merchantRow), next: more ? String(page[page.length - 1].id) : null, total: Number(count.rows[0].n) };
+  /* the total only with the first page (later pages leave it out, and the page keeps the one it has) */
+  const total = older ? undefined : Number((await pool.query(`SELECT count(*)::int AS n FROM store_orders WHERE account_id = $1`, [accountId])).rows[0].n);
+  return { orders: page.map(merchantRow), next: more ? String(page[page.length - 1].id) : null, total };
+}
+
+/** Every store order of the shop at once, newest first, at most `max`: one query (the home page and Reports count them all) */
+export async function allStoreOrders(accountId: string, max = 10_000): Promise<MerchantStoreOrder[]> {
+  const { rows } = await (await db()).query(`SELECT ${ROW} FROM store_orders WHERE account_id = $1 ORDER BY id DESC LIMIT $2`, [accountId, max]);
+  return rows.map(merchantRow);
+}
+
+/** How many store orders the shop has in each status (the Orders page counts every order, not only the pages loaded) */
+export async function storeOrderCounts(accountId: string, q?: { query: PoolClient["query"] }): Promise<Record<string, number>> {
+  const { rows } = await (q ?? (await db())).query(`SELECT status, count(*)::int AS n FROM store_orders WHERE account_id = $1 GROUP BY status`, [accountId]);
+  return Object.fromEntries(rows.map((r: { status: string; n: number }) => [r.status, Number(r.n)]));
+}
+
+/** The shop's store orders that match a search (records.ts orderMatches: number, name, phone, email) and/or are in one
+    status, newest first, at most ORDERS_PAGE: the Orders page asks for them when it has not loaded every order. The
+    customer's details are sealed, so they are matched here after they are opened, over the shop's newest 5,000. */
+export async function findStoreOrders(accountId: string, query: string, status: string | null, q?: { query: PoolClient["query"] }): Promise<MerchantStoreOrder[]> {
+  const st = status && STATUS_KEYS.includes(status as StatusKey) ? status : null;
+  const text = query.trim().slice(0, 60);
+  const { rows } = await (q ?? (await db())).query(
+    `SELECT ${ROW} FROM store_orders WHERE account_id = $1${st ? " AND status = $3" : ""} ORDER BY id DESC LIMIT $2`,
+    st ? [accountId, text ? 5000 : ORDERS_PAGE, st] : [accountId, text ? 5000 : ORDERS_PAGE],
+  );
+  return rows.map(merchantRow).filter((x: MerchantStoreOrder) => orderMatches(x, text)).slice(0, ORDERS_PAGE);
 }
 
 /** One of the shop's store orders by its number (a link to an order that is not on the first page), or null */
@@ -385,25 +488,86 @@ export async function storeOrderByNumber(accountId: string, number: string, q?: 
 
 /* a cash order is paid once it is delivered (the courier took the cash, or the customer paid at pickup): marked 'paid'
    with the status, and back to 'test' when the status changes again (his undo included). Card and CliQ stay 'test'. */
-const PAID_SET = `payment_status = CASE WHEN payment_method = 'cash' AND $3::text = 'delivered' THEN 'paid'
+/** The SET part that keeps payment_status with a new status `p` (the query's parameter holding it): a cash order that is
+    delivered is paid; one that leaves delivered is not paid any more. Diwan's Dukkan Ship marks (server/shipOrders.ts) use it too. */
+export const paidSet = (p: string) => `payment_status = CASE WHEN payment_method = 'cash' AND ${p}::text = 'delivered' THEN 'paid'
                                         WHEN payment_status = 'paid' THEN 'test' ELSE payment_status END`;
+const PAID_SET = paidSet("$3");
 
-/** Changes the status of one of the shop's store orders. False when the shop has no such order. */
-/** `from` (optional): the status the order must still have, or nothing changes ("changed"). The Orders page's undo sends
-    it, so putting the old status back never overwrites a change made since (another tab, another device). */
-export async function setStoreOrderStatus(accountId: string, serverId: string, status: unknown, from?: unknown): Promise<"ok" | "none" | "invalid" | "changed"> {
-  if (!/^\d{1,18}$/.test(serverId)) return "none";
-  if (typeof status !== "string" || !STATUS_KEYS.includes(status as StatusKey)) return "invalid";
-  if (from !== undefined && (typeof from !== "string" || !STATUS_KEYS.includes(from as StatusKey))) return "invalid";
-  const pool = await db();
-  if (from === undefined) {
-    const r = await pool.query(`UPDATE store_orders SET status = $3, ${PAID_SET}, updated_at = now() WHERE id = $1 AND account_id = $2`, [serverId, accountId, status]);
-    return r.rowCount ? "ok" : "none";
-  }
-  const r = await pool.query(`UPDATE store_orders SET status = $3, ${PAID_SET}, updated_at = now() WHERE id = $1 AND account_id = $2 AND status = $4`, [serverId, accountId, status, from]);
-  if (r.rowCount) return "ok";
-  const still = await pool.query(`SELECT 1 FROM store_orders WHERE id = $1 AND account_id = $2`, [serverId, accountId]);
-  return still.rowCount ? "changed" : "none";
+/* an order holds the stock it took, unless it is cancelled or refunded */
+const holdsStock = (status: string) => status !== "cancelled" && status !== "refunded";
+
+/** A line of an order, as the merchant is told about it (a product short of stock, or pieces that could not go back) */
+export type StockLine = { name: string; qty: number; size?: string };
+
+export type StatusResult =
+  | { result: "ok"; notBack: StockLine[] }
+  | { result: "none" | "invalid" | "changed" }
+  | { result: "no-stock"; short: StockLine[] };
+
+/** Changes the status of one of the shop's store orders. "none" when the shop has no such order.
+    `from` (optional): the status the order must still have, or nothing changes ("changed"). The Orders page sends it
+    with every change, so a change (or an undo) never overwrites one made since (another tab, another device).
+    Stock: an order took its products out of the shop's stock when it was placed, and each line keeps how many it really
+    took (`took`, safeOrder stockTaken). Cancelling or refunding it gives back exactly that (and takes it off the
+    products' online sales count); a size renamed or removed since can't take it back, so nothing is added anywhere and
+    the answer names those lines (`notBack`) for the merchant to put right by hand. Moving it out of cancelled or refunded
+    again (an undo, a mistake put right) takes the stock again, and is refused ("no-stock", nothing changes) when a
+    product still in the shop no longer has enough (per size) for it. The coupon it used gives its use back and counts it
+    again the same way (records.ts countCouponUse). Done in one transaction with the status, under the shop's order lock,
+    so a customer's order placed at the same moment sees the stock either before or after it, never half. */
+export async function setStoreOrderStatus(accountId: string, serverId: string, status: unknown, from?: unknown): Promise<StatusResult> {
+  if (!/^\d{1,18}$/.test(serverId)) return { result: "none" };
+  if (typeof status !== "string" || !STATUS_KEYS.includes(status as StatusKey)) return { result: "invalid" };
+  if (from !== undefined && (typeof from !== "string" || !STATUS_KEYS.includes(from as StatusKey))) return { result: "invalid" };
+  return inTransaction(undefined, async (c): Promise<StatusResult> => {
+    await shopLock(c, accountId);
+    const cur = await c.query(`SELECT status, items, coupon FROM store_orders WHERE id = $1 AND account_id = $2 FOR UPDATE`, [serverId, accountId]);
+    const o = cur.rows[0] as { status: string; items: unknown; coupon: string | null } | undefined;
+    if (!o) return { result: "none" };
+    if (from !== undefined && o.status !== from) return { result: "changed" };
+    const held = holdsStock(o.status);
+    const holds = holdsStock(status);
+    let notBack: StockLine[] = [];
+    if (held !== holds) {
+      const items = Array.isArray(o.items) ? o.items : [];
+      const lines = items.flatMap((it: unknown, at: number) => {
+        if (!isObj(it)) return [];
+        const qty = typeof it.qty === "number" && Number.isSafeInteger(it.qty) && it.qty > 0 ? it.qty : 0;
+        /* an order placed before lines kept what they took: what it asked for (the stock it took then) */
+        const took = typeof it.took === "number" && Number.isSafeInteger(it.took) && it.took >= 0 ? Math.min(it.took, qty) : qty;
+        return qty > 0 ? [{ at, id: it.id, name: String(it.name ?? ""), qty, took, ...(typeof it.size === "string" && it.size ? { size: it.size } : {}) }] : [];
+      });
+      const saved = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-products' FOR UPDATE`, [accountId]);
+      const products = parse(saved.rows[0]?.value as string | undefined);
+      const told = (it: { name: string; qty: number; size?: string }): StockLine => ({ name: it.name, qty: it.qty, ...(it.size ? { size: it.size } : {}) });
+      if (Array.isArray(products) && lines.length) {
+        if (holds) {
+          /* taken again, as when the order was placed: only while every product still in the shop has enough */
+          const taken = stockTaken(products, lines);
+          if (taken.short.length) return { result: "no-stock", short: taken.short.map(told) };
+          await writeKey(c, accountId, "seen-products", JSON.stringify(takeStock(products, taken.lines.map((it) => ({ ...it, qty: it.took })), { online: true })));
+          /* each line keeps what it took this time, for the next cancel */
+          const next = items.map((it: unknown, at: number) => {
+            const t = taken.lines.find((x) => x.at === at);
+            return t && isObj(it) ? { ...it, took: t.took } : it;
+          });
+          await c.query(`UPDATE store_orders SET items = $3 WHERE id = $1 AND account_id = $2`, [serverId, accountId, JSON.stringify(next)]);
+        } else {
+          /* given back with a quantity below zero (safeOrder takeStock): exactly what each line took */
+          notBack = stockNotBack(products, lines).map((it) => told({ ...it, qty: it.took }));
+          await writeKey(c, accountId, "seen-products", JSON.stringify(takeStock(products, lines.map((it) => ({ ...it, qty: -it.took })), { online: true })));
+        }
+      }
+      if (o.coupon) {
+        const kept = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-coupons' FOR UPDATE`, [accountId]);
+        const list = parse(kept.rows[0]?.value as string | undefined);
+        if (Array.isArray(list)) await writeKey(c, accountId, "seen-coupons", JSON.stringify(countCouponUse(list, o.coupon, { online: true, by: holds ? 1 : -1 })));
+      }
+    }
+    await c.query(`UPDATE store_orders SET status = $3, ${PAID_SET}, updated_at = now() WHERE id = $1 AND account_id = $2`, [serverId, accountId, status]);
+    return { result: "ok", notBack };
+  });
 }
 
 /** The newest store order of the shop (0 for none): the merchant's browser keeps the number its copy of the products

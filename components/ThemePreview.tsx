@@ -45,6 +45,34 @@ export function ThemePreview({ theme, height, scroll = false, sample = false }: 
     return () => ro.disconnect();
   }, []);
 
+  /* A live store is a whole page to draw, so a card draws it only once it comes near the screen (a list of themes no
+     longer draws every store at once), and its slow scroll stops while it is off the screen. The preview window
+     (`scroll`) is opened on purpose: drawn at once. */
+  const [near, setNear] = useState(scroll);
+  const onScreen = useRef(false);
+  const wake = useRef<() => void>(() => {});
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      onScreen.current = true;
+      setNear(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([e]) => {
+        onScreen.current = e.isIntersecting;
+        if (e.isIntersecting) {
+          setNear(true);
+          wake.current();
+        }
+      },
+      { rootMargin: "300px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   /* The slow scroll: it moves the window's own scroll position, so dragging it by hand and the automatic movement never fight */
   useEffect(() => {
     const el = box.current;
@@ -55,6 +83,12 @@ export function ThemePreview({ theme, height, scroll = false, sample = false }: 
     let begin = 0;
     const tick = (t: number) => {
       if (s.stopped) return;
+      /* off the screen: no more frames until it comes back (wake), and no jump for the time it was away */
+      if (!onScreen.current) {
+        raf = 0;
+        last = 0;
+        return;
+      }
       if (!begin) begin = t;
       const dt = last ? (t - last) / 1000 : 0;
       last = t;
@@ -69,8 +103,14 @@ export function ThemePreview({ theme, height, scroll = false, sample = false }: 
       }
       raf = requestAnimationFrame(tick);
     };
+    wake.current = () => {
+      if (!raf && !s.stopped) raf = requestAnimationFrame(tick);
+    };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      wake.current = () => {};
+    };
   }, [scroll, theme]);
 
   const down = (e: React.PointerEvent) => {
@@ -165,11 +205,11 @@ export function ThemePreview({ theme, height, scroll = false, sample = false }: 
         >
           {theme.shot ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={theme.shot} alt={theme.name[lang]} className="block w-full" draggable={false} />
+            <img src={theme.shot} alt={theme.name[lang]} className="block w-full" draggable={false} loading={scroll ? undefined : "lazy"} decoding="async" />
           ) : (
             /* only a picture: its links and buttons can't be reached with the mouse or the keys (inert) */
             <div ref={still} aria-hidden className="pointer-events-none" style={{ width: WIDTH, zoom: w / WIDTH }}>
-              {config && <StorefrontTheme config={config} device="desktop" interactive={false} products={products} store={own ? undefined : theme.demo ? { name: theme.demo.name[lang], color: theme.demo.color } : { name: lang === "ar" ? "متجر عطور" : "Perfume Store", color: "#1c1a17" }} />}
+              {config && near && <StorefrontTheme config={config} device="desktop" interactive={false} products={products} store={own ? undefined : theme.demo ? { name: theme.demo.name[lang], color: theme.demo.color } : { name: lang === "ar" ? "متجر عطور" : "Perfume Store", color: "#1c1a17" }} />}
             </div>
           )}
         </div>

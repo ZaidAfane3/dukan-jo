@@ -1,7 +1,9 @@
-import { answer, readJson, tooMany } from "@/server/auth";
+import { answer, readJson, tooManyFor } from "@/server/auth";
+import { cleanSetup } from "@/components/safeAccount";
 import { seal, sealBytes } from "@/server/crypto";
 import { db } from "@/server/db";
 import { ACCOUNT_BYTES, BODY_MAX, checkUpload, documentName, documentsRoute, MERCHANT_KINDS, merchantDocument, partnerKind, partnerName, PER_ACCOUNT, PER_PARTNER, type MerchantKind } from "@/server/documents";
+import { storageFull } from "@/server/media";
 import { inTransaction } from "@/server/tickets";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +29,7 @@ export const GET = documentsRoute(async (_req, me) => {
 /** Sends one file: { kind: "courier_proof", data (base64), type (the browser's type, may be ""), name (the file's name),
     partner (who delivers), partnerKind (0 company, 1 person) } */
 export const POST = documentsRoute(async (req, me) => {
-  if (tooMany(req, `document:${me.id}`, 30, 10)) return answer({ result: "too-many-tries" }, 429);
+  if (tooManyFor(`document:${me.id}`, 30, 10)) return answer({ result: "too-many-tries" }, 429);
   const body = await readJson(req, BODY_MAX);
   if (!body) return answer({ result: "too-big" }, 413);
   const kind = MERCHANT_KINDS.includes(body.kind as MerchantKind) ? (body.kind as MerchantKind) : null;
@@ -36,10 +38,27 @@ export const POST = documentsRoute(async (req, me) => {
   const name = documentName(body.name);
   const partner = partnerName(body.partner);
   const pKind = partnerKind(body.partnerKind);
-
   const saved = await inTransaction(async (c) => {
-    /* one upload at a time per account, so two sent together can't both slip under a limit */
-    await c.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [me.id]);
+    /* the account's save lock first (the order a store save takes it in: this lock, then the account row through its
+       new keys), then one upload at a time per account, so two sent together can't both slip under a limit. NO KEY
+       UPDATE: a save adding a key to store_data only needs to know the account exists, so it never waits on this. */
+    if (kind === "courier_proof") await c.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [me.id]);
+    await c.query(`SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE`, [me.id]);
+    /* a courier proof is a draft (Diwan doesn't see it) until his delivery choice is saved with his own courier: already
+       saved so (the Delivery page of a store that uses its courier), it goes to Diwan at once. Read under the account's
+       save lock (app/api/store PUT takes it to save the setup, and hands drafts over after): a save running now either
+       finished before this read (own: not a draft) or waits for this row and then hands it over. */
+    let draft = false;
+    if (kind === "courier_proof") {
+      const r = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [me.id]);
+      let mode: string | null | undefined = null;
+      try {
+        mode = r.rows[0] ? cleanSetup(JSON.parse(r.rows[0].value as string))?.shipping?.mode : null;
+      } catch {
+        mode = null;
+      }
+      draft = mode !== "own";
+    }
     /* the counts are of what the merchant still keeps; the bytes also count a removed file whose bytes are still stored
        (the few minutes it can be restored in, until purgeRemovedFiles clears data and file_key), so removing and sending
        again can't store more than the limit; the next number counts removed ones too, so it is never reused */
@@ -55,15 +74,18 @@ export const POST = documentsRoute(async (req, me) => {
     /* the merchant has one delivery partner at a time, so the account's courier proofs are that partner's proofs */
     if (n.kind_n >= PER_PARTNER || n.all_n >= PER_ACCOUNT) return "too-many" as const;
     if (Number(n.used) + file.size > ACCOUNT_BYTES) return "too-big" as const;
+    /* the platform's own ceiling, shared by every account's files (server/media.ts storageFull) */
+    if (await storageFull(c, file.size)) return "storage-full" as const;
     const ins = await c.query(
-      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9)
+      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, draft)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10)
        RETURNING id, public_id, rejection_seen, seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
-      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq],
+      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, draft],
     );
     return ins.rows[0] as Record<string, unknown>;
   });
   if (saved === "too-many" || saved === "too-big") return answer({ result: saved }, 409);
+  if (saved === "storage-full") return answer({ result: saved }, 503);
   /* the row came back from a transaction client, whose answers are opened like the pool's (server/db.ts) */
   return answer({ result: "ok", document: merchantDocument(saved) });
 });

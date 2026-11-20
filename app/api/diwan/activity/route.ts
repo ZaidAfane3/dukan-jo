@@ -30,10 +30,15 @@ export const GET = staffRoute("audit.read", async (req: NextRequest) => {
   const action = cleanLine(q.get("action") ?? "", 80);
   if (q.get("kind") === "signin") add("a.action = ANY(?)", SIGN_IN_ACTIONS);
   else if (action) add("a.action = ?", action);
+  /* a day that exists (from 1970): "2026-02-31" has the right shape but no such day (the database would refuse it, a
+     503), so it is answered 400 before any query; an empty value is no filter */
+  const realDay = (v: string) =>
+    DAY.test(v) && v >= "1970-01-01" && !isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
   const from = q.get("from") ?? "";
-  if (DAY.test(from) && !isNaN(Date.parse(from))) add("a.at >= ?::date", from);
   const to = q.get("to") ?? "";
-  if (DAY.test(to) && !isNaN(Date.parse(to))) add("a.at < ?::date + 1", to);
+  if ((from && !realDay(from)) || (to && !realDay(to))) return answer({ result: "invalid" }, 400);
+  if (from) add("a.at >= ?::date", from);
+  if (to) add("a.at < ?::date + 1", to);
   /* one store's lines only: the store itself, its tickets, the reports about it and its documents (?shop=, its page's
      "See all") */
   const shop = q.get("shop") ?? "";
@@ -55,7 +60,14 @@ export const GET = staffRoute("audit.read", async (req: NextRequest) => {
   /* the choices of the filters, from what the log holds */
   const [people, actions, lines, shopRow] = await Promise.all([
     pool.query(`SELECT id, name, active FROM staff ORDER BY lower(name)`),
-    pool.query(`SELECT DISTINCT a.action FROM audit_log a WHERE ${SHOWN_SQL("a")} ORDER BY a.action LIMIT 300`),
+    /* the actions the log holds, one step through its action index per action (a DISTINCT would read the whole log) */
+    pool.query(
+      `WITH RECURSIVE t AS (
+         (SELECT action FROM audit_log ORDER BY action LIMIT 1)
+         UNION ALL
+         SELECT (SELECT l.action FROM audit_log l WHERE l.action > t.action ORDER BY l.action LIMIT 1) FROM t WHERE t.action IS NOT NULL)
+       SELECT a.action FROM t a WHERE a.action IS NOT NULL AND ${SHOWN_SQL("a")} ORDER BY a.action LIMIT 300`,
+    ),
     /* each line in words: what changed, from what to what, and the store it is about (server/activityDetail.ts) */
     describeActivity(pool, rows.slice(0, PAGE)),
     ID.test(shop) ? pool.query(`SELECT COALESCE(NULLIF(s.name, ''), a.name) AS name FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = $1`, [shop]) : null,

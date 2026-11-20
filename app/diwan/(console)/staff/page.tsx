@@ -1,48 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { askConfirm, Dialog, type ConfirmOptions } from "@/components/diwan/dialogs";
-import { roleName, ROLES, type Role } from "@/components/diwan/perms";
+import { Dialog } from "@/components/diwan/dialogs";
+import { askOwnPassword, OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { PasswordField, ShowPasswordOnce, usePasswordProblem } from "@/components/diwan/StaffPassword";
 import { passwordWords, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { StaffSkeleton } from "@/components/diwan/skeletons";
 
-/* Dukkan's staff (owners only): who they are, their role, whether they can sign in and use a 2-step code. Owners add staff
-   with a temporary password, change roles, take access away (which signs them out everywhere), reset a lost 2-step code
-   or a forgotten password. Diwan always keeps one active owner; the server refuses anything that would leave none.
-   TODO(roles): for now everyone added is an owner; the other roles show as "coming later" and the server refuses them
-   (app/api/diwan/staff). Staff who already have another role keep it, and can still be made owners. */
-
-/* the roles a new member, or a role change, may be given for now; the rest are shown greyed out */
-const OPEN_ROLES: Role[] = ["owner"];
+/* Dukkan's staff: who they are, whether they can sign in and use a 2-step code. Every staff member is an owner and may do
+   everything (Diwan has no roles). They add staff with a temporary password, take access away (which signs them out
+   everywhere), reset a lost 2-step code or a forgotten password. Diwan always keeps one staff member who can sign in;
+   the server refuses anything that would leave none. */
 
 type Member = {
-  id: string; name: string; email: string; role: Role; active: boolean; totpOn: boolean; mustChange: boolean;
+  id: string; name: string; email: string; active: boolean; totpOn: boolean; mustChange: boolean;
   lastLoginAt: string | null; createdAt: string; sessions: number;
 };
 type Data = { me: string; staff: Member[] };
 /* self: the owner changed their own password, which ended their session; the page reloads (and goes to sign-in) only
    after they close the dialog, so they can copy the password first */
 type Shown = { name: string; password: string; self?: boolean };
-
-/** The role choices: the open ones, then the others greyed out as coming later */
-function RoleOptions() {
-  const t = useT();
-  return (
-    <>
-      {ROLES.map((r) => {
-        const w = roleName(r);
-        const open = OPEN_ROLES.includes(r);
-        return (
-          <option key={r} value={r} disabled={!open}>
-            {open ? t(w.en, w.ar) : t(`${w.en} (coming later)`, `${w.ar} (قريبًا)`)}
-          </option>
-        );
-      })}
-    </>
-  );
-}
 
 export default function StaffPage() {
   const t = useT();
@@ -57,21 +35,24 @@ export default function StaffPage() {
 
   const why = (r: { data: any }) => {
     const res = r.data?.result;
-    if (res === "last-owner") return t("Diwan needs at least one active owner. Make someone else an owner first.", "يحتاج الديوان إلى مالك نشط واحد على الأقل. اجعل شخصًا آخر مالكًا أولًا.");
-    if (res === "self") return t("You can't change your own role or access. Ask another owner.", "لا يمكنك تغيير دورك أو صلاحيتك بنفسك. اطلب من مالك آخر.");
-    if (res === "role-later") return t("For now every staff member is an owner; the other roles come later.", "حاليًا كل أعضاء الفريق مُلّاك؛ الأدوار الأخرى قريبًا.");
+    if (res === "last-owner") return t("Diwan needs at least one staff member who can sign in.", "يحتاج الديوان إلى عضو واحد على الأقل يستطيع الدخول.");
+    if (res === "self") return t("You can't take away your own access. Ask another staff member.", "لا يمكنك إزالة صلاحية دخولك بنفسك. اطلب من عضو آخر.");
     if (res === "taken") return t("Someone on the staff already has this email.", "يوجد عضو في الفريق بهذا البريد.");
     const w = passwordWords[r.data?.problem as keyof typeof passwordWords];
     if (res === "weak" && w) return t(w.en, w.ar);
-    if (res === "invalid") return t("Check the name, the email and the role.", "تحقق من الاسم والبريد والدور.");
+    if (res === "invalid") return t("Check the name and the email.", "تحقق من الاسم والبريد.");
+    const again = passwordAgainWords(t, r.data);
+    if (again) return again;
     return t("That didn't work. Try again.", "لم ينجح ذلك. حاول مجددًا.");
   };
 
-  const act = async (m: Member, body: Record<string, unknown>, ask?: ConfirmOptions) => {
-    if (ask && !(await askConfirm(ask))) return;
+  /* ask: the question, answered with the staff member's own password (taking access away and the resets need it) */
+  const act = async (m: Member, body: Record<string, unknown>, ask?: { title: string; body: string; confirm: string; danger: boolean }) => {
+    const myPassword = ask ? await askOwnPassword(t, ask) : undefined;
+    if (myPassword === null) return;
     setBusy(m.id);
     setMsg(null);
-    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", body);
+    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", { ...body, myPassword });
     setBusy(null);
     if (r.ok) {
       setMsg({ ok: true, text: t("Saved.", "تم الحفظ.") });
@@ -83,7 +64,7 @@ export default function StaffPage() {
     <div>
       <PageHead
         title={t("Staff", "الفريق")}
-        sub={t("Who can open Diwan, and what they may do.", "من يستطيع فتح الديوان، وما المسموح له.")}
+        sub={t("Who can open Diwan.", "من يستطيع فتح الديوان.")}
         actions={<Btn onClick={() => setAdding((v) => !v)}>{adding ? t("Close", "إغلاق") : t("Add staff", "إضافة عضو")}</Btn>}
       />
       {msg && <p role="status" className={`mb-4 rounded-xl px-3 py-2 text-sm ${msg.ok ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300" : "bg-red-500/15 text-red-700 dark:text-red-300"}`}>{msg.text}</p>}
@@ -126,7 +107,7 @@ export default function StaffPage() {
         {(d) => (
           <>
             <DataTable
-              head={[t("Name", "الاسم"), t("Role", "الدور"), t("Access", "الدخول"), t("2-step code", "التحقق بخطوتين"), t("Last sign-in", "آخر دخول"), ""]}
+              head={[t("Name", "الاسم"), t("Access", "الدخول"), t("2-step code", "التحقق بخطوتين"), t("Last sign-in", "آخر دخول"), ""]}
               empty={d.staff.length ? false : t("No staff yet.", "لا يوجد فريق بعد.")}
             >
               {d.staff.map((m) => {
@@ -136,20 +117,6 @@ export default function StaffPage() {
                     <td className={td}>
                       <p className="font-semibold">{m.name}{self && <span className="ms-2 text-xs font-normal text-muted">{t("(you)", "(أنت)")}</span>}</p>
                       <p dir="ltr" className="text-xs text-muted rtl:text-end">{m.email}</p>
-                    </td>
-                    <td className={td}>
-                      {/* someone who already has a role that is not open yet keeps it (shown, greyed); they can be made an owner */}
-                      <select
-                        aria-label={t("Role", "الدور")}
-                        className={`${field} h-9 w-auto min-w-[15rem]`}
-                        value={m.role}
-                        disabled={self || busy === m.id}
-                        onChange={(e) =>
-                          act(m, { action: "role", role: e.target.value }, { title: t("Change the role", "تغيير الدور"), body: t(`Change ${m.name}'s role?`, `تغيير دور ${m.name}؟`), confirm: t("Change", "تغيير") })
-                        }
-                      >
-                        <RoleOptions />
-                      </select>
                     </td>
                     <td className={td}>
                       {m.active ? <Badge tone="green">{t("Active", "نشط")}</Badge> : <Badge tone="red">{t("No access", "بلا دخول")}</Badge>}
@@ -170,7 +137,7 @@ export default function StaffPage() {
                             onClick={() =>
                               act(m, { action: "active", active: false }, {
                                 title: t("Deactivate", "إيقاف"),
-                                body: t(`Take away ${m.name}'s access? They are signed out everywhere.`, `إيقاف دخول ${m.name}؟ سيتم إخراجه من كل الأجهزة.`),
+                                body: t(`Take away ${m.name}'s access? They are signed out everywhere. Type your own password to confirm.`, `إيقاف دخول ${m.name}؟ سيتم إخراجه من كل الأجهزة. اكتب كلمة مرورك للتأكيد.`),
                                 confirm: t("Deactivate", "إيقاف"),
                                 danger: true,
                               })
@@ -190,7 +157,7 @@ export default function StaffPage() {
                           onClick={() =>
                             act(m, { action: "reset2step" }, {
                               title: t("Reset 2-step", "إعادة ضبط التحقق"),
-                              body: t(`Reset ${m.name}'s 2-step code? They set up a new one at the next sign-in, and are signed out now.`, `إعادة ضبط رمز التحقق لـ ${m.name}؟ سيعدّ رمزًا جديدًا عند الدخول التالي، ويُخرج الآن.`),
+                              body: t(`Reset ${m.name}'s 2-step code? They set up a new one at the next sign-in, and are signed out now. Type your own password to confirm.`, `إعادة ضبط رمز التحقق لـ ${m.name}؟ سيعدّ رمزًا جديدًا عند الدخول التالي، ويُخرج الآن. اكتب كلمة مرورك للتأكيد.`),
                               confirm: t("Reset", "إعادة الضبط"),
                               danger: true,
                             })
@@ -208,8 +175,7 @@ export default function StaffPage() {
               })}
             </DataTable>
             <p className="mt-3 text-xs text-muted">
-              {t("Owners can do everything. Support can see stores and tickets, and handle papers and store reports; not payments, settings or staff.", "المالك يستطيع كل شيء. الدعم يرى المتاجر والتذاكر، ويتابع المستندات والبلاغات؛ دون المدفوعات والإعدادات والفريق.")}{" "}
-              {t("For now every staff member is an owner; the other roles come later.", "حاليًا كل أعضاء الفريق مُلّاك؛ الأدوار الأخرى قريبًا.")}
+              {t("Every staff member can do everything in Diwan, including payments, settings and adding or removing staff.", "كل عضو في الفريق يستطيع كل شيء في الديوان، بما فيه المدفوعات والإعدادات وإضافة الأعضاء أو إزالتهم.")}
             </p>
           </>
         )}
@@ -223,6 +189,7 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
   const t = useT();
   const problemOf = usePasswordProblem();
   const [password, setPassword] = useState("");
+  const [myPassword, setMyPassword] = useState("");
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -230,8 +197,9 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
     setChecked(true);
     setErr("");
     if (problemOf(password)) return;
+    if (!myPassword) return setErr(t("Type your own password to confirm.", "اكتب كلمة مرورك للتأكيد."));
     setBusy(true);
-    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", { action: "password", password });
+    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", { action: "password", password, myPassword });
     setBusy(false);
     if (r.ok) onSaved(password);
     else setErr(why(r));
@@ -257,6 +225,9 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
       }
     >
       <PasswordField id="st-new-pass" label={t("Temporary password", "كلمة مرور مؤقتة")} value={password} onChange={setPassword} checked={checked} autoFocus />
+      <div className="mt-4">
+        <OwnPasswordField t={t} value={myPassword} onChange={setMyPassword} />
+      </div>
       {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
     </Dialog>
   );
@@ -265,7 +236,7 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
 function AddForm({ onDone, why }: { onDone: (text: string, added: Shown) => void; why: (r: { data: any }) => string }) {
   const t = useT();
   const problemOf = usePasswordProblem();
-  const [v, setV] = useState({ name: "", email: "", role: "owner" as Role, password: "" });
+  const [v, setV] = useState({ name: "", email: "", password: "", myPassword: "" });
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -274,6 +245,7 @@ function AddForm({ onDone, why }: { onDone: (text: string, added: Shown) => void
     setChecked(true);
     setErr("");
     if (problemOf(v.password)) return;
+    if (!v.myPassword) return setErr(t("Type your own password to confirm.", "اكتب كلمة مرورك للتأكيد."));
     setBusy(true);
     const r = await send("/api/diwan/staff", "POST", v);
     setBusy(false);
@@ -295,13 +267,8 @@ function AddForm({ onDone, why }: { onDone: (text: string, added: Shown) => void
         <label htmlFor="st-email" className={label}>{t("Email", "البريد الإلكتروني")}</label>
         <input id="st-email" type="email" dir="ltr" className={field} required maxLength={254} value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} />
       </div>
-      <div>
-        <label htmlFor="st-role" className={label}>{t("Role", "الدور")}</label>
-        <select id="st-role" className={field} value={v.role} onChange={(e) => setV({ ...v, role: e.target.value as Role })}>
-          <RoleOptions />
-        </select>
-      </div>
       <PasswordField id="st-pass" label={t("Temporary password", "كلمة مرور مؤقتة")} value={v.password} onChange={(password) => setV({ ...v, password })} checked={checked} />
+      <OwnPasswordField t={t} value={v.myPassword} onChange={(myPassword) => setV({ ...v, myPassword })} />
       {err && <p role="alert" className="text-sm text-red-600 sm:col-span-2">{err}</p>}
       <div className="sm:col-span-2">
         <Btn type="submit" disabled={busy}>{busy ? t("Adding…", "جارٍ الإضافة…") : t("Add", "إضافة")}</Btn>

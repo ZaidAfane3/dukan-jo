@@ -1,22 +1,20 @@
-/* Diwan roles and what each may do. Shared by the server (server/staff.ts enforces it on every route) and the pages
-   (which only hide what the server would refuse anyway). */
+/* Diwan has no roles: every staff member is an owner and may do everything. The Support and Marketing roles were removed
+   on 2026-11-19; a database that still has them is moved to owner by server/schema.ts, and the server treats every staff
+   member as an owner whatever is stored (server/staff.ts). The permission names stay on the routes and the menu as a
+   label of what each one is for; `can` answers yes for everyone who is signed in. */
 
-export type Role = "owner" | "support" | "developer";
-export const ROLES: Role[] = ["owner", "support", "developer"];
-export const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES as string[]).includes(v);
+export type Role = "owner";
 
 export type Perm =
   | "shops.read" | "shops.status" | "shops.export"
   | "billing" | "tickets" | "documents" | "complaints"
-  | "announce" | "settings" | "marketplace" | "staff" | "audit.read" | "delete";
+  | "announce" | "settings" | "marketplace" | "staff" | "audit.read" | "delete"
+  /* the orders Dukkan Ship delivers: the customer's name, phone and address, and marking them delivered or not */
+  | "ship.orders";
 
-/* Owner: everything. Support: see shops and tickets; no payments, deleting or settings.
-   Developer (shown as "Marketing"; the stored name stays developer): the marketing pages only (what merchants see in their dashboard: themes, pages, pop-ups, announcements,
-   the outside developers' work) and the activity log; no shops, payments, tickets or staff. */
-const SUPPORT: Perm[] = ["shops.read", "tickets", "documents", "complaints", "audit.read"];
-const DEVELOPER: Perm[] = ["announce", "marketplace", "audit.read"];
+export const can = (_s: unknown, _p: Perm) => true;
 
-export const can = (s: { role: Role }, p: Perm) => s.role === "owner" || (s.role === "developer" ? DEVELOPER : SUPPORT).includes(p);
-
-/** A role's name for the pages */
-export const roleName = (r: Role) => ({ owner: { en: "Owner", ar: "المالك" }, support: { en: "Support", ar: "الدعم" }, developer: { en: "Marketing", ar: "التسويق" } })[r] ?? { en: r, ar: r };
+/* the roles' names, only for activity lines written while roles existed ("Changed a member's role") */
+const OLD_ROLES: Record<string, { en: string; ar: string }> = { owner: { en: "Owner", ar: "المالك" }, support: { en: "Support", ar: "الدعم" }, developer: { en: "Marketing", ar: "التسويق" } };
+/** A role's name as an old activity line recorded it */
+export const roleName = (r: string) => OLD_ROLES[r] ?? { en: r, ar: r };

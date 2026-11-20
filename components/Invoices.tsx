@@ -16,7 +16,7 @@ import {
 import { usePrefs } from "./Prefs";
 import { pickPicture } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
-import { imageRules, initialOf, uploadProblemText, type UploadProblem } from "./safe";
+import { imageRules, initialOf, uploadProblemFor, type UploadProblem } from "./safe";
 import { cleanInvoice, taxNumber } from "./records";
 import { loadSetup } from "./setup";
 import { LogoMark, onColor, resolveLogo } from "./storefront/parts";
@@ -158,7 +158,8 @@ function ImagePick({ title, copy, url, onPick, choose }: { title: string; copy: 
         </div>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void take(e.target.files?.[0]); e.target.value = ""; }} />
       </div>
-      {problem && <p role="alert" className="mt-2 text-xs text-rose-600">{uploadProblemText[problem][lang]}</p>}
+      {/* the real reason, with this box's own kinds and limits */}
+      {problem && <p role="alert" className="mt-2 text-xs text-rose-600">{uploadProblemFor(problem, imageRules.invoice, lang)}</p>}
     </div>
   );
 }

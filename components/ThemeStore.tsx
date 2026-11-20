@@ -169,7 +169,7 @@ function Modal({ children, onClose, label, wide = false }: { children: React.Rea
 }
 
 /* The checkout. Prototype: it asks for nothing and takes nothing; it only adds the theme to My themes. */
-function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () => void; onDone: (method: ThemePay) => Promise<"method-off" | "failed" | null> }) {
+function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () => void; onDone: (method: ThemePay | undefined) => Promise<"method-off" | "failed" | null> }) {
   const { lang } = usePrefs();
   const w = themeWords[lang];
   const platform = usePublicSettings();
@@ -178,16 +178,18 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
   const [picked, setMethod] = useState<ThemePay>("card");
   /* one switched off in Diwan while the window is open is never kept: the first one still on is chosen */
   const method: ThemePay | null = open.includes(picked) ? picked : open[0] ?? null;
+  /* a free theme asks for no way to pay (the server takes none for it: app/api/themes/purchase) */
+  const free = !(theme.price > 0);
   const [step, setStep] = useState<"pick" | "paying" | "done">("pick");
   const [refused, setRefused] = useState<"method-off" | "failed" | null>(null);
 
   const pay = () => {
-    if (!method) return;
+    if (!method && !free) return;
     setStep("paying");
     setRefused(null);
     setTimeout(async () => {
       /* "done" only when the purchase went through; otherwise back to choosing, with the reason */
-      const why = await onDone(method);
+      const why = await onDone(free ? undefined : method ?? undefined);
       setRefused(why);
       setStep(why ? "pick" : "done");
     }, 1200);
@@ -215,6 +217,10 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
             <span dir="ltr" className="font-extrabold">{priceText(theme.price, lang, w.store.free)}</span>
           </div>
 
+          {free ? (
+            <p className="mt-5 text-sm text-muted">{w.checkout.freeNote}</p>
+          ) : (
+          <>
           <p className="mt-5 text-sm font-semibold">{w.checkout.method}</p>
           <div className="mt-2 space-y-2" role="radiogroup" aria-label={w.checkout.method}>
             {!offered.length && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{w.checkout.noMethod}</p>}
@@ -229,17 +235,19 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
             ))}
           </div>
           {method && payNote(platform, method, lang) && <p dir="auto" className="mt-2 text-xs text-muted">{payNote(platform, method, lang)}</p>}
+          </>
+          )}
           {refused && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{refused === "method-off" ? w.checkout.methodOff : w.checkout.failed}</p>}
 
           <div className="mt-5 flex items-center justify-between border-t border-fg/10 pt-4">
             <span className="text-sm text-muted">{w.checkout.total}</span>
             <span dir="ltr" className="text-lg font-extrabold">{priceText(theme.price, lang, w.store.free)}</span>
           </div>
-          <p className="mt-3 text-xs text-muted">{w.checkout.note}</p>
+          {!free && <p className="mt-3 text-xs text-muted">{w.checkout.note}</p>}
 
           <div className="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
-            <button type="button" onClick={pay} disabled={step === "paying" || !method} className="h-11 flex-1 rounded-xl bg-ink px-4 text-sm font-semibold text-onink transition hover:bg-deep disabled:cursor-wait disabled:opacity-60">
-              {step === "paying" ? w.checkout.paying : <>{w.checkout.pay} · <span dir="ltr">{priceText(theme.price, lang, w.store.free)}</span></>}
+            <button type="button" onClick={pay} disabled={step === "paying" || (!method && !free)} className="h-11 flex-1 rounded-xl bg-ink px-4 text-sm font-semibold text-onink transition hover:bg-deep disabled:cursor-wait disabled:opacity-60">
+              {step === "paying" ? w.checkout.paying : free ? w.checkout.getFree : <>{w.checkout.pay} · <span dir="ltr">{priceText(theme.price, lang, w.store.free)}</span></>}
             </button>
             <button type="button" onClick={onClose} disabled={step === "paying"} className="h-11 flex-1 rounded-xl border border-fg/20 px-4 text-sm font-semibold transition hover:bg-soft disabled:opacity-40">{w.mine.cancel}</button>
           </div>

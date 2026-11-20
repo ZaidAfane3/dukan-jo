@@ -17,10 +17,10 @@ export const GET = staffRoute("shops.read", async (req) => {
             count(*) FILTER (WHERE setup_done >= 6)::int AS setup,
             count(*) FILTER (WHERE product_count > 0 OR first_product_at IS NOT NULL)::int AS product,
             count(*) FILTER (WHERE published OR published_at IS NOT NULL)::int AS published,
-            /* an order of its own, or one a customer placed on its page that is not a card/CliQ test order (the
-               merchant's own rule, server/shops.ts STORE_ORDERS_SQL) */
-            count(*) FILTER (WHERE order_count > 0 OR first_order_at IS NOT NULL
-                             OR EXISTS (SELECT 1 FROM store_orders o WHERE o.account_id = shops.account_id AND o.payment_method NOT IN ('card', 'cliq')))::int AS ordered
+            /* a platform figure: only an order a customer placed on its page that is not a card/CliQ test order (the
+               merchant's own rule, server/shops.ts STORE_ORDERS_SQL); orders he added himself are not counted here
+               (STORE_PAGE_SQL) */
+            count(*) FILTER (WHERE EXISTS (SELECT 1 FROM store_orders o WHERE o.account_id = shops.account_id AND o.payment_method NOT IN ('card', 'cliq')))::int AS ordered
        FROM shops WHERE $1::int IS NULL OR created_at > now() - make_interval(days => $1::int)`,
     [days],
   );

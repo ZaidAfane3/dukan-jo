@@ -14,7 +14,7 @@ export type LocalKind = "taskDone" | "couponCreated" | "reminderSent" | "ticketC
 /* supportViewed is no longer sent ("Log in as merchant" was removed on 2026-11-16); kept so older messages still read */
 export type ServerKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "paymentReceived" | "supportViewed" | "announcement" | "orderPlaced";
+  | "paymentReceived" | "supportViewed" | "announcement" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff";
 export type NotificationKind = LocalKind | ServerKind;
 
 /** Which filter tab a notification belongs to (matches the tab order in content.ts). */
@@ -31,6 +31,10 @@ export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
   shopReactivated: 1,
   paymentReceived: 4, /* Payments */
   orderPlaced: 1, /* a customer's order on the public store */
+  shipDelivered: 1, /* Dukkan Ship delivered one of his orders */
+  shipFailed: 1, /* Dukkan Ship could not deliver it */
+  shipCityGone: 1, /* Dukkan Ship no longer picks up from his city */
+  payOff: 1, /* Dukkan switched off the last way to pay his store had */
   supportViewed: 1,
   announcement: 1,
 };
@@ -58,7 +62,7 @@ function localList(): AppNotification[] {
 
 /* ---------------- from the server ---------------- */
 
-const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "paymentReceived", "supportViewed", "announcement", "orderPlaced"]);
+const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "paymentReceived", "supportViewed", "announcement", "orderPlaced", "shipDelivered", "shipFailed", "shipCityGone", "payOff"]);
 let serverList: AppNotification[] = [];
 let loading: Promise<void> | null = null;
 
@@ -172,7 +176,11 @@ export function onNotificationsChange(callback: () => void): () => void {
 export function notificationLink(item: AppNotification): string | null {
   if ((item.kind === "ticketReplied" || item.kind === "ticketStatus") && /^\d+$/.test(item.params.number ?? "")) return `/support?ticket=${item.params.number}`;
   /* an order a customer placed on the public store: the Orders page opens it */
-  if (item.kind === "orderPlaced" && /^\d+$/.test(item.params.number ?? "")) return `/orders?open=${item.params.number}`;
+  if ((item.kind === "orderPlaced" || item.kind === "shipDelivered" || item.kind === "shipFailed") && /^\d+$/.test(item.params.number ?? "")) return `/orders?open=${item.params.number}`;
+  /* his Dukkan Ship pickup city was taken off the list: Delivery options, where he chooses another */
+  if (item.kind === "shipCityGone") return "/delivery";
+  /* the last way to pay his store had was switched off by Dukkan: the Ways to pay card, where he turns on another */
+  if (item.kind === "payOff") return "/delivery#ways-to-pay";
   return null;
 }
 
@@ -202,6 +210,14 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
       return w.supportViewed;
     case "orderPlaced":
       return fill(w.orderPlaced);
+    case "shipDelivered":
+      return fill(w.shipDelivered);
+    case "shipFailed":
+      return fill(w.shipFailed, { note });
+    case "shipCityGone":
+      return fill(w.shipCityGone);
+    case "payOff":
+      return w.payOff;
     default:
       return "";
   }

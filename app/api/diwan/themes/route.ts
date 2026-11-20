@@ -6,6 +6,7 @@ import { readListings } from "@/server/catalog";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { adoptPlatformMedia } from "@/server/media";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,8 @@ export const POST = staffRoute("marketplace", async (req: NextRequest, me) => {
     plainParams([id, JSON.stringify(name), JSON.stringify(design), me.id]),
   );
   if (!rowCount) return answer({ result: "taken" }, 409);
+  /* the pictures of the copied design belong to the platform from now on (server/media.ts adoptPlatformMedia) */
+  await adoptPlatformMedia(await db(), JSON.stringify(design));
   await audit(req, me.id, "theme.create", { type: "theme", id }, null, { name: name.en || name.ar });
   return answer({ result: "ok", id });
 });

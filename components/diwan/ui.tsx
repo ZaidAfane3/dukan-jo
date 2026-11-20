@@ -1,12 +1,13 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { dateLocale } from "../content";
 import { usePrefs } from "../Prefs";
 import { ArchOutline, type IconName } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS } from "./nav";
 import type { Role } from "./perms";
+import { timeoutSignal } from "../timeoutSignal";
 
 /* Diwan's shared building blocks, so every page looks and behaves the same. Every page reads live data from
    /api/diwan/... with useApi; there is no sample data anywhere in Diwan. Merchant text is always shown as plain text
@@ -35,7 +36,10 @@ export function useApi<T>(url: string | null): ApiState<T> {
     if (!url) return;
     let alive = true;
     setLoading(true);
-    fetch(url, { credentials: "same-origin", cache: "no-store" })
+    /* stopped when the page closes or asks again, and given up after 20 s (the page shows its error and "Try again"
+       instead of a spinner that turns forever) */
+    const stop = new AbortController();
+    fetch(url, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000, stop.signal) })
       .then(async (r) => {
         if (r.status === 401) {
           window.location.href = "/diwan/login";
@@ -53,6 +57,7 @@ export function useApi<T>(url: string | null): ApiState<T> {
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
+      stop.abort();
     };
   }, [url, n]);
   return { data, error, loading, reload: () => setN((x) => x + 1) };
@@ -60,6 +65,32 @@ export function useApi<T>(url: string | null): ApiState<T> {
 
 /** Sends a change to a Diwan API route. Resolves to the JSON answer and whether it worked. It never throws: with no
     connection it resolves to status 0 (like the sign-in form), so every page ends its "Saving…" and shows its message. */
+/** A form that makes something (an announcement, a pop-up, a page): `key()` is its request's key, the same for a repeat
+    of that request (a double click, a retry after a lost answer) and new once it was made (`made()`), so the server makes
+    it once (server/onceKey.ts); `begin()` is false while a save is already on its way (a second click does nothing), and
+    `end()` lets the next one go. */
+export function useCreateOnce() {
+  /* the key belongs to exactly what was sent: the same form sent again (its answer was lost) reuses it, so the server
+     makes it once; a form changed since gets a new key, so its changes are saved, never answered with the first save */
+  const key = useRef<{ what: string; key: string } | null>(null);
+  const busy = useRef(false);
+  return {
+    key: (sent?: unknown) => {
+      const what = JSON.stringify(sent ?? null);
+      if (!key.current || key.current.what !== what)
+        key.current = { what, key: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2)}` };
+      return key.current.key;
+    },
+    made: () => {
+      key.current = null;
+    },
+    begin: () => !busy.current && (busy.current = true),
+    end: () => {
+      busy.current = false;
+    },
+  };
+}
+
 export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<{ ok: boolean; status: number; data: any }> {
   let r: Response;
   try {
@@ -68,6 +99,8 @@ export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELE
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      /* a save with no answer in a minute ends like one with no connection (a theme's design can be a few MB to send) */
+      signal: timeoutSignal(60_000),
     });
   } catch {
     return { ok: false, status: 0, data: null };
@@ -267,7 +300,7 @@ export const tdDense = "px-3 py-3.5 align-top";
     without one, a plain block (never number boxes a page doesn't have). */
 export function Loaded<T>({ s, children, skeleton }: { s: ApiState<T>; children: (d: T) => React.ReactNode; skeleton?: React.ReactNode }) {
   const t = useT();
-  if (s.error === "not-allowed") return <p className={`${card} text-sm text-muted`}>{t("Your role can't open this page. Ask an owner if you need it.", "دورك لا يسمح بفتح هذه الصفحة. اطلب من المالك إن احتجت إليها.")}</p>;
+  if (s.error === "not-allowed") return <p className={`${card} text-sm text-muted`}>{t("You can't open this page.", "لا يمكنك فتح هذه الصفحة.")}</p>;
   if (s.error) return <p className={`${card} text-sm text-red-600`}>{t("Could not load this: ", "تعذر التحميل: ")}{s.error}</p>;
   if (!s.data) return <Busy>{skeleton ?? <SkelBlock />}</Busy>;
   return <>{children(s.data)}</>;
@@ -514,7 +547,7 @@ export function useMore<T extends { rows: unknown[] }>(url: string | null, nextO
     if (!url || !base || !next || moreLoading) return;
     setMoreLoading(true);
     setMoreFailed(false);
-    fetch(`${url}${url.includes("?") ? "&" : "?"}${next}`, { credentials: "same-origin", cache: "no-store" })
+    fetch(`${url}${url.includes("?") ? "&" : "?"}${next}`, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000) })
       .then(async (r) => {
         if (r.status === 401) {
           window.location.href = "/diwan/login";

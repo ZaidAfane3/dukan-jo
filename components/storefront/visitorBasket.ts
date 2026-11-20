@@ -1,4 +1,5 @@
 import { priceCart } from "../safeOrder";
+import type { LostLine } from "./Cart";
 import { basketKey } from "./sections";
 import type { StoreProduct } from "./useStoreData";
 
@@ -28,17 +29,27 @@ function readItems(key: string): Record<string, unknown> | null {
 
 /** The kept basket, checked against the store's products now: a product gone, hidden, with no price, sold out or in a
     size it no longer has is left out, and quantities are cut to the stock and the order limits (the same rules as
-    placing the order, safeOrder.ts priceCart). */
-export function readBasket(key: string, products: StoreProduct[]): Record<string, number> {
+    placing the order, safeOrder.ts priceCart). `lost`: each line that could not be kept as it was (gone, sold out, or
+    cut to the stock), so the cart can say which and why (Cart.tsx LostLine). */
+export function readBasket(key: string, products: StoreProduct[]): { qty: Record<string, number>; lost: LostLine[] } {
   const items = key ? readItems(key) : null;
-  if (!items) return {};
+  if (!items) return { qty: {}, lost: [] };
   const lines = Object.entries(items).map(([k, qty]) => {
     const bar = k.indexOf("|");
     return { id: bar < 0 ? k : k.slice(0, bar), qty, ...(bar < 0 ? {} : { size: k.slice(bar + 1) }) };
   });
   const out: Record<string, number> = {};
   for (const it of priceCart(lines, products).items) out[basketKey(it.id, it.size)] = it.qty;
-  return out;
+  const lost: LostLine[] = [];
+  for (const l of lines) {
+    const was = typeof l.qty === "number" && Number.isFinite(l.qty) ? Math.floor(l.qty) : 0;
+    if (was <= 0) continue;
+    const p = products.find((x) => String(x.id) === l.id);
+    /* a product in sizes is kept by size; any other one by its id alone (priceCart does the same) */
+    const now = out[p?.sizes?.length ? basketKey(Number(l.id), l.size) : String(l.id)] ?? 0;
+    if (now < was) lost.push({ name: p?.name ?? "", ...(p?.sizes?.length && l.size ? { size: l.size } : {}), qty: now });
+  }
+  return { qty: out, lost };
 }
 
 /** Keeps the basket (an empty one is removed). Unchanged items are not written again, so another tab of the same

@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { AudiencePicker, audienceBody, audienceForm, blankAudience, useAudienceText, type Audience, type AudienceForm, type ShopNames } from "@/components/diwan/AudiencePicker";
 import { HomeSketch, MockDashboard, PageSketch, PreviewPanel, type Look } from "@/components/diwan/MerchantPreview";
 import { THEME_CATALOG } from "@/components/diwan/themeCatalog";
-import { area, Badge, Btn, card, field, Loaded, PageHead, reachOf, SavedNote, send, useApi, useFmt, useJustSaved, useStaff, useT, type Tone } from "@/components/diwan/ui";
+import { RunTabs, StartAgain, type RunView } from "@/components/diwan/pastRuns";
+import { area, Badge, Btn, card, field, Loaded, LoadMore, PageHead, reachOf, SavedNote, send, useApi, useCreateOnce, useFmt, useJustSaved, useMore, useStaff, useT, type Tone } from "@/components/diwan/ui";
 import { PopupsSkeleton } from "@/components/diwan/skeletons";
 import { content } from "@/components/content";
+import { latin } from "@/components/digits";
 import { menuEntries } from "@/components/DashboardBar";
 import { POPUP_IMAGE_MAX, POPUP_NEXT, type PopupStatus } from "@/components/popupRules";
 import {
@@ -22,7 +24,8 @@ import { useCatalog } from "@/components/catalog";
 /* Pop-ups to merchants, in Diwan's marketing pages: one of the coded templates (components/popupTemplateRules.ts) with
    its slots filled in, shown in the middle of the merchant's dashboard: on the home page or on any merchant page. Made
    as a draft with a live preview of the dashboard, then released: each store it is for sees it once, between its start
-   and end. "Seen" and "pressed" count the stores. Every change is in the activity log. */
+   and end. "Seen" and "pressed" count the stores. Ended ones, and ones whose end passed, are kept under "Past" with their
+   numbers, and can be started again. Every change is in the activity log. */
 
 type Shown = "draft" | "scheduled" | "showing" | "expired" | "ended";
 type Row = {
@@ -31,8 +34,11 @@ type Row = {
   startsAt: string; endsAt: string | null; createdAt: string; updatedAt: string; by: string | null;
   /* reach is null only for a row just saved, until the server has counted it */
   reach: number | null; seen: number; clicked: number;
+  /* when it stopped showing, and who pressed "End now" (when known) */
+  stoppedAt: string | null; endedBy: string | null;
 };
 type Data = { popups: Row[]; shops: ShopNames };
+type PastData = { rows: Row[]; shops: ShopNames; page: number; pages: number };
 /** What the form sends */
 type Body = { template: TemplateId; slots: SlotValues; placement: PopupPlacement; audience: Audience; startsAt: string | null; endsAt: string | null; priority: number };
 type Form = {
@@ -59,15 +65,27 @@ export default function PopupsPage() {
   useCatalog();
   const t = useT();
   const s = useApi<Data>("/api/diwan/popups");
+  const [view, setView] = useState<RunView>("now");
+  /* the past grows over time, so it comes 20 at a time, and only once its tab is opened */
+  const past = useMore<PastData>(view === "past" ? "/api/diwan/popups?view=past" : null, (d, n) => (n < d.pages ? `page=${n + 1}` : null));
+  /* each batch of the past brings the names of the shops chosen in its own pop-ups: kept together */
+  const [pastShops, setPastShops] = useState<ShopNames>({});
+  useEffect(() => {
+    if (past.data) setPastShops((m) => ({ ...m, ...past.data!.shops }));
+  }, [past.data]);
   const [form, setForm] = useState<Form | null>(null);
   const staff = useStaff();
   const js = useJustSaved<Data, Row>(s.data);
+  const reloadBoth = () => {
+    s.reload();
+    past.reload();
+  };
 
   /* the saved pop-up as the list will show it (the server's copy replaces it when the list has loaded again) */
   const saved = (d: Data, id: string | null, b: Body, answered: Row | null) => {
     const wasEdit = !!form?.id;
     setForm(null);
-    s.reload();
+    reloadBoth();
     if (!id) return;
     const prev = d.popups.find((x) => x.id === id);
     const now = new Date();
@@ -81,20 +99,30 @@ export default function PopupsPage() {
       status, shown, audience: b.audience, priority: b.priority, startsAt, endsAt: b.endsAt,
       createdAt: prev?.createdAt ?? now.toISOString(), updatedAt: now.toISOString(), by: prev ? prev.by : (staff?.name ?? null),
       reach: reachOf(b.audience, startsAt, d.popups, prev, prev?.startsAt), seen: prev?.seen ?? 0, clicked: prev?.clicked ?? 0,
+      stoppedAt: null, endedBy: null,
     };
     /* the server's copy when it answered with one, else the row built from what was sent */
     const row = answered?.id === id ? answered : built;
+    /* one released with its end already passed belongs under Past, which the reload above brings it into */
+    if (row.shown === "expired" || row.shown === "ended") return;
     /* the names of the shops chosen in it, which the list may not know until it has loaded again */
     const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
     js.show(row, wasEdit ? t("Saved", "تم الحفظ") : t("Saved as draft", "حُفظت كمسودة"), names);
   };
 
-  const edit = (r: Row, d: Data) => {
+  const edit = (r: Row, shops: ShopNames) => {
     setForm({
       id: r.id, template: r.template in POPUP_TEMPLATE_RULES ? r.template : "card", slots: r.slots ?? {}, placement: r.placement,
-      audience: audienceForm(r.audience, d.shops), startsAt: toLocal(r.startsAt), endsAt: toLocal(r.endsAt), priority: String(r.priority),
+      audience: audienceForm(r.audience, shops), startsAt: toLocal(r.startsAt), endsAt: toLocal(r.endsAt), priority: String(r.priority),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  /* a past one as a new draft: the same template, words and audience, starting now, no end. The form opens above the
+     current list, where the new draft will be. */
+  const copy = (r: Row, shops: ShopNames) => {
+    edit(r, shops);
+    setForm((f) => f && { ...f, id: null, startsAt: toLocal(new Date().toISOString()), endsAt: "" });
+    setView("now");
   };
 
   return (
@@ -102,35 +130,57 @@ export default function PopupsPage() {
       <PageHead
         title={t("Pop-ups", "النوافذ المنبثقة")}
         sub={t("A box in the middle of the merchants' dashboard: an offer, a new feature, a gift. Each store sees it once.", "نافذة في وسط لوحة تحكم التجار: عرض، ميزة جديدة، هدية. يراها كل متجر مرة واحدة.")}
-        actions={!form && <Btn onClick={() => setForm(blank())}>{t("New pop-up", "نافذة جديدة")}</Btn>}
+        actions={!form && <Btn onClick={() => (setForm(blank()), setView("now"))}>{t("New pop-up", "نافذة جديدة")}</Btn>}
       />
-      <Loaded s={s} skeleton={<PopupsSkeleton />}>
-        {(raw) => {
-          const d = { ...raw, shops: js.names(raw.shops) };
-          return (
-            <>
-              {form && <Editor form={form} setForm={setForm} onSaved={(id, b, row) => saved(d, id, b, row)} />}
-              <div className="relative">
-                <SavedNote note={form ? null : js.note} />
-                <div className="space-y-3">
-                  {js.rows(d.popups).length === 0 && !form && (
-                    <div className={`${card} text-center`}>
-                      <p className="font-semibold">{t("No pop-ups yet.", "لا توجد نوافذ بعد.")}</p>
-                      <p className="mt-1 text-sm text-muted">{t("Make one to tell merchants about an offer or something new.", "أنشئ واحدة لتخبر التجار بعرض أو بشيء جديد.")}</p>
-                    </div>
-                  )}
-                  {js.rows(d.popups).map((r) => <PopupRow key={r.id} r={r} d={d} ring={js.ring(r.id)} onEdit={() => edit(r, d)} reload={s.reload} />)}
+
+      <RunTabs view={view} setView={setView} label={t("Which pop-ups", "أي النوافذ")} />
+
+      {view === "now" ? (
+        <Loaded s={s} skeleton={<PopupsSkeleton />}>
+          {(raw) => {
+            const d = { ...raw, shops: js.names(raw.shops) };
+            return (
+              <>
+                {form && <Editor form={form} setForm={setForm} onSaved={(id, b, row) => saved(d, id, b, row)} />}
+                <div className="relative">
+                  <SavedNote note={form ? null : js.note} />
+                  <div className="space-y-3">
+                    {js.rows(d.popups).length === 0 && !form && (
+                      <div className={`${card} text-center`}>
+                        <p className="font-semibold">{t("No drafts, nothing showing or scheduled.", "لا مسودات، ولا نوافذ ظاهرة أو مجدولة.")}</p>
+                        <p className="mt-1 text-sm text-muted">{t("Make one to tell merchants about an offer or something new. Ended ones are under Past.", "أنشئ واحدة لتخبر التجار بعرض أو بشيء جديد. المنتهية في «السابقة».")}</p>
+                      </div>
+                    )}
+                    {js.rows(d.popups).map((r) => <PopupRow key={r.id} r={r} shops={d.shops} ring={js.ring(r.id)} onEdit={() => edit(r, d.shops)} reload={reloadBoth} />)}
+                  </div>
                 </div>
-              </div>
-            </>
-          );
-        }}
-      </Loaded>
+              </>
+            );
+          }}
+        </Loaded>
+      ) : (
+        <Loaded s={past} skeleton={<PopupsSkeleton />}>
+          {(d) => {
+            const shops = { ...pastShops, ...d.shops };
+            return (
+              <>
+                <div className="space-y-3">
+                  {d.rows.length === 0 && <p className={`${card} text-center text-sm text-muted`}>{t("No past pop-ups yet.", "لا توجد نوافذ سابقة بعد.")}</p>}
+                  {d.rows.map((r) => <PopupRow key={r.id} r={r} shops={shops} past onCopy={() => copy(r, shops)} reload={reloadBoth} />)}
+                </div>
+                <LoadMore s={past} />
+              </>
+            );
+          }}
+        </Loaded>
+      )}
     </div>
   );
 }
 
-function PopupRow({ r, d, ring, onEdit, reload }: { r: Row; d: Data; ring: string; onEdit: () => void; reload: () => void }) {
+/** One pop-up in a list. In the past list (`past`) it is kept as it ran: no editing, only starting it again or copying
+    it into a new draft. */
+function PopupRow({ r, shops, past, ring = "", onEdit, onCopy, reload }: { r: Row; shops: ShopNames; past?: boolean; ring?: string; onEdit?: () => void; onCopy?: () => void; reload: () => void }) {
   const t = useT();
   const f = useFmt();
   const audienceText = useAudienceText();
@@ -146,7 +196,7 @@ function PopupRow({ r, d, ring, onEdit, reload }: { r: Row; d: Data; ring: strin
   const where = r.placement === "any" ? t("on the first merchant page they open", "في أول صفحة يفتحونها في لوحة التحكم") : t("on their home page", "في صفحتهم الرئيسية");
   const askWord = (a: PopupStatus | "delete") =>
     a === "live" ? t(`Stores it is for will see it ${where}${later ? " from its start" : " right away"}. Stores that saw it already won't see it again.`, `ستراها المتاجر المعنية ${where}${later ? " من وقت بدايتها" : " فورًا"}. المتاجر التي رأتها لن تراها مجددًا.`)
-    : a === "ended" ? t("No store sees it from now. Its numbers stay.", "لن يراها أي متجر من الآن. تبقى أرقامها.")
+    : a === "ended" ? t("No store sees it from now. It moves to Past with its numbers, where you can start it again.", "لن يراها أي متجر من الآن. تنتقل إلى «السابقة» بأرقامها، ويمكنك تشغيلها مجددًا من هناك.")
     : t("Delete this draft for good?", "حذف هذه المسودة نهائيًا؟");
 
   const act = async (a: PopupStatus | "delete") => {
@@ -182,14 +232,16 @@ function PopupRow({ r, d, ring, onEdit, reload }: { r: Row; d: Data; ring: strin
             {rule && <Badge tone="primary">{t(rule.name.en, rule.name.ar)}</Badge>}
             {r.priority > 0 && <Badge tone="amber">{t(`Priority ${r.priority}`, `الأولوية ${r.priority}`)}</Badge>}
             <span className="text-xs text-muted">
-              {audienceText(r.audience, d.shops)} · {r.placement === "any" ? t("any merchant page", "أي صفحة للتاجر") : t("dashboard home", "الصفحة الرئيسية")}
+              {audienceText(r.audience, shops)} · {r.placement === "any" ? t("any merchant page", "أي صفحة للتاجر") : t("dashboard home", "الصفحة الرئيسية")}
             </span>
           </div>
           <h2 dir="auto" className="mt-2 break-words font-bold ltr:text-left rtl:text-right">{t(r.titleEn, r.titleAr)}</h2>
           {t(text.en, text.ar) && <p dir="auto" className="mt-1 line-clamp-2 whitespace-pre-line break-words text-sm text-muted ltr:text-left rtl:text-right">{t(text.en, text.ar)}</p>}
           <p className="mt-2 text-xs text-muted">
-            {f.dateTime(r.startsAt)} → {r.endsAt ? f.dateTime(r.endsAt) : t("no end", "بلا نهاية")}
+            {past ? `${t("Ran", "ظهرت")} ` : ""}
+            {f.dateTime(r.startsAt)} → {past && r.stoppedAt ? f.dateTime(r.stoppedAt) : r.endsAt ? f.dateTime(r.endsAt) : t("no end", "بلا نهاية")}
             {r.by ? ` · ${t("by", "بواسطة")} ${r.by}` : ""}
+            {past && r.endedBy ? ` · ${t("ended by", "أنهاها")} ${r.endedBy}` : ""}
           </p>
         </div>
         {/* four boxes of one width (the widest label's), as tall as their words, the number over its label like the
@@ -209,7 +261,20 @@ function PopupRow({ r, d, ring, onEdit, reload }: { r: Row; d: Data; ring: strin
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-fg/10 bg-soft/40 px-4 py-3">
-        {asking ? (
+        {past ? (
+          <>
+            <StartAgain
+              note={t(`It shows again from now ${where}. Stores that saw it already won't see it again.`, `ستظهر مجددًا من الآن ${where}. المتاجر التي رأتها لن تراها مجددًا.`)}
+              start={async (endsAt) => {
+                const res = await send(`/api/diwan/popups/${r.id}`, "PATCH", { restart: true, endsAt });
+                if (!res.ok) return t("It did not start. Try again.", "لم تبدأ. حاول مرة أخرى.");
+                reload();
+                return "";
+              }}
+            />
+            <Btn kind="ghost" onClick={onCopy}>{t("Copy into a new draft", "نسخها إلى مسودة جديدة")}</Btn>
+          </>
+        ) : asking ? (
           <>
             <p className="me-2 text-sm font-semibold">{askWord(asking)}</p>
             <Btn kind={asking === "delete" || asking === "ended" ? "danger" : "primary"} disabled={busy} onClick={() => act(asking)}>{t("Yes", "نعم")}</Btn>
@@ -332,7 +397,10 @@ function SlotField({ def, value, onChange, onLang }: { def: SlotDef; value: Slot
     const c = await checkImage(file, rule);
     if ("problem" in c) return setPicErr(uploadProblemFor(c.problem, rule, t("en", "ar") as "en" | "ar"));
     const reader = new FileReader();
-    reader.onload = () => typeof reader.result === "string" && onChange(reader.result);
+    /* the picture data is named by what its bytes are (c.kind), not by the file's name: a PNG named .jpg (common from
+       WhatsApp) would otherwise say image/jpeg, and the server, which reads the bytes, refuses a type that does not match */
+    reader.onload = () => typeof reader.result === "string" && onChange(reader.result.replace(/^data:[^;,]*;/, `data:image/${c.kind};`));
+    reader.onerror = () => setPicErr(t("This file couldn't be read. Try another copy.", "تعذّرت قراءة هذا الملف. جرّب نسخة أخرى."));
     reader.readAsDataURL(file);
   };
   return (
@@ -358,6 +426,7 @@ function SlotField({ def, value, onChange, onLang }: { def: SlotDef; value: Slot
 function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | null) => void; onSaved: (id: string | null, body: Body, row: Row | null) => void }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
+  const once = useCreateOnce();
   const [err, setErr] = useState("");
   /* a message about the form goes as soon as the form is changed: it may be fixed now, and Publish checks again */
   useEffect(() => setErr(""), [form]);
@@ -417,9 +486,13 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
       endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
       priority: Number(form.priority || 0),
     };
+    /* a second click while it is being saved does nothing; a new one is made once (useCreateOnce) */
+    if (!once.begin()) return;
     setBusy(true);
-    const r = form.id ? await send(`/api/diwan/popups/${form.id}`, "PATCH", body) : await send("/api/diwan/popups", "POST", body);
+    const r = form.id ? await send(`/api/diwan/popups/${form.id}`, "PATCH", body) : await send("/api/diwan/popups", "POST", { ...body, requestKey: once.key(body) });
     setBusy(false);
+    once.end();
+    if (r.ok && !form.id) once.made();
     if (!r.ok) return setErr(r.data?.field ? messageFor(r.data.field) : t("It was not saved. Try again.", "لم يُحفظ. حاول مرة أخرى."));
     /* an edit keeps its id; a new one has the id the server answered with */
     onSaved(form.id ?? (r.data?.id ? String(r.data.id) : null), body, (r.data?.row as Row | undefined) ?? null);
@@ -496,7 +569,7 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
             </div>
             <div>
               <label className={label} htmlFor="ppr">{t("Priority (0–100)", "الأولوية (0–100)")}</label>
-              <input id="ppr" inputMode="numeric" dir="ltr" className={field} value={form.priority} onChange={(e) => set("priority", e.target.value.replace(/\D/g, "").slice(0, 3))} />
+              <input id="ppr" inputMode="numeric" dir="ltr" className={field} value={form.priority} onChange={(e) => set("priority", latin(e.target.value).replace(/\D/g, "").slice(0, 3))} />
             </div>
           </div>
           <p className="-mt-2 text-xs text-muted">{t("A store sees one pop-up at a time: the highest priority first, then the newest. The next one waits for its next page.", "يرى المتجر نافذة واحدة في كل مرة: الأعلى أولوية أولًا، ثم الأحدث. التالية تنتظر الصفحة التالية.")}</p>

@@ -1,20 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { brandName, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { STATUS_DOT, STATUS_KEYS, ordersCopy, type StatusKey } from "./ordersContent";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, jordanNumber, phoneError, savedMobile, typedAnyPhone } from "./phone";
-import { ORDER_MAX, cleanOrder, money, parseList, typedMoney, type Order } from "./records";
+import { ORDER_MAX, cleanOrder, countCouponUse, money, orderMatches, parseList, typedMoney, type Order, type OrderItem } from "./records";
 import { cleanLine, visibleLength } from "./safe";
-import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, inLang, isCity, type Fulfil } from "./safeOrder";
+import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
+import { nextOrderNumber } from "./orderNumbers";
 import { shipCityLists, usePublicSettings } from "./platformPublic";
 import { loadSetup } from "./setup";
 import { loadFreeDelivery } from "./freeDeliveryStore";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
-import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion } from "./orderDeletions";
+import { DELETE_REASON, cleanDeleteReason, deleteReasonOk, logDeletion, unlogDeletion } from "./orderDeletions";
 import { serverMode } from "./notifications";
 import { onlineRev, pullOnlineKeys } from "./serverSync";
 import { dropUndos, listUndo, offerUndo } from "./undo";
@@ -109,6 +111,82 @@ function loadOrders(): Order[] {
   }
 }
 
+/* a product line as the page names it to the merchant (one short of stock, or pieces that could not go back) */
+type StockLine = { name: string; qty: number; size?: string };
+const stockLines = (v: unknown): StockLine[] =>
+  Array.isArray(v)
+    ? v.flatMap((x) => (x && typeof x === "object" && typeof (x as StockLine).name === "string" && typeof (x as StockLine).qty === "number" ? [{ name: cleanLine((x as StockLine).name, 80), qty: (x as StockLine).qty, ...(typeof (x as StockLine).size === "string" ? { size: cleanLine((x as StockLine).size, 12) } : {}) }] : [])).slice(0, 20)
+    : [];
+
+/* the products and coupons as saved in this browser, every part kept as it is */
+function savedList(key: string): unknown[] | null {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** An order from his own store preview took its products out of the stock saved in this browser (storefront/Cart.tsx
+    saveOrder), and counted its coupon's use. Cancelling or refunding it gives back exactly what each line took
+    (`take` false), as the server does for store orders; moving it out of those again takes it again (`take` true),
+    refused ("short") when a product still in the store no longer has enough. `dry`: only says whether it can.
+    Gives the order's lines as they are after it (each with what it took this time) and the pieces that could not go
+    back (their size no longer exists). */
+function moveLocalStock(order: Order, take: boolean, dry = false): { ok: true; items?: OrderItem[]; notBack: StockLine[] } | { ok: false; short: StockLine[] } {
+  const items = order.items ?? [];
+  const lines = items.flatMap((it, at) => (it.id !== undefined ? [{ at, id: it.id, name: it.name, qty: it.qty, took: it.took ?? it.qty, ...(it.size ? { size: it.size } : {}) }] : []));
+  const told = (it: StockLine): StockLine => ({ name: it.name, qty: it.qty, ...(it.size ? { size: it.size } : {}) });
+  const products = savedList("seen-products");
+  let next: OrderItem[] | undefined;
+  let notBack: StockLine[] = [];
+  try {
+    if (products && lines.length) {
+      if (take) {
+        const t = stockTaken(products, lines);
+        if (t.short.length) return { ok: false, short: t.short.map(told) };
+        if (dry) return { ok: true, notBack };
+        localStorage.setItem("seen-products", JSON.stringify(takeStock(products, t.lines.map((it) => ({ ...it, qty: it.took })))));
+        next = items.map((it, at) => {
+          const x = t.lines.find((l) => l.at === at);
+          return x ? { ...it, took: x.took } : it;
+        });
+      } else {
+        if (dry) return { ok: true, notBack };
+        notBack = stockNotBack(products, lines).map((it) => told({ ...it, qty: it.took }));
+        localStorage.setItem("seen-products", JSON.stringify(takeStock(products, lines.map((it) => ({ ...it, qty: -it.took })))));
+      }
+    }
+    if (dry) return { ok: true, notBack };
+    const coupons = order.coupon ? savedList("seen-coupons") : null;
+    if (order.coupon && coupons) localStorage.setItem("seen-coupons", JSON.stringify(countCouponUse(coupons, order.coupon.code, { by: take ? 1 : -1 })));
+  } catch {
+    /* storage full or blocked: the status still changes */
+  }
+  return { ok: true, items: next, notBack };
+}
+
+/* ?open=<number> in the address (a notification, the search or the home page link here): read every time it changes,
+   also while the page is already open, and then taken out of the address, so the same link opens it again later and a
+   reload doesn't. Its own Suspense, so only this reads the address on the client. */
+function OpenFromAddress({ onOpen }: { onOpen: (id: number) => void }) {
+  const sp = useSearchParams();
+  const v = sp?.get("open") ?? null;
+  const router = useRouter();
+  const path = usePathname();
+  useEffect(() => {
+    if (v === null) return;
+    const id = Number(v);
+    if (Number.isSafeInteger(id) && id > 0) onOpen(id);
+    const rest = new URLSearchParams(sp?.toString() ?? "");
+    rest.delete("open");
+    router.replace(`${path}${rest.size ? `?${rest}` : ""}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v]);
+  return null;
+}
+
 export function Orders() {
   const { lang } = usePrefs();
   const o = ordersCopy[lang];
@@ -135,7 +213,11 @@ export function Orders() {
   const [cursor, setCursor] = useState<string | null | undefined>(undefined);
   const [moreLoading, setMoreLoading] = useState(false);
   const [moreFailed, setMoreFailed] = useState(false);
-  const [statusErr, setStatusErr] = useState(false);
+  /* what the last status change of an order left to say (it failed, was refused, or some stock could not go back), kept
+     with that order (its keyOf) and shown only on it */
+  const [notice, setNotice] = useState<{ key: string; text: string; warn?: boolean } | null>(null);
+  /* how many store orders the shop has in each status, all of them and not only the pages loaded (GET /api/orders) */
+  const [serverCounts, setServerCounts] = useState<Record<StatusKey, number> | null>(null);
   const all = useMemo<Row[]>(() => [...orders, ...serverOrders], [orders, serverOrders]);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -181,23 +263,31 @@ export function Orders() {
   useEffect(() => () => dropUndos("orders"), []);
   /** A change to the orders kept in this browser, saved like any edit (below), with an Undo at the bottom that puts back
       exactly the orders it changed, unless one of them changed again since */
-  const change = (next: Order[], label: (l: Lang) => string) => {
+  /* `afterUndo`: runs after an undo was tried, whether or not it put the orders back (a deletion takes its record back) */
+  /* `guard`: checked before the undo puts anything back (false: it can't, nothing changes) */
+  const change = (next: Order[], label: (l: Lang) => string, afterUndo?: (undone: boolean) => void, guard?: () => boolean) => {
     const before = ordersNow.current;
     ordersNow.current = next;
     setOrders(next);
+    const back = listUndo({
+      before,
+      after: next,
+      key: (x: Order) => x.id,
+      now: () => ordersNow.current,
+      put: (list: Order[]) => {
+        ordersNow.current = list;
+        setOrders(list);
+      },
+    });
     offerUndo({
       scope: "orders",
       label,
-      undo: listUndo({
-        before,
-        after: next,
-        key: (x) => x.id,
-        now: () => ordersNow.current,
-        put: (list) => {
-          ordersNow.current = list;
-          setOrders(list);
-        },
-      }),
+      undo: () => {
+        if (guard && !guard()) return false;
+        const ok = back();
+        afterUndo?.(ok);
+        return ok;
+      },
     });
   };
 
@@ -243,7 +333,7 @@ export function Orders() {
       let ok = false;
       try {
         let url = "/api/orders";
-        let j: { orders?: unknown; rev?: unknown; next?: unknown; total?: unknown } = {};
+        let j: { orders?: unknown; rev?: unknown; next?: unknown; total?: unknown; counts?: unknown } = {};
         /* the newest page, then older pages until they reach the orders already here, so no order between them is
            missed even when more than a page arrived while the tab was hidden. After 20 pages (2,000 new orders) the
            list starts again from what was just read, and "Load more" goes on from there, so it never has a hole */
@@ -253,7 +343,10 @@ export function Orders() {
           if (!r.ok || !current()) return;
           const got = (await r.json()) as typeof j;
           if (!current()) return;
-          if (page === 0) j = got;
+          if (page === 0) {
+            j = got;
+            if (got.counts && typeof got.counts === "object") setServerCounts(Object.fromEntries(STATUS_KEYS.map((k) => [k, Number((got.counts as Record<string, unknown>)[k]) || 0])) as Record<StatusKey, number>);
+          }
           const rows = serverRows(got.orders);
           const first = !loaded;
           const meets = rows.some((x) => !!x.serverId && known.has(x.serverId));
@@ -319,13 +412,14 @@ export function Orders() {
     [],
   );
 
-  /* A search result or a notification links here with ?open=ID (once both lists are in) */
-  const opened = useRef(false);
+  /* A search result or a notification links here with ?open=ID (OpenFromAddress, also while the page is open): opened
+     once both lists are in */
+  const [wantOpen, setWantOpen] = useState<number | null>(null);
   useEffect(() => {
-    if (!ready || !serverReady || opened.current) return;
-    opened.current = true;
-    const id = Number(new URLSearchParams(window.location.search).get("open"));
-    const hit = id ? serverOrders.find((x) => x.id === id) ?? orders.find((x) => x.id === id) : undefined;
+    if (!ready || !serverReady || wantOpen === null) return;
+    const id = wantOpen;
+    setWantOpen(null);
+    const hit = serverOrders.find((x) => x.id === id) ?? orders.find((x) => x.id === id);
     if (hit) setSelected(keyOf(hit));
     /* a store order older than the pages loaded: asked for by its number */
     else if (id && serverMode())
@@ -341,7 +435,7 @@ export function Orders() {
           /* offline: the order is not opened */
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, serverReady]);
+  }, [ready, serverReady, wantOpen]);
 
   useEffect(() => {
     if (!ready || orders === loadedList.current) return;
@@ -363,7 +457,6 @@ export function Orders() {
   useEffect(() => {
     setConfirmDelete(false);
     setAskStatus(null);
-    setStatusErr(false);
   }, [selected]);
 
   useEffect(() => {
@@ -376,22 +469,44 @@ export function Orders() {
     return () => document.removeEventListener("keydown", onKey);
   }, [confirmDelete]);
 
+  /* every order in each status: the ones kept in this browser, and all of his store orders as the server counted them
+     (not only the pages loaded) */
   const counts = useMemo(() => {
     const c = Object.fromEntries(STATUS_KEYS.map((k) => [k, 0])) as Record<StatusKey, number>;
-    all.forEach((x) => (c[x.status] += 1));
+    (serverCounts ? orders : all).forEach((x) => (c[x.status] += 1));
+    if (serverCounts) STATUS_KEYS.forEach((k) => (c[k] += serverCounts[k]));
     return c;
-  }, [all]);
+  }, [all, orders, serverCounts]);
 
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase().replace(/^#/, "");
-    /* a phone is found however it is typed: 079…, 79… or +962 79… */
-    const digitsOf = (v: string) => latin(v).replace(/\D/g, "").replace(/^(00962|962|0)/, "");
-    const qd = digitsOf(q);
-    return all
-      .filter((x) => (filter === "all" ? true : x.status === filter))
-      .filter((x) => !q || String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q) || !!x.email?.includes(q) || (qd.length >= 3 && digitsOf(x.phone).includes(qd)))
-      .sort((a, b) => b.created - a.created);
-  }, [all, filter, query]);
+  const shown = useMemo(
+    () => all.filter((x) => (filter === "all" ? true : x.status === filter)).filter((x) => orderMatches(x, query)).sort((a, b) => b.created - a.created),
+    [all, filter, query],
+  );
+
+  /* a search or a status picked while not every store order is loaded: the server finds them among all of them, and
+     they join the list (a moment after the last key press) */
+  const allLoaded = serverOrders.length >= serverTotal && !cursor;
+  useEffect(() => {
+    const q = query.trim();
+    if (!serverMode() || serverState !== "ready" || allLoaded || (!q && filter === "all")) return;
+    const req = new AbortController();
+    const t = window.setTimeout(() => {
+      const sp = new URLSearchParams({ ...(q ? { q: q.slice(0, 60) } : {}), ...(filter !== "all" ? { status: filter } : {}) });
+      fetch(`/api/orders?${sp}`, { credentials: "same-origin", cache: "no-store", signal: req.signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: { orders?: unknown } | null) => {
+          const rows = serverRows(j?.orders);
+          if (rows.length) setServerOrders((list) => upsert(list, rows));
+        })
+        .catch(() => {
+          /* offline: the search covers the orders loaded */
+        });
+    }, 350);
+    return () => {
+      window.clearTimeout(t);
+      req.abort();
+    };
+  }, [query, filter, serverState, allLoaded]);
 
   const current = all.find((x) => keyOf(x) === selected) ?? null;
 
@@ -447,8 +562,9 @@ export function Orders() {
       return;
     }
 
-    /* after every number in use, his store's orders too */
-    const id = 1001 + all.reduce((m, x) => Math.max(m, x.id - 1000), 0);
+    /* after every number in use (his store's orders too) and every number given before (orderNumbers.ts) */
+    if (serverState !== "ready") return;
+    const id = nextOrderNumber(all);
     change([{ id, customer: cleanLine(name, ORDER_MAX.customer), phone: savedMobile(phone), total: amount, status, channel: 0, source, fulfil, ...(fulfil === "delivery" ? { city, address: cleanLine(address, ORDER_LIMITS.address) } : {}), created: Date.now() }, ...ordersNow.current], (l) => undoWords[l].added(id));
     setSelected(`l:${id}`);
     setName("");
@@ -463,45 +579,117 @@ export function Orders() {
   };
 
   const statusLabel = (n: number, st: StatusKey) => (l: Lang) => undoWords[l].status(n, ordersCopy[l].statuses[st]);
+  /* the lines named in a message: "Shirt (size M) ×2, Cap ×1" */
+  const itemsText = (lines: StockLine[]) => lines.map((l) => `${l.name}${l.size ? ` (${o.size}: ${l.size})` : ""} ×${l.qty}`).join(lang === "ar" ? "، " : ", ");
+  /* each store order's latest status change: an older one that fails never puts its status back over a newer one */
+  const changeSeq = useRef(new Map<string, number>());
+  const off = (st: StatusKey) => st === "cancelled" || st === "refunded";
   const setOrderStatus = (row: Row, s: StatusKey) => {
     if (row.status === s) return;
     const serverId = row.serverId;
-    if (!serverId) return change(ordersNow.current.map((x) => (x.id === row.id ? { ...x, status: s } : x)), statusLabel(row.id, s));
-    /* an order from his public store: shown at once, saved on the server, and put back if the server did not take it */
     const was = row.status;
+    const key = keyOf(row);
+    /* cancelling or refunding gives the order's stock (and its coupon's use) back, and leaving those takes it again */
+    const stockMoved = off(was) !== off(s);
+    if (!serverId) {
+      /* an order from his own store preview: its stock is in this browser (moveLocalStock); one he added by hand took none */
+      const local = row.channel === 1 && stockMoved;
+      const m = local ? moveLocalStock(row, !off(s)) : null;
+      if (m && !m.ok) return setNotice({ key, text: o.noStock.replace("{items}", itemsText(m.short)) });
+      setNotice(m?.notBack.length ? { key, text: o.notBack.replace("{items}", itemsText(m.notBack)), warn: true } : null);
+      const after: Order = { ...row, status: s, ...(m?.items ? { items: m.items } : {}) };
+      return change(
+        ordersNow.current.map((x) => (x.id === row.id ? after : x)),
+        statusLabel(row.id, s),
+        (undone) => {
+          if (!undone || !local) return;
+          /* the stock goes back the other way; taken again, each line keeps what it took this time */
+          const back = moveLocalStock(after, off(s));
+          if (back.ok && back.items) {
+            const next = ordersNow.current.map((x) => (x.id === row.id ? { ...x, items: back.items } : x));
+            ordersNow.current = next;
+            setOrders(next);
+          }
+        },
+        /* an undo that would take the stock again only while there is enough */
+        () => !local || moveLocalStock(after, off(s), true).ok,
+      );
+    }
+    /* an order from his public store: shown at once, saved on the server, and put back if the server did not take it */
     const put = (st: StatusKey) => {
+      const from = serverNow.current.find((x) => x.serverId === serverId)?.status;
       serverNow.current = serverNow.current.map((x) => (x.serverId === serverId ? { ...x, status: st } : x));
       setServerOrders((list) => list.map((x) => (x.serverId === serverId ? { ...x, status: st } : x)));
+      /* the counts follow at once (the next list brings the server's own) */
+      if (from && from !== st) setServerCounts((c) => (c ? { ...c, [from]: Math.max(0, c[from] - 1), [st]: c[st] + 1 } : c));
     };
-    /* `from`: the server changes it only while the order still has that status (an undo never overwrites a newer change) */
-    const send = (st: StatusKey, from?: StatusKey) =>
-      fetch(`/api/orders/${serverId}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(from ? { status: st, from } : { status: st }) }).then((r) => {
-        if (!r.ok) throw new Error(String(r.status));
-      });
+    /* the order as the server has it now, after a refusal: the page shows its real status */
+    const reload = () =>
+      fetch(`/api/orders?number=${row.id}`, { credentials: "same-origin", cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: { orders?: unknown } | null) => {
+          const got = serverRows(j?.orders).find((x) => x.serverId === serverId);
+          if (got) put(got.status);
+        })
+        .catch(() => {
+          /* offline: the next list brings it */
+        });
+    type Sent = { ok: true; notBack: StockLine[] } | { ok: false; why: "offline" | "changed" | "no-stock" | "failed"; short?: StockLine[] };
+    /* `from`: always the status the page showed, so the server changes it only while the order still has it (a change
+       or an undo never overwrites a newer change made elsewhere) */
+    const send = async (st: StatusKey, from: StatusKey): Promise<Sent> => {
+      let r: Response;
+      try {
+        r = await fetch(`/api/orders/${serverId}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: st, from }) });
+      } catch {
+        return { ok: false, why: "offline" };
+      }
+      const j = (await r.json().catch(() => null)) as { result?: unknown; notBack?: unknown; short?: unknown } | null;
+      if (r.ok) return { ok: true, notBack: stockLines(j?.notBack) };
+      if (r.status === 409 && j?.result === "no-stock") return { ok: false, why: "no-stock", short: stockLines(j.short) };
+      if (r.status === 409 && j?.result === "changed") return { ok: false, why: "changed" };
+      return { ok: false, why: "failed" };
+    };
+    const refusal = (x: Extract<Sent, { ok: false }>) =>
+      x.why === "no-stock" ? o.noStock.replace("{items}", itemsText(x.short ?? [])) : x.why === "changed" ? o.statusChanged : o.statusFailed;
+    const seq = (changeSeq.current.get(serverId) ?? 0) + 1;
+    changeSeq.current.set(serverId, seq);
+    const latest = () => changeSeq.current.get(serverId) === seq;
     put(s);
-    setStatusErr(false);
-    send(s)
-      .then(() =>
-        /* a status change sends the customer nothing, so it can be undone: the old status goes back the same way */
-        offerUndo({
-          scope: "orders",
-          label: statusLabel(row.id, s),
-          undo: async () => {
-            if (serverNow.current.find((x) => x.serverId === serverId)?.status !== s) return false;
-            try {
-              await send(was, s);
-            } catch {
-              return false;
-            }
+    setNotice(null);
+    void send(s, was).then((r) => {
+      if (!r.ok) {
+        /* a newer change of this order is on its way: it decides what shows */
+        if (!latest()) return;
+        setNotice({ key, text: refusal(r) });
+        /* refused: the order as the server has it; not reached: the status it had */
+        if (r.why === "offline") put(was);
+        else void reload();
+        return;
+      }
+      if (stockMoved) void pullOnlineKeys();
+      if (r.notBack.length) setNotice({ key, text: o.notBack.replace("{items}", itemsText(r.notBack)), warn: true });
+      /* a status change sends the customer nothing, so it can be undone: the old status goes back the same way */
+      offerUndo({
+        scope: "orders",
+        label: statusLabel(row.id, s),
+        undo: async () => {
+          if (serverNow.current.find((x) => x.serverId === serverId)?.status !== s) return false;
+          const n = (changeSeq.current.get(serverId) ?? 0) + 1;
+          changeSeq.current.set(serverId, n);
+          const back = await send(was, s);
+          if (back.ok) {
             put(was);
+            if (stockMoved) void pullOnlineKeys();
             return true;
-          },
-        }),
-      )
-      .catch(() => {
-        put(was);
-        setStatusErr(true);
+          }
+          if (back.why === "offline") return "offline";
+          setNotice({ key, text: refusal(back) });
+          void reload();
+          return false;
+        },
       });
+    });
   };
   /* Cancelling or refunding is asked first, other statuses change right away */
   const pickStatus = (row: Row, s: StatusKey) => {
@@ -516,19 +704,26 @@ export function Orders() {
     if (deleting.current || !deleteReasonOk(reason)) return;
     deleting.current = true;
     logDeletion(id, cleanDeleteReason(reason));
-    change(ordersNow.current.filter((x) => x.id !== id), (l) => undoWords[l].deleted(id));
+    /* an Undo puts the order back and takes the deletion's record back with it. The record also goes when the undo had
+       nothing to do because the order is in the list again anyway (another device's copy brought it back). */
+    change(ordersNow.current.filter((x) => x.id !== id), (l) => undoWords[l].deleted(id), () => {
+      if (ordersNow.current.some((x) => x.id === id)) unlogDeletion(id);
+    });
     setSelected(null);
     setConfirmDelete(false);
   };
   const reasonOk = deleteReasonOk(reason);
 
   const statusList: { key: StatusKey | "all"; label: string; count: number; dot?: string }[] = [
-    { key: "all", label: o.all, count: all.length },
+    { key: "all", label: o.all, count: serverCounts ? orders.length + STATUS_KEYS.reduce((n, k) => n + serverCounts[k], 0) : all.length },
     ...STATUS_KEYS.map((k) => ({ key: k, label: o.statuses[k], count: counts[k], dot: STATUS_DOT[k] })),
   ];
 
   return (
     <div className="dash min-h-screen bg-page">
+      <Suspense fallback={null}>
+        <OpenFromAddress onOpen={setWantOpen} />
+      </Suspense>
       <DashboardBar
         active="orders"
         subtabs={o.tabs}
@@ -545,7 +740,8 @@ export function Orders() {
           </svg>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={o.searchPh} aria-label={o.searchPh} className={`${field} h-12 ps-12`} />
         </div>
-          <button type="button" onClick={() => setCreating(true)} className="h-12 shrink-0 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep"> + {o.newOrder} </button>
+          {/* a new order's number follows his store's orders: it waits until they are in */}
+          <button type="button" onClick={() => setCreating(true)} disabled={serverState !== "ready"} title={serverState !== "ready" ? o.newOrderWait : undefined} className="h-12 shrink-0 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep disabled:cursor-not-allowed disabled:opacity-50"> + {o.newOrder} </button>
         </div>
 
         <div className="grid items-start gap-5 lg:grid-cols-[15rem_minmax(0,22rem)_minmax(0,1fr)]">
@@ -710,6 +906,18 @@ export function Orders() {
                   ))}
                 </dl>
 
+                {/* an order Dukkan Ship delivers: where its delivery is */}
+                {current.ship && (
+                  <div className={`mt-6 rounded-xl px-4 py-3 ${current.ship.state === "delivered" ? "bg-emerald-500/10" : current.ship.state === "failed" ? "bg-rose-500/10" : "bg-soft/70"}`}>
+                    <p className="text-xs text-muted">{o.shipTitle}</p>
+                    <p className={`mt-1 text-sm font-semibold ${current.ship.state === "delivered" ? "text-emerald-700 dark:text-emerald-300" : current.ship.state === "failed" ? "text-rose-700 dark:text-rose-300" : ""}`}>
+                      {o.shipStates[current.ship.state]}
+                      {current.ship.at ? <span className="ms-2 text-xs font-normal text-muted">{dateOf(current.ship.at, true)}</span> : null}
+                    </p>
+                    {current.ship.note && <p dir="auto" className="mt-1 text-sm">{o.shipWhy}: {current.ship.note}</p>}
+                  </div>
+                )}
+
                 {/* what the customer wrote for the store at checkout */}
                 {current.note && (
                   <div className="mt-6 rounded-xl bg-soft/70 px-4 py-3">
@@ -823,7 +1031,7 @@ export function Orders() {
                   </div>
                 )}
 
-                {statusErr && <p role="alert" className="mt-3 text-sm text-rose-600">{o.statusFailed}</p>}
+                {notice?.key === keyOf(current) && <p role={notice.warn ? "status" : "alert"} className={`mt-3 text-sm ${notice.warn ? "text-amber-700 dark:text-amber-400" : "text-rose-600"}`}>{notice.text}</p>}
 
                 {/* an order from his public store stays on the server: it is cancelled, not deleted */}
                 {!current.serverId && (

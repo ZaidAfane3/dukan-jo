@@ -10,6 +10,7 @@ import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { PreviewEye, PreviewWindow } from "./ThemePopup";
 import { ThemePreview } from "./ThemePreview";
+import { Skeleton } from "./Skeleton";
 import { priceText } from "./ThemeStore";
 import { themeWords } from "./themesContent";
 import { applyTheme, copyName, copyTheme, customizeTheme, renameTheme, DEFAULT_THEME_ID, defaultTheme, deleteSavedTheme, findTheme, freeThemes, isFreeTheme, loadThemeState, NAME_MAX, refreshThemeAccess, resetCopy, saveDesignAsTheme, savedThemeInfo, unboughtBase, unboughtIn, type ThemeInfo, type ThemeState } from "./themes";
@@ -225,6 +226,8 @@ export function MyThemes() {
           );
         })()}
         <div className="grid items-stretch gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        {/* until the themes are read: cards shaped like the ones to come, not an empty grid */}
+        {!state && [0, 1, 2].map((i) => <Skeleton key={i} className="h-[22rem] w-full rounded-2xl" />)}
         {all.filter((x) => show === "all" || (show === "default" ? x.kind === "default" : show === "mine" ? x.kind === "saved" || x.kind === "dup" : x.kind === "bought" || x.kind === "copy")).map(({ at, paid, theme: t, kind }) => {
           /* Dukkan's default design is the one in use until he picks another theme (or when the one he picked is gone) */
           const active = state?.active === t.id || (t.id === DEFAULT_THEME_ID && !all.some((x) => x.theme.id === state?.active));

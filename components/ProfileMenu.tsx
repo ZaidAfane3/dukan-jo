@@ -1,7 +1,7 @@
 "use client";
 
-import { logOut } from "./accounts";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { brandName } from "./content";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
@@ -13,6 +13,7 @@ import { loadConfig, storeIsLive } from "./storefront/storage";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { onServer } from "./merchantApi";
 import { StoreStatus } from "./StoreStatus";
+import { useLogOut } from "./LogOut";
 
 const ico = {
   viewBox: "0 0 24 24",
@@ -125,7 +126,13 @@ export function ProfileMenu() {
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => !wrapper.current?.contains(e.target as Node) && setOpen(false);
+    /* a question asked on top (the Support page's "Leave this ticket?" when Log out is pressed with words not kept) is
+       not a click away: the menu, and the Log out it then follows, stay */
+    const onDown = (e: MouseEvent) => {
+      const at = e.target as Element | null;
+      if (wrapper.current?.contains(at) || at?.closest?.('[aria-modal="true"]')) return;
+      setOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -155,6 +162,8 @@ export function ProfileMenu() {
   const row = "flex w-full items-center gap-3 px-5 py-3.5 text-sm font-medium transition-colors hover:bg-fg/[0.05]";
   const head = "flex w-full items-center justify-between px-5 py-3.5 text-sm font-bold";
   const go = () => setOpen(false);
+  const router = useRouter();
+  const out = useLogOut(lang);
 
   return (
     <div ref={wrapper} className="relative">
@@ -237,10 +246,12 @@ export function ProfileMenu() {
               <Switch on={theme === "dark"} />
             </button>
             <span aria-hidden className="h-6 w-px bg-fg/15" />
-            <Link href="/" onClick={() => { void logOut(); try { sessionStorage.removeItem("seen-signed-in"); } catch { /* storage blocked */ } go(); }} aria-label={t.logout} title={t.logout} className="grid h-9 w-9 place-items-center rounded-lg text-rose-500 transition hover:bg-rose-500/10">{i.power}</Link>
+            <Link href="/" onClick={(e) => { e.preventDefault(); go(); out.start(() => { try { sessionStorage.removeItem("seen-signed-in"); } catch { /* storage blocked */ } router.push("/"); }); }} aria-label={t.logout} title={t.logout} className="grid h-9 w-9 place-items-center rounded-lg text-rose-500 transition hover:bg-rose-500/10">{i.power}</Link>
           </div>
         </div>
       )}
+      {/* sending what waits before logging out, and the questions (LogOut.tsx): outside the menu, which closes */}
+      {out.dialog}
     </div>
   );
 }

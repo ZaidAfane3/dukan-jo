@@ -7,10 +7,11 @@ import { load as loadPages, pagesScope, starterPages } from "../InfoPages";
 import type { PublicStoreOpen } from "../publicStore";
 import { useVisitorStore } from "./visitorStore";
 import type { SectionConfig } from "./config";
-import { isUnlimited, money, productId, productSizes, salePrice, sellableStock, type Payment, type SizeStock } from "../safeOrder";
-import { safeStoredImage } from "../safe";
+import { checkoutShipMode, isUnlimited, money, productId, productShips, productSizes, salePrice, sellableStock, type Payment, type SizeStock } from "../safeOrder";
+import { storeIsLive } from "./storage";
+import { cleanLine, cleanLines, safeStoredImage } from "../safe";
 import { noPhotoHue } from "./NoPhoto";
-import { productCategories } from "../records";
+import { PRODUCT_MAX, productCategories } from "../records";
 import { shownMobile } from "../phone";
 
 /* What the storefront shows comes from what the merchant has saved in this browser,
@@ -31,6 +32,9 @@ export type StoreProduct = {
   /* What can be sold: an unlimited product gets UNLIMITED_STOCK, so it is never sold out or "only a few left" */
   quantity: number;
   unlimited?: boolean;
+  /* Not delivered to an address (a digital product, a service, or "Needs shipping" off: safeOrder productShips): a cart of
+     only such products has no delivery fee and asks no city or address */
+  noShip?: boolean;
   /* Clothing and shoes: each size and how many of it (the customer picks one before adding it to the cart) */
   sizes?: SizeStock[];
   /* Clothing and shoes: a picture of the size chart, opened from the product page */
@@ -129,7 +133,9 @@ export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
   const price = money(p.price);
   return {
     id: productId(p.id) ?? NaN,
-    name: String(p.name ?? ""),
+    /* the words are cleaned like the dashboard and the server clean them (cleanProduct, publicStore.ts): a save sent
+       straight to the server could hold a huge name or hidden direction marks */
+    name: cleanLine(p.name, PRODUCT_MAX.name),
     ...(() => {
       const all = productCategories(p);
       return { category: all[0] ?? "", ...(all.length > 1 ? { categories: all } : {}) };
@@ -141,6 +147,7 @@ export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
     ...(productSizes(p).length ? { sizes: productSizes(p) } : {}),
     ...(productSizes(p).length && safeStoredImage(p.sizeChart) ? { sizeChart: safeStoredImage(p.sizeChart) } : {}),
     ...(isUnlimited(p) ? { unlimited: true } : {}),
+    ...(productShips(p) ? {} : { noShip: true }),
     /* the color of its placeholder when it has no photo, the same one the dashboard shows */
     hue: noPhotoHue(Number(p.id)),
     /* a picture saved in this browser, never a link to another site (it could track the visitors) */
@@ -149,10 +156,10 @@ export function toStoreProduct(p: Record<string, unknown>): StoreProduct {
       const all = Array.isArray(p.images) ? p.images.map((x) => safeStoredImage(x)).filter(Boolean).slice(0, 8) : [];
       return all.length > 1 ? { images: all } : {};
     })(),
-    notes: typeof p.notes === "string" && p.notes ? p.notes : undefined,
-    badge: typeof p.badge === "string" && p.badge ? p.badge : undefined,
-    ...(typeof p.description === "string" && p.description.trim() ? { description: p.description.trim().slice(0, 2000) } : {}),
-    ...(typeof p.brand === "string" && p.brand.trim() ? { brand: p.brand.trim().slice(0, 40) } : {}),
+    notes: cleanLine(p.notes, PRODUCT_MAX.notes) || undefined,
+    badge: cleanLine(p.badge, PRODUCT_MAX.badge) || undefined,
+    ...(cleanLines(p.description, PRODUCT_MAX.description) ? { description: cleanLines(p.description, PRODUCT_MAX.description) } : {}),
+    ...(cleanLine(p.brand, PRODUCT_MAX.brand) ? { brand: cleanLine(p.brand, PRODUCT_MAX.brand) } : {}),
     focus: (() => {
       const f = p.focus as { x?: unknown; y?: unknown; zoom?: unknown } | undefined;
       /* the zoom (crop closer) comes along with the point that stays visible */
@@ -233,7 +240,8 @@ function build(lang: Lang, sample: boolean, visitor: PublicStoreOpen | null = nu
       return ship?.mode === "own" ? ship.fee ?? "ask" : null;
     })(),
     ownCities: (visitor ? visitor.setup.shipping : loadSetup()?.shipping)?.cities,
-    shipMode: (visitor ? visitor.setup.shipping : loadSetup()?.shipping)?.mode ?? null,
+    /* his own preview of a live store goes by the same rule as its checkout: no choice saved, Dukkan Ship (checkoutShipMode) */
+    shipMode: visitor ? visitor.setup.shipping?.mode ?? null : loadSetup()?.shipping?.mode ?? (storeIsLive() ? checkoutShipMode(loadSetup()) : null),
     ...(() => {
       const pays = visitor ? visitor.setup.pays : loadSetup()?.pays;
       return pays ? { pays } : {};

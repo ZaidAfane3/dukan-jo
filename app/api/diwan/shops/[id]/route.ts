@@ -2,7 +2,7 @@ import { answer } from "@/server/auth";
 import { aboutShopSql, describeActivity } from "@/server/activityDetail";
 import { db } from "@/server/db";
 import { notFound, shopId } from "@/server/shopActions";
-import { ORDERS_SQL, prepareShops, SALES_SQL, STATUS_SQL, STORE_ORDERS_SQL, syncShop } from "@/server/shops";
+import { ORDERS_SQL, prepareShops, SALES_SQL, SHOP_KEYS, STATUS_SQL, STORE_ORDERS_SQL, STORE_PAGE_SQL, syncShop } from "@/server/shops";
 import { SHOWN_SQL } from "@/components/diwan/activityWords";
 import { can, staffRoute } from "@/server/staff";
 import { shopVisitors30 } from "@/server/storeVisits";
@@ -13,6 +13,7 @@ import { enforcedPaidThemes } from "@/server/themeOwnership";
 import { sellPlatform } from "@/server/storeOrders";
 import { cleanSetup } from "@/components/safeAccount";
 import { readyToSell, type SellNeed } from "@/components/safeOrder";
+import { emailUnconfirmed } from "@/server/emailVerify";
 
 export const dynamic = "force-dynamic";
 
@@ -69,15 +70,20 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
   if (!id) return notFound();
   const q = (sql: string) => pool.query(sql, [id]).then((r) => r.rows);
   /* a part of the history: its newest rows and how many there are, or null when this staff member's role can't see it */
-  const part = async (allowed: boolean, rowsSql: string, countSql: string) =>
-    allowed ? { rows: await q(`${rowsSql} LIMIT ${FEW}`), count: Number((await q(countSql))[0]?.n ?? 0) } : null;
+  const part = async (allowed: boolean, rowsSql: string, countSql: string) => {
+    if (!allowed) return null;
+    const rows = await q(`${rowsSql} LIMIT ${FEW}`);
+    const counted = (await q(countSql))[0];
+    /* total: the sum the count query gives too (payments), so it is not asked for again */
+    return { rows, count: Number(counted?.n ?? 0), ...(counted?.total !== undefined ? { total: counted.total as string } : {}) };
+  };
   const billing = can(staff, "billing");
   const [shop, payments, themes, tickets, documents, reports, deletions, activityRaw] = await Promise.all([
     q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode, s.ship_name, s.pickup, s.store_pays,
               s.pickup_city, s.pickup_address, s.status AS shop_status, s.suspend_reason, s.suspended_at, s.product_count,
               /* its orders and sales as the merchant's Home shows them: its own and its store page's, without the card
-                 and CliQ test orders (server/shops.ts STORE_ORDERS_SQL) */
-              ${ORDERS_SQL} AS order_count, ${SALES_SQL} AS total_sales, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
+                 and CliQ test orders (server/shops.ts STORE_ORDERS_SQL), and the two apart (STORE_PAGE_SQL) */
+              ${ORDERS_SQL} AS order_count, ${SALES_SQL} AS total_sales, ${STORE_PAGE_SQL}, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
               /* the oldest order: the one the merchant's saved orders give, or an older one customers placed on its page */
               LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at,
               a.name AS owner, a.email, a.phone, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
@@ -85,6 +91,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
                  left out of both: counts only, never the orders (they are the shop's) */
               so.n AS storefront_orders, so.test AS storefront_test,
               (${STATUS_SQL}) AS status,
+              /* its saved data changed since its row was worked out (server/shops.ts SHOP_KEYS) */
+              COALESCE((SELECT max(d.updated_at) FROM store_data d WHERE d.account_id = s.account_id AND d.key = ANY('{${[...SHOP_KEYS].join(",")}}'::text[])) > s.updated_at, false) AS changed,
               /* the theme in use (themeInUse above): its row in the theme store's list, the store's purchase of it, and for
                  one deleted from the list the name the activity log kept */
               s.theme_id, ct.name AS theme_listed_name, ct.source AS theme_source, ct.price::float AS theme_list_price,
@@ -118,8 +126,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
        merchant removed it (the row stays as a record); never its file */
     part(
       can(staff, "documents"),
-      `SELECT public_id, kind, status, created_at, seq, removed_at FROM documents WHERE account_id = $1 ORDER BY created_at DESC, id DESC`,
-      `SELECT count(*)::int AS n FROM documents WHERE account_id = $1`,
+      `SELECT public_id, kind, status, created_at, seq, removed_at FROM documents WHERE account_id = $1 AND NOT draft ORDER BY created_at DESC, id DESC`,
+      `SELECT count(*)::int AS n FROM documents WHERE account_id = $1 AND NOT draft`,
     ),
     part(
       can(staff, "complaints"),
@@ -140,9 +148,11 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     ),
   ]);
   /* a store whose row counts products or orders without the date of the first one (counted before those dates were
-     worked out from the saved data): worked out again now, once, from its saved products' and orders' own times */
-  const sh0 = shop[0];
-  if (sh0 && ((sh0.product_count > 0 && !sh0.first_product_at) || (sh0.order_count > 0 && !sh0.first_order_at))) {
+     worked out from the saved data): worked out again from its saved products' and orders' own times, only when its
+     saved data changed since its row was (a store whose dates were never recorded is not worked out again on every visit) */
+  const { changed, ...sh0 } = shop[0] ?? {};
+  if (shop[0]) shop[0] = sh0;
+  if (shop[0] && changed && ((sh0.product_count > 0 && !sh0.first_product_at) || (sh0.order_count > 0 && !sh0.first_order_at))) {
     await syncShop(id, pool).catch((e) => console.error("[shops] sync", id, e));
     const again = await q(
       `SELECT s.first_product_at, LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at
@@ -150,22 +160,34 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     );
     if (again[0]) Object.assign(sh0, again[0]);
   }
-  /* the activity lines in words (server/activityDetail.ts: only safe facts leave the server) */
-  const activity = activityRaw && { rows: await describeActivity(pool, activityRaw.rows), count: activityRaw.count };
-  /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
-  const visitors30 = shop[0] ? await shopVisitors30(pool, id) : 0;
+  /* asked together, each on its own (none needs another's answer): */
+  const [activity, visitors30, saved, platform, emailNeed] = await Promise.all([
+    /* the activity lines in words (server/activityDetail.ts: only safe facts leave the server) */
+    activityRaw && describeActivity(pool, activityRaw.rows).then((rows) => ({ rows, count: activityRaw.count })),
+    /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
+    shop[0] ? shopVisitors30(pool, id) : 0,
+    shop[0] ? q(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`) : [],
+    shop[0] ? sellPlatform() : null,
+    /* the owner has not confirmed his email yet, while Dukkan can send the code (server/emailVerify.ts) */
+    shop[0] ? emailUnconfirmed(id) : false,
+  ]);
   /* what the store still needs before it can sell (safeOrder readyToSell, the rule the merchant's pages and his saves
-     follow): only "pay" / "delivery" leave the server, never his setup */
+     follow, with "email" while the owner has not confirmed his email): only these words leave the server, never his setup */
   let notReady: SellNeed[] = [];
-  if (shop[0]) {
-    const saved = await q(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`);
+  if (shop[0] && platform) {
     let setup = null;
     try {
       setup = saved[0] ? cleanSetup(JSON.parse(saved[0].value)) : null;
     } catch {
       setup = null;
     }
-    notReady = readyToSell(setup, await sellPlatform()).missing;
+    notReady = readyToSell(setup, platform).missing;
+    if (emailNeed) notReady.push("email");
+    /* a live store with no delivery choice saved delivers with Dukkan Ship by default while it serves a city (safeOrder
+       checkoutShipMode): it is not "without delivery"; its Delivery line says "Dukkan Ship (default, not chosen)" */
+    if (shop[0].published && !setup?.shipping && platform.shipCities.en.length > 0) notReady = notReady.filter((m) => m !== "delivery");
+    /* a store already live keeps selling with setup steps left: they only stop it going live */
+    if (shop[0].published) notReady = notReady.filter((m) => m !== "setup" && m !== "email");
   }
   /* the theme columns leave the shop row: they go out as one "theme" */
   const { theme_id, theme_listed_name, theme_source, theme_list_price, theme_paid, theme_deleted_name, ...shopRow } = shop[0] ?? {};
@@ -173,12 +195,11 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
   /* a paid theme with no purchase is not shown to its customers: the store shows the free theme (server/themeOwnership.ts,
      the same rule as the public store) */
   const theme = inUse && { ...inUse, shownFree: inUse.how === "not_bought" && (await enforcedPaidThemes(pool)).has(inUse.id) };
-  const paymentsTotal = billing ? ((await q(`SELECT COALESCE(sum(amount), 0)::numeric(14, 3) AS t FROM payments WHERE account_id = $1`))[0]?.t ?? "0") : null;
   return answer({
     result: "ok",
     shop: shop[0] && { ...shopRow, visitors_30: visitors30, not_ready: notReady },
     theme,
-    payments: payments && { ...payments, total: paymentsTotal },
+    payments: payments && { ...payments, total: payments.total ?? "0" },
     themes,
     tickets,
     documents: documents && {

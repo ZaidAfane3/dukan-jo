@@ -5,6 +5,7 @@ import { demoActive } from "./demoSandbox";
 import { serverMode } from "./notifications";
 import { cleanOrder, cleanProduct, parseList, type Product } from "./records";
 import type { CountedOrder } from "./storeNumbers";
+import { timeoutSignal } from "./timeoutSignal";
 
 /* The orders and products the merchant's numbers are worked out from (the home page and Reports, storeNumbers.ts): the
    orders kept in his browser ("seen-orders": added by hand, or from his own store preview) and, for a signed-in store,
@@ -13,7 +14,16 @@ import type { CountedOrder } from "./storeNumbers";
 
 /** A store order as the Orders page and the numbers read it: serverId is its id on the server, payment "test" means it
     was placed while payment is not open (nothing was charged). */
-export type StoreOrderRow = CountedOrder & { serverId?: string };
+export type StoreOrderRow = CountedOrder & { serverId?: string; ship?: Ship };
+
+/** Dukkan Ship's delivery of a store order, when Dukkan Ship delivers it (staff mark it in Diwan) */
+export type Ship = { state: "waiting" | "delivered" | "failed"; note?: string; at?: number };
+function shipOf(v: unknown): { ship?: Ship } {
+  if (!v || typeof v !== "object") return {};
+  const s = v as Record<string, unknown>;
+  if (s.state !== "waiting" && s.state !== "delivered" && s.state !== "failed") return {};
+  return { ship: { state: s.state, ...(typeof s.note === "string" && s.note ? { note: s.note.slice(0, 300) } : {}), ...(typeof s.at === "number" ? { at: s.at } : {}) } };
+}
 
 /** The server's answer, checked like the orders read from storage (cleanOrder). Every one is a store order (channel 1). */
 export function serverRows(list: unknown): StoreOrderRow[] {
@@ -23,28 +33,19 @@ export function serverRows(list: unknown): StoreOrderRow[] {
     if (!x || typeof x !== "object") continue;
     const r = x as Record<string, unknown>;
     const o = cleanOrder(r);
-    if (o && typeof r.serverId === "string" && /^\d+$/.test(r.serverId)) out.push({ ...o, channel: 1, serverId: r.serverId, payment: r.payment === "unpaid" ? "unpaid" : "test" });
+    if (o && typeof r.serverId === "string" && /^\d+$/.test(r.serverId)) out.push({ ...o, channel: 1, serverId: r.serverId, payment: r.payment === "unpaid" ? "unpaid" : "test", ...shipOf(r.ship) });
   }
   return out;
 }
 
-/* The numbers need every store order, a page of 100 at a time; past this many pages (10,000 orders) the oldest are left
-   out rather than holding the page up */
-const MAX_PAGES = 100;
-
-/** Every store order of the signed-in merchant, newest first. Throws when the server can't be reached or says no. */
+/** Every store order of the signed-in merchant, newest first (up to 10,000: the oldest past that are left out rather than
+    holding the page up), in one request (GET /api/orders?all=1). Throws when the server can't be reached, says no, or
+    takes longer than 30 s. */
 async function fetchStoreOrders(signal: AbortSignal): Promise<StoreOrderRow[]> {
-  const all: StoreOrderRow[] = [];
-  let url = "/api/orders";
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const r = await fetch(url, { credentials: "same-origin", cache: "no-store", signal });
-    if (!r.ok) throw new Error(`orders ${r.status}`);
-    const j = (await r.json()) as { orders?: unknown; next?: unknown };
-    all.push(...serverRows(j.orders));
-    if (typeof j.next !== "string") break;
-    url = `/api/orders?before=${encodeURIComponent(j.next)}`;
-  }
-  return all;
+  const r = await fetch("/api/orders?all=1", { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(30_000, signal) });
+  if (!r.ok) throw new Error(`orders ${r.status}`);
+  const j = (await r.json()) as { orders?: unknown };
+  return serverRows(j.orders);
 }
 
 function readLocal(): { orders: CountedOrder[]; products: Product[] } {

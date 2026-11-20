@@ -31,7 +31,8 @@ export function refreshCatalog(force = false): Promise<boolean> {
   fromCache();
   if (asked && !force && Date.now() - askedAt < MIN_GAP) return asked;
   askedAt = Date.now();
-  return (asked = fetch("/api/themes/catalog", { cache: "no-store" })
+  /* the browser may answer from its own copy of under a minute (the route says how long); a forced ask never does */
+  return (asked = fetch("/api/themes/catalog", { cache: force ? "no-store" : "default" })
     .then((r) => (r.ok ? r.json() : null))
     .then((j: { themes?: unknown } | null) => {
       if (!j || !Array.isArray(j.themes)) return false;

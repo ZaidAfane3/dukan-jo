@@ -10,7 +10,9 @@ export const MAX_FILE = 2_000_000;
 /* A GIF (or an animated WebP) must be kept exactly as it is, or it stops moving, so it has a smaller size limit. */
 export const MAX_GIF = 1_200_000;
 
-export type Picked = { url: string; /* the picture's own size, before it was shrunk (none for an SVG) */ w?: number; h?: number } | { problem: UploadProblem };
+export type Picked =
+  | { url: string; /* the picture's own size, before it was shrunk (none for an SVG) */ w?: number; h?: number; /* a moving picture too big to keep moving, kept still */ still?: boolean }
+  | { problem: UploadProblem };
 
 /** Opens a checked picture. The browser turns it the right way up from its EXIF when it decodes it. */
 export function decode(file: Blob, svg: boolean): Promise<HTMLImageElement | null> {
@@ -62,7 +64,8 @@ export async function pickPicture(file: File | undefined, rule: ImageRule, max: 
   }
   const img = await decode(file!, check.kind === "svg");
   const url = img && redraw(img, max, type, quality);
-  return url ? { url, w: check.w, h: check.h } : { problem: "broken" };
+  /* a moving WebP over the limit for moving pictures is drawn as its first frame: said (pickedNote), not done quietly */
+  return url ? { url, w: check.w, h: check.h, ...(check.animated ? { still: true } : {}) } : { problem: "broken" };
 }
 
 export const pickedUrl = (p: Picked) => ("url" in p ? p.url : null);
@@ -79,6 +82,13 @@ export type PicNote = { tone: "error" | "warn"; text: string } | null;
 /** The note for a picked picture, in the words of the rule it was checked with (its real kinds and limits) */
 export function pickedNote(p: Picked, rule: ImageRule, lang: "en" | "ar"): PicNote {
   if ("problem" in p) return { tone: "error", text: uploadProblemFor(p.problem, rule, lang) };
+  if (p.still) {
+    const mb = Number((MAX_GIF / 1_000_000).toFixed(1));
+    return {
+      tone: "warn",
+      text: lang === "ar" ? `هذه الصورة المتحركة أكبر من ${mb} ميغابايت، فحُفظت صورة ثابتة. صغّرها لتبقى متحركة.` : `This moving picture is over ${mb} MB, so it was kept as a still picture. Make it smaller to keep it moving.`,
+    };
+  }
   const small = smallPictureNote(p.w, p.h, rule, lang);
   return small ? { tone: "warn", text: small } : null;
 }

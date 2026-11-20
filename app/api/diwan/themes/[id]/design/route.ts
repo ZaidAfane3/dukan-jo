@@ -4,6 +4,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { adoptPlatformMedia } from "@/server/media";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,8 @@ export const PUT = staffRoute("marketplace", async (req: NextRequest, me, { para
     plainParams([params.id, text, me.id]),
   );
   if (!rowCount) return answer({ result: "missing" }, 404);
+  /* its pictures were sent under whichever merchant account this browser is signed in as: they are the platform's now */
+  await adoptPlatformMedia(await db(), text);
   await audit(req, me.id, "theme.design", { type: "theme", id: params.id }, null, { bytes: text.length, sections: config.sections.length });
   return answer({ result: "ok" });
 });

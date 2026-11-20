@@ -32,6 +32,6 @@ export default async function StorePage(props: { params: Promise<{ slug: string 
   const params = await props.params;
   const store = await load(params.slug);
   /* drawn here rather than with notFound(): Next 14 shows its own plain page for a notFound() from this segment */
-  if (!store) return <MissingPage />;
+  if (!store) return <MissingPage kind="store" />;
   return <PublicStore store={store} />;
 }

@@ -218,8 +218,9 @@ export function Industries() {
 
   return (
     <section id="industries" className="mx-auto max-w-6xl px-5 py-20">
-      {/* The pictures of the industry cards load now, so a card has its picture the moment it opens */}
-      {items.map((x, i) => x.detail?.shots[0] && <img key={i} src={x.detail.shots[0].src} alt="" aria-hidden className="hidden" />)}
+      {/* The picture of the card open now and of the next one load ahead, so a card has its picture the moment it opens
+          (not every card's at once: each is a whole store page) */}
+      {items.map((x, i) => x.detail?.shots[0] && (i === active || i === (active + 1) % items.length) && <img key={i} src={x.detail.shots[0].src} alt="" aria-hidden className="hidden" />)}
       <Reveal>
         <h2 className="text-center text-3xl font-extrabold tracking-tight sm:text-4xl">{s.industries.title}</h2>
       </Reveal>
@@ -642,10 +643,26 @@ const maskImg = { WebkitMaskImage: "url(/maps/jordan.png)", maskImage: "url(/map
 function FleetMap() {
   const lang = useSiteLang();
   const [active, setActive] = useState(2);
+  /* the cities take turns only while the map is on the screen and the tab is in view (no redrawing nobody sees) */
+  const box = useRef<HTMLDivElement>(null);
+  const onScreen = useRef(false);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      onScreen.current = true;
+      return;
+    }
+    const io = new IntersectionObserver(([e]) => {
+      onScreen.current = e.isIntersecting;
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = setInterval(() => {
+      if (!onScreen.current || document.hidden) return;
       setActive((a) => {
         let n = a;
         while (n === a) n = Math.floor(Math.random() * fleetCities.length);
@@ -672,7 +689,7 @@ function FleetMap() {
   return (
     <Tilt max={20} className="mx-auto w-full max-w-md">
       {/* dir="ltr" keeps the geometry of the picture the same in both languages */}
-      <div dir="ltr" className="relative aspect-[4/4.3] w-full" style={{ transformStyle: "preserve-3d" }}>
+      <div ref={box} dir="ltr" className="relative aspect-[4/4.3] w-full" style={{ transformStyle: "preserve-3d" }}>
         <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-brand-light to-brand opacity-30" style={{ transform: "translateZ(-45px) translate(18px, 18px)" }} />
         <div className="absolute inset-0 rounded-3xl bg-card shadow-[0_35px_70px_-25px_rgba(20,20,20,0.45)]" style={{ transform: "translateZ(8px)", transformStyle: "preserve-3d" }}>
           {/* The whole of Jordan, small, with a ring on the part the magnifier shows */}

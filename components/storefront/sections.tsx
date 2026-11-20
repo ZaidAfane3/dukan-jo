@@ -1,13 +1,13 @@
 "use client";
 
-import { orderPays, storeDelivery, UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
+import { orderPays, storeDelivery, toFils, UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { cloneElement, createContext, Fragment, isValidElement, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
-import { copy, currency, fillColors, icons, moneyIn, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { basketMost, copy, currency, fillColors, icons, moneyIn, mostWords, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { productCount, searchCopy } from "./search";
 import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
@@ -80,6 +80,20 @@ const tx = (st?: TextStyle): React.CSSProperties =>
 /* A link a visitor may follow: "shop.com" becomes "https://shop.com" */
 const linkHref = (l: string) => (/^https?:\/\//i.test(l.trim()) ? l.trim() : `https://${l.trim()}`);
 
+/* Where a link the merchant wrote leads outside this page, the way the store's menu and footer read it (resolveLink):
+   mailto:, tel:, sms: and whatsapp: stay as written (in the same tab), a bare email becomes mailto: and a phone number
+   ("+962 79 …", "079…") tel:, and a web address gets https:// when it has none (in a new tab). "never" for any other
+   kind of link (javascript:, data:, …), which leads nowhere; null when it is the name of a part of this page. */
+function outsideLink(raw: string): { href: string; blank: boolean } | "never" | null {
+  const l = (raw ?? "").trim();
+  if (/^(?:mailto|tel|sms|whatsapp):[^\s<>"'`]+$/i.test(l)) return { href: l, blank: false };
+  if (/^[^\s@:/]+@[^\s@:/]+\.[^\s@:/]+$/.test(l)) return { href: `mailto:${l}`, blank: false };
+  if (/^\+?[\d\s\-().]+$/.test(l) && l.replace(/\D/g, "").length >= 7) return { href: `tel:${l.startsWith("+") ? "+" : ""}${l.replace(/\D/g, "")}`, blank: false };
+  if (/^[a-z][a-z0-9+.-]*:/i.test(l) && !/^https?:/i.test(l) && !/^[a-z0-9.-]+:\d+(\/|$)/i.test(l)) return "never";
+  if (/^https?:\/\//i.test(l) || l.includes(".")) return /\s/.test(l) ? "never" : { href: linkHref(l), blank: true };
+  return null;
+}
+
 /* The ways a merchant writes the dinar: in Latin letters (JOD, JD, dinars, Jordanian dinar) and in Arabic (د.أ, دينار, دنانير, دينار أردني, دينارًا).
    Both check their neighbours by hand (\b knows no Arabic letters, and "23JOD" has no word edge); the letter before is kept, with a space after a digit. */
 const latinDinar = /(^|[^A-Za-z])(?:Jordanian\s+)?(?:JOD|JD|dinars?)(?![A-Za-z])/gi;
@@ -118,9 +132,11 @@ const pageOf = (l: string) => {
 export function linkProps(l: string, ctx: Ctx) {
   const id = pageOf(l);
   if (id !== null) return { href: "#", onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.openPage?.(id); } };
-  /* The name of a part of this page: it scrolls there. Anything else is a web address. */
-  if (!/^https?:\/\//i.test(l.trim()) && !l.includes(".")) return { href: `#${l.trim()}`, onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.showSection?.(l.trim()); } };
-  return { href: linkHref(l), target: "_blank", rel: "noreferrer" };
+  /* An email, a phone number or a web address opens it; the name of a part of this page scrolls there */
+  const out = outsideLink(l);
+  if (out === "never") return { href: "#", onClick: (e: React.MouseEvent) => e.preventDefault() };
+  if (out) return out.blank ? { href: out.href, target: "_blank", rel: "noreferrer" } : { href: out.href };
+  return { href: `#${l.trim()}`, onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.showSection?.(l.trim()); } };
 }
 
 /* In the designer a button that leads to a page of the store opens that page with Ctrl+click (a plain click selects it) */
@@ -233,7 +249,7 @@ export function Pick({ ctx, id, field, children, block = false }: { ctx: Ctx; id
 /* the title look of the section being drawn, for its Heading */
 const SectionTitleLook = createContext<TitleLook | undefined>(undefined);
 
-function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string; /* a section with no products yet: its "view all" shows in the designer while the merchant edits that wording, to see where it goes */ moreHole?: boolean }) {
+function Heading({ title, ctx, more: moreOn, right, link, moreHole, onMore }: { title: string; ctx: Ctx; more?: boolean; right?: React.ReactNode; /* where "view all" leads */ link?: string; /* a section with no products yet: its "view all" shows in the designer while the merchant edits that wording, to see where it goes */ moreHole?: boolean; /* "view all" with no link: it shows every product of the section in place (Featured, Deals) */ onMore?: () => void }) {
   const c = copy[ctx.lang];
   const spots = useSpots();
   const more = moreOn || (!!moreHole && !!ctx.design && spots.some((x) => x.key === "viewall"));
@@ -255,7 +271,7 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
       return (
         <div className="mb-8 flex items-end justify-between gap-4">
           {h2}
-          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : <span data-spot="viewall" className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
+          {link && !ctx.design ? <a {...linkProps(link, ctx)} className={cls}>{viewAll}</a> : onMore && !ctx.design ? <button type="button" onClick={onMore} className={cls}>{viewAll}</button> : <span data-spot="viewall" className={cls} onClick={designOpen(link, ctx)}>{viewAll}</span>}
           {right}
         </div>
       );
@@ -285,6 +301,8 @@ function Heading({ title, ctx, more: moreOn, right, link, moreHole }: { title: s
           const inner = pop || light ? viewAll : <>{viewAll}{icons.arrow}</>;
           return link?.trim() && !ctx.design ? (
             <a {...linkProps(link, ctx)} className={`${cls} transition hover:opacity-70`} style={style}>{inner}</a>
+          ) : onMore && !ctx.design ? (
+            <button type="button" onClick={onMore} className={`${cls} transition hover:opacity-70`} style={style}>{inner}</button>
           ) : (
             <span data-spot="viewall" className={cls} style={style} onClick={designOpen(link, ctx)}>{inner}</span>
           );
@@ -388,6 +406,9 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
   const withAdd = k.showAdd ?? true;
   const plus = withAdd && k.add === "plus";
   const low = k.showStock && p.quantity > 0 && p.quantity <= 5;
+  /* the basket holds all it can take of it: + stops, and the card says why */
+  const most = basketMost(p.quantity);
+  const atMost = inBasket > 0 && !out && inBasket >= most;
   const row = (k.info ?? "stack") === "row";
   /* centered: the name, the material line and the price under the picture, in the middle, the name and price in the titles font */
   const centered = k.info === "center";
@@ -441,7 +462,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
           <h3 dir="auto" className={`mt-0.5 text-sm font-bold ltr:text-left rtl:text-right ${plus && inBasket > 0 ? "line-clamp-2" : "line-clamp-1"}`}><Say>{p.name}</Say></h3>
         ))}
         {/* the short line ("cotton · soft · light") is not on the card: it shows on the product page, under "Features" */}
-        {low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
+        {atMost ? <p role="status" className="mt-0.5 text-xs font-semibold text-amber-600">{mostWords(p.quantity, ctx.lang)}</p> : low && <p className="mt-0.5 text-xs font-semibold text-amber-600">{ctx.lang === "ar" ? `بقي ${p.quantity} فقط` : `Only ${p.quantity} left`}</p>}
         </div>
         {k.showPrice && (
           <p dir="ltr" className={`${row ? "mt-0.5 max-w-[60%] shrink-0 justify-end" : centered ? "mt-2 justify-center" : `${pop ? "mt-1 w-fit" : plus ? "mt-3 w-fit" : "mt-3"} rtl:justify-end`} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-start`} style={{ ...priceInk(ctx, cardOn), ...(centered ? { fontFamily: "var(--sf-heading)" } : {}) }}>
@@ -468,7 +489,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               <div dir="ltr" className="flex h-9 items-center overflow-hidden rounded-full border-2 border-[var(--sf-text)] bg-white text-sm font-extrabold text-[var(--sf-text)]" style={surfaceInk(ctx, "#ffffff")}>
               <button type="button" onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket - 1)} aria-label={`${ctx.lang === "ar" ? "إنقاص" : "Remove one"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10">&minus;</button>
               <span aria-live="polite" className="min-w-[1.25rem] text-center tabular-nums">{inBasket}</span>
-              <button type="button" disabled={inBasket >= p.quantity} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
+              <button type="button" disabled={inBasket >= most} onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)} aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`} className="grid h-full w-8 place-items-center transition hover:bg-black/10 disabled:opacity-40">+</button>
             </div>
             </div>
           ) : (
@@ -498,7 +519,7 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
             <span aria-live="polite" className="text-sm font-extrabold tabular-nums">{inBasket}</span>
             <button
               type="button"
-              disabled={inBasket >= p.quantity}
+              disabled={inBasket >= most}
               onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, inBasket + 1)}
               aria-label={`${ctx.lang === "ar" ? "زيادة" : "Add one more"}: ${p.name}`}
               className="grid h-full w-12 place-items-center text-xl font-bold transition hover:bg-black/[0.07] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
@@ -748,11 +769,14 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   /* how many to add: chosen before adding; once it is in the basket the same buttons change the basket */
   const [pick, setPick] = useState(1);
   const [more, setMore] = useState(false);
-  const perkLine = perkLineWith(ctx.sells);
+  /* a product that is not delivered to an address (a code, a service: safeOrder productShips) promises no delivery */
+  const perkLine = perkLineWith(p.noShip ? { ...ctx.sells, delivers: false } : ctx.sells);
   useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
   useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
-  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, sizeLeft), n))));
+  /* the stepper stops at what the basket takes: the stock (of that size), at most one order's limit (99 with no limit) */
+  const most = basketMost(sizeLeft);
+  const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, most), n))));
   /* a product in sizes waits for its size before it can be added */
   const needSize = sized && !size;
   const now = priceOf(p);
@@ -766,13 +790,14 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const about = p.description ?? "";
   const long = about.length > 360 || about.split("\n").length > 6;
   /* the free delivery offer follows what is already in the basket */
-  const basket = Object.entries(ctx.qty).reduce((t, [key, n]) => {
+  /* (kept to the fils, as the cart and the server test it) */
+  const basket = toFils(Object.entries(ctx.qty).reduce((t, [key, n]) => {
     const x = ctx.data.products.find((y) => String(y.id) === key.split("|")[0]);
     return t + (x ? n * priceOf(x) : 0);
-  }, 0);
+  }, 0));
   const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
-  /* free delivery is only promised by a store that delivers to a door */
-  if (fd?.on && ctx.sells.delivers) {
+  /* free delivery is only promised by a store that delivers to a door, on a product it delivers */
+  if (fd?.on && ctx.sells.delivers && !p.noShip) {
     perks.push(
       basket >= fd.min
         ? { icon: icons.truck, t: w.freeHere, bar: 1 }
@@ -781,7 +806,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
           : { icon: icons.truck, t: <>{w.freeFrom} {amount(fd.min)}</> },
     );
   }
-  if (pickup) perks.push({ icon: icons.pin, t: w.pickup, d: w.pickupD });
+  if (pickup && !p.noShip) perks.push({ icon: icons.pin, t: w.pickup, d: w.pickupD });
   const promises = sections?.find((x): x is Extract<SectionConfig, { type: "perks" }> => x.type === "perks" && x.visible)?.settings.items ?? [];
   const other = ctx.lang === "ar" ? "en" : "ar";
   const perkIcon = { truck: icons.truck, shield: icons.shield, returns: icons.returns, gift: icons.gift, clock: icons.clock, chat: icons.chat };
@@ -863,9 +888,10 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         <div dir="ltr" role="group" aria-label={w.qty} className={`inline-flex shrink-0 items-center ${s.stepper}`}>
           <button type="button" className={step} disabled={inBasket === 0 && pick <= 1} onClick={() => setCount(count - 1)} aria-label={`${w.less}: ${p.name}`}>−</button>
           <span aria-live="polite" className="min-w-[2.5rem] text-center text-base font-extrabold tabular-nums">{count}</span>
-          <button type="button" className={step} disabled={count >= sizeLeft} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
+          <button type="button" className={step} disabled={count >= most} onClick={() => setCount(count + 1)} aria-label={`${w.more}: ${p.name}`}>+</button>
         </div>
       )}
+      {!out && p.price !== null && !needSize && count >= most && <p role="status" className="w-full text-xs font-semibold text-amber-600">{mostWords(sizeLeft, ctx.lang)}</p>}
       {inBasket > 0 && !out ? (
         <p role="status" className={`flex min-w-[12rem] flex-1 flex-wrap items-center justify-center gap-x-2 text-center ${s.added}`}>
           <span className="inline-flex items-center gap-1.5">{icons.check}{w.inCart(inBasket)}</span>
@@ -924,13 +950,14 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
       {chartOpen && p.sizeChart && (
         /* the chart over the page: a press outside it, its close button or Escape closes it */
         <div role="dialog" aria-modal="true" aria-label={w.sizeChart} onClick={() => setChartOpen(false)} onKeyDown={(e) => e.key === "Escape" && setChartOpen(false)} className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4">
-          <div onClick={(e) => e.stopPropagation()} className="relative max-h-full max-w-3xl overflow-auto rounded-2xl bg-white p-3 shadow-2xl">
+          <div onClick={(e) => e.stopPropagation()} className="relative max-h-full w-full max-w-3xl overflow-auto rounded-2xl bg-white p-3 shadow-2xl">
             <div className="mb-2 flex items-center justify-between gap-4 px-1">
               <p className="text-sm font-bold text-[#1c1a17]">{w.sizeChart}</p>
               <button type="button" autoFocus onClick={() => setChartOpen(false)} aria-label={c.close} className="grid h-9 w-9 place-items-center rounded-full text-[#1c1a17] transition hover:bg-black/[0.06]">{icons.close}</button>
             </div>
+            {/* a box of a set shape (the chart fits inside it), so the dialog does not jump when the picture arrives */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.sizeChart} alt={w.sizeChart} className="mx-auto max-h-[75vh] w-auto rounded-lg object-contain" />
+            <img src={p.sizeChart} alt={w.sizeChart} width={1200} height={900} decoding="async" className="mx-auto aspect-[4/3] h-auto max-h-[75vh] w-full rounded-lg object-contain" />
           </div>
         </div>
       )}
@@ -1354,6 +1381,7 @@ function FitTitle({ size, lines, className = "", style, children }: { size: numb
 }
 
 function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { type: "hero" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   /* the default cover line without its delivery promise, for a store that does not deliver (heroLine) */
   const delivers = ctx.sells.delivers;
   const s = useMemo(() => {
@@ -1483,13 +1511,13 @@ function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { t
             <div onClick={open("photo")} className={`absolute right-[7%] top-[9%] w-[47%] overflow-hidden border-2 bg-[#ece4dc] ${ctx.design ? "cursor-pointer" : ""}`} style={{ aspectRatio: "3/4", borderColor: ink, borderRadius: "999px 999px var(--sf-ri) var(--sf-ri)" }}>
               {s.photo && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.photo} alt="" className="h-full w-full object-cover" style={picStyle(s.photoPos)} />
+                <img {...imgLoad} src={s.photo} alt="" className="h-full w-full object-cover" style={picStyle(s.photoPos)} />
               )}
             </div>
             <div onClick={open("photo2")} className={`absolute bottom-[8%] left-[6%] w-[38%] overflow-hidden border-2 ${ctx.design ? "cursor-pointer" : ""}`} style={{ aspectRatio: "3/4", background: "#bfe36a", borderColor: ink, borderRadius: "var(--sf-ri)", transform: "rotate(-7deg)" }}>
               {s.photo2 && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.photo2} alt="" className="h-full w-full object-cover" style={picStyle(s.photo2Pos)} />
+                <img {...imgLoad} src={s.photo2} alt="" className="h-full w-full object-cover" style={picStyle(s.photo2Pos)} />
               )}
             </div>
             {sticker && (
@@ -1568,7 +1596,7 @@ function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { t
               <div onClick={open("photo")} className={`absolute inset-0 overflow-hidden rounded-full ${ctx.design ? "cursor-pointer" : ""}`} style={{ outline: `1px solid ${ringColor}`, outlineOffset: 8, background: "color-mix(in srgb, var(--sf-text) 6%, var(--sf-bg))" }}>
                 {s.photo && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={s.photo} alt={label || pick(s.title)} className="h-full w-full object-cover" style={picFill(s.photoPos)} />
+                  <img {...imgLoad} src={s.photo} alt={label || pick(s.title)} className="h-full w-full object-cover" style={picFill(s.photoPos)} />
                 )}
               </div>
               {(label || s.price) && (
@@ -1609,7 +1637,7 @@ function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { t
           <div className={`relative overflow-hidden ${ctx.compact ? "aspect-[4/3]" : full ? "min-h-[720px]" : "min-h-[26rem]"} ${photoFirst ? "" : "md:order-2"}`}>
             {s.photo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={s.photo} alt="" className="absolute inset-0 h-full w-full object-cover" style={picFill(s.photoPos)} />
+              <img {...imgLoad} src={s.photo} alt="" className="absolute inset-0 h-full w-full object-cover" style={picFill(s.photoPos)} />
             ) : (
               <span className="absolute inset-0 grid place-items-center bg-black/10 px-6 text-center text-sm font-semibold opacity-80">
                 {ctx.design ? (l === "ar" ? "أضف صورة الغلاف من القائمة الجانبية" : "Add the cover photo from the side panel") : ""}
@@ -1702,7 +1730,7 @@ function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { t
             {b.kind === "image" && b.image && (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={b.image} alt="" className="h-full w-full object-cover" style={picFill(b.pos)} />
+                <img {...imgLoad} src={b.image} alt="" className="h-full w-full object-cover" style={picFill(b.pos)} />
                 {/* a dark fade keeps the words readable; it is deepest on the side where the words sit */}
                 <span className="absolute inset-0" style={{ background: low ? "linear-gradient(to top, rgb(0 0 0 / 0.65), rgb(0 0 0 / 0.25) 45%, rgb(0 0 0 / 0.05))" : "linear-gradient(to top, rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.2))" }} />
               </>
@@ -1871,6 +1899,7 @@ const heroLine = (b: { en: string; ar: string }, delivers: boolean) =>
     : { en: STOCK_HERO_LINES[b.en?.trim() ?? ""] ?? b.en, ar: STOCK_HERO_LINES[b.ar?.trim() ?? ""] ?? b.ar };
 
 function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const perkLine = perkLineWith(ctx.sells);
   const items = (s.items ?? []).flatMap((p) => {
     const d = perkLine(p, ctx.lang);
@@ -1903,7 +1932,7 @@ function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["setti
             <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl" style={onTint(ctx, 11)}>
               {p.icon === "image" && p.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.image} alt="" className="h-full w-full object-cover" />
+                <img {...imgLoad} src={p.image} alt="" className="h-full w-full object-cover" />
               ) : (
                 ic[p.icon as keyof typeof ic] ?? icons.truck
               )}
@@ -1955,6 +1984,7 @@ function Collection({ s, ctx }: { s: Extract<SectionConfig, { type: "collection"
 /* ---------------- Picture tiles ---------------- */
 
 function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const list = (s.items ?? []).filter((x) => x.image);
   const other = ctx.lang === "ar" ? "en" : "ar";
   const title = s.title?.[ctx.lang] || s.title?.[other] || "";
@@ -1987,7 +2017,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
               <div className={`group flex flex-col items-center ${dense ? "px-1" : "px-3"}`}>
                 <div className="aspect-square w-full overflow-hidden rounded-full" style={{ outline: `1px solid ${ringColor}`, outlineOffset: dense ? 4 : 8 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" style={picFill(x.pos)} />
+                  <img {...imgLoad} src={x.image} alt={label} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" style={picFill(x.pos)} />
                 </div>
                 {label && <span className={`${dense ? "mt-3" : "mt-5"} text-center`} style={{ fontFamily: "var(--sf-heading)", fontSize: dense ? (ctx.compact ? 13 : 16) : ctx.compact ? 18 : 22 }}><Say>{label}</Say></span>}
               </div>
@@ -2008,7 +2038,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
           const body = (
             <div className={`group relative overflow-hidden bg-black/5 ${editorial ? `rounded-[4px] ${ctx.compact ? "h-[200px]" : "h-[260px]"}` : "aspect-[4/5] rounded-[var(--sf-r)]"}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" style={picFill(x.pos)} />
+              <img {...imgLoad} src={x.image} alt={label} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" style={picFill(x.pos)} />
               {label &&
                 (editorial ? (
                   <span
@@ -2038,6 +2068,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
 /* ---------------- Promo banners: text and a button laid over a picture ---------------- */
 
 function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const list = s.items ?? [];
   const other = ctx.lang === "ar" ? "en" : "ar";
   if (!list.length) {
@@ -2078,7 +2109,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const sizeClass = tall ? (ctx.compact ? "h-[420px]" : "h-[600px]") : ctx.compact ? "aspect-[4/3]" : ratio;
           const photo = b.image && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={b.image} alt="" className="absolute inset-0 -z-10 h-full w-full object-cover" style={picStyle(b.pos)} />
+            <img {...imgLoad} src={b.image} alt="" className="absolute inset-0 -z-10 h-full w-full object-cover" style={picStyle(b.pos)} />
           );
           const shell = `relative isolate overflow-hidden rounded-[var(--sf-r)] ${sizeClass}`;
           /* no picture (or he removed his): the default Dukkan look, in the store's own color, whatever theme is on */
@@ -2148,7 +2179,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
                           >
                             {src && (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={src} alt="" className="h-full w-full object-cover" style={k === 0 ? picStyle(b.pos) : picFill(b.imagesPos?.[k - 1])} />
+                              <img {...imgLoad} src={src} alt="" className="h-full w-full object-cover" style={k === 0 ? picStyle(b.pos) : picFill(b.imagesPos?.[k - 1])} />
                             )}
                           </div>
                         );
@@ -2252,6 +2283,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
 }
 
 function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const list = (s.slides ?? []).filter((x) => x.image);
   const [i, setI] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -2287,7 +2319,7 @@ function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["set
         {list.map((x, n) => {
           const img = (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={x.image} alt="" className="h-full w-full object-cover" style={picFill(x.pos)} />
+            <img {...imgLoad} src={x.image} alt="" className="h-full w-full object-cover" style={picFill(x.pos)} />
           );
           return (
             <div key={n} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: n === idx ? 1 : 0 }} aria-hidden={n !== idx}>
@@ -2500,7 +2532,10 @@ function TextBlock({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { typ
 }
 
 function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>["settings"]; ctx: Ctx }) {
-  const items = featuredItems(s, ctx.data);
+  /* "view all": every product of the section, not only the count he set (it goes once they all show) */
+  const [all, setAll] = useState(false);
+  const items = featuredItems(s, ctx.data, all);
+  const more = all ? false : featuredItems(s, ctx.data, true).length > items.length;
   if (!items.length) {
     if (!ctx.design) return null;
     return (
@@ -2512,7 +2547,7 @@ function Featured({ s, ctx }: { s: Extract<SectionConfig, { type: "featured" }>[
   }
   return (
     <section className={section(ctx.compact)}>
-      <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more />
+      <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more={more || !!ctx.design} onMore={() => setAll(true)} />
       <Grid items={items} ctx={ctx} columns={4} />
     </section>
   );
@@ -2525,7 +2560,10 @@ const dealsBox = (ctx: Ctx): string | undefined => {
 };
 
 function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }>["settings"]; ctx: Ctx }) {
-  const items = discountItems(s, ctx.data);
+  /* "view all": every discounted product, not only the count he set (it goes once they all show) */
+  const [all, setAll] = useState(false);
+  const items = discountItems(s, ctx.data, all);
+  const more = all ? false : discountItems(s, ctx.data, true).length > items.length;
   if (!items.length) {
     if (!ctx.design) return null;
     return (
@@ -2538,7 +2576,7 @@ function Discounts({ s, ctx }: { s: Extract<SectionConfig, { type: "discounts" }
   return (
     <section className={section(ctx.compact)}>
       <div className="rounded-[var(--sf-r)] p-5" style={{ background: "color-mix(in srgb, var(--sf-primary) 8%, var(--sf-bg))" }}>
-        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more />
+        <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} more={more || !!ctx.design} onMore={() => setAll(true)} />
         <CardBehind.Provider value={dealsBox(ctx)}>
           <Grid items={items} ctx={ctx} columns={4} />
         </CardBehind.Provider>
@@ -2730,8 +2768,10 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
     if (!link.trim()) { e.preventDefault(); return; }
     const pg = pageOf(link);
     if (pg !== null) { e.preventDefault(); ctx.openPage?.(pg); return; }
-    if (/^https?:\/\//i.test(link.trim()) || link.includes(".")) return;
+    const out = outsideLink(link);
+    if (out && out !== "never") return;
     e.preventDefault();
+    if (out === "never") return;
     (e.currentTarget as HTMLElement).closest(".store-preview")?.querySelector(`[data-sf="${link.trim()}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   return (
@@ -2740,8 +2780,14 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
         {items.map((x, i) => (
           <a
             key={i}
-            href={x.link.trim() ? (/^https?:\/\//i.test(x.link.trim()) || x.link.includes(".") ? linkHref(x.link) : `#${x.link.trim()}`) : "#"}
-            target={x.link.includes(".") && !ctx.design ? "_blank" : undefined}
+            href={(() => {
+              const out = x.link.trim() ? outsideLink(x.link) : "never";
+              return out === "never" ? "#" : out ? out.href : `#${x.link.trim()}`;
+            })()}
+            target={(() => {
+              const out = x.link.trim() ? outsideLink(x.link) : null;
+              return out && out !== "never" && out.blank && !ctx.design ? "_blank" : undefined;
+            })()}
             rel="noreferrer"
             onClick={(e) => go(e, x.link)}
             ref={(el) => { refs.current[i] = el; }}
@@ -2824,6 +2870,7 @@ function saveSubscriber(email: string) {
 }
 
 function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "newsletter" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const [email, setEmail] = useState("");
   const [bad, setBad] = useState(false);
   const [done, setDone] = useState(false);
@@ -2908,7 +2955,9 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
               if (s.after === "link" && s.link?.trim()) {
                 const lp = linkProps(s.link, ctx);
                 if (lp.onClick) lp.onClick({ preventDefault() {} } as React.MouseEvent<HTMLAnchorElement>);
-                else if (lp.href) window.open(lp.href, "_blank", "noreferrer");
+                else if ("target" in lp) window.open(lp.href, "_blank", "noreferrer");
+                /* an email or a phone number opens the visitor's mail or phone app, in this tab */
+                else if (lp.href) window.location.href = lp.href;
               }
             }}
           >
@@ -2943,7 +2992,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
             </button>
             {pp?.image && (
               // eslint-disable-next-line @next/next/no-img-element
-              <div className="h-44 w-full overflow-hidden"><img src={pp.image} alt="" className="h-full w-full object-cover" style={picFill(pp.imagePos)} /></div>
+              <div className="h-44 w-full overflow-hidden"><img {...imgLoad} src={pp.image} alt="" className="h-full w-full object-cover" style={picFill(pp.imagePos)} /></div>
             )}
             <div className="px-8 pb-8 pt-9">
               <h3 className="text-3xl font-extrabold leading-tight" style={{ fontFamily: "var(--sf-heading)" }}>{popTitle}</h3>
@@ -3026,16 +3075,20 @@ function collectionItems(s: Settings<"collection">, data: PartData): StoreProduc
   const picked = (s.productIds ?? []).map((id) => data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
   return (picked.length ? picked : data.isDemo ? data.products : []).slice(0, s.count);
 }
-/** Featured products: the ones he picked for it, in his order; none picked: the ones marked featured (or, with none, all),
-    those that can be bought now first */
-function featuredItems(s: Settings<"featured">, data: PartData): StoreProduct[] {
+/** Featured products: the ones he picked for it, in his order; none picked: the ones marked featured, those that can be
+    bought now first. None of either: nothing (customers don't see the block; the designer says to pick or mark some),
+    never every product under "Featured"; only the sample products of a preview fill it. `all`: every one, not only the
+    count he set (its "view all"). */
+function featuredItems(s: Settings<"featured">, data: PartData, all = false): StoreProduct[] {
   const picked = (s.productIds ?? []).map((id) => data.products.find((p) => p.id === id)).filter((p): p is StoreProduct => !!p);
   const featured = data.products.filter((p) => p.featured);
-  return (picked.length ? picked : buyableFirst(featured.length ? featured : data.products)).slice(0, s.count);
+  const list = picked.length ? picked : buyableFirst(featured.length ? featured : data.isDemo ? data.products : []);
+  return all ? list : list.slice(0, s.count);
 }
-/** Deals: the products with a discounted price, those that can be bought now first */
-function discountItems(s: Settings<"discounts">, data: PartData): StoreProduct[] {
-  return buyableFirst(data.products.filter((p) => p.sale !== null)).slice(0, s.count);
+/** Deals: the products with a discounted price, those that can be bought now first (`all`: every one, its "view all") */
+function discountItems(s: Settings<"discounts">, data: PartData, all = false): StoreProduct[] {
+  const list = buyableFirst(data.products.filter((p) => p.sale !== null));
+  return all ? list : list.slice(0, s.count);
 }
 
 /** Whether a part of the home page shows nothing to customers: hidden, or with nothing in it (no products to show, no
@@ -3083,13 +3136,24 @@ const sectionNames = {
   ar: { hero: "الغلاف الرئيسي", perks: "مزايا المتجر", featured: "منتجات مميزة", discounts: "التخفيضات", products: "شبكة المنتجات", text: "نص حر", reviews: "آراء العملاء", collection: "منتجات ثابتة", slides: "صور متحركة", tiles: "معرض صور", banners: "بنرات ترويجية", ribbon: "شريط الكلمات", chips: "أزرار ملوّنة", newsletter: "النشرة البريدية" },
 };
 
-export function renderSection(s: SectionConfig, ctx: Ctx) {
+/** One section of the page. first: it is the first section shown, so its pictures load first (fetchPriority high) and
+    pictures of the later sections wait until they come near the screen (StorefrontTheme.tsx passes it) */
+export function renderSection(s: SectionConfig, ctx: Ctx, first = false) {
   if (!s.visible) return null;
-  return <SectionView key={s.id} s={s} ctx={ctx} />;
+  return <SectionView key={s.id} s={s} ctx={ctx} first={first} />;
+}
+
+/* whether the section being drawn is the first one shown on the page (renderSection) */
+const FirstSection = createContext(false);
+const FIRST_IMG = { fetchPriority: "high" } as const;
+const LATER_IMG = { loading: "lazy", decoding: "async" } as const;
+/** How a section's pictures load: the first section's at once and first, a later section's only near the screen */
+function useImgLoad() {
+  return useContext(FirstSection) ? FIRST_IMG : LATER_IMG;
 }
 
 /* One section. It draws again only when its own settings or what all sections share (ctx) change, not when another section is edited. */
-const SectionView = memo(function SectionView({ s, ctx }: { s: SectionConfig; ctx: Ctx }) {
+const SectionView = memo(function SectionView({ s, ctx, first }: { s: SectionConfig; ctx: Ctx; first: boolean }) {
   const inner = (() => {
     switch (s.type) {
       case "hero":
@@ -3125,7 +3189,9 @@ const SectionView = memo(function SectionView({ s, ctx }: { s: SectionConfig; ct
   return (
     <Movers id={s.id} moves={s.moves} pics={s.pics} subFont={s.subFont} design={ctx.design} lang={ctx.lang} flat={s.type === "hero"}>
       <Selectable id={s.id} name={sectionNames[ctx.lang][s.type]} ctx={ctx}>
-        <SectionTitleLook.Provider value={s.titleLook}>{inner}</SectionTitleLook.Provider>
+        <FirstSection.Provider value={first}>
+          <SectionTitleLook.Provider value={s.titleLook}>{inner}</SectionTitleLook.Provider>
+        </FirstSection.Provider>
       </Selectable>
     </Movers>
   );

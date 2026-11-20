@@ -1,3 +1,4 @@
+import { phoneCodesByEmail } from "@/server/sendCode";
 import { randomInt } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { answer, guarded, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
@@ -29,5 +30,6 @@ export const POST = guarded(async (req: NextRequest) => {
   await requestCode(req, c, codeLang(body?.lang));
   const left = until - Date.now();
   if (left > 0) await new Promise((r) => setTimeout(r, left));
-  return answer({ result: "sent" });
+  /* a mobile typed while codes go by email: the page says to look in the account's email */
+  return answer({ result: "sent", ...(c.channel === "phone" && phoneCodesByEmail() ? { via: "email" } : {}) });
 });

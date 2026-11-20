@@ -35,6 +35,11 @@ const config: Config = {
         "sf-text": mix("sf-text"),
         "sf-primary": mix("sf-primary"),
       },
+      /* "transition" also carries `scale`, so the press in globals.css eases on every button that already has a
+         transition, without touching its hover lift (scale and transform add up) */
+      transitionProperty: {
+        DEFAULT: "color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, -webkit-backdrop-filter, backdrop-filter, scale",
+      },
       keyframes: {
         pop: { from: { opacity: "0", transform: "scale(0.6)" }, to: { opacity: "1", transform: "scale(1)" } },
         fadeIn: { from: { opacity: "0", transform: "translateY(8px)" }, to: { opacity: "1", transform: "none" } },

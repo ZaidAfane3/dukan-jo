@@ -11,6 +11,6 @@ export const dynamic = "force-dynamic";
 export const GET = staffRoute("documents", async (_req, _staff, ctx) => {
   const id = documentId(ctx.params.id);
   if (!id) return answer({ result: "none" }, 404);
-  const { rows } = await (await db()).query(`SELECT data, mime, name FROM documents WHERE public_id = $1 AND removed_at IS NULL`, [id]);
+  const { rows } = await (await db()).query(`SELECT data, mime, name FROM documents WHERE public_id = $1 AND removed_at IS NULL AND NOT draft`, [id]);
   return fileResponse(rows[0]);
 });

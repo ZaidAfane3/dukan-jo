@@ -1,5 +1,5 @@
 import type { QueryResultRow } from "pg";
-import { AUDIENCE_HAS, PAGE_SINCE } from "@/server/announce";
+import { AUDIENCE_REACH, PAGE_SINCE } from "@/server/announce";
 import { db } from "@/server/db";
 
 /* One of Dukkan's pages as Diwan's list shows it, for the list (route.ts) and for the answer to a save (route.ts,
@@ -9,7 +9,7 @@ import { db } from "@/server/db";
 export const pageRowsSql = (where = "") =>
   `SELECT a.*, st.name AS by,
           (SELECT count(*)::int FROM dukkan_page_views v WHERE v.page_id = a.id) AS views,
-          (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id", PAGE_SINCE)}) AS reach
+          ${AUDIENCE_REACH(PAGE_SINCE)} AS reach
      FROM dukkan_pages a LEFT JOIN staff st ON st.id = a.updated_by
     ${where}`;
 

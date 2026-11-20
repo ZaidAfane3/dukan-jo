@@ -28,6 +28,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
 import { TwoStepPrompt } from "./TwoStepPrompt";
 import { UndoToast } from "./UndoToast";
+import { VerifyEmail } from "./VerifyEmail";
 
 export type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
@@ -597,6 +598,9 @@ export function DashboardBar({
       </header>
       {/* Outside the sticky header, so it scrolls away with the page and is there again at the top */}
       <DemoStrip />
+      {/* the account's email not confirmed yet (while Dukkan can send the code): a slim banner with the code box, gone once
+          it is confirmed, never in the tour (VerifyEmail.tsx) */}
+      {!tour && <VerifyEmail />}
       {/* right after signing in or up without a 2-step code: a full page over the dashboard asking to turn it on, only as
           a page opens and never over something already started. It takes the tab's pop-up place first, before the two
           below (TwoStepPrompt.tsx) */}

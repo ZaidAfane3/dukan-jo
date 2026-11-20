@@ -9,9 +9,11 @@ import { MARK_METHODS, MethodBadge, methodText, Select, STATUS_LOOK, StatusBadge
 import { PRIORITY, STATUS as TICKET_STATUS, KIND, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { ShopSkeleton } from "@/components/diwan/skeletons";
+import { OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { REASON_WORDS, type ReportReason } from "@/components/storeReports";
 import type { Bi } from "@/components/storefront/config";
 import { findTheme } from "@/components/themes";
+import { latin } from "@/components/digits";
 
 type Shop = {
   id: string;
@@ -38,12 +40,17 @@ type Shop = {
   /* order_count and total_sales are the merchant's Home's numbers (his own orders and his store page's, no test orders) */
   /* of order_count, the orders customers placed on its public page */
   storefront_orders: number;
+  /* the same apart: through the store page (store_orders) and added by the merchant (his saved orders) */
+  store_orders?: number;
+  store_sales?: string;
+  hand_orders?: number;
+  hand_sales?: string;
   /* card and CliQ orders placed on its page while payment is not open: test orders, in neither number */
   storefront_test?: number;
   /* visitors of its store at its link over the last 30 days (each day's visitors added up) */
   visitors_30?: number;
   /* what it still needs before it can sell (safeOrder readyToSell): no way to pay on, no way to get orders */
-  not_ready?: ("pay" | "delivery")[];
+  not_ready?: ("pay" | "delivery" | "setup" | "email")[];
   total_sales: string;
   first_product_at: string | null;
   published_at: string | null;
@@ -159,7 +166,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                     {!!sh.not_ready?.length && (
                       <p className="mt-0.5 text-sm font-semibold opacity-90">
                         {t("Not ready to sell: ", "غير جاهز للبيع: ")}
-                        {sh.not_ready.map((m) => (m === "pay" ? t("no way to pay is on", "لا طريقة دفع مفعّلة") : t("no delivery or pickup", "لا توصيل ولا استلام"))).join(t(" · ", " · "))}
+                        {sh.not_ready.map((m) => (m === "pay" ? t("no way to pay is on", "لا طريقة دفع مفعّلة") : m === "setup" ? t("setup steps not all done", "خطوات الإعداد لم تكتمل") : m === "email" ? t("email not confirmed yet", "البريد الإلكتروني لم يُؤكَّد بعد") : t("no delivery or pickup", "لا توصيل ولا استلام"))).join(t(" · ", " · "))}
                       </p>
                     )}
                     {key === "suspended" && <p className="mt-1 text-xs opacity-75">{t("The merchant sees this reason when they try to sign in.", "يرى التاجر هذا السبب عند محاولة الدخول.")}</p>}
@@ -278,7 +285,9 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 {d.theme && <ThemeLine theme={d.theme} link={!!d.can.themes} />}
                 <Line k={t("Paused for maintenance", "متوقف للصيانة")} v={sh.paused ? t("Yes", "نعم") : t("No", "لا")} />
-                {/* the way it delivers, as the merchant chose it: Dukkan Ship, its own courier (by name), pickup only, or none yet */}
+                {/* the way it delivers, as the merchant chose it: Dukkan Ship, its own courier (by name), pickup only, or none yet.
+                    A live store with no choice saved (from before one was asked for) delivers with Dukkan Ship by default
+                    (safeOrder checkoutShipMode, server/shops.ts SHIP_SQL), pickup on or off */}
                 <Line
                   k={t("Delivery", "التوصيل")}
                   v={(() => {
@@ -289,7 +298,9 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                           ? sh.ship_name
                             ? t(`Own courier: ${sh.ship_name}`, `مندوب خاص: ${sh.ship_name}`)
                             : t("Own courier", "مندوب خاص")
-                          : null;
+                          : sh.published
+                            ? t("Dukkan Ship (default, not chosen)", "شحن دكّان (تلقائي، لم يُختر)")
+                            : null;
                     if (way) return sh.pickup ? `${way}${t(" · pickup too", " · والاستلام من المتجر")}` : way;
                     return sh.pickup ? t("Pickup only", "استلام من المتجر فقط") : t("Not chosen yet", "لم يُختر بعد");
                   })()}
@@ -308,11 +319,14 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
               <Info title={t("Status and numbers", "الحالة والأرقام")}>
                 <Line k={t("Status", "الحالة")} v={<StatusBadge status={sh.status} />} />
                 <Line k={t("Products", "المنتجات")} v={f.num(sh.product_count)} />
-                <Line k={t("Orders", "الطلبات")} v={f.num(sh.order_count)} />
-                <Line k={t("Of them, from its store page", "منها من صفحة المتجر")} v={f.num(sh.storefront_orders ?? 0)} />
+                {/* two figures, each labelled: what came through the store page (counted by Dukkan's server) and what the
+                    merchant added himself (server/shops.ts STORE_PAGE_SQL) */}
+                <Line k={t("Orders through the store page", "الطلبات عبر صفحة المتجر")} v={f.num(sh.store_orders ?? 0)} />
+                <Line k={t("Orders the merchant added", "طلبات أضافها التاجر")} v={f.num(sh.hand_orders ?? 0)} />
                 {(sh.storefront_test ?? 0) > 0 && <Line k={t("Test orders not counted", "طلبات تجريبية غير محسوبة")} v={f.num(sh.storefront_test ?? 0)} />}
                 <Line k={t("Visitors, last 30 days", "الزوار، آخر 30 يومًا")} v={f.num(sh.visitors_30 ?? 0)} />
-                <Line k={t("Total sales", "إجمالي المبيعات")} v={f.jod(sh.total_sales)} />
+                <Line k={t("Sales through the store page", "المبيعات عبر صفحة المتجر")} v={f.jod(sh.store_sales ?? "0")} />
+                <Line k={t("Sales the merchant added", "مبيعات أضافها التاجر")} v={f.jod(sh.hand_sales ?? "0")} />
                 {/* a date, or why there is none: none yet, or some counted without the date of the first being recorded */}
                 <Line
                   k={t("First product", "أول منتج")}
@@ -324,8 +338,8 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 <p className="pt-2 text-xs text-muted">
                   {t(
-                    "The same numbers as the merchant's Home: card and CliQ test orders are not counted, and total sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
-                    "نفس أرقام الصفحة الرئيسية للتاجر: الطلبات التجريبية بالبطاقة وكليك غير محسوبة، وإجمالي المبيعات هو الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
+                    "Store page figures are counted by Dukkan from the orders customers placed; added figures are the orders the merchant added himself, which Dukkan can't check. Card and CliQ test orders are not counted, and sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
+                    "أرقام صفحة المتجر يحسبها دكّان من الطلبات التي قدّمها العملاء، والأرقام المضافة هي طلبات أضافها التاجر بنفسه ولا يستطيع دكّان التحقق منها. الطلبات التجريبية بالبطاقة وكليك غير محسوبة، والمبيعات هي الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
                   )}
                 </p>
               </Info>
@@ -635,6 +649,8 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
   const [note, setNote] = useState("");
   const [pay, setPay] = useState({ amount: "", method: "cliq", reference: "", paidOn: todayJo() });
   const [busy, setBusy] = useState(false);
+  /* every action here needs the staff member's own password with it (server/staffConfirm.ts passwordAgain) */
+  const [myPassword, setMyPassword] = useState("");
   /* a second press before the first answer is ignored at once (the busy state can arrive a frame late) */
   const sending = useRef(false);
   /* this form's key for a payment: the server saves one payment per key, however many times it arrives */
@@ -655,10 +671,11 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
     sending.current = true;
     setBusy(true);
     setError("");
-    const r = await send(url, "POST", body);
+    const r = await send(url, "POST", { ...(body as object), myPassword });
     sending.current = false;
     setBusy(false);
-    if (!r.ok) return setError(errors[r.data?.result] ?? t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
+    if (!r.ok) return setError(passwordAgainWords(t, r.data) ?? errors[r.data?.result] ?? t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
+    setMyPassword("");
     /* the next payment marked from this form is a new one */
     setPayKey(newKey());
     done(shop);
@@ -734,7 +751,7 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block text-sm">
             <span className="mb-1 block font-medium">{t("Amount (JOD) *", "المبلغ (د.أ) *")}</span>
-            <input inputMode="decimal" dir="ltr" value={pay.amount} onChange={(e) => P("amount")(e.target.value.replace(/[^\d.]/g, ""))} className={field} />
+            <input inputMode="decimal" dir="ltr" value={pay.amount} onChange={(e) => P("amount")(latin(e.target.value).replace(/[^\d.]/g, ""))} className={field} />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">{t("Method *", "الطريقة *")}</span>
@@ -760,13 +777,16 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
     <section className={`${card} mb-6 space-y-4 ring-2 ${danger ? "ring-red-500/40" : "ring-primary/30"}`}>
       <h2 className="text-lg font-bold">{title}</h2>
       {body}
+      <div className="max-w-sm">
+        <OwnPasswordField t={t} value={myPassword} onChange={setMyPassword} />
+      </div>
       {error && (
         <p role="alert" className="text-sm text-red-600">
           {error}
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Btn kind={danger ? "danger" : "primary"} disabled={busy || !ok} onClick={submit}>
+        <Btn kind={danger ? "danger" : "primary"} disabled={busy || !ok || !myPassword} onClick={submit}>
           {busy ? t("Working…", "جارٍ التنفيذ…") : t("Confirm", "تأكيد")}
         </Btn>
         <Btn kind="ghost" onClick={close}>

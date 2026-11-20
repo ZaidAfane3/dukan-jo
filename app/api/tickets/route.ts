@@ -1,9 +1,10 @@
-import { answer, readJson, tooMany } from "@/server/auth";
+import { answer, readJson, tooManyFor } from "@/server/auth";
 import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { addMessage, checkPictures, inTransaction, merchantRoute, merchantStatus } from "@/server/tickets";
+import { addMessage, checkPictures, inTransaction, merchantRoute, merchantStatus, pictureRoom, pictureRoomAnswer } from "@/server/tickets";
 import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS, TICKET_MIN } from "@/components/safeAccount";
+import { onceByKey } from "@/server/onceKey";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,7 @@ export const GET = merchantRoute(async (_req, me) => {
 
 /** Sends a new ticket: { subject, category, message, pictures[], kind support|bug|idea, where } */
 export const POST = merchantRoute(async (req, me) => {
-  if (tooMany(req, `ticket:${me.id}`, 10, 60)) return answer({ result: "too-many" }, 429);
+  if (tooManyFor(`ticket:${me.id}`, 10, 60)) return answer({ result: "too-many" }, 429);
   const body = await readJson(req, 11_000_000);
   if (!body) return answer({ result: "bad" }, 400);
   const subject = cleanLine(body.subject, ACCOUNT_LIMITS.subject);
@@ -61,13 +62,20 @@ export const POST = merchantRoute(async (req, me) => {
   const pictures = checkPictures(body.pictures);
   if (!pictures) return answer({ result: "bad", field: "pictures" }, 400);
 
-  const number = await inTransaction(async (c) => {
-    const { rows } = await c.query(
-      `INSERT INTO tickets (account_id, kind, category, subject, where_text) VALUES ($1, $2, $3, $4, $5) RETURNING id, number`,
-      [me.id, kind, category, seal(subject), seal(where)],
-    );
-    await addMessage(c, String(rows[0].id), { author: "merchant", body: message, pictures });
-    return Number(rows[0].number);
+  /* sent twice (a double click, a retry after a lost answer) with the same key: one ticket (server/onceKey.ts) */
+  return onceByKey(`ticket:${me.id}`, body.requestKey, async () => {
+    const number = await inTransaction(async (c) => {
+      /* the account's room for ticket pictures (server/tickets.ts pictureRoom) */
+      const room = await pictureRoom(c, me.id, pictures);
+      if (room !== "ok") return room;
+      const { rows } = await c.query(
+        `INSERT INTO tickets (account_id, kind, category, subject, where_text) VALUES ($1, $2, $3, $4, $5) RETURNING id, number`,
+        [me.id, kind, category, seal(subject), seal(where)],
+      );
+      await addMessage(c, String(rows[0].id), { author: "merchant", body: message, pictures });
+      return Number(rows[0].number);
+    });
+    if (typeof number === "string") return pictureRoomAnswer(number);
+    return answer({ result: "ok", number });
   });
-  return answer({ result: "ok", number });
 });

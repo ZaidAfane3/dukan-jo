@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { passwordProblem } from "@/components/safe";
-import { answer, checkPassword, currentAccount, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { answer, checkPassword, currentAccount, guarded, hashPassword, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
 import { db } from "@/server/db";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +14,8 @@ export const POST = guarded(async (req: NextRequest) => {
   if (tooMany(req, "account-password", 10, 15)) return answer({ result: "slow-down" }, 429);
   const a = await currentAccount(req);
   if (!a) return answer({ result: "none" }, 401);
+  /* every check of this account's password inside a session shares one count, from any address */
+  if (tooManyFor(`account-password:${a.id}`, 10, 15)) return answer({ result: "slow-down" }, 429);
   const body = await readJson(req, 2_000);
   const current = body?.current;
   const next = body?.next;

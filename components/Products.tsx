@@ -25,6 +25,8 @@ import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, type ProductKind } fr
 import type { Lang } from "./content";
 import { dropUndos, listUndo, offerUndo } from "./undo";
 import { usePageTitle } from "./pageTitle";
+import { Skeleton } from "./Skeleton";
+import { leaveUnasked } from "./serverSync";
 
 
 
@@ -319,9 +321,13 @@ export function Products() {
   const editorBox = useRef<HTMLElement>(null);
   /* The product's photos: shrunk and saved with the product, so the store shows them */
   const [photos, setPhotos] = useState<string[]>([]);
-  const [photoBad, setPhotoBad] = useState(false);
+  /* what went wrong with the last photos picked: a file refused ("bad"), or more than fit ("max") */
+  const [photoBad, setPhotoBad] = useState<false | "bad" | "max">(false);
   /* photos still being read, and the ones that failed to show: neither counts as the product's photo */
   const [uploading, setUploading] = useState(0);
+  /* which opening of the editor photos were picked in: a photo that finishes after another product (or a new one) was
+     opened is dropped, not added to whichever product is open then */
+  const photoRound = useRef(0);
   const [broken, setBroken] = useState<string[]>([]);
   /* a new category typed in the box but not added with its button yet */
   const typedCat = useRef("");
@@ -430,6 +436,9 @@ export function Products() {
       restockPct: String(x.restockPct),
     };
     setEditing(x.id);
+    /* photos still on their way belong to the product they were picked for, never to this one */
+    photoRound.current++;
+    setUploading(0);
     setDraft(d);
     /* a quantity he saved before was already right */
     setStockOk(d.quantity);
@@ -446,6 +455,8 @@ export function Products() {
 
   const openNew = () => {
     setEditing("new");
+    photoRound.current++;
+    setUploading(0);
     setDraft(blank);
     setStockOk("");
     setErrors({});
@@ -475,6 +486,19 @@ export function Products() {
     return () => document.removeEventListener("keydown", onKey);
   }, [editing, dirty, discardThen]);
 
+  /* The tab closing or reloading with unsaved changes: the browser asks first (a page can't show its own box then).
+     Not when the page reloads itself on purpose or another tab signed out (serverSync.ts leaveUnasked). */
+  useEffect(() => {
+    if (!dirty) return;
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (leaveUnasked()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [dirty]);
+
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
   /* A signed-in store sends each photo to Dukkan's server (shrunk in the browser first, components/media.ts) and keeps its
@@ -491,13 +515,22 @@ export function Products() {
   };
   const addPhotos = async (files: FileList | null) => {
     if (!files || !files.length) return;
-    const n = files.length;
+    /* only as many as still fit (6, counting the ones on their way) are sent: picking 40 sends 6, not 40 */
+    const room = Math.max(0, 6 - photos.length - uploading);
+    const fits = Array.from(files).slice(0, room);
+    const taken = fits.filter((f) => f.size <= imageRules.productPhoto.max);
+    const round = photoRound.current;
+    const n = taken.length;
     setUploading((u) => u + n);
-    const made = await Promise.all(Array.from(files).filter((f) => f.size <= imageRules.productPhoto.max).map(onePhoto)).finally(() => setUploading((u) => Math.max(0, u - n)));
+    const made = await Promise.all(taken.map(onePhoto)).finally(() => {
+      if (photoRound.current === round) setUploading((u) => Math.max(0, u - n));
+    });
+    /* another product was opened meanwhile: these photos are not its own */
+    if (photoRound.current !== round) return;
     const ok = made.filter((u): u is string => !!u);
     if (ok.length) setErrors((x) => ({ ...x, images: undefined }));
-    /* a file that is not a picture, and pictures past the 6 that fit, are reported, not dropped silently */
-    setPhotoBad(ok.length < files.length || photos.length + ok.length > 6);
+    /* a file that is not a picture or is too big, and pictures past the 6 that fit, are reported, not dropped silently */
+    setPhotoBad(ok.length < taken.length || taken.length < fits.length ? "bad" : fits.length < files.length ? "max" : false);
     setPhotos((cur) => [...cur, ...ok].slice(0, 6));
   };
 
@@ -698,11 +731,15 @@ export function Products() {
               )}
             </div>
 
-            {shown.length === 0 ? (
+            {/* still loading: rows of placeholders, not "No products yet" for a moment */}
+            {!ready ? (
+              <div className="space-y-3 px-5 py-5" aria-busy="true">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+            ) : shown.length === 0 ? (
               <div className="px-5 py-14 text-center">
-                <p className="font-bold">{items.length === 0 ? p.empty : p.noMatch}</p>
-                {items.length === 0 && <p className="mx-auto mt-1 max-w-xs text-sm text-muted">{p.emptyHint}</p>}
-                {items.length === 0 && (
+                {/* "no match" only when something was searched: an empty filter (Deleted products) says what it holds */}
+                <p className="font-bold">{items.length === 0 && filter !== "deleted" ? p.empty : query.trim() ? p.noMatch : filter === "deleted" ? p.binEmpty : p.noneHere}</p>
+                {items.length === 0 && filter !== "deleted" && <p className="mx-auto mt-1 max-w-xs text-sm text-muted">{p.emptyHint}</p>}
+                {items.length === 0 && filter !== "deleted" && (
                   <button type="button" onClick={openNew} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">
                     {p.newProduct}
                   </button>
@@ -818,7 +855,7 @@ export function Products() {
                           </button>
                         </div>
                       ))}
-                      {photos.length < 6 && (
+                      {photos.length + uploading < 6 && (
                         <button
                           id="p-images"
                           type="button"
@@ -843,7 +880,7 @@ export function Products() {
                     )}
                     <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
                     {errors.images && <p id="p-images-err" role="alert" className="mt-2 text-xs font-semibold text-rose-600">{errors.images}</p>}
-                    <p className={`mt-2 text-xs ${photoBad ? "text-rose-600" : "text-muted"}`}>{photoBad ? p.imagesBad : p.imagesHint}</p>
+                    <p className={`mt-2 text-xs ${photoBad ? "text-rose-600" : "text-muted"}`}>{photoBad === "max" ? p.imagesMax : photoBad ? p.imagesBad : uploading > 0 ? p.imagesUploading : p.imagesHint}</p>
 
                     {/* What stays visible: the store crops the picture to its shape, so he chooses the part that must always show */}
                     {photos.length > 0 && (

@@ -41,6 +41,9 @@ type Copy = {
   empty: string;
   emptyHint: string;
   noMatch: string;
+  /* a list with nothing in it and nothing searched: Deleted products, or another filter */
+  binEmpty: string;
+  noneHere: string;
   pickOne: string;
   sort: string;
   sorts: string[];
@@ -53,6 +56,8 @@ type Copy = {
   images: string;
   imagesHint: string;
   imagesBad: string;
+  /* more photos were picked than fit (6 in all) */
+  imagesMax: string;
   focusTitle: string;
   focusNote: string;
   focusCenter: string;
@@ -174,6 +179,8 @@ export const productsCopy: Record<Lang, Copy> = {
     empty: "No products yet",
     emptyHint: "Add your first product and it will show up in your store.",
     noMatch: "No products match your search",
+    binEmpty: "No deleted products. Products you delete wait here, so you can bring them back.",
+    noneHere: "No products here",
     pickOne: "Select a product to edit it, or add a new one",
     sort: "Sort",
     sorts: ["Newest first", "Name", "Price: low to high", "Price: high to low"],
@@ -186,6 +193,7 @@ export const productsCopy: Record<Lang, Copy> = {
     images: "Product images",
     imagesHint: "PNG, JPG or WebP, up to 8 MB each. They are shrunk and saved with the product, and your store shows the first one.",
     imagesBad: "Some files could not be added. Use PNG, JPG or WebP pictures up to 8 MB.",
+    imagesMax: "A product has up to 6 photos: only the first ones that fit were added.",
     focusTitle: "What stays visible",
     focusNote: "Your store crops the picture to fit its shape (tall, square or wide). Tap the part of the main picture that must always show, like the cap or the label. The three small pictures show how it will look.",
     focusCenter: "Back to the center",
@@ -302,6 +310,8 @@ export const productsCopy: Record<Lang, Copy> = {
     empty: "لا توجد منتجات بعد",
     emptyHint: "أضف أول منتج لك وسيظهر في متجرك.",
     noMatch: "لا توجد منتجات مطابقة لبحثك",
+    binEmpty: "لا توجد منتجات محذوفة. المنتجات التي تحذفها تبقى هنا لتتمكن من استرجاعها.",
+    noneHere: "لا توجد منتجات هنا",
     pickOne: "اختر منتجًا لتعديله، أو أضف منتجًا جديدًا",
     sort: "ترتيب",
     sorts: ["الأحدث أولًا", "الاسم", "السعر: من الأقل", "السعر: من الأعلى"],
@@ -314,6 +324,7 @@ export const productsCopy: Record<Lang, Copy> = {
     images: "صور المنتج",
     imagesHint: "PNG أو JPG أو WebP، حتى 8 ميغابايت للصورة. تُصغَّر وتُحفظ مع المنتج، ويعرض متجرك الصورة الأولى.",
     imagesBad: "تعذّرت إضافة بعض الملفات. استخدم صور PNG أو JPG أو WebP حتى 8 ميغابايت.",
+    imagesMax: "للمنتج 6 صور على الأكثر: أُضيفت الصور الأولى التي تتسع فقط.",
     focusTitle: "الجزء الظاهر من الصورة",
     focusNote: "يقصّ متجرك الصورة لتناسب شكلها (طولية أو مربعة أو عريضة). اضغط على الجزء الذي يجب أن يظهر دائمًا من الصورة الرئيسية، مثل الغطاء أو الملصق. تظهر الصور الصغيرة الثلاث شكلها النهائي.",
     focusCenter: "العودة إلى المنتصف",

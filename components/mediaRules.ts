@@ -23,12 +23,16 @@ export const mediaRule = (kind: MediaKind): ImageRule => (kind === "background" 
      re-encoded in the browser.
    - one store in all: 500 MB and 5,000 files. That is room for about 1,000 products with several photos each at the sizes
      the browser sends, while one store can never fill the database by itself. Files no saved page uses any more are
-     cleared when a store reaches it (server/media.ts sweepUnusedMedia). */
+     cleared now and then, and when a store reaches it (server/media.ts sweepUnusedMedia).
+   - one store in a day: 250 MB. A first big import of shrunk photos fits (about 1,000 of them), but a new account can't
+     pour its whole 500 MB in at once, so many fresh accounts can't fill the disk in an hour. Above all of this the
+     platform as a whole has a ceiling (server/media.ts storageFull). */
 export const MEDIA_LIMITS = {
   picture: PICTURE_MAX,
   video: PICTURE_VIDEO_MAX,
   accountBytes: 500_000_000,
   accountFiles: 5_000,
+  accountDayBytes: 250_000_000,
 } as const;
 
 /** The longest side the browser shrinks a picture of each kind to, in pixels */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { REASON_WORDS, REPORT_LIMITS, REPORT_REASONS, type ReportReason } from "../storeReports";
+import { REASON_WORDS, REPORT_LIMITS, REPORT_REASONS, reportContact, type ReportReason } from "../storeReports";
 import { visibleLength } from "../safe";
 
 /* "Report this store": a small link beside "Made with Dukkan" in every store's footer (StorefrontTheme.tsx), for
@@ -20,6 +20,7 @@ const words = {
     detailsShort: `Write at least ${REPORT_LIMITS.min} characters.`,
     contact: "Your email or phone (optional)",
     contactHint: "Only if you want Dukkan to be able to reach you about it.",
+    contactBad: "Enter an email (name@example.com) or a Jordan mobile number (07X XXX XXXX), or leave it empty.",
     send: "Send report",
     sending: "Sending…",
     cancel: "Cancel",
@@ -38,6 +39,7 @@ const words = {
     detailsShort: `اكتب ${REPORT_LIMITS.min} أحرف على الأقل.`,
     contact: "بريدك أو رقمك (اختياري)",
     contactHint: "فقط إن أردت أن يتواصل معك فريق دكان بخصوص البلاغ.",
+    contactBad: "اكتب بريدًا إلكترونيًا (name@example.com) أو رقم هاتف أردني (07X XXX XXXX)، أو اتركه فارغًا.",
     send: "إرسال البلاغ",
     sending: "جارٍ الإرسال…",
     cancel: "إلغاء",
@@ -56,6 +58,7 @@ export function ReportStore({ slug, lang }: { slug: string; lang: "en" | "ar" })
   const [contact, setContact] = useState("");
   const [state, setState] = useState<"form" | "sending" | "done">("form");
   const [error, setError] = useState("");
+  const [contactErr, setContactErr] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -68,6 +71,7 @@ export function ReportStore({ slug, lang }: { slug: string; lang: "en" | "ar" })
     setReason("scam");
     setBody("");
     setContact("");
+    setContactErr(false);
     setError("");
     setState("form");
     setOpen(true);
@@ -77,6 +81,11 @@ export function ReportStore({ slug, lang }: { slug: string; lang: "en" | "ar" })
     e.preventDefault();
     if (state === "sending") return;
     if (visibleLength(body) < REPORT_LIMITS.min) return setError(w.detailsShort);
+    if (reportContact(contact) === null) {
+      setContactErr(true);
+      document.getElementById("report-contact")?.focus();
+      return;
+    }
     setState("sending");
     setError("");
     try {
@@ -87,7 +96,9 @@ export function ReportStore({ slug, lang }: { slug: string; lang: "en" | "ar" })
         body: JSON.stringify({ slug, reason, body, contact }),
       });
       if (r.ok) return setState("done");
-      setError(r.status === 429 ? w.slow : r.status === 400 ? w.detailsShort : w.failed);
+      const j = (await r.json().catch(() => ({}))) as { field?: string };
+      if (r.status === 400 && j.field === "contact") setContactErr(true);
+      else setError(r.status === 429 ? w.slow : r.status === 400 ? w.detailsShort : w.failed);
     } catch {
       setError(w.failed);
     }
@@ -127,8 +138,8 @@ export function ReportStore({ slug, lang }: { slug: string; lang: "en" | "ar" })
                 <label htmlFor="report-body" className="mb-2 mt-5 block font-semibold">{w.details}</label>
                 <textarea id="report-body" value={body} onChange={(e) => { setBody(e.target.value); setError(""); }} maxLength={REPORT_LIMITS.body} rows={4} placeholder={w.detailsPh} aria-invalid={!!error} className={`${input} py-2`} />
                 <label htmlFor="report-contact" className="mb-2 mt-4 block font-semibold">{w.contact}</label>
-                <input id="report-contact" value={contact} onChange={(e) => setContact(e.target.value)} maxLength={REPORT_LIMITS.contact} dir="ltr" autoComplete="email" className={`${input} h-11 text-start`} />
-                <p className="mt-1 text-xs text-neutral-500">{w.contactHint}</p>
+                <input id="report-contact" value={contact} onChange={(e) => { setContact(e.target.value); setContactErr(false); }} maxLength={REPORT_LIMITS.contact} dir="ltr" autoComplete="email" aria-invalid={contactErr} aria-describedby="report-contact-hint" className={`${input} h-11 text-start`} />
+                <p id="report-contact-hint" className={`mt-1 text-xs ${contactErr ? "font-semibold text-rose-600" : "text-neutral-500"}`}>{contactErr ? w.contactBad : w.contactHint}</p>
                 {error && <p role="alert" className="mt-4 text-sm font-semibold text-rose-600">{error}</p>}
                 <div className="mt-6 flex gap-3">
                   <button type="submit" disabled={state === "sending"} className="h-11 flex-1 rounded-lg bg-neutral-900 font-semibold text-white hover:bg-neutral-700 disabled:opacity-60">{state === "sending" ? w.sending : w.send}</button>

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { brandName } from "../content";
@@ -7,7 +8,6 @@ import { refreshCatalog, useCatalog } from "../catalog";
 import { demoActive, setOwnCopy } from "../demoSandbox";
 import { adoptTheme, baseTheme, defaultTheme, findTheme, keepActiveLook, loadThemeState, markThemeInUse, notBought, previewProducts, refreshThemeAccess, saveDesignAsTheme, unboughtBase, withoutUnboughtLooks, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
-import { PageEditor } from "./PageEditor";
 import { load as loadPages, savePages } from "../InfoPages";
 import { LangSwitch, usePrefs } from "../Prefs";
 import { oneSided, startingWords, textsNow, TRANSLATE_WORDS } from "./translations";
@@ -19,7 +19,9 @@ import { defaultConfig, headingFamily, type PicEdit, type SectionMove } from "..
 import { Canvas } from "./Canvas";
 import { HEX, input } from "./controls";
 import { dc } from "./copy";
-import { BugReport } from "./BugReport";
+/* loaded only when they are shown: a page being edited, the "report a problem" button after the page is up */
+const PageEditor = dynamic(() => import("./PageEditor").then((m) => m.PageEditor), { ssr: false });
+const BugReport = dynamic(() => import("./BugReport").then((m) => m.BugReport), { ssr: false });
 import { legibleOn } from "../storefront/footerColors";
 import { OptionsPanel, PageLookNow, PreviewProducts, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus, type OptionsScreen } from "./panels";
 import { hasStoreContact, visibleLength } from "../safe";
@@ -1449,7 +1451,7 @@ export function Designer() {
               <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
             </span>
             <h2 className="mt-4 text-lg font-bold">{t.modal.title}</h2>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted">{notReadyToOpen && !trying ? (lang === "ar" ? "متجرك غير جاهز للبيع بعد، لذلك ستُحفظ تغييراتك كمسودة. فعّل طريقة دفع واختر كيف يستلم العملاء طلباتهم، ثم عُد واحفظ لتنشر متجرك." : "Your store isn't ready to sell yet, so your changes will be kept as a draft. Turn on a way to pay and choose how customers get their orders, then come back and save to make your store live.") : asDraft ? t.modal.draftBody : t.modal.body}</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted">{notReadyToOpen && !trying ? (lang === "ar" ? "متجرك غير جاهز للبيع بعد، لذلك ستُحفظ تغييراتك كمسودة. أكمل خطوات الإعداد الست، وفعّل طريقة دفع، واختر كيف يستلم العملاء طلباتهم، ثم عُد واحفظ لتنشر متجرك." : "Your store isn't ready to sell yet, so your changes will be kept as a draft. Finish all 6 setup steps, turn on a way to pay and choose how customers get their orders, then come back and save to make your store live.") : asDraft ? t.modal.draftBody : t.modal.body}</p>
             <button type="button" onClick={() => { if (asDraft) { if (keepDraft(draft)) { setSaved(JSON.stringify(draft)); leave(); } else setExiting(false); return; } if (save()) leave(); else setExiting(false); }} className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-sm font-bold text-onink shadow-sm transition hover:bg-deep">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
               {asDraft ? t.modal.draftExit : t.modal.saveExit}

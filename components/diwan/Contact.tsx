@@ -4,21 +4,13 @@ import { useState } from "react";
 import { Dialog } from "./dialogs";
 import { Btn, useT } from "./ui";
 
-/* A merchant's contact details stay out of sight on Diwan's cards: a "Contact" button opens them in a small pop-up, with
-   a link to write, call or send a WhatsApp message and a button to copy each one. The details come from what the page
-   already loaded (the ticket or the store), so opening the pop-up asks the server for nothing more. */
+/* A merchant's contact details stay out of sight on Diwan's cards: a "Contact" button opens them in a small pop-up that
+   only lists them; clicking one copies it (no separate write, call, WhatsApp or copy buttons: the owner's call,
+   2026-11-19). The details come from what the page already loaded (the ticket or the store), so opening the pop-up asks
+   the server for nothing more. */
 
 export type ContactInfo = { owner?: string | null; email?: string | null; phone?: string | null; storePhone?: string | null };
 
-/** A WhatsApp link for a mobile: Jordan's 07… becomes 962…, a leading 00 is dropped (the same rule as
-    waLink in components/platformPublic.ts); "" when it is too short to be a number */
-export function waLink(n: string): string {
-  let d = n.replace(/\D/g, "").replace(/^00/, "");
-  if (/^07\d{8}$/.test(d)) d = `962${d.slice(1)}`;
-  return d.length >= 8 ? `https://wa.me/${d}` : "";
-}
-
-const telOf = (n: string) => `tel:${n.replace(/[^\d+]/g, "")}`;
 /* the same number written two ways (07..., +9627...) is still one number */
 const digits = (n: string | null | undefined) => {
   const d = (n ?? "").replace(/\D/g, "").replace(/^00/, "");
@@ -59,27 +51,27 @@ export function ContactDialog({ info, onClose }: { info: ContactInfo; onClose: (
       /* the browser refused (no permission): the text can still be selected by hand */
     }
   };
+  const email = (info.email ?? "").trim();
   const phone = (info.phone ?? "").trim();
   const storePhone = (info.storePhone ?? "").trim();
-  const wa = phone ? waLink(phone) : "";
-  const link = "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-primary ring-1 ring-primary/30 transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
-  const copyBtn = (key: string, v: string) => (
-    <button type="button" onClick={() => void copy(key, v)} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold ring-1 ring-fg/15 transition hover:bg-fg/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-      <svg {...icon}>
-        <rect x="9" y="9" width="11" height="11" rx="2" />
-        <path d="M5 15V5a2 2 0 0 1 2-2h8" />
-      </svg>
-      <span aria-live="polite">{copied === key ? t("Copied", "نُسخ") : t("Copy", "نسخ")}</span>
-    </button>
-  );
-  const row = (label: string, value: string, actions: React.ReactNode) => (
-    <div className="rounded-xl bg-fg/[0.03] p-3 ring-1 ring-fg/[0.06]">
-      <p className="text-xs font-medium text-muted">{label}</p>
-      <p dir="ltr" className="mt-0.5 break-all text-start font-semibold [unicode-bidi:plaintext]">
+  /* one detail: the whole row is the button that copies it */
+  const row = (key: string, label: string, value: string) => (
+    <button
+      type="button"
+      onClick={() => void copy(key, value)}
+      title={t("Click to copy", "انقر للنسخ")}
+      className="block w-full rounded-xl bg-fg/[0.03] p-3 text-start ring-1 ring-fg/[0.06] transition hover:bg-fg/[0.06] hover:ring-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
+      <span className="flex items-center justify-between gap-3 text-xs font-medium text-muted">
+        {label}
+        <span aria-live="polite" className={copied === key ? "font-semibold text-emerald-700 dark:text-emerald-300" : ""}>
+          {copied === key ? t("Copied", "نُسخ") : t("Click to copy", "انقر للنسخ")}
+        </span>
+      </span>
+      <span dir="ltr" className="mt-0.5 block break-all text-start font-semibold [unicode-bidi:plaintext]">
         {value}
-      </p>
-      <div className="mt-2 flex flex-wrap gap-2">{actions}</div>
-    </div>
+      </span>
+    </button>
   );
   return (
     <Dialog
@@ -93,39 +85,9 @@ export function ContactDialog({ info, onClose }: { info: ContactInfo; onClose: (
       }
     >
       <div className="space-y-3">
-        {info.email &&
-          row(t("Email", "البريد"), info.email, (
-            <>
-              <a href={`mailto:${info.email}`} className={link}>
-                {t("Write an email", "كتابة بريد")}
-              </a>
-              {copyBtn("email", info.email)}
-            </>
-          ))}
-        {phone &&
-          row(t("Mobile", "الجوال"), phone, (
-            <>
-              <a href={telOf(phone)} className={link}>
-                {t("Call", "اتصال")}
-              </a>
-              {wa && (
-                <a href={wa} target="_blank" rel="noopener noreferrer" className={link}>
-                  WhatsApp
-                </a>
-              )}
-              {copyBtn("phone", phone)}
-            </>
-          ))}
-        {storePhone &&
-          digits(storePhone) !== digits(phone) &&
-          row(t("Store phone", "هاتف المتجر"), storePhone, (
-            <>
-              <a href={telOf(storePhone)} className={link}>
-                {t("Call", "اتصال")}
-              </a>
-              {copyBtn("store", storePhone)}
-            </>
-          ))}
+        {email && row("email", t("Email", "البريد"), email)}
+        {phone && row("phone", t("Mobile", "الجوال"), phone)}
+        {storePhone && digits(storePhone) !== digits(phone) && row("store", t("Store phone", "هاتف المتجر"), storePhone)}
       </div>
     </Dialog>
   );

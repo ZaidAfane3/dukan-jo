@@ -4,6 +4,7 @@ import { db } from "@/server/db";
 import { notify } from "@/server/notify";
 import { body, dayOf, jodOf, notFound, shopId, shopNameOf, textOf } from "@/server/shopActions";
 import { audit, staffRoute } from "@/server/staff";
+import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,8 @@ const METHODS = ["bank", "cliq", "cash", "card"];
 
 /* Marks a payment as received: { amount (JOD), method, reference?, paidOn: "yyyy-mm-dd", note? }. Dukkan has no plans
    and no free trial, so a payment stands on its own: it is not linked to a subscription and extends nothing
-   (payments.subscription_id stays empty). The merchant gets a message in their bell. */
+   (payments.subscription_id stays empty). The merchant gets a message in their bell. Needs the staff member's own
+   password with it ({ myPassword }, server/staffConfirm.ts passwordAgain). */
 export const POST = staffRoute("billing", async (req, staff, ctx) => {
   const id = await shopId(ctx);
   if (!id) return notFound();
@@ -25,6 +27,8 @@ export const POST = staffRoute("billing", async (req, staff, ctx) => {
   const key = typeof b?.key === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(b.key) ? b.key : null;
   const reference = textOf(b?.reference, 100);
   const note = textOf(b?.note, 300);
+  const refused = await passwordAgain(req, staff, b?.myPassword, "shop.payment");
+  if (refused) return refused;
 
   const { rows } = await (await db()).query(
     `INSERT INTO payments (account_id, amount, method, reference, paid_on, marked_by, note, request_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

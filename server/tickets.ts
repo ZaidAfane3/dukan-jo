@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { imageSize, isComplete, MAX_PIXELS, MAX_SIDE } from "@/components/safe";
-import { answer, currentAccount, guarded, sameOrigin } from "./auth";
+import { answer, currentAccount, guarded, sameOrigin, tooManyFor } from "./auth";
 import { lookupKeys, seal } from "./crypto";
 import { db } from "./db";
+import { storageFull } from "./media";
+import { stripMetadata } from "./mediaBytes";
 
 /* Tickets, bug reports and ideas: what the merchant routes (app/api/tickets) and Diwan's routes (app/api/diwan/tickets,
    app/api/diwan/feedback) share. A ticket's number is Dukkan-wide (the ticket_number sequence). Pictures are kept as
@@ -48,7 +50,9 @@ function sniffBytes(b: Uint8Array): Mime | null {
 }
 
 /** The pictures sent with a ticket or a reply: at most 5, each a JPEG, PNG or WebP data URL whose bytes really are that
-    kind, complete, at most 1.5 MB and not a huge picture. Null when any of them is wrong (the whole message is refused). */
+    kind, complete, at most 1.5 MB and not a huge picture. Null when any of them is wrong (the whole message is refused).
+    Each is kept without its hidden data (EXIF with GPS, XMP, comments: server/mediaBytes.ts); the page draws them
+    again before sending, but a picture sent straight to the API arrives as it was taken. */
 export function checkPictures(v: unknown): Picture[] | null {
   if (v === undefined || v === null) return [];
   if (!Array.isArray(v) || v.length > PICTURES_MAX) return null;
@@ -64,18 +68,51 @@ export function checkPictures(v: unknown): Picture[] | null {
     if (!isComplete(bytes, kind === "image/jpeg" ? "jpeg" : kind === "image/png" ? "png" : "webp")) return null;
     const size = imageSize(bytes);
     if (!size || size.w < 1 || size.h < 1 || size.w > MAX_SIDE || size.h > MAX_SIDE || size.w * size.h > MAX_PIXELS) return null;
-    out.push({ data: p, mime: kind, bytes: bytes.length });
+    const clean = stripMetadata(bytes, kind === "image/jpeg" ? "jpeg" : kind === "image/png" ? "png" : "webp");
+    if (!clean) return null;
+    out.push({ data: `data:${kind};base64,${Buffer.from(clean.buffer, clean.byteOffset, clean.byteLength).toString("base64")}`, mime: kind, bytes: clean.length });
   }
   return out;
 }
 
-/* A ticket's picture never changes once sent (there is no editing a picture, only adding new ones under new ids), so the
-   browser may keep its own private copy and show it again without asking: the chat's thumbnails appear at once when a
-   ticket is opened again, and the chat refreshing never downloads them again. "private" keeps every shared cache (a
-   proxy, Cloudflare) from keeping one, and each request that does reach the server is checked again (who is asking,
-   which ticket). A day, not longer, so a copy on a shared computer does not outlive its use by long; after that the
-   tag below still spares the download. */
-const PICTURE_CACHE = "private, max-age=86400, immutable";
+/* Ticket pictures are kept in the database (encrypted, as text), never cleared, so each account has a ceiling: what it
+   sent in the last 30 days, 50 MB (counted before encryption). Plenty for real tickets (the page shrinks each picture,
+   usually to a few hundred KB), while one account can't pour gigabytes in. Above it the platform's own ceiling
+   applies (server/media.ts storageFull), counted at the size the database really keeps (about 1.8 times bigger). */
+export const ACCOUNT_PICTURE_BYTES = 50_000_000;
+const PICTURE_DAYS = 30;
+
+/** Whether an account may keep these pictures now: "ok", "full" (its 30-day ceiling) or "space" (the platform has no
+    room left). Run inside the transaction that adds them (client), which it holds on the account so two messages sent
+    together can't both slip under the ceiling. */
+export async function pictureRoom(
+  client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> },
+  accountId: string,
+  pictures: Picture[],
+): Promise<"ok" | "full" | "space"> {
+  const adding = pictures.reduce((n, p) => n + p.bytes, 0);
+  if (!adding) return "ok";
+  await client.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [accountId]);
+  const { rows } = await client.query(
+    `SELECT COALESCE(sum(p.bytes), 0)::bigint AS used FROM ticket_pictures p JOIN tickets t ON t.id = p.ticket_id
+      WHERE t.account_id = $1 AND p.created_at > now() - make_interval(days => $2::int)`,
+    [accountId, PICTURE_DAYS],
+  );
+  if (Number(rows[0]?.used ?? 0) + adding > ACCOUNT_PICTURE_BYTES) return "full";
+  if (await storageFull(client, Math.ceil(adding * 1.8))) return "space";
+  return "ok";
+}
+
+/** The answer when pictureRoom refused: 409 "pictures-full" (the page says to send fewer or smaller pictures, or none)
+    or 503 "storage-full" (try later) */
+export const pictureRoomAnswer = (room: "full" | "space") =>
+  room === "full" ? answer({ result: "pictures-full", limit: ACCOUNT_PICTURE_BYTES, days: PICTURE_DAYS }, 409) : answer({ result: "storage-full" }, 503);
+
+/* A ticket's picture can show private things (a screenshot of an order, a customer's details), so it is kept nowhere:
+   not by a shared cache (a proxy, Cloudflare: "private") and not by the browser either ("no-store", as documents are,
+   server/documents.ts), so it does not stay behind on a shared computer. Each request is checked again (who is asking,
+   which ticket). The tag below still answers a browser that kept a copy from before this change. */
+const PICTURE_CACHE = "private, no-store";
 const PICTURE_HEADERS = {
   "Cache-Control": PICTURE_CACHE,
   "X-Content-Type-Options": "nosniff",
@@ -154,6 +191,8 @@ export function merchantRoute(fn: (req: NextRequest, me: Merchant, ctx: { params
       if (r.method !== "GET" && r.method !== "HEAD" && !sameOrigin(r)) return answer({ result: "forbidden" }, 403);
       const a = await currentAccount(r);
       if (!a) return answer({ result: "signed-out" }, 401);
+      /* a ceiling per account for every merchant route, far above what the pages ask for */
+      if (tooManyFor(`merchant:${a.id}`, 600, 10)) return answer({ result: "slow-down" }, 429);
       return fn(r, { id: a.id, email: a.email, name: a.name }, { params: (await ctx?.params) ?? {} });
     })(req);
 }

@@ -65,18 +65,33 @@ export const deliveryCities = (mode: "own" | "seen" | null | undefined, ship: { 
     (server/storeOrders.ts). null: he has not chosen how he delivers yet, so home delivery is not offered at all (only
     pickup when he offers it; neither: no order can be placed, the server answers "no-delivery"). Otherwise the cities
     (deliveryCities) and the fee per order: his own courier's fee as saved (none ever set: null, the store confirms it,
-    never "Free"), or Dukkan Ship's price from Diwan. */
+    never "Free"), or Dukkan Ship's price from Diwan. No city to deliver to (Dukkan Ship with every city taken off in
+    Diwan): null too, so the checkout says the store has not set up delivery yet instead of an empty list of cities. */
 export function storeDelivery(
   mode: "own" | "seen" | null | undefined,
   ship: { price: number; cities: { en: readonly string[]; ar: readonly string[] } },
   own: { fee?: number; cities?: unknown } = {},
 ): { cities: { en: readonly string[]; ar: readonly string[] }; fee: number | null } | null {
   if (mode !== "own" && mode !== "seen") return null;
+  const cities = deliveryCities(mode, ship.cities, own.cities);
+  if (!cities.en.length) return null;
   return {
-    cities: deliveryCities(mode, ship.cities, own.cities),
+    cities,
     fee: mode === "own" ? (typeof own.fee === "number" && Number.isFinite(own.fee) ? toFils(own.fee) : null) : toFils(ship.price),
   };
 }
+
+/** The delivery way a store's checkout goes by: the merchant's own choice. A store with no choice saved is one from before
+    a choice was asked for (the setup and the Delivery page always save one; a store can no longer open with neither a
+    choice nor pickup: readyToSell), and it delivered with Dukkan Ship then; it still does, so it keeps taking orders
+    until he chooses. Turning pickup on does not take that away: his customers can then choose Dukkan Ship's delivery or
+    pickup (the owner's decision), never pickup only. His dashboard and Diwan say it delivers with Dukkan Ship by default
+    (ReadyToSell shipsByDefault, server/shops.ts SHIP_SQL). The public store (server/publicStore.ts), the order
+    (server/storeOrders.ts) and his own preview all ask this, so the checkout offers what the server accepts. */
+export const checkoutShipMode = (setup: { pickup?: boolean; shipping?: { mode?: "own" | "seen" | null } | null } | null | undefined): "own" | "seen" => {
+  const mode = setup?.shipping?.mode;
+  return mode === "own" ? "own" : "seen";
+};
 
 /** How the order can reach the customer at this store: delivery when storeDelivery offers it, pickup when he allows it.
     Neither: the store hasn't set up delivery, no order is taken. */
@@ -108,11 +123,17 @@ export const orderPays = (dukkanOn: readonly Payment[], chosen: readonly Payment
   PAYMENTS.filter((p) => dukkanOn.includes(p) && (chosen === undefined || chosen.includes(p)));
 
 /** What a store still needs before it can sell: "pay" (no way to pay is on: orderPays is empty) and "delivery" (no way
-    for customers to get their orders: pickup is off and there is no valid delivery choice). */
-export type SellNeed = "pay" | "delivery";
+    for customers to get their orders: pickup is off and there is no valid delivery choice). "email": the account has not
+    confirmed its email yet; readyToSell never gives it (it knows only the setup), the server adds it while Dukkan can
+    send the code (server/emailVerify.ts, app/api/store PUT) and the pages from /api/auth/me (ReadyToSell useSellReady). */
+export type SellNeed = "pay" | "delivery" | "setup" | "email";
+
+/** How many first-time setup steps there are (Onboarding): all of them must be marked done before a store can go live */
+export const SETUP_STEPS = 6;
 
 /** The parts of a saved setup (setup.ts SavedSetup, safeAccount cleanSetup) that decide whether the store can sell */
 type SellSetup = {
+  done?: readonly boolean[];
   pays?: readonly Payment[];
   pickup?: boolean;
   shipping?: { mode?: "own" | "seen" | null; name?: string; phone?: string; fee?: number; cities?: unknown } | null;
@@ -134,6 +155,9 @@ export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment
   const courierOk = ship?.mode !== "own" || (visibleLength(ship.name ?? "") >= 2 && isJordanMobile(ship.phone ?? ""));
   const delivers = !!offer && offer.cities.en.length > 0 && courierOk;
   if (setup?.pickup !== true && !delivers) missing.push("delivery");
+  /* every setup step finished (its Done pressed), not only the ones selling needs */
+  const done = setup?.done ?? [];
+  if (done.length < SETUP_STEPS || done.slice(0, SETUP_STEPS).some((d) => d !== true)) missing.push("setup");
   return { ok: missing.length === 0, missing };
 }
 
@@ -174,6 +198,11 @@ export const productKind = (v: unknown): ProductKind => (PRODUCT_KINDS.includes(
 export const kindHasSizes = (k: ProductKind) => k === "clothing" || k === "shoes";
 /** The kind is something delivered to an address (a code, a gift card or a service is not) */
 export const kindShips = (k: ProductKind) => k !== "digital" && k !== "service";
+/** A saved product is delivered to an address: its kind ships (kindShips) and he did not switch "Needs shipping" off
+    (`shipping: false`, the product form). Products saved before that switch ship. A cart of only products that don't
+    ship has no delivery fee and asks no city or address, the same in the cart (Cart.tsx) and on the server
+    (server/storeOrders.ts); a cart with one product that ships is delivered as usual. */
+export const productShips = (p: { kind?: unknown; shipping?: unknown }) => kindShips(productKind(p.kind)) && p.shipping !== false;
 
 /** One size of a product and how many of it the store has */
 export type SizeStock = { name: string; quantity: number };
@@ -291,8 +320,9 @@ export type CheckoutValue = { customer: string; phone: string; email: string; fu
     mobile (`phone`) and an email (`email`). The city and the address are asked only for delivery; "pickup" counts only
     when the store allows it (`pickup`); `delivery: false` (no delivery choice yet, see storeDelivery) refuses a
     delivered order ("fulfil"). `pays`: the ways to pay this store takes now (orderPays: Dukkan's and his own choice); one
-    that is off is refused like one that does not exist. */
-export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; delivery?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] } } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
+    that is off is refused like one that does not exist. `ships: false`: nothing in the cart is delivered to an address
+    (productShips), so no city, no address and no delivery choice are asked. */
+export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boolean; delivery?: boolean; pays?: readonly Payment[]; cities?: { en: readonly string[]; ar: readonly string[] }; ships?: boolean } = {}): { ok: true; value: CheckoutValue } | { ok: false; errors: CheckoutField[] } {
   const errors: CheckoutField[] = [];
   const name = cleanText(f.name, ORDER_LIMITS.name).replace(/\s+/g, " ").trim();
   if (visible(name) < 2) errors.push("name");
@@ -301,7 +331,12 @@ export function checkCheckout(f: Record<string, unknown>, opts: { pickup?: boole
   const email = visitorEmail(f.email);
   if (!email) errors.push("email");
   const fulfil: Fulfil = opts.pickup && f.fulfil === "pickup" ? "pickup" : "delivery";
-  const delivered = fulfil === "delivery";
+  /* pickup asked for at a store that no longer offers it (he turned it off while the page was open): refused ("fulfil",
+     the delivery options changed), never quietly turned into a delivery the customer did not choose */
+  const pickupGone = f.fulfil === "pickup" && !opts.pickup;
+  if (pickupGone) errors.push("fulfil");
+  const ships = opts.ships !== false;
+  const delivered = fulfil === "delivery" && ships && !pickupGone;
   const deliverable = delivered && opts.delivery !== false;
   if (delivered && !deliverable) errors.push("fulfil");
   const city = deliverable && typeof f.city === "string" ? f.city : "";
@@ -343,11 +378,20 @@ export function takeStock(list: unknown[], items: { id?: unknown; qty: number; s
     /* an order from the public store also counts, on the product, how many it sold online (per size): see SOLD_ONLINE */
     if (o.online) {
       const sold = { ...soldOnline(p.soldOnline) };
+      /* a line with a quantity below zero gives stock back (an order cancelled: server/storeOrders.ts), and the count
+         goes down with it; a count that reaches zero is left out */
       for (const x of mine) {
         const k = sizes.length ? sizeName(x.size) : "";
-        sold[k] = (sold[k] ?? 0) + x.qty;
+        const n = (sold[k] ?? 0) + x.qty;
+        if (n > 0) sold[k] = n;
+        else delete sold[k];
       }
-      p = { ...p, soldOnline: sold };
+      if (Object.keys(sold).length) p = { ...p, soldOnline: sold };
+      else {
+        /* nothing sold online any more: the product is as it was before its first online order */
+        const { soldOnline: _none, ...rest } = p as Record<string, unknown>;
+        p = rest as typeof p;
+      }
     }
     if (sizes.length) {
       const left = sizes.map((z) => ({ ...z, quantity: Math.max(0, z.quantity - mine.filter((x) => x.size === z.name).reduce((n, x) => n + x.qty, 0)) }));
@@ -362,6 +406,49 @@ export function takeStock(list: unknown[], items: { id?: unknown; qty: number; s
     }
     if (isUnlimited(p)) return p;
     return { ...p, quantity: Math.max(0, stock(p.quantity) - mine.reduce((n, x) => n + x.qty, 0)) };
+  });
+}
+
+/** How many pieces each order line really takes out of the saved products (`took`): what it asks for, as far as the
+    product (or its size) has them; none for a product with no limit, and none for a product or size that is not there.
+    It is kept on each line of the order, so cancelling it gives back exactly that and nothing else (a product that had no
+    limit when it was ordered gets nothing added, whatever it has now). `short`: a line that could not have all it asks
+    for from a product that is still there (a product with no limit never is; one deleted for good has nothing to take). */
+export function stockTaken<T extends { id?: unknown; qty: number; size?: string }>(list: unknown[], items: T[]): { lines: (T & { took: number })[]; short: T[] } {
+  const byId = new Map<number, Record<string, unknown>>();
+  for (const raw of list) {
+    const id = raw && typeof raw === "object" && !Array.isArray(raw) ? productId((raw as Record<string, unknown>).id) : null;
+    if (id !== null && !byId.has(id)) byId.set(id, raw as Record<string, unknown>);
+  }
+  /* what earlier lines of the same product (and size) already took */
+  const used = new Map<string, number>();
+  const short: T[] = [];
+  const lines = items.map((it) => {
+    const id = productId(it.id);
+    const p = id === null ? undefined : byId.get(id);
+    if (!p) return { ...it, took: 0 };
+    const sizes = productSizes(p);
+    if (!sizes.length && isUnlimited(p)) return { ...it, took: 0 };
+    const k = `${id}|${sizes.length ? sizeName(it.size) : ""}`;
+    const has = sizes.length ? sizes.find((z) => z.name === sizeName(it.size))?.quantity ?? 0 : stock(p.quantity);
+    const took = Math.max(0, Math.min(it.qty, has - (used.get(k) ?? 0)));
+    used.set(k, (used.get(k) ?? 0) + took);
+    if (took < it.qty) short.push(it);
+    return { ...it, took };
+  });
+  return { lines, short };
+}
+
+/** The lines of an order whose pieces can't go back to the saved stock when it is cancelled: the product is now sold in
+    sizes and the line's size is no longer one of them (renamed or removed since), so nothing is added anywhere for it and
+    the merchant is told instead. A product with no limit now needs nothing back; one deleted for good is gone. */
+export function stockNotBack<T extends { id?: unknown; size?: string; took: number }>(list: unknown[], items: T[]): T[] {
+  return items.filter((it) => {
+    if (it.took <= 0) return false;
+    const id = productId(it.id);
+    const p = list.find((raw) => raw && typeof raw === "object" && !Array.isArray(raw) && productId((raw as Record<string, unknown>).id) === id) as Record<string, unknown> | undefined;
+    const sizes = p ? productSizes(p) : [];
+    return sizes.length > 0 && !sizes.some((z) => z.name === sizeName(it.size));
   });
 }
 
@@ -391,7 +478,8 @@ export function mergeSoldOnline(incoming: unknown[], stored: unknown[]): unknown
     if (!s || typeof s !== "object" || Array.isArray(s)) continue;
     const id = productId((s as Record<string, unknown>).id);
     const sold = soldOnline((s as Record<string, unknown>).soldOnline);
-    if (id !== null && Object.keys(sold).length) server.set(id, sold);
+    /* every product the server has, also one with no online sales left (all of them cancelled since) */
+    if (id !== null) server.set(id, sold);
   }
   if (!server.size) return incoming;
   return incoming.map((raw) => {
@@ -401,10 +489,13 @@ export function mergeSoldOnline(incoming: unknown[], stored: unknown[]): unknown
     const known = id !== null ? server.get(id) : undefined;
     if (!known) return p;
     const mine = soldOnline(p.soldOnline);
-    const behind = Object.entries(known).map(([size, n]) => ({ id, size: size || undefined, qty: n - (mine[size] ?? 0) })).filter((x) => x.qty > 0);
-    const counts = { ...mine };
-    for (const [k, n] of Object.entries(known)) counts[k] = Math.max(n, counts[k] ?? 0);
-    const taken = behind.length ? (takeStock([p], behind)[0] as Record<string, unknown>) : p;
-    return { ...taken, soldOnline: counts };
+    /* the server's count is the one that holds. Where his copy is behind it (orders placed since), that many are taken
+       again; where it is ahead of it (orders cancelled or refunded since, whose stock went back), that many are given
+       back. Either way his copy ends on the server's count, so saving it again changes nothing more. */
+    const sizes = Array.from(new Set([...Object.keys(known), ...Object.keys(mine)]));
+    const diff = sizes.map((size) => ({ id, size: size || undefined, qty: (known[size] ?? 0) - (mine[size] ?? 0) })).filter((x) => x.qty !== 0);
+    if (!diff.length) return p;
+    const { soldOnline: _was, ...moved } = takeStock([p], diff)[0] as Record<string, unknown>;
+    return Object.keys(known).length ? { ...moved, soldOnline: known } : moved;
   });
 }

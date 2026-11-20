@@ -13,12 +13,19 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
 import { pushNotification, serverMode } from "../notifications";
-import { cleanLine, cleanLines, visibleLength } from "../safe";
+import { cleanLine, cleanLines, imageRules, uploadProblemFor, visibleLength, type FileKind } from "../safe";
 import { ACCOUNT_LIMITS, cleanTickets, TICKET_MIN, TICKET_PICTURES, type Ticket } from "../safeAccount";
 import { createTicket, sendable } from "../ticketsApi";
-import { readPhoto } from "./image";
+import { pickPicture } from "./image";
+
+/* what a picture may be: signed in, only what Dukkan's server takes (JPEG, PNG, WebP; a moving GIF stays a GIF, which it
+   refuses), so the picker never offers a file that would be dropped later */
+const picRule = (server: boolean) => (server ? { ...imageRules.photo, kinds: ["png", "jpeg", "webp"] as FileKind[] } : imageRules.photo);
+import { dropDraft, HeldSendBar, heldWords, keepDraft, takeDraft, useHeldSend } from "../heldSend";
 
 const KEY = "seen-tickets";
+/* a report that could not be sent after the designer was left (heldSend.tsx keepDraft) */
+const DRAFT_KEY = "seen-bug-draft";
 /* "Store design" in the support categories (content.ts, support.categories) */
 const DESIGN_CATEGORY = 3;
 
@@ -157,6 +164,8 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
   const [sentId, setSentId] = useState("");
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState("");
+  /* pictures still being read: Send waits for them, so a report never goes without them */
+  const [reading, setReading] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -168,7 +177,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const room = TICKET_PICTURES - pics.length;
+  const room = TICKET_PICTURES - pics.length - reading;
   const add = (list: string[]) => setPics((p) => [...p, ...list].slice(0, TICKET_PICTURES));
 
   const snap = async () => {
@@ -186,11 +195,20 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
   const upload = async (files: FileList | null) => {
     if (!files) return;
     const list = Array.from(files);
-    setNote(list.length > room ? w.full : "");
-    const read = (await Promise.all(list.slice(0, Math.max(0, room)).map((f) => readPhoto(f, 1600)))).filter((u): u is string => !!u);
-    /* Dukkan's server takes JPEG, PNG and WebP: an animated GIF (kept as it is by readPhoto) is left out */
-    const ok = serverMode() ? sendable(read) : read;
-    if (ok.length < read.length) setNote(w.badPics);
+    const take = list.slice(0, Math.max(0, room));
+    setNote(list.length > take.length ? w.full : "");
+    if (!take.length) return;
+    const server = serverMode();
+    const rule = picRule(server);
+    setReading((n) => n + take.length);
+    const picked = await Promise.all(take.map((f) => pickPicture(f, rule, 1600, "image/jpeg", 0.78)));
+    setReading((n) => Math.max(0, n - take.length));
+    const ok: string[] = [];
+    for (const p of picked) {
+      if ("url" in p && (!server || sendable([p.url]).length)) ok.push(p.url);
+      /* why it was not added, with the real kinds and limits: never dropped without a word */
+      else setNote(uploadProblemFor("problem" in p ? p.problem : "type", rule, lang));
+    }
     add(ok);
   };
 
@@ -204,10 +222,37 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
     setSendError("");
   };
 
-  const send = async () => {
+  /* the report is held for a moment with an Undo, like a ticket from the Support page (heldSend.tsx): the tab closes at
+     once, and Undo opens it again as he left it */
+  const send = () => {
     if (visibleLength(text) < TICKET_MIN.message) return setError(true);
+    if (busy || held.holding) return;
+    /* pictures still being read would be left out: it waits for them */
+    if (reading > 0) return setNote(lang === "ar" ? "ما زالت الصور قيد التحميل. أرسل مرة أخرى بعد لحظة." : "Pictures are still loading. Send again in a moment.");
+    setSendError("");
+    setOpen(false);
+    held.hold();
+  };
+  const undoSend = () => {
+    if (held.undo()) setOpen(true);
+  };
+
+  /* a report that could not be sent after the designer was left: the tab opens with it, and says so */
+  useEffect(() => {
+    const d = takeDraft(DRAFT_KEY);
+    if (!d || typeof d.text !== "string") return;
+    setText(d.text.slice(0, ACCOUNT_LIMITS.message));
+    if (d.kind === "bug" || d.kind === "idea") setKind(d.kind);
+    if (Array.isArray(d.pictures)) setPics(d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES));
+    setSendError(w.failed);
+    setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const deliver = async () => {
     if (serverMode()) {
-      if (busy) return;
+      /* the account it is sent as, taken now (the answer may come after a sign-out): the draft is dropped for that one */
+      const owner = keepDraft(DRAFT_KEY, { text, kind, pictures: pics });
       setBusy(true);
       setSendError("");
       const r = await createTicket({
@@ -217,9 +262,26 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
         pictures: sendable(pics),
         kind,
         where: cleanLine(where, 200),
-      });
+      }, { leaving: held.leaving.current });
       setBusy(false);
-      if (!r.ok) return setSendError(r.why === "too-many" ? w.tooMany : r.field === "pictures" ? w.badPics : w.failed);
+      if (!r.ok) {
+        /* not sent: the tab opens again with his words and says why (left meanwhile: the draft brings them back) */
+        if (!held.alive.current || held.leaving.current) return;
+        dropDraft(DRAFT_KEY, owner);
+        setOpen(true);
+        return setSendError(
+          r.why === "too-many"
+            ? w.tooMany
+            : r.why === "pictures-full"
+              ? lang === "ar"
+                ? "أرسلت صورًا كثيرة إلى الدعم هذا الشهر. أرسل البلاغ دون صور أو بصور أقل."
+                : "You've sent a lot of pictures to support this month. Send this without pictures, or with fewer."
+              : r.field === "pictures"
+                ? w.badPics
+                : w.failed,
+        );
+      }
+      dropDraft(DRAFT_KEY, owner);
       return done(`#${r.data.number}`);
     }
     let tickets: Ticket[] = [];
@@ -245,12 +307,14 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
     }
     done(id);
   };
+  const held = useHeldSend(deliver);
 
   return (
     <>
       <button
         type="button"
         onClick={() => { setSentId(""); setOpen(true); }}
+        disabled={held.holding}
         aria-label={w.open}
         title={w.open}
         className={`fixed end-4 z-40 flex items-center gap-2 rounded-full bg-card text-xs font-bold text-fg shadow-lg ring-1 ring-fg/10 transition hover:-translate-y-0.5 hover:text-primary ${lift ? "bottom-3 p-2.5" : "bottom-4 px-3.5 py-2"} ${open || hidden ? "invisible" : ""}`}
@@ -329,7 +393,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
                         {w.upload}
                       </button>
                     </div>
-                    <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ""; }} />
+                    <input ref={fileRef} type="file" accept={serverMode() ? "image/png,image/jpeg,image/webp" : "image/png,image/jpeg,image/webp,image/gif"} multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ""; }} />
                     {note && <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">{note}</p>}
                     {!!pics.length && (
                       <div className="mt-3 grid grid-cols-3 gap-2">
@@ -348,7 +412,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
                 </div>
                 {sendError && <p role="alert" className="mx-5 mb-0 mt-3 rounded-xl bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">{sendError}</p>}
                 <div className="flex gap-3 border-t border-fg/10 px-5 py-4">
-                  <button type="button" onClick={() => void send()} disabled={busy} className="h-11 flex-1 rounded-xl bg-ink text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-60">{busy ? w.sending : w.send[kind]}</button>
+                  <button type="button" onClick={send} disabled={busy || held.holding} className="h-11 flex-1 rounded-xl bg-ink text-sm font-semibold text-onink transition hover:bg-deep disabled:opacity-60">{busy ? w.sending : w.send[kind]}</button>
                   <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-xl border border-fg/20 px-5 text-sm font-semibold transition hover:bg-soft">{w.cancel}</button>
                 </div>
               </>
@@ -356,6 +420,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
           </aside>
         </div>
       )}
+      {held.holding && <HeldSendBar text={kind === "bug" ? heldWords[lang].report : heldWords[lang].idea} undo={heldWords[lang].undo} onUndo={undoSend} />}
     </>
   );
 }

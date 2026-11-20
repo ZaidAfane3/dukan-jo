@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { SLUG_RULE } from "@/components/safe";
 import { VISIT_KINDS, VISIT_SOURCES, type VisitCounts, type VisitKind, type VisitSource, type VisitStats } from "@/components/visitStats";
+import { visitorIp } from "./auth";
 import { blind } from "./crypto";
 import { db } from "./db";
 
@@ -58,7 +59,7 @@ export function isPrefetch(req: NextRequest): boolean {
   return /prefetch|prerender|preview/i.test(p) || req.headers.has("next-router-prefetch");
 }
 
-const clientIp = (req: NextRequest) => req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
+const clientIp = (req: NextRequest) => visitorIp(req);
 
 /** Today's date in Jordan (YYYY-MM-DD) */
 const joDate = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
@@ -102,6 +103,29 @@ export function visitSource(ref: unknown, utm: unknown): VisitSource {
 
 type Shop = { account_id: string; status: string; paused: boolean; published: boolean };
 
+/* Saving views must never take the connections the pages need (the pool has 10, server/db.ts): at most VISIT_WRITERS
+   views are saved at once on this server, the next ones wait their turn, and past VISIT_QUEUE waiting a view is simply
+   not counted (a burst of visitors loses some counts, never the store's pages). Kept on the process, so the dev
+   server's reloads share it. */
+const VISIT_WRITERS = 3;
+const VISIT_QUEUE = 200;
+const writes = ((globalThis as { __dukkanVisitWrites?: { running: number; waiting: (() => void)[] } }).__dukkanVisitWrites ??= { running: 0, waiting: [] });
+function freeVisitSlot() {
+  const next = writes.waiting.shift();
+  /* the slot goes straight to the next view waiting, or back to the free ones */
+  if (next) next();
+  else writes.running--;
+}
+async function visitSlot(): Promise<boolean> {
+  if (writes.running < VISIT_WRITERS) {
+    writes.running++;
+    return true;
+  }
+  if (writes.waiting.length >= VISIT_QUEUE) return false;
+  await new Promise<void>((r) => writes.waiting.push(r));
+  return true;
+}
+
 /** Notes one page a visitor opened in the store at this link name. Only an open store is counted, and the store's own
     merchant (signed in on this browser) is not: `signedIn` gives the account signed in on this request, if any, and is
     only asked once the store is known to be open. Gives true when the view was counted. */
@@ -122,9 +146,16 @@ export async function recordVisit(
   /* the merchant looking at his own store */
   if ((await signedIn()) === String(shop.account_id)) return false;
   const visitor = visitorKey(req, String(shop.account_id));
+  if (!(await visitSlot())) return false;
   /* two pages opened at once by the same visitor must not both start a new visit: a lock for this visitor in this store
      (held until the row is in) keeps the check and the insert of one from overlapping the other's */
-  const c = await pool.connect();
+  let c: PoolClient;
+  try {
+    c = await pool.connect();
+  } catch (e) {
+    freeVisitSlot();
+    throw e;
+  }
   try {
     await c.query("BEGIN");
     await c.query(`SELECT pg_advisory_xact_lock(hashtext('visit:' || $1::text || ':' || $2::text))`, [String(shop.account_id), visitor]);
@@ -141,6 +172,7 @@ export async function recordVisit(
     throw e;
   } finally {
     c.release();
+    freeVisitSlot();
   }
   rollUpSoon(pool);
   return true;
@@ -214,9 +246,27 @@ const counts = (r: { visitors?: unknown; visits?: unknown; views?: unknown } | u
   views: Number(r?.views ?? 0),
 });
 
+/* The numbers are read again every minute by each open home page and Reports page: the same shop asking again within
+   STATS_FRESH (another tab, another device, both pages at once) gets the answer just worked out, or shares the one on
+   its way, instead of 8 more queries. A failed read is not kept. */
+const STATS_FRESH = 20_000;
+const statsKept = ((globalThis as { __dukkanVisitStats?: Map<string, { at: number; stats: Promise<VisitStats> }> }).__dukkanVisitStats ??= new Map());
+
 /** A shop's visitors: the last hour, today, yesterday, the last 7 and 30 days, this month, the last hour in 5 minute
     steps, the last 24 hours by hour, the last 30 days by day, where visits came from and the most viewed products. */
-export async function visitStats(accountId: string): Promise<VisitStats> {
+export function visitStats(accountId: string): Promise<VisitStats> {
+  const now = Date.now();
+  const kept = statsKept.get(accountId);
+  if (kept && now - kept.at < STATS_FRESH) return kept.stats;
+  /* the answers kept only while fresh: older ones are let go as new ones are asked for */
+  for (const [k, v] of statsKept) if (now - v.at >= STATS_FRESH) statsKept.delete(k);
+  const stats = readVisitStats(accountId);
+  statsKept.set(accountId, { at: now, stats });
+  stats.catch(() => statsKept.get(accountId)?.stats === stats && statsKept.delete(accountId));
+  return stats;
+}
+
+async function readVisitStats(accountId: string): Promise<VisitStats> {
   const pool = await db();
   rollUpSoon(pool);
   /* every query reads the same moment (one snapshot), so a roll-up finishing in between can't count a day twice or lose it */

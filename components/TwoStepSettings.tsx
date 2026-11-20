@@ -46,7 +46,16 @@ const words = {
     wrongPassword: "The password is not right.",
     slow: "Too many tries. Wait a few minutes and try again.",
     server: "We couldn't reach Dukkan right now. Try again.",
-    lost: "Lost your phone? Contact Dukkan support: after checking it's you, they can turn the code off.",
+    lost: "Lost your phone? Use one of your recovery codes instead of the 6-digit code, or contact Dukkan support.",
+    step3: "3. Type your password to turn it on.",
+    useRecovery: "Use a recovery code instead",
+    useApp: "Use the code from the app",
+    recovery: "Recovery code",
+    codesTitle: "Your recovery codes",
+    codesHint: "If you lose your phone, each of these opens your store once instead of the 6-digit code. Save them somewhere safe now: they won't be shown again.",
+    copyAll: "Copy all",
+    saved: "I saved them",
+    left: (n: number) => (n === 1 ? "1 recovery code left." : `${n} recovery codes left.`),
     signInTitle: "Enter your 2-step code",
     signInHint: "Open your authenticator app and type the 6-digit code for Dukkan.",
     verify: "Continue",
@@ -77,7 +86,16 @@ const words = {
     wrongPassword: "كلمة المرور غير صحيحة.",
     slow: "محاولات كثيرة. انتظر بضع دقائق وحاول مجددًا.",
     server: "تعذّر الاتصال بدكّان الآن. حاول مجددًا.",
-    lost: "فقدت هاتفك؟ تواصل مع دعم دكّان: بعد التأكد من هويتك يمكنهم إيقاف الرمز.",
+    lost: "فقدت هاتفك؟ استخدم أحد رموز الاسترداد بدل الرمز المكوّن من 6 أرقام، أو تواصل مع دعم دكّان.",
+    step3: "3. اكتب كلمة مرورك للتفعيل.",
+    useRecovery: "استخدم رمز استرداد بدلًا منه",
+    useApp: "استخدم الرمز من التطبيق",
+    recovery: "رمز الاسترداد",
+    codesTitle: "رموز الاسترداد",
+    codesHint: "إذا فقدت هاتفك، يفتح كل رمز منها متجرك مرة واحدة بدل الرمز المكوّن من 6 أرقام. احفظها في مكان آمن الآن: لن تظهر مرة أخرى.",
+    copyAll: "نسخ الكل",
+    saved: "حفظتها",
+    left: (n: number) => (n === 1 ? "بقي رمز استرداد واحد." : `بقي ${n} رموز استرداد.`),
     signInTitle: "أدخل رمز التحقق",
     signInHint: "افتح تطبيق المصادقة واكتب الرمز المكوّن من 6 أرقام الخاص بدكّان.",
     verify: "متابعة",
@@ -113,6 +131,31 @@ export function CodeInput({ value, onChange, id, label, invalid, describedBy }: 
   );
 }
 
+/* a recovery code as typed: letters and digits, upper case, at most XXXX-XXXX */
+const typedRecovery = (v: string) =>
+  v
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660))
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, "")
+    .slice(0, 9);
+const recoveryReady = (v: string) => v.replace(/-/g, "").length === 8;
+
+function RecoveryInput({ value, onChange, id, label }: { value: string; onChange: (v: string) => void; id: string; label: string }) {
+  return (
+    <input
+      id={id}
+      dir="ltr"
+      autoComplete="off"
+      spellCheck={false}
+      aria-label={label}
+      placeholder="ABCD-EFGH"
+      value={value}
+      onChange={(e) => onChange(typedRecovery(e.target.value))}
+      className={`${field} text-center text-lg tracking-[0.2em]`}
+    />
+  );
+}
+
 /** The settings page section */
 export function TwoStepSettings() {
   const { lang } = usePrefs();
@@ -126,10 +169,18 @@ export function TwoStepSettings() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState("");
+  /* turning off with a recovery code instead of the app's code */
+  const [byRecovery, setByRecovery] = useState(false);
+  /* the recovery codes, shown once right after turning on */
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [left, setLeft] = useState<number | null>(null);
 
   useEffect(() => {
     if (!onServer()) return setState("hidden");
-    void merchantCall("/api/auth/totp/setup", "GET").then((r) => setState(r?.status === 200 ? (r.data.on ? "on" : "off") : "hidden"));
+    void merchantCall("/api/auth/totp/setup", "GET").then((r) => {
+      setState(r?.status === 200 ? (r.data.on ? "on" : "off") : "hidden");
+      if (r?.status === 200 && typeof r.data.recoveryLeft === "number") setLeft(r.data.recoveryLeft);
+    });
   }, []);
 
   const fail = (result: unknown) =>
@@ -175,13 +226,18 @@ export function TwoStepSettings() {
   const confirm = async () => {
     setBusy(true);
     setError("");
-    const r = await merchantCall("/api/auth/totp/setup", "POST", { code });
+    const r = await merchantCall("/api/auth/totp/setup", "POST", { code, password });
     setBusy(false);
     if (r?.status !== 200) return fail(r?.data.result);
     setSetup(null);
     setCode("");
+    setPassword("");
     setState("on");
     setNote(w.nowOn);
+    if (Array.isArray(r.data.recoveryCodes)) {
+      setCodes(r.data.recoveryCodes);
+      setLeft(r.data.recoveryCodes.length);
+    }
   };
 
   const disable = async () => {
@@ -191,9 +247,11 @@ export function TwoStepSettings() {
     setBusy(false);
     if (r?.status !== 200) return fail(r?.data.result);
     setTurningOff(false);
+    setByRecovery(false);
     setCode("");
     setPassword("");
     setState("off");
+    setLeft(null);
     setNote(w.nowOff);
   };
 
@@ -248,18 +306,44 @@ export function TwoStepSettings() {
           <div className="max-w-xs">
             <CodeInput id="two-step-code" label={w.code} value={code} onChange={setCode} />
           </div>
+          <p className="text-sm font-medium">{w.step3}</p>
+          <div className="max-w-xs">
+            <input type="password" autoComplete="current-password" aria-label={w.password} placeholder={w.password} value={password} maxLength={128} onChange={(e) => setPassword(e.target.value)} className={field} />
+          </div>
           <div className="flex flex-wrap gap-3">
-            <button type="button" disabled={busy || code.length !== 6} onClick={confirm} className={primary}>
+            <button type="button" disabled={busy || code.length !== 6 || !password} onClick={confirm} className={primary}>
               {w.confirm}
             </button>
-            <button type="button" onClick={() => (setSetup(null), setCode(""), setError(""))} className={ghost}>
+            <button type="button" onClick={() => (setSetup(null), setCode(""), setPassword(""), setError(""))} className={ghost}>
               {w.cancel}
             </button>
           </div>
         </div>
       )}
 
-      {state === "on" && !turningOff && (
+      {state === "on" && codes && (
+        <div className="mt-5 space-y-3 rounded-xl bg-soft p-4">
+          <p className="text-sm font-semibold">{w.codesTitle}</p>
+          <p className="text-sm text-muted">{w.codesHint}</p>
+          <ul dir="ltr" className="grid select-all grid-cols-2 gap-2 font-mono text-sm sm:grid-cols-5">
+            {codes.map((c) => (
+              <li key={c} className="rounded-lg bg-card px-2 py-1.5 text-center">{c}</li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" onClick={() => copy("codes", codes.join("\n"))} className={ghost}>
+              {copied === "codes" ? w.copied : w.copyAll}
+            </button>
+            <button type="button" onClick={() => setCodes(null)} className={primary}>
+              {w.saved}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state === "on" && !codes && left !== null && <p className="mt-3 text-xs text-muted">{w.left(left)}</p>}
+
+      {state === "on" && !turningOff && !codes && (
         <div className="mt-5 flex flex-wrap items-center gap-4">
           <button type="button" onClick={() => (setTurningOff(true), setNote(""))} className={ghost}>
             {w.turnOff}
@@ -272,12 +356,19 @@ export function TwoStepSettings() {
         <div className="mt-5 max-w-md space-y-4">
           <p className="text-sm font-semibold">{w.offTitle}</p>
           <input type="password" autoComplete="current-password" aria-label={w.password} placeholder={w.password} value={password} onChange={(e) => setPassword(e.target.value)} className={field} />
-          <CodeInput id="two-step-off-code" label={w.code} value={code} onChange={setCode} />
+          {byRecovery ? (
+            <RecoveryInput id="two-step-off-code" label={w.recovery} value={code} onChange={setCode} />
+          ) : (
+            <CodeInput id="two-step-off-code" label={w.code} value={code} onChange={setCode} />
+          )}
+          <button type="button" onClick={() => (setByRecovery((v) => !v), setCode(""), setError(""))} className="text-sm font-semibold text-primary underline-offset-4 hover:underline">
+            {byRecovery ? w.useApp : w.useRecovery}
+          </button>
           <div className="flex flex-wrap gap-3">
-            <button type="button" disabled={busy || !password || code.length !== 6} onClick={disable} className={primary}>
+            <button type="button" disabled={busy || !password || (byRecovery ? !recoveryReady(code) : code.length !== 6)} onClick={disable} className={primary}>
               {w.turnOff}
             </button>
-            <button type="button" onClick={() => (setTurningOff(false), setCode(""), setPassword(""), setError(""))} className={ghost}>
+            <button type="button" onClick={() => (setTurningOff(false), setByRecovery(false), setCode(""), setPassword(""), setError(""))} className={ghost}>
               {w.cancel}
             </button>
           </div>
@@ -297,11 +388,13 @@ export function TwoStepCodeStep({ onDone }: { onDone: (r: "ok" | "cancel") => vo
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => document.getElementById("two-step-signin")?.focus(), []);
+  const [byRecovery, setByRecovery] = useState(false);
+  const ready = byRecovery ? recoveryReady(code) : code.length === 6;
+  useEffect(() => document.getElementById("two-step-signin")?.focus(), [byRecovery]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (code.length !== 6 || busy) return;
+    if (!ready || busy) return;
     setBusy(true);
     const r = await logInCode(code);
     setBusy(false);
@@ -317,11 +410,18 @@ export function TwoStepCodeStep({ onDone }: { onDone: (r: "ok" | "cancel") => vo
         <h2 id="two-step-title" className="text-lg font-bold">{w.signInTitle}</h2>
         <p className="mt-1 text-sm text-muted">{w.signInHint}</p>
         <div className="mt-5">
-          <CodeInput id="two-step-signin" label={w.code} value={code} onChange={(v) => (setCode(v), setError(""))} />
+          {byRecovery ? (
+            <RecoveryInput id="two-step-signin" label={w.recovery} value={code} onChange={(v) => (setCode(v), setError(""))} />
+          ) : (
+            <CodeInput id="two-step-signin" label={w.code} value={code} onChange={(v) => (setCode(v), setError(""))} />
+          )}
         </div>
+        <button type="button" onClick={() => (setByRecovery((v) => !v), setCode(""), setError(""))} className="mt-2 text-sm font-semibold text-primary underline-offset-4 hover:underline">
+          {byRecovery ? w.useApp : w.useRecovery}
+        </button>
         {error && <p role="alert" className="mt-2 text-sm text-rose-600">{error}</p>}
         <div className="mt-5 flex gap-3">
-          <button type="submit" disabled={busy || code.length !== 6} className={`${primary} flex-1`}>
+          <button type="submit" disabled={busy || !ready} className={`${primary} flex-1`}>
             {w.verify}
           </button>
           <button type="button" onClick={() => onDone("cancel")} className={ghost}>
