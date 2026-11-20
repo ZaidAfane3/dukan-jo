@@ -5,7 +5,7 @@ import { emailOf } from "@/components/safe";
 import { clearFailures, hashPassword, visitorIp } from "./auth";
 import { blind, emailKey, phoneKey } from "./crypto";
 import { db } from "./db";
-import { canSendCode, sendCode, type CodeChannel, type CodeLang } from "./sendCode";
+import { canSendCode, phoneCodesByEmail, sendCode, type CodeChannel, type CodeLang } from "./sendCode";
 
 /* A forgotten password, by a one-time code (app/api/auth/reset/...). The merchant types the email or mobile of his
    account, gets a 6-digit code there (server/sendCode.ts), types it, and picks a new password.
@@ -90,8 +90,9 @@ export async function requestCode(req: NextRequest, c: Contact, lang: CodeLang):
   if (!a) return;
   /* sent to what the account has (the same as what was typed, in its saved form). Not waited for: a slow provider must
      not make a real account answer later than an unknown one. Its failure is logged without the code. */
-  const to = c.channel === "phone" ? a.phone : a.email;
-  void sendCode(c.channel, to, code, lang).catch((e) => console.error("[reset] the code could not be sent:", (e as Error)?.message ?? e));
+  const byEmail = c.channel === "phone" && phoneCodesByEmail();
+  const to = c.channel === "phone" && !byEmail ? a.phone : a.email;
+  void sendCode(byEmail ? "email" : c.channel, to, code, lang).catch((e) => console.error("[reset] the code could not be sent:", (e as Error)?.message ?? e));
 }
 
 export type CheckResult = { result: "ok"; token: string } | { result: "wrong" | "expired" | "too-many" };

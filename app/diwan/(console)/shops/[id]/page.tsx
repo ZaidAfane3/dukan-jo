@@ -50,7 +50,7 @@ type Shop = {
   /* visitors of its store at its link over the last 30 days (each day's visitors added up) */
   visitors_30?: number;
   /* what it still needs before it can sell (safeOrder readyToSell): no way to pay on, no way to get orders */
-  not_ready?: ("pay" | "delivery" | "setup")[];
+  not_ready?: ("pay" | "delivery" | "setup" | "email")[];
   total_sales: string;
   first_product_at: string | null;
   published_at: string | null;
@@ -166,7 +166,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                     {!!sh.not_ready?.length && (
                       <p className="mt-0.5 text-sm font-semibold opacity-90">
                         {t("Not ready to sell: ", "غير جاهز للبيع: ")}
-                        {sh.not_ready.map((m) => (m === "pay" ? t("no way to pay is on", "لا طريقة دفع مفعّلة") : m === "setup" ? t("setup steps not all done", "خطوات الإعداد لم تكتمل") : t("no delivery or pickup", "لا توصيل ولا استلام"))).join(t(" · ", " · "))}
+                        {sh.not_ready.map((m) => (m === "pay" ? t("no way to pay is on", "لا طريقة دفع مفعّلة") : m === "setup" ? t("setup steps not all done", "خطوات الإعداد لم تكتمل") : m === "email" ? t("email not confirmed yet", "البريد الإلكتروني لم يُؤكَّد بعد") : t("no delivery or pickup", "لا توصيل ولا استلام"))).join(t(" · ", " · "))}
                       </p>
                     )}
                     {key === "suspended" && <p className="mt-1 text-xs opacity-75">{t("The merchant sees this reason when they try to sign in.", "يرى التاجر هذا السبب عند محاولة الدخول.")}</p>}

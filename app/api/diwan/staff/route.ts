@@ -4,6 +4,7 @@ import { answer, hashPassword, readJson } from "@/server/auth";
 import { emailKey, plainText, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { tellOtherStaff } from "@/server/staffNotice";
 import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
@@ -50,5 +51,7 @@ export const POST = staffRoute("staff", async (req: NextRequest, me) => {
     throw e;
   }
   await audit(req, me.id, "staff.add", { type: "staff", id }, null, { email: who.email, name: who.name });
+  /* the other owners hear of it by email (never the temporary password) */
+  tellOtherStaff(me, "added", who);
   return answer({ result: "ok", id });
 });

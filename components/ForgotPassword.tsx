@@ -27,6 +27,7 @@ const words = {
     send: "Send code",
     sending: "Sending…",
     sent: "If this email or number has an account, we sent a code.",
+    sentEmail: "If this number has an account, we sent a code to that account's email.",
     codeTitle: "Enter the code",
     codeIntro: "Enter the 6-digit code we sent to",
     codeLabel: "6-digit code",
@@ -68,6 +69,7 @@ const words = {
     send: "أرسل الرمز",
     sending: "جارٍ الإرسال…",
     sent: "إذا كان لهذا البريد أو الرقم حساب، فقد أرسلنا إليه رمزًا.",
+    sentEmail: "إذا كان لهذا الرقم حساب، فقد أرسلنا رمزًا إلى البريد الإلكتروني لذلك الحساب.",
     codeTitle: "أدخل الرمز",
     codeIntro: "أدخل الرمز المكوّن من 6 أرقام الذي أرسلناه إلى",
     codeLabel: "رمز من 6 أرقام",
@@ -136,13 +138,13 @@ export function maskedContact(typed: string): string {
   return `${user.slice(0, user.length > 2 ? 2 : 1)}•••@${domain}`;
 }
 
-type Reply = { status: number; result: string; token?: string };
+type Reply = { status: number; result: string; token?: string; via?: string };
 
 async function post(path: string, body: unknown): Promise<Reply | null> {
   try {
     const r = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const j = ((await r.json().catch(() => ({}))) ?? {}) as { result?: string; token?: string };
-    return { status: r.status, result: j.result ?? "", token: j.token };
+    const j = ((await r.json().catch(() => ({}))) ?? {}) as { result?: string; token?: string; via?: string };
+    return { status: r.status, result: j.result ?? "", token: j.token, via: j.via };
   } catch {
     return null;
   }
@@ -211,7 +213,7 @@ export function ForgotPassword({
     setBusy(false);
     if (r?.result === "sent") {
       setNoSender(false);
-      setNote(w.sent);
+      setNote(r.via === "email" ? w.sentEmail : w.sent);
       setResendAt(Date.now() + RESEND_SECONDS * 1000);
       setNow(Date.now());
       return true;

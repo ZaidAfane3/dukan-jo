@@ -822,4 +822,26 @@ export const DIWAN_SCHEMA = `
     staff_id   BIGINT REFERENCES staff (id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
+
+  /* ---------- a merchant's email, confirmed by a code (server/emailVerify.ts) ----------
+     email_verified: the account proved it gets the email it signs in with. Every account made before this column counts
+     as confirmed (DEFAULT true), so nobody already using Dukkan is held back; a sign-up writes false while Dukkan can
+     send email (server/email.ts emailOn), and so does a change of the email. While it is false and email is on, the
+     store can't go live (app/api/store PUT "not-ready" with "email").
+     email_verifications: the codes sent for it, apart from password_resets so a code for one can never work for the
+     other. Kept only as an HMAC (crypto.ts blind) of the account, the address it went to and the code; 10 minutes, 5
+     tries, once. email_hash: the address the code went to (crypto.ts emailKey), so a code sent before the email changed
+     confirms nothing. */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT true;
+  CREATE TABLE IF NOT EXISTS email_verifications (
+    id          BIGSERIAL PRIMARY KEY,
+    account_id  BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    email_hash  TEXT NOT NULL,
+    code_hash   TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at  TIMESTAMPTZ NOT NULL,
+    attempts    SMALLINT NOT NULL DEFAULT 0,
+    used_at     TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS email_verifications_account ON email_verifications (account_id, id DESC);
 `;

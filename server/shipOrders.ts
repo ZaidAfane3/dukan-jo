@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { cleanLine, visibleLength } from "@/components/safe";
 import { seal } from "./crypto";
 import { db } from "./db";
-import { notify } from "./notify";
+import { emailNotice, notify } from "./notify";
 import { audit, type Staff } from "./staff";
 import { paidSet, type ShipState } from "./storeOrders";
 
@@ -167,6 +167,7 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
     if (state === "delivered" && o.ship_state !== "delivered") await notify(o.account_id, "shipDelivered", { number: o.number }, c);
     if (state === "failed") await notify(o.account_id, "shipFailed", { number: o.number, note }, c);
     await c.query("COMMIT");
+    if (state === "failed") emailNotice(o.account_id, "shipFailed", { number: o.number, note });
     done = { account: o.account_id, number: Number(o.number), from: o.ship_state };
   } catch (e) {
     await c.query("ROLLBACK").catch(() => {});

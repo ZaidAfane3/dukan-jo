@@ -2,9 +2,11 @@ import type { NextRequest } from "next/server";
 import { isJordanMobile, savedMobile } from "@/components/phone";
 import { cleanDate, cleanLine, emailOf, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS, DOB_MIN } from "@/components/safeAccount";
-import { answer, checkPassword, clearFailures, currentAccount, failedTooOften, guarded, noteFailure, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { answer, checkPassword, clearFailures, currentAccount, failedTooOften, guarded, noteFailure, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
 import { emailKey, NAME_KEYS_VERSION, nameKeys, phoneKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
+import { emailOn } from "@/server/email";
+import { SEND_PER_ACCOUNT, sendVerifyCode, startsVerified, verifyLang } from "@/server/emailVerify";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,9 @@ export const dynamic = "force-dynamic";
    optional date of birth, gender and city. An email or mobile another account has is refused: "taken" (email) or
    "taken-phone". Changing the email or the mobile (what the account signs in with) also needs the account's password,
    sent as `password`: without it "password-needed", with a wrong one "wrong-password" (403), so someone at an unlocked
-   screen can't quietly make the account his. Answers "ok" with the profile, "invalid", "none" (signed out). */
+   screen can't quietly make the account his. A new email has to be confirmed again while Dukkan can send email: the
+   code goes to it (server/emailVerify.ts; `lang`, optional, is the language of that email). Answers "ok" with the
+   profile and emailVerified, "invalid", "none" (signed out). */
 
 /* all stored encrypted (server/crypto.ts) and opened by db(); dob is kept as "YYYY-MM-DD" text */
 const PROFILE = `name, email, phone, city, gender, COALESCE(dob, '') AS dob`;
@@ -58,14 +62,23 @@ export const PUT = guarded(async (req: NextRequest) => {
     clearFailures(who);
   }
 
+  /* a new email is not confirmed yet while Dukkan can send it a code (server/emailVerify.ts); with email off it keeps
+     what it had, since nothing could confirm it */
+  const newEmail = cur.rows[0].email_hash !== emailKey(email);
+  const unconfirm = newEmail && !startsVerified();
   try {
     const { rows } = await pool.query(
       `UPDATE accounts SET name = $2, email = $3, phone = $4, dob = $5, gender = $6, city = $7, email_hash = $8, phone_hash = $9,
-              name_keys = $10, name_keys_v = $11
-        WHERE id = $1 RETURNING ${PROFILE}`,
-      [a.id, seal(name), seal(email), seal(phone), seal(dob || null), seal(gender), seal(city), emailKey(email), phoneKey(phone), nameKeys(name), NAME_KEYS_VERSION],
+              name_keys = $10, name_keys_v = $11, email_verified = CASE WHEN $12::boolean THEN false ELSE email_verified END
+        WHERE id = $1 RETURNING ${PROFILE}, email_verified`,
+      [a.id, seal(name), seal(email), seal(phone), seal(dob || null), seal(gender), seal(city), emailKey(email), phoneKey(phone), nameKeys(name), NAME_KEYS_VERSION, unconfirm],
     );
-    return answer({ result: "ok", profile: shape(rows[0]) });
+    /* the code to the new address, not waited for. Counted as one of the account's sends (app/api/auth/verify-email), so
+       changing the email again and again can't send codes to many addresses: past the limit the banner's "Send a new
+       code" sends it later. */
+    if (unconfirm && !tooManyFor(`verify-email-send:${a.id}`, SEND_PER_ACCOUNT.max, SEND_PER_ACCOUNT.minutes))
+      void sendVerifyCode(a.id, email, verifyLang(req, body?.lang), true).catch((e) => console.error("[account] the email code could not be made:", (e as Error)?.message ?? e));
+    return answer({ result: "ok", profile: shape(rows[0]), emailVerified: rows[0].email_verified !== false || !emailOn() });
   } catch (e) {
     const err = e as { code?: string; constraint?: string };
     if (err.code === "23505") return answer({ result: err.constraint === "accounts_phone_hash" ? "taken-phone" : "taken" }, 409);

@@ -21,7 +21,7 @@ const words = {
     "signed-out-elsewhere": "Your account was opened on another device, so this one was signed out. Your account works on one device at a time. Sign in here to continue; the other device will be signed out.",
     stale: "Couldn't save some changes. Reload to see the latest.",
     "theme-not-bought": "This theme isn't bought yet. Buy it from the Theme store to use it.",
-    "not-ready": "Not saved: your store isn't ready to sell. Turn on at least one way to pay and choose how customers get their orders on Delivery options.",
+    "not-ready": "Not saved: your store isn't ready to go live yet. Finish what's still missing (the setup steps, a way to pay, delivery, or confirming your email), then save again.",
     close: "Close",
   },
   ar: {
@@ -34,7 +34,7 @@ const words = {
     "signed-out-elsewhere": "فُتح حسابك على جهاز آخر، فتم تسجيل خروجك من هذا الجهاز. يعمل حسابك على جهاز واحد في كل مرة. سجّل الدخول هنا للمتابعة، وسيُسجَّل خروج الجهاز الآخر.",
     stale: "تعذّر حفظ بعض التعديلات. أعد تحميل الصفحة لترى أحدث نسخة.",
     "theme-not-bought": "لم تشترِ هذا الثيم بعد. اشترِه من متجر الثيمات لتستخدمه.",
-    "not-ready": "لم يُحفظ: متجرك غير جاهز للبيع. فعّل طريقة دفع واحدة على الأقل واختر كيف يستلم العملاء طلباتهم من خيارات التوصيل.",
+    "not-ready": "لم يُحفظ: متجرك غير جاهز للنشر بعد. أكمل ما ينقصه (خطوات الإعداد، أو طريقة دفع، أو التوصيل، أو تأكيد بريدك الإلكتروني)، ثم احفظ مرة أخرى.",
     close: "إغلاق",
   },
 };

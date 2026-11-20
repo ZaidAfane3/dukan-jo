@@ -121,7 +121,7 @@ async function loadStore(keep: Set<string> = new Set()): Promise<boolean> {
 
 /** Makes a new account and signs in to it. "taken": that email already has an account; "taken-phone": that mobile
     does; "slow-down": too many sign-ups from here lately; "error": the server could not be reached or refused it. */
-export async function createAccount(a: { email: string; name: string; phone: string; password: string }): Promise<"ok" | "taken" | "taken-phone" | "slow-down" | "error"> {
+export async function createAccount(a: { email: string; name: string; phone: string; password: string; lang?: "ar" | "en" }): Promise<"ok" | "taken" | "taken-phone" | "slow-down" | "error"> {
   const r = await call("/api/auth/signup", "POST", a);
   const result = r?.reply.result;
   /* "slow-down": too many sign-ups from this connection in the last hour */

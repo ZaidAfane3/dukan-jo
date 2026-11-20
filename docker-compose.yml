@@ -23,6 +23,11 @@ services:
       # needs Zone > Cache Purge on this site's zone.
       CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      # Email through Resend (server/email.ts): password reset codes, signup email codes, notices to Diwan owners.
+      # RESEND_API_KEY is a key with Sending access; EMAIL_FROM is on a domain verified in Resend, e.g.
+      # "Dukkan <no-reply@mail.afaneh.dev>". Without both, no email is sent (password reset points to support).
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     depends_on:
       db:
         condition: service_healthy

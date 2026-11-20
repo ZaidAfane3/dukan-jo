@@ -206,7 +206,7 @@ export function SignupForm() {
     if (valid && tab === "create" && !tour) {
       setBusy(true);
       setFormErr("");
-      const r = await createAccount({ email, name, phone, password: form.password });
+      const r = await createAccount({ email, name, phone, password: form.password, lang });
       setBusy(false);
       if (r === "slow-down") {
         /* not about one field: said under the button, where he is looking */

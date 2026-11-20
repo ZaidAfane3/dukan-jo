@@ -1,6 +1,7 @@
 /* Sends a one-time code (today: the code for a forgotten password, server/passwordReset.ts) by email or by SMS.
 
-   Dukkan has no email or SMS/WhatsApp provider yet: the owner picks one later. Until then:
+   Email goes through Resend (server/email.ts) when RESEND_API_KEY and EMAIL_FROM are set; there is no SMS/WhatsApp
+   service yet, so a code asked for by mobile goes to the account's email (phoneCodesByEmail). Without email:
    - in development (NODE_ENV is not "production") the code is written to the server's console, marked
      "[dev] reset code", so the flow can be tried end to end;
    - in production nothing can be sent, so canSendCode() is false and the route answers 503 { result: "no-sender" }
@@ -10,6 +11,9 @@
    one is chosen; they are not called yet, even when their keys are set, so setting a key alone changes nothing. To turn
    one on: write its send(), then return it from senderFor() when its key is set. */
 
+import { emailOn, sendEmail } from "./email";
+import { resetCodeEmail } from "./emailWords";
+
 export type CodeChannel = "email" | "phone";
 export type CodeLang = "ar" | "en";
 
@@ -18,40 +22,36 @@ export interface CodeSender {
   send(to: string, code: string, lang: CodeLang): Promise<void>;
 }
 
-/* The message itself, for whichever provider sends it */
-export const codeMessage = (code: string, lang: CodeLang) =>
-  lang === "ar"
-    ? { subject: "رمز إعادة تعيين كلمة المرور في دكّان", text: `رمزك لإعادة تعيين كلمة المرور في دكّان هو ${code}. ينتهي خلال 10 دقائق. إذا لم تطلبه فتجاهل هذه الرسالة.` }
-    : { subject: "Your Dukkan password reset code", text: `Your Dukkan password reset code is ${code}. It expires in 10 minutes. If you didn't ask for it, ignore this message.` };
+/* The message itself, for whichever provider sends it: its words are in server/emailWords.ts (resetCodeEmail), with
+   every other email's. The text does not repeat the code: the email shows it large on its own (an SMS provider would
+   add it to the text). */
+export const codeMessage = (code: string, lang: CodeLang) => ({ ...resetCodeEmail(lang), code });
 
-/* TODO(provider): email through Resend (https://resend.com) once the owner chooses it: POST https://api.resend.com/emails
-   with Authorization: Bearer RESEND_API_KEY and { from, to, subject, text } from codeMessage(). Not called yet. */
+/* email: through Resend (server/email.ts), on when RESEND_API_KEY and EMAIL_FROM are set */
 const resendEmail: CodeSender = {
-  async send() {
-    throw new Error("Email sending is not built yet (server/sendCode.ts)");
+  async send(to, code, lang) {
+    const m = codeMessage(code, lang);
+    await sendEmail({ to, subject: m.subject, text: m.text, lang, code: m.code, heading: m.heading });
   },
 };
 
 /* TODO(provider): SMS (or WhatsApp) once the owner chooses a service; its key would be SMS_API_KEY. Not called yet. */
-const smsSender: CodeSender = {
-  async send() {
-    throw new Error("SMS sending is not built yet (server/sendCode.ts)");
-  },
-};
+const smsSender: CodeSender | null = null;
 
-/* The provider for a channel, or null when there is none. Both return null for now, even with a key set (see above):
-   when a provider is built, this becomes e.g. `return process.env.RESEND_API_KEY ? resendEmail : null`. */
+/* The provider for a channel, or null when there is none */
 function senderFor(channel: CodeChannel): CodeSender | null {
-  void resendEmail;
-  void smsSender;
-  void channel;
-  return null;
+  if (channel === "email") return emailOn() ? resendEmail : null;
+  return smsSender;
 }
+
+/** A mobile typed on the reset page while there is no SMS service: the code goes to the account's email instead.
+    Decided by the settings only, never by the account, so it tells nobody whether the mobile has one. */
+export const phoneCodesByEmail = (): boolean => !smsSender && emailOn();
 
 const isDev = () => process.env.NODE_ENV !== "production";
 
 /** True when a code can go out on this channel (a provider, or the development console) */
-export const canSendCode = (channel: CodeChannel): boolean => senderFor(channel) !== null || isDev();
+export const canSendCode = (channel: CodeChannel): boolean => senderFor(channel) !== null || (channel === "phone" && phoneCodesByEmail()) || isDev();
 
 /* what the console shows of where the code went: enough to tell tries apart, not the whole address */
 function masked(channel: CodeChannel, to: string): string {

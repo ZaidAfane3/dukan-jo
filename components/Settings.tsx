@@ -254,7 +254,7 @@ export function Settings() {
         const resume = renaming ? pauseSaves() : () => {};
         try {
           /* the password as it is now: the new one when it was just changed above */
-          const r = await merchantCall("/api/account", "PUT", identity ? { ...clean, password: changing ? next : current } : clean);
+          const r = await merchantCall("/api/account", "PUT", { ...(identity ? { ...clean, password: changing ? next : current } : clean), lang });
           if (r?.data.result === "password-needed") return void showErrors({ current: l.needCurrent });
           if (r?.data.result === "wrong-password") return void showErrors({ current: l.wrongCurrent });
           if (r?.data.result === "taken") return void showErrors({ email: l.takenEmail });

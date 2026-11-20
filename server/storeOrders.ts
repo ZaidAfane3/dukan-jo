@@ -10,7 +10,7 @@ import {
 import { highestOrderNumber, lastOrderNumber, ORDER_NUMBER_KEY, ORDER_NUMBER_START } from "@/components/orderNumbers";
 import { plainDeep, plainText, seal } from "./crypto";
 import { db } from "./db";
-import { notify } from "./notify";
+import { emailNotice, notify } from "./notify";
 import { readSettings } from "./settings";
 
 /* Orders customers place on a store's public page (app/[slug], POST /api/public/store/<slug>/orders), kept in
@@ -208,7 +208,10 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
   const previous = typeof body.previous === "string" && ATTEMPT.test(body.previous) && body.previous !== attempt ? body.previous : null;
   const settings = await readSettings(["payment_methods", "dukkan_ship"] as const);
 
-  return inTransaction(client, async (c) => {
+  /* the owner's email about the order: sent once the order is committed (on a caller's client, the caller's COMMIT
+     comes later, so no email from here) */
+  const after: { notice?: () => void } = {};
+  const placed = await inTransaction(client, async (c): Promise<PlaceResult> => {
     const found = await findShop(c, slug);
     if (!found) return { status: 404, body: { result: "none" } };
     /* one order at a time per shop: the stock read below is the stock this order takes from */
@@ -335,10 +338,13 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
 
     /* the merchant's bell: kept only if the order is */
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);
+    after.notice = () => emailNotice(id, "orderPlaced", { number, total: total.toFixed(3) });
 
     const feeOpen = ships && fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !(freeDelivery.on && priced.subtotal >= freeDelivery.min);
     return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen, ...(big ? { review: true } : {}) } } };
   });
+  if (!client && placed.status === 200) after.notice?.();
+  return placed;
 }
 
 /* saves one key of the shop's data the way PUT /api/store does: sealed, with its plain length for the size limit */

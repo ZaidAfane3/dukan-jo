@@ -8,6 +8,7 @@ import { movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
 import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, type OnlineKey } from "@/server/storeOrders";
 import { readyToSell, type SellNeed } from "@/components/safeOrder";
+import { emailUnconfirmed } from "@/server/emailVerify";
 import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership";
 import { stripPaidLooks } from "@/components/themeLooks";
 import { valueVersion } from "@/server/storeVersion";
@@ -197,6 +198,11 @@ export const PUT = guarded(async (req: NextRequest) => {
      reopening it) are checked one after the other, so the second sees what the first kept. */
   const touchesLive = [...set.map(([k]) => k), ...(remove as string[])].some((k) => LIVE_KEYS.includes(k));
   const platform = touchesLive ? await sellPlatform() : null;
+  /* going live also needs the account's email confirmed, while Dukkan can send the code (server/emailVerify.ts): "email"
+     in `missing`. It is the same before and after the save, so it never holds back a setup save of a store already
+     live (a live store is never taken offline for it) */
+  const emailNeed = touchesLive ? await emailUnconfirmed(a.id) : false;
+  const withEmail = (r: { ok: boolean; missing: SellNeed[] }) => (emailNeed ? { ok: false, missing: [...r.missing, "email" as SellNeed] } : r);
 
   /* a store link belongs to one shop only */
   const setup = set.find(([k]) => k === "seen-setup");
@@ -262,8 +268,8 @@ export const PUT = guarded(async (req: NextRequest) => {
       };
       const before = (k: string) => was.get(k) ?? null;
       const isLive = (get: (k: string) => string | null) => get("seen-storefront") !== null && !pausedIn(get("seen-maintenance"));
-      const now = readyToSell(setupIn(after("seen-setup")), platform);
-      const then = readyToSell(setupIn(before("seen-setup")), platform);
+      const now = withEmail(readyToSell(setupIn(after("seen-setup")), platform));
+      const then = withEmail(readyToSell(setupIn(before("seen-setup")), platform));
       let hold: string[] = [];
       if (isLive(after) && !isLive(before) && !now.ok) hold = ["seen-storefront", "seen-maintenance"];
       else if (isLive(after) && isLive(before) && now.missing.some((m) => !then.missing.includes(m))) hold = ["seen-setup"];

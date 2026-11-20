@@ -4,6 +4,7 @@ import { staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, hashPassword, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { tellOtherStaff } from "@/server/staffNotice";
 import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
@@ -38,9 +39,10 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
   const pool = await db();
   const c = await pool.connect();
   let meta: Record<string, unknown> = {};
+  let target = { name: "", email: "" };
   try {
     await c.query("BEGIN");
-    const { rows } = await c.query(`SELECT id, active, email FROM staff WHERE id = $1 FOR UPDATE`, [id]);
+    const { rows } = await c.query(`SELECT id, active, email, name FROM staff WHERE id = $1 FOR UPDATE`, [id]);
     const s = rows[0];
     if (!s) {
       await c.query("ROLLBACK");
@@ -69,6 +71,7 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
     } else throw new Bad("invalid");
     await c.query("COMMIT");
     meta.email = s.email;
+    target = { name: String(s.name ?? ""), email: String(s.email ?? "") };
   } catch (e) {
     await c.query("ROLLBACK").catch(() => {});
     if (e instanceof Bad) return answer({ result: e.message }, e.message === "invalid" ? 400 : 409);
@@ -78,6 +81,10 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
   }
   const names: Record<string, string> = { active: body!.active ? "staff.reactivate" : "staff.deactivate", reset2step: "staff.reset_2step", password: "staff.reset_password" };
   await audit(req, me.id, names[action], { type: "staff", id }, reason, meta);
+  /* the other owners hear of it by email: what changed, by whom and when (never the new password). Bringing back a
+     member who was already active changes nothing, so it tells nobody. */
+  const change = action === "active" ? (body!.active ? (meta.before ? null : "reactivated") : meta.before ? "deactivated" : null) : action === "reset2step" ? "twoStepReset" : "passwordReset";
+  if (change) tellOtherStaff(me, change, target);
   return answer({ result: "ok" });
 });
 
