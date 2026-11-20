@@ -2246,11 +2246,21 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
     [pending],
   );
 
+  /* the newest pick: a file picked while an earlier one is still being read wins, and the earlier one, finishing later,
+     is let go (its copy in this browser too) instead of taking its place */
+  const pickSeq = useRef(0);
   const take = async (file: File | undefined) => {
     if (!file || editLocked()) return;
+    const seq = ++pickSeq.current;
+    const stale = () => seq !== pickSeq.current;
     /* what the file really is, from its bytes */
     const check = await checkImage(file, imageRules.background);
-    if ("problem" in check) return setProblem(uploadProblemFor(check.problem, imageRules.background, lang));
+    if (stale()) return;
+    if ("problem" in check) {
+      /* an earlier pick still being read is let go, so nothing stays busy */
+      setBusy(false);
+      return setProblem(uploadProblemFor(check.problem, imageRules.background, lang));
+    }
     const isVideo = check.kind === "mp4" || check.kind === "webm";
     setSmall(smallPictureNote(check.w, check.h, imageRules.background, lang));
     setBusy(true);
@@ -2258,13 +2268,18 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
     let media: Blob = file;
     if (!isVideo && !check.animated) {
       const picked = await pickPicture(file, imageRules.background, 2400, "image/jpeg", 0.85);
+      if (stale()) return;
       if ("problem" in picked) {
         setBusy(false);
         return setProblem(uploadProblemFor(picked.problem, imageRules.background, lang));
       }
       media = await (await fetch(picked.url)).blob();
-      const id = `bg-${Date.now().toString(36)}`;
+      const id = `bg-${Date.now().toString(36)}${seq.toString(36)}`;
       const ok = await putMedia(id, media);
+      if (stale()) {
+        if (ok) void deleteMedia(id);
+        return;
+      }
       setBusy(false);
       if (!ok) return setProblem(t.failed);
       setProblem("");
@@ -2274,8 +2289,12 @@ function PageBackground({ lang, draft, update }: { lang: Lang; draft: Draft; upd
       setPending({ id, src: picked.url });
       return;
     }
-    const id = `bg-${Date.now().toString(36)}`;
+    const id = `bg-${Date.now().toString(36)}${seq.toString(36)}`;
     const ok = await putMedia(id, media);
+    if (stale()) {
+      if (ok) void deleteMedia(id);
+      return;
+    }
     setBusy(false);
     if (!ok) return setProblem(t.failed);
     setProblem("");
@@ -2940,6 +2959,11 @@ const limitWords: Record<Lang, Record<"messages" | "reviews" | "promises" | "ite
     words: arLimit("الكلمات", "كلمات", "كلمةً"), buttons: arLimit("الأزرار", "أزرار", "زرًّا"), columns: arLimit("أعمدتك", "أعمدة خاصة بك", "عمودًا خاصًا بك"),
   },
 };
+/* said when pictures were picked past a list's limit: the ones that did not fit were not added */
+const picturesFullNote = (lang: Lang, n: number): PicNote => ({
+  tone: "warn",
+  text: lang === "ar" ? `يمكنك استخدام ${arCount(n, "صور", "صورةً")} كحد أقصى: لم تُضف الصور الزائدة.` : `You can use up to ${n} pictures: the extra ones were not added.`,
+});
 /* the cover's pictures run out before its backgrounds do: colors can still be added */
 const coverPicsFull = { en: (n: number) => `You can use up to ${n} pictures. You can still add colors.`, ar: (n: number) => `يمكنك استخدام ${arCount(n, "صور", "صورةً")} كحد أقصى، ويمكنك إضافة ألوان.` };
 /* moving one up or down its list, inside its card */
@@ -2966,17 +2990,22 @@ function HeroBackgrounds({ lang, id, settings, onChange }: { lang: Lang; id: str
   /* the picture just chosen is cropped in its own card; the cover shows each cut as he moves it */
   const [crop, setCrop] = useState<Cropping | null>(null);
 
+  /* the cover as it is now: a picture is read for a moment, and what he changed meanwhile must stay (see SlidesForm) */
+  const latest = useRef(settings);
+  latest.current = settings;
   const pickPhoto = async (file: File | undefined, i: number) => {
     if (!file) return;
     const { url, note } = await readPicture(file, lang);
     setBad(note);
     if (!url) return;
-    const old = list[i];
-    if (old) edit(i, { image: url, pos: undefined });
-    else {
-      set([...list, { kind: "image", color: "", image: url }]);
-      showSlide(id, i);
-    }
+    const now = latest.current;
+    const cur: HeroBg[] = now.backgrounds?.length ? now.backgrounds : [{ kind: "color", color: "", image: "" }];
+    const old = cur[i];
+    const backgrounds: HeroBg[] = old ? cur.map((b, j) => (j === i ? { ...b, image: url, pos: undefined } : b)) : [...cur, { kind: "image", color: "", image: url }];
+    const next = { ...now, backgrounds };
+    latest.current = next;
+    onChange(next);
+    showSlide(id, i);
     if (cuttable(url)) setCrop({ i, src: url, before: old ? { image: old.image, pos: old.pos } : null });
   };
 
@@ -4321,13 +4350,22 @@ function SlidesForm({ lang, s, onChange }: { lang: Lang; s: SlidesEl; onChange: 
   };
   /* the picture just added is cropped in its own card; the slider shows each cut as he moves it */
   const [crop, setCrop] = useState<Cropping | null>(null);
+  /* the section as it is now: a picture is read for a moment, and what he changed meanwhile (or another picture added)
+     must not be undone by the list as it was when he picked it */
+  const latest = useRef(s);
+  latest.current = s;
   const add = async (file: File | undefined) => {
     if (!file) return;
     const { url, note } = await readPicture(file, lang);
     setBad(note);
     if (!url) return;
-    set({ slides: [...slides, { image: url, link: "" }] });
-    if (cuttable(url)) setCrop({ i: slides.length, src: url, before: null });
+    const now = latest.current;
+    const list = now.settings.slides ?? [];
+    if (list.length >= 8) return setBad(picturesFullNote(lang, 8));
+    const next = { ...now, settings: { ...now.settings, slides: [...list, { image: url, link: "" }] } };
+    latest.current = next;
+    onChange(next);
+    if (cuttable(url)) setCrop({ i: list.length, src: url, before: null });
   };
   /* a picture has no words of its own: it is named by where it leads (a part of the page, a page, a web address) */
   const sections = useContext(LinkTargets);
@@ -4548,14 +4586,24 @@ function TilesForm({ lang, s, onChange, text }: { lang: Lang; s: TilesEl; onChan
   /* the pictures just added are cropped one after another, each in its own card; the tiles show each cut as he moves it */
   const [queue, setQueue] = useState<{ key: string; src: string }[]>([]);
   const cropping = queue[0];
+  /* the section as it is now (see SlidesForm): what he changed while the pictures were read stays */
+  const latest = useRef(s);
+  latest.current = s;
   const add = async (files: FileList | null) => {
     if (!files) return;
-    const read = await Promise.all(Array.from(files).map((f) => readPicture(f, lang, { max: 900 })));
+    const all = Array.from(files);
+    /* only the pictures that fit are read: 10 tiles in all */
+    const fits = all.slice(0, Math.max(0, 10 - items.length));
+    const read = await Promise.all(fits.map((f) => readPicture(f, lang, { max: 900 })));
     const ok = read.map((r) => r.url).filter((u): u is string => !!u);
-    /* the first refusal, else the first warning */
-    setBad(read.find((r) => r.note?.tone === "error")?.note ?? read.find((r) => r.note)?.note ?? null);
-    const added = ok.map((image) => ({ key: newKey(), image, label: { en: "", ar: "" }, link: "" })).slice(0, Math.max(0, 10 - items.length));
-    set({ items: [...items, ...added] });
+    const now = latest.current;
+    const cur = now.settings.items ?? [];
+    const added = ok.map((image) => ({ key: newKey(), image, label: { en: "", ar: "" }, link: "" })).slice(0, Math.max(0, 10 - cur.length));
+    /* the first refusal, else that some did not fit, else the first warning: never dropped without a word */
+    setBad(read.find((r) => r.note?.tone === "error")?.note ?? (all.length > fits.length || ok.length > added.length ? picturesFullNote(lang, 10) : null) ?? read.find((r) => r.note)?.note ?? null);
+    const next = { ...now, settings: { ...now.settings, items: [...cur, ...added] } };
+    latest.current = next;
+    onChange(next);
     setQueue((q) => [...q, ...added.filter((x) => cuttable(x.image)).map((x) => ({ key: x.key, src: x.image }))]);
   };
 
@@ -5489,7 +5537,9 @@ function SubscribersBox({ lang }: { lang: Lang }) {
     return () => window.removeEventListener("storage", read);
   }, []);
   const download = () => {
-    const rows = ["email,date", ...list.map((x) => `${x.email},${new Date(x.at).toISOString().slice(0, 10)}`)].join("\n");
+    /* each cell quoted, and one that starts like a formula gets a ' first, so Excel shows it instead of running it */
+    const cell = (v: string) => `"${v.replace(/^[=+\-@\t\r]/, "'$&").replace(/"/g, '""')}"`;
+    const rows = ["email,date", ...list.map((x) => `${cell(x.email)},${new Date(x.at).toISOString().slice(0, 10)}`)].join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([rows], { type: "text/csv" }));
     a.download = "subscribers.csv";

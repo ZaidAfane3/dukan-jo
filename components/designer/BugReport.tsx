@@ -13,10 +13,14 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { Lang } from "../content";
 import { pushNotification, serverMode } from "../notifications";
-import { cleanLine, cleanLines, visibleLength } from "../safe";
+import { cleanLine, cleanLines, imageRules, uploadProblemFor, visibleLength, type FileKind } from "../safe";
 import { ACCOUNT_LIMITS, cleanTickets, TICKET_MIN, TICKET_PICTURES, type Ticket } from "../safeAccount";
 import { createTicket, sendable } from "../ticketsApi";
-import { readPhoto } from "./image";
+import { pickPicture } from "./image";
+
+/* what a picture may be: signed in, only what Dukkan's server takes (JPEG, PNG, WebP; a moving GIF stays a GIF, which it
+   refuses), so the picker never offers a file that would be dropped later */
+const picRule = (server: boolean) => (server ? { ...imageRules.photo, kinds: ["png", "jpeg", "webp"] as FileKind[] } : imageRules.photo);
 import { dropDraft, HeldSendBar, heldWords, keepDraft, takeDraft, useHeldSend } from "../heldSend";
 
 const KEY = "seen-tickets";
@@ -160,6 +164,8 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
   const [sentId, setSentId] = useState("");
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState("");
+  /* pictures still being read: Send waits for them, so a report never goes without them */
+  const [reading, setReading] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -171,7 +177,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const room = TICKET_PICTURES - pics.length;
+  const room = TICKET_PICTURES - pics.length - reading;
   const add = (list: string[]) => setPics((p) => [...p, ...list].slice(0, TICKET_PICTURES));
 
   const snap = async () => {
@@ -189,11 +195,20 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
   const upload = async (files: FileList | null) => {
     if (!files) return;
     const list = Array.from(files);
-    setNote(list.length > room ? w.full : "");
-    const read = (await Promise.all(list.slice(0, Math.max(0, room)).map((f) => readPhoto(f, 1600)))).filter((u): u is string => !!u);
-    /* Dukkan's server takes JPEG, PNG and WebP: an animated GIF (kept as it is by readPhoto) is left out */
-    const ok = serverMode() ? sendable(read) : read;
-    if (ok.length < read.length) setNote(w.badPics);
+    const take = list.slice(0, Math.max(0, room));
+    setNote(list.length > take.length ? w.full : "");
+    if (!take.length) return;
+    const server = serverMode();
+    const rule = picRule(server);
+    setReading((n) => n + take.length);
+    const picked = await Promise.all(take.map((f) => pickPicture(f, rule, 1600, "image/jpeg", 0.78)));
+    setReading((n) => Math.max(0, n - take.length));
+    const ok: string[] = [];
+    for (const p of picked) {
+      if ("url" in p && (!server || sendable([p.url]).length)) ok.push(p.url);
+      /* why it was not added, with the real kinds and limits: never dropped without a word */
+      else setNote(uploadProblemFor("problem" in p ? p.problem : "type", rule, lang));
+    }
     add(ok);
   };
 
@@ -212,6 +227,8 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
   const send = () => {
     if (visibleLength(text) < TICKET_MIN.message) return setError(true);
     if (busy || held.holding) return;
+    /* pictures still being read would be left out: it waits for them */
+    if (reading > 0) return setNote(lang === "ar" ? "ما زالت الصور قيد التحميل. أرسل مرة أخرى بعد لحظة." : "Pictures are still loading. Send again in a moment.");
     setSendError("");
     setOpen(false);
     held.hold();
@@ -252,7 +269,17 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
         if (!held.alive.current || held.leaving.current) return;
         dropDraft(DRAFT_KEY, owner);
         setOpen(true);
-        return setSendError(r.why === "too-many" ? w.tooMany : r.field === "pictures" ? w.badPics : w.failed);
+        return setSendError(
+          r.why === "too-many"
+            ? w.tooMany
+            : r.why === "pictures-full"
+              ? lang === "ar"
+                ? "أرسلت صورًا كثيرة إلى الدعم هذا الشهر. أرسل البلاغ دون صور أو بصور أقل."
+                : "You've sent a lot of pictures to support this month. Send this without pictures, or with fewer."
+              : r.field === "pictures"
+                ? w.badPics
+                : w.failed,
+        );
       }
       dropDraft(DRAFT_KEY, owner);
       return done(`#${r.data.number}`);
@@ -366,7 +393,7 @@ export function BugReport({ lang, where, lift }: { lang: Lang; where: string; li
                         {w.upload}
                       </button>
                     </div>
-                    <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ""; }} />
+                    <input ref={fileRef} type="file" accept={serverMode() ? "image/png,image/jpeg,image/webp" : "image/png,image/jpeg,image/webp,image/gif"} multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ""; }} />
                     {note && <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">{note}</p>}
                     {!!pics.length && (
                       <div className="mt-3 grid grid-cols-3 gap-2">

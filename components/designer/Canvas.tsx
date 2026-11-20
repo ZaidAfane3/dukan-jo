@@ -237,11 +237,27 @@ export const Canvas = memo(function Canvas({ lang, reveal, frameOn = null, child
       const next = { top, left, width: right - left, height: bottom - top, label: hit.spot.label };
       setMark((m) => (m && m.top === next.top && m.left === next.left && m.width === next.width && m.height === next.height && m.label === next.label ? m : next));
     };
-    const first = requestAnimationFrame(measure);
-    const every = setInterval(measure, 200);
+    /* measured again on the next frame after anything in the store changes (an edit, a picture that loaded, a new
+       size), instead of every 200 ms whether or not anything did */
+    let raf = requestAnimationFrame(measure);
+    const soon = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    };
+    const f = frame.current;
+    const sized = typeof ResizeObserver !== "undefined" && f ? new ResizeObserver(soon) : null;
+    const changed = f ? new MutationObserver(soon) : null;
+    if (f) {
+      sized?.observe(f);
+      changed?.observe(f, { subtree: true, childList: true, attributes: true, characterData: true });
+    }
+    /* pictures load without changing the page's elements */
+    f?.addEventListener("load", soon, true);
     return () => {
-      cancelAnimationFrame(first);
-      clearInterval(every);
+      cancelAnimationFrame(raf);
+      sized?.disconnect();
+      changed?.disconnect();
+      f?.removeEventListener("load", soon, true);
     };
   }, [aimKey, zoom, shownN]);
 

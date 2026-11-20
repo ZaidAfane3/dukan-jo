@@ -4,6 +4,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
+import { adoptPlatformMedia } from "@/server/media";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,8 @@ export const PUT = staffRoute("settings", async (req: NextRequest, me) => {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
     plainParams([text, me.id]),
   );
+  /* its pictures were sent under whichever merchant account this browser is signed in as: they are the platform's now */
+  await adoptPlatformMedia(await db(), text);
   await audit(req, me.id, "settings.template", { type: "setting", id: "starter_template" }, null, { bytes: text.length, sections: config.sections.length });
   return answer({ result: "ok" });
 });

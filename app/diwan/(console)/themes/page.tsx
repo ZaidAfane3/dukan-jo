@@ -6,6 +6,7 @@ import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, 
 import { ThemesSkeleton } from "@/components/diwan/skeletons";
 import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
 import { ThemePreview } from "@/components/ThemePreview";
+import { latin } from "@/components/digits";
 import { defaultConfig } from "@/components/storefront/config";
 import { designFrom } from "@/components/storefront/storage";
 import { defaultTheme, designTheme, madaTheme, themes, withListing, type ThemeInfo } from "@/components/themes";
@@ -419,11 +420,11 @@ function DetailsForm({ row, code, reload }: { row: ListingRow; code: ThemeInfo |
       <div className="grid grid-cols-2 gap-3">
         <label className="space-y-1 text-sm font-semibold">
           <span>{t("Price (JOD, 0 is free)", "السعر (د.أ، 0 مجاني)")}</span>
-          <input inputMode="decimal" dir="ltr" className={field} value={price} onChange={(e) => setPrice(e.target.value)} />
+          <input inputMode="decimal" dir="ltr" className={field} value={price} onChange={(e) => setPrice(latin(e.target.value))} />
         </label>
         <label className="space-y-1 text-sm font-semibold">
           <span>{t("Place in the store", "الترتيب في المتجر")}</span>
-          <input inputMode="numeric" dir="ltr" className={field} value={sort} onChange={(e) => setSort(e.target.value.replace(/\D/g, ""))} />
+          <input inputMode="numeric" dir="ltr" className={field} value={sort} onChange={(e) => setSort(latin(e.target.value).replace(/\D/g, ""))} />
         </label>
       </div>
       <p className="-mt-2 text-xs text-muted">{t("Smaller places come first; featured themes come before all others.", "الترتيب الأصغر يظهر أولًا، والثيمات المميزة قبل غيرها.")}</p>

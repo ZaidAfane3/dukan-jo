@@ -69,8 +69,13 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
   if (!id) return notFound();
   const q = (sql: string) => pool.query(sql, [id]).then((r) => r.rows);
   /* a part of the history: its newest rows and how many there are, or null when this staff member's role can't see it */
-  const part = async (allowed: boolean, rowsSql: string, countSql: string) =>
-    allowed ? { rows: await q(`${rowsSql} LIMIT ${FEW}`), count: Number((await q(countSql))[0]?.n ?? 0) } : null;
+  const part = async (allowed: boolean, rowsSql: string, countSql: string) => {
+    if (!allowed) return null;
+    const rows = await q(`${rowsSql} LIMIT ${FEW}`);
+    const counted = (await q(countSql))[0];
+    /* total: the sum the count query gives too (payments), so it is not asked for again */
+    return { rows, count: Number(counted?.n ?? 0), ...(counted?.total !== undefined ? { total: counted.total as string } : {}) };
+  };
   const billing = can(staff, "billing");
   const [shop, payments, themes, tickets, documents, reports, deletions, activityRaw] = await Promise.all([
     q(`SELECT s.account_id AS id, s.name, s.slug, s.color, s.phone AS store_phone, s.setup_done, s.published, s.paused, s.ship_mode, s.ship_name, s.pickup, s.store_pays,
@@ -154,22 +159,25 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     );
     if (again[0]) Object.assign(sh0, again[0]);
   }
-  /* the activity lines in words (server/activityDetail.ts: only safe facts leave the server) */
-  const activity = activityRaw && { rows: await describeActivity(pool, activityRaw.rows), count: activityRaw.count };
-  /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
-  const visitors30 = shop[0] ? await shopVisitors30(pool, id) : 0;
+  /* asked together, each on its own (none needs another's answer): */
+  const [activity, visitors30, saved, platform] = await Promise.all([
+    /* the activity lines in words (server/activityDetail.ts: only safe facts leave the server) */
+    activityRaw && describeActivity(pool, activityRaw.rows).then((rows) => ({ rows, count: activityRaw.count })),
+    /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
+    shop[0] ? shopVisitors30(pool, id) : 0,
+    shop[0] ? q(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`) : [],
+    shop[0] ? sellPlatform() : null,
+  ]);
   /* what the store still needs before it can sell (safeOrder readyToSell, the rule the merchant's pages and his saves
      follow): only "pay" / "delivery" leave the server, never his setup */
   let notReady: SellNeed[] = [];
-  if (shop[0]) {
-    const saved = await q(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`);
+  if (shop[0] && platform) {
     let setup = null;
     try {
       setup = saved[0] ? cleanSetup(JSON.parse(saved[0].value)) : null;
     } catch {
       setup = null;
     }
-    const platform = await sellPlatform();
     notReady = readyToSell(setup, platform).missing;
     /* a live store with no delivery choice saved delivers with Dukkan Ship by default while it serves a city (safeOrder
        checkoutShipMode): it is not "without delivery"; its Delivery line says "Dukkan Ship (default, not chosen)" */
@@ -181,12 +189,11 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
   /* a paid theme with no purchase is not shown to its customers: the store shows the free theme (server/themeOwnership.ts,
      the same rule as the public store) */
   const theme = inUse && { ...inUse, shownFree: inUse.how === "not_bought" && (await enforcedPaidThemes(pool)).has(inUse.id) };
-  const paymentsTotal = billing ? ((await q(`SELECT COALESCE(sum(amount), 0)::numeric(14, 3) AS t FROM payments WHERE account_id = $1`))[0]?.t ?? "0") : null;
   return answer({
     result: "ok",
     shop: shop[0] && { ...shopRow, visitors_30: visitors30, not_ready: notReady },
     theme,
-    payments: payments && { ...payments, total: paymentsTotal },
+    payments: payments && { ...payments, total: payments.total ?? "0" },
     themes,
     tickets,
     documents: documents && {

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { dateLocale } from "@/components/content";
-import { readPhoto } from "@/components/designer/image";
+import { pickPicture } from "@/components/designer/image";
+import { imageRules, uploadProblemFor, type FileKind } from "@/components/safe";
 import { usePrefs } from "@/components/Prefs";
 import { arCount } from "@/components/undo";
 import { ContactButton } from "@/components/diwan/Contact";
@@ -13,6 +14,9 @@ import { area, Badge, Btn, card, field, Loaded, send, useApi, useFmt, useT } fro
 import { ChatSkeleton } from "@/components/diwan/skeletons";
 import { ticketPicture } from "@/components/diwan/TicketBits";
 import { CATEGORY, KIND, PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER, systemLine, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
+
+/* what a ticket's picture may be on the server (server/tickets.ts checkPictures): never a GIF, which stays a GIF */
+const TICKET_PICTURE_RULE = { ...imageRules.photo, kinds: ["png", "jpeg", "webp"] as FileKind[] };
 
 /* One ticket (support, bug or idea) as a conversation between Dukkan's team and the merchant: his messages on one side,
    the team's replies on the other (orange), internal notes in dashed amber (never sent to him), status lines in the
@@ -422,6 +426,10 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
   const [mode, setMode] = useState<"reply" | "note">("reply");
   const [text, setText] = useState("");
   const [pics, setPics] = useState<string[]>([]);
+  /* pictures still being read: Send waits for them, so a reply never goes without them */
+  const [reading, setReading] = useState(0);
+  /* why a picked picture was not added (too many, too big, a kind the server refuses): said, never dropped quietly */
+  const [picNote, setPicNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -437,14 +445,25 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
 
   const add = async (files: FileList | null) => {
     if (!files) return;
-    const list = Array.from(files).slice(0, Math.max(0, 5 - pics.length));
-    const read = (await Promise.all(list.map((f) => readPhoto(f, 1600)))).filter((u): u is string => !!u && /^data:image\/(jpeg|png|webp);/.test(u));
+    const all = Array.from(files);
+    const list = all.slice(0, Math.max(0, 5 - pics.length - reading));
+    setPicNote(all.length > list.length ? t("A message has up to 5 pictures: the rest were not added.", "للرسالة 5 صور على الأكثر: لم تُضف البقية.") : "");
+    if (!list.length) return;
+    setReading((n) => n + list.length);
+    const picked = await Promise.all(list.map((f) => pickPicture(f, TICKET_PICTURE_RULE, 1600, "image/jpeg", 0.78)));
+    setReading((n) => Math.max(0, n - list.length));
+    const read: string[] = [];
+    for (const p of picked) {
+      if ("url" in p && /^data:image\/(jpeg|png|webp);/.test(p.url)) read.push(p.url);
+      else setPicNote(uploadProblemFor("problem" in p ? p.problem : "type", TICKET_PICTURE_RULE, t("en", "ar") as "en" | "ar"));
+    }
     setPics((p) => [...p, ...read].slice(0, 5));
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim() && !pics.length) return;
+    if (reading > 0) return setErr(t("Pictures are still loading. Send again in a moment.", "ما زالت الصور قيد التحميل. أرسل مرة أخرى بعد لحظة."));
     setBusy(true);
     setErr("");
     let r: Awaited<ReturnType<typeof send>> = { ok: false, status: 0, data: null };
@@ -466,6 +485,7 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
       );
     setText("");
     setPics([]);
+    setPicNote("");
     onSent();
   };
 
@@ -557,9 +577,10 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
             ))}
           </div>
         )}
+        {picNote && <p className="text-sm text-amber-700 dark:text-amber-300">{picNote}</p>}
         {err && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{err}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          <Btn kind="ghost" type="button" className="h-9 px-3" disabled={pics.length >= 5} onClick={() => fileRef.current?.click()}>
+          <Btn kind="ghost" type="button" className="h-9 px-3" disabled={pics.length + reading >= 5} onClick={() => fileRef.current?.click()}>
             {t("Add a picture", "إضافة صورة")} <span dir="ltr" className="text-muted">{pics.length}/5</span>
           </Btn>
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={(e) => { void add(e.target.files); e.target.value = ""; }} />

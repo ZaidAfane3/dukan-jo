@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { merchantCall, onServer } from "./merchantApi";
 import type { VisitKind, VisitStats } from "./visitStats";
 
@@ -14,11 +14,18 @@ export function useStoreVisits(): { stats: VisitStats | null; on: boolean; loade
   const [stats, setStats] = useState<VisitStats | null>(null);
   const [on, setOn] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  /* one read at a time: the minute timer and coming back to the tab never pile reads up behind a slow server */
+  const busy = useRef(false);
   const reload = useCallback(async () => {
-    if (!onServer()) return;
-    const r = await merchantCall("/api/visits", "GET");
-    if (r?.status === 200 && r.data.result === "ok" && r.data.stats) setStats(r.data.stats as VisitStats);
-    setLoaded(true);
+    if (!onServer() || busy.current) return;
+    busy.current = true;
+    try {
+      const r = await merchantCall("/api/visits", "GET");
+      if (r?.status === 200 && r.data.result === "ok" && r.data.stats) setStats(r.data.stats as VisitStats);
+    } finally {
+      busy.current = false;
+      setLoaded(true);
+    }
   }, []);
   useEffect(() => {
     if (!onServer()) return;

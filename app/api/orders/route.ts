@@ -1,6 +1,6 @@
 import { answer } from "@/server/auth";
 import { db } from "@/server/db";
-import { findStoreOrders, listStoreOrders, onlineRev, storeOrderByNumber, storeOrderCounts } from "@/server/storeOrders";
+import { allStoreOrders, findStoreOrders, listStoreOrders, onlineRev, storeOrderByNumber, storeOrderCounts } from "@/server/storeOrders";
 import { merchantRoute } from "@/server/tickets";
 
 export const dynamic = "force-dynamic";
@@ -10,11 +10,15 @@ export const dynamic = "force-dynamic";
    browser, a page at a time:
      GET /api/orders                the newest page: { orders, next, total, rev }
      GET /api/orders?before=<id>    the page of orders older than that one (its id from "next"), until "next" is null
+     GET /api/orders?all=1          every order at once, newest first (up to 10,000): { orders } (the home page's numbers)
      GET /api/orders?number=<n>     one order by its number (a link to an order not loaded yet): { orders: [it] or [] }
      GET /api/orders?q=<text>&status=<s>   the newest 100 that match a search and/or are in that status, among all of
                                     them (the page has not loaded every order): { orders }
    `total`: how many store orders the shop has; `counts`: how many in each status (newest page only); `rev`: the newest store order, so his browser can fetch the stock those
    orders took (components/serverSync.ts). */
+/* the most orders ?all=1 gives (100 pages of ORDERS_PAGE) */
+const ALL_MAX = 10_000;
+
 export const GET = merchantRoute(async (req, me) => {
   const sp = req.nextUrl.searchParams;
   const number = sp.get("number");
@@ -25,6 +29,11 @@ export const GET = merchantRoute(async (req, me) => {
   const q = sp.get("q");
   const status = sp.get("status");
   if (q !== null || status !== null) return answer({ result: "ok", orders: await findStoreOrders(me.id, q ?? "", status) });
+  if (sp.get("all") === "1") {
+    /* every store order at once (the home page and Reports count them all, components/useStoreOrders.ts), in one query.
+       Past ALL_MAX the oldest are left out, as the browser did. */
+    return answer({ result: "ok", orders: await allStoreOrders(me.id, ALL_MAX), next: null });
+  }
   const before = sp.get("before");
   const page = await listStoreOrders(me.id, before);
   return answer({ result: "ok", ...page, ...(before ? {} : { counts: await storeOrderCounts(me.id) }), rev: await onlineRev(await db(), me.id) });

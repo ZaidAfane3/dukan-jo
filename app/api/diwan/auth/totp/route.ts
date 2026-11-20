@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { STAFF_2FA_REQUIRED, staffPasswordProblem } from "@/components/diwan/staffRules";
-import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, signInTries, tooMany } from "@/server/auth";
+import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, signInTries, tooMany, tooManyFor } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, currentStaff, useTotpCode, verifyStaffSession } from "@/server/staff";
 
@@ -16,7 +16,7 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!s) return answer({ result: "signed-out" }, 401);
   if (s.verified) return answer({ result: "ok" });
   /* per staff member and per visitor: a few tries, then wait */
-  if (tooMany(req, `diwan-totp-${s.id}`, 6, 15)) return answer({ result: "slow-down" }, 429);
+  if (tooMany(req, "diwan-totp", 20, 15) || tooManyFor(`diwan-totp-tries:${s.id}`, 12, 15)) return answer({ result: "slow-down" }, 429);
   const body = await readJson(req, 2_000);
   const code = typeof body?.code === "string" ? body.code : "";
 

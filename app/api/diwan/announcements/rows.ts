@@ -1,5 +1,5 @@
 import type { QueryResultRow } from "pg";
-import { AUDIENCE_HAS } from "@/server/announce";
+import { AUDIENCE_REACH } from "@/server/announce";
 import { db } from "@/server/db";
 
 /* One announcement as Diwan's list shows it, for the list (route.ts) and for the answer to a save (route.ts, [id]/route.ts),
@@ -19,7 +19,7 @@ export const announcementRowsSql = (where = "") =>
                               ORDER BY l.at DESC LIMIT 1)) AS ended_by_name,
           (SELECT count(*)::int FROM notification_reads r JOIN notifications n ON n.id = r.notification_id
             WHERE n.announcement_id = a.id AND n.account_id IS NULL) AS reads,
-          (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id")}) AS reach
+          ${AUDIENCE_REACH()} AS reach
      FROM announcements a LEFT JOIN staff st ON st.id = a.created_by LEFT JOIN staff eb ON eb.id = a.ended_by
     ${where}`;
 

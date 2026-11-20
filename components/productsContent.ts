@@ -56,6 +56,8 @@ type Copy = {
   images: string;
   imagesHint: string;
   imagesBad: string;
+  /* more photos were picked than fit (6 in all) */
+  imagesMax: string;
   focusTitle: string;
   focusNote: string;
   focusCenter: string;
@@ -191,6 +193,7 @@ export const productsCopy: Record<Lang, Copy> = {
     images: "Product images",
     imagesHint: "PNG, JPG or WebP, up to 8 MB each. They are shrunk and saved with the product, and your store shows the first one.",
     imagesBad: "Some files could not be added. Use PNG, JPG or WebP pictures up to 8 MB.",
+    imagesMax: "A product has up to 6 photos: only the first ones that fit were added.",
     focusTitle: "What stays visible",
     focusNote: "Your store crops the picture to fit its shape (tall, square or wide). Tap the part of the main picture that must always show, like the cap or the label. The three small pictures show how it will look.",
     focusCenter: "Back to the center",
@@ -321,6 +324,7 @@ export const productsCopy: Record<Lang, Copy> = {
     images: "صور المنتج",
     imagesHint: "PNG أو JPG أو WebP، حتى 8 ميغابايت للصورة. تُصغَّر وتُحفظ مع المنتج، ويعرض متجرك الصورة الأولى.",
     imagesBad: "تعذّرت إضافة بعض الملفات. استخدم صور PNG أو JPG أو WebP حتى 8 ميغابايت.",
+    imagesMax: "للمنتج 6 صور على الأكثر: أُضيفت الصور الأولى التي تتسع فقط.",
     focusTitle: "الجزء الظاهر من الصورة",
     focusNote: "يقصّ متجرك الصورة لتناسب شكلها (طولية أو مربعة أو عريضة). اضغط على الجزء الذي يجب أن يظهر دائمًا من الصورة الرئيسية، مثل الغطاء أو الملصق. تظهر الصور الصغيرة الثلاث شكلها النهائي.",
     focusCenter: "العودة إلى المنتصف",

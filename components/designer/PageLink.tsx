@@ -6,6 +6,7 @@ import { editLocked } from "../demoSandbox";
 import { picFill } from "../storefront/parts";
 import { load as loadPages, pageTemplates, savePages } from "../InfoPages";
 import { input } from "./controls";
+import { safeDesignLink } from "../safeDesign";
 
 /* Where a button can lead: a part of this page, a page of the store (one he wrote, or one that starts from a ready template), or a web address.
    A link is stored as plain text: "" (nowhere), the id of a part of the page, "page:5" (a page of the store) or a web address. */
@@ -35,6 +36,7 @@ const words = {
     demo: "Pages cannot be made in the demo",
     full: "The browser has no room to save the page",
     open: "Open this page to design it",
+    webBad: "This link can't be used, so the store won't keep it. Write a web address (shop.com), an email or a phone number.",
   },
   ar: {
     nowhere: "لا شيء",
@@ -54,6 +56,7 @@ const words = {
     demo: "لا يمكن إنشاء صفحات في النسخة التجريبية",
     full: "لا توجد مساحة في المتصفح لحفظ الصفحة",
     open: "افتح هذه الصفحة لتصميمها",
+    webBad: "لا يمكن استخدام هذا الرابط، لذلك لن يحفظه المتجر. اكتب عنوان موقع (shop.com) أو بريدًا إلكترونيًا أو رقم هاتف.",
   },
 };
 
@@ -79,6 +82,7 @@ export function LinkPicker({ lang, value, onChange, label, web = true }: { lang:
   const isSection = sections.some((s) => s.id === value);
   const [webMode, setWebMode] = useState(false);
   const kind = value === "" && !webMode ? "" : isPage ? value : isSection ? `section:${value}` : "web";
+  const webBad = kind === "web" && !!value.trim() && !safeDesignLink(value);
 
   return (
     <div className="space-y-2">
@@ -113,7 +117,9 @@ export function LinkPicker({ lang, value, onChange, label, web = true }: { lang:
       {isPage && openPage && (
         <button type="button" onClick={() => openPage(Number(value.slice(5)))} className="text-xs font-semibold text-primary hover:underline">{w.open}</button>
       )}
-      {kind === "web" && <input dir="ltr" value={value} onChange={(e) => onChange(e.target.value)} placeholder={w.webPh} aria-label={w.web} maxLength={160} className={`${input} h-10 text-start`} />}
+      {kind === "web" && <input dir="ltr" value={value} onChange={(e) => onChange(e.target.value)} placeholder={w.webPh} aria-label={w.web} aria-invalid={webBad} maxLength={160} className={`${input} h-10 text-start`} />}
+      {/* an address the store would empty when the design is saved (javascript:, ftp:, a user name and password, …): he is told, not left with a button that leads nowhere */}
+      {webBad && <p role="alert" className="text-xs font-semibold text-rose-600">{w.webBad}</p>}
       {making && (
         <NewPageDialog
           lang={lang}

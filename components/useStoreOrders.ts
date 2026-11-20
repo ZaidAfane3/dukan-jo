@@ -5,6 +5,7 @@ import { demoActive } from "./demoSandbox";
 import { serverMode } from "./notifications";
 import { cleanOrder, cleanProduct, parseList, type Product } from "./records";
 import type { CountedOrder } from "./storeNumbers";
+import { timeoutSignal } from "./timeoutSignal";
 
 /* The orders and products the merchant's numbers are worked out from (the home page and Reports, storeNumbers.ts): the
    orders kept in his browser ("seen-orders": added by hand, or from his own store preview) and, for a signed-in store,
@@ -37,23 +38,14 @@ export function serverRows(list: unknown): StoreOrderRow[] {
   return out;
 }
 
-/* The numbers need every store order, a page of 100 at a time; past this many pages (10,000 orders) the oldest are left
-   out rather than holding the page up */
-const MAX_PAGES = 100;
-
-/** Every store order of the signed-in merchant, newest first. Throws when the server can't be reached or says no. */
+/** Every store order of the signed-in merchant, newest first (up to 10,000: the oldest past that are left out rather than
+    holding the page up), in one request (GET /api/orders?all=1). Throws when the server can't be reached, says no, or
+    takes longer than 30 s. */
 async function fetchStoreOrders(signal: AbortSignal): Promise<StoreOrderRow[]> {
-  const all: StoreOrderRow[] = [];
-  let url = "/api/orders";
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const r = await fetch(url, { credentials: "same-origin", cache: "no-store", signal });
-    if (!r.ok) throw new Error(`orders ${r.status}`);
-    const j = (await r.json()) as { orders?: unknown; next?: unknown };
-    all.push(...serverRows(j.orders));
-    if (typeof j.next !== "string") break;
-    url = `/api/orders?before=${encodeURIComponent(j.next)}`;
-  }
-  return all;
+  const r = await fetch("/api/orders?all=1", { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(30_000, signal) });
+  if (!r.ok) throw new Error(`orders ${r.status}`);
+  const j = (await r.json()) as { orders?: unknown };
+  return serverRows(j.orders);
 }
 
 function readLocal(): { orders: CountedOrder[]; products: Product[] } {

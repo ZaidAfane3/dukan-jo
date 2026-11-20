@@ -80,6 +80,20 @@ const tx = (st?: TextStyle): React.CSSProperties =>
 /* A link a visitor may follow: "shop.com" becomes "https://shop.com" */
 const linkHref = (l: string) => (/^https?:\/\//i.test(l.trim()) ? l.trim() : `https://${l.trim()}`);
 
+/* Where a link the merchant wrote leads outside this page, the way the store's menu and footer read it (resolveLink):
+   mailto:, tel:, sms: and whatsapp: stay as written (in the same tab), a bare email becomes mailto: and a phone number
+   ("+962 79 …", "079…") tel:, and a web address gets https:// when it has none (in a new tab). "never" for any other
+   kind of link (javascript:, data:, …), which leads nowhere; null when it is the name of a part of this page. */
+function outsideLink(raw: string): { href: string; blank: boolean } | "never" | null {
+  const l = (raw ?? "").trim();
+  if (/^(?:mailto|tel|sms|whatsapp):[^\s<>"'`]+$/i.test(l)) return { href: l, blank: false };
+  if (/^[^\s@:/]+@[^\s@:/]+\.[^\s@:/]+$/.test(l)) return { href: `mailto:${l}`, blank: false };
+  if (/^\+?[\d\s\-().]+$/.test(l) && l.replace(/\D/g, "").length >= 7) return { href: `tel:${l.startsWith("+") ? "+" : ""}${l.replace(/\D/g, "")}`, blank: false };
+  if (/^[a-z][a-z0-9+.-]*:/i.test(l) && !/^https?:/i.test(l) && !/^[a-z0-9.-]+:\d+(\/|$)/i.test(l)) return "never";
+  if (/^https?:\/\//i.test(l) || l.includes(".")) return /\s/.test(l) ? "never" : { href: linkHref(l), blank: true };
+  return null;
+}
+
 /* The ways a merchant writes the dinar: in Latin letters (JOD, JD, dinars, Jordanian dinar) and in Arabic (د.أ, دينار, دنانير, دينار أردني, دينارًا).
    Both check their neighbours by hand (\b knows no Arabic letters, and "23JOD" has no word edge); the letter before is kept, with a space after a digit. */
 const latinDinar = /(^|[^A-Za-z])(?:Jordanian\s+)?(?:JOD|JD|dinars?)(?![A-Za-z])/gi;
@@ -118,9 +132,11 @@ const pageOf = (l: string) => {
 export function linkProps(l: string, ctx: Ctx) {
   const id = pageOf(l);
   if (id !== null) return { href: "#", onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.openPage?.(id); } };
-  /* The name of a part of this page: it scrolls there. Anything else is a web address. */
-  if (!/^https?:\/\//i.test(l.trim()) && !l.includes(".")) return { href: `#${l.trim()}`, onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.showSection?.(l.trim()); } };
-  return { href: linkHref(l), target: "_blank", rel: "noreferrer" };
+  /* An email, a phone number or a web address opens it; the name of a part of this page scrolls there */
+  const out = outsideLink(l);
+  if (out === "never") return { href: "#", onClick: (e: React.MouseEvent) => e.preventDefault() };
+  if (out) return out.blank ? { href: out.href, target: "_blank", rel: "noreferrer" } : { href: out.href };
+  return { href: `#${l.trim()}`, onClick: (e: React.MouseEvent) => { e.preventDefault(); ctx.showSection?.(l.trim()); } };
 }
 
 /* In the designer a button that leads to a page of the store opens that page with Ctrl+click (a plain click selects it) */
@@ -2746,8 +2762,10 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
     if (!link.trim()) { e.preventDefault(); return; }
     const pg = pageOf(link);
     if (pg !== null) { e.preventDefault(); ctx.openPage?.(pg); return; }
-    if (/^https?:\/\//i.test(link.trim()) || link.includes(".")) return;
+    const out = outsideLink(link);
+    if (out && out !== "never") return;
     e.preventDefault();
+    if (out === "never") return;
     (e.currentTarget as HTMLElement).closest(".store-preview")?.querySelector(`[data-sf="${link.trim()}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   return (
@@ -2756,8 +2774,14 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
         {items.map((x, i) => (
           <a
             key={i}
-            href={x.link.trim() ? (/^https?:\/\//i.test(x.link.trim()) || x.link.includes(".") ? linkHref(x.link) : `#${x.link.trim()}`) : "#"}
-            target={x.link.includes(".") && !ctx.design ? "_blank" : undefined}
+            href={(() => {
+              const out = x.link.trim() ? outsideLink(x.link) : "never";
+              return out === "never" ? "#" : out ? out.href : `#${x.link.trim()}`;
+            })()}
+            target={(() => {
+              const out = x.link.trim() ? outsideLink(x.link) : null;
+              return out && out !== "never" && out.blank && !ctx.design ? "_blank" : undefined;
+            })()}
             rel="noreferrer"
             onClick={(e) => go(e, x.link)}
             ref={(el) => { refs.current[i] = el; }}
@@ -2924,7 +2948,9 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
               if (s.after === "link" && s.link?.trim()) {
                 const lp = linkProps(s.link, ctx);
                 if (lp.onClick) lp.onClick({ preventDefault() {} } as React.MouseEvent<HTMLAnchorElement>);
-                else if (lp.href) window.open(lp.href, "_blank", "noreferrer");
+                else if ("target" in lp) window.open(lp.href, "_blank", "noreferrer");
+                /* an email or a phone number opens the visitor's mail or phone app, in this tab */
+                else if (lp.href) window.location.href = lp.href;
               }
             }}
           >

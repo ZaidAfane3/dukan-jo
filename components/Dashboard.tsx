@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { brandName, content, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
-import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./Reports";
+import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./reportBits";
 import { demoActive } from "./demoSandbox";
 import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";

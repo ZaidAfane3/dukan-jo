@@ -322,7 +322,7 @@ export function Delivery() {
                   ref={fileInput}
                   type="file"
                   multiple
-                  accept="image/*,application/pdf"
+                  accept="image/png,image/jpeg,image/webp,application/pdf"
                   onChange={(e) => {
                     const picked = Array.from(e.target.files ?? []);
                     e.target.value = "";

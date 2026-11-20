@@ -8,6 +8,7 @@ import { askConfirm, Dialog } from "@/components/diwan/dialogs";
 import { PayLogo } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { SettingsSkeleton } from "@/components/diwan/skeletons";
+import MediaTakedown from "@/components/diwan/MediaTakedown";
 
 /* Platform settings (owners): the ways to pay, how merchants reach Dukkan support, the legal pages new stores start with (locked: see LegalTemplates) and the
    starter template (edited in the store designer). Each setting has its own form and its own Save, checked again by the
@@ -46,6 +47,8 @@ export default function SettingsPage() {
             <div className="xl:col-span-2">
               <LegalTemplates e={d.settings.store_legal_templates} legal={d.legal} />
             </div>
+            {/* one store file taken down for good (an ID card uploaded by mistake): components/diwan/MediaTakedown.tsx */}
+            <MediaTakedown />
           </div>
         )}
       </Loaded>

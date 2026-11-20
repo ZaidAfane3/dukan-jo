@@ -44,6 +44,8 @@ export const DIWAN_SCHEMA = `
      once (server/staff.ts useTotpCode) */
   ALTER TABLE staff ADD COLUMN IF NOT EXISTS totp_last_step BIGINT;
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_last_step BIGINT;
+  /* the SHA-256 of each unused recovery code (server/recovery.ts): typed instead of the 6-digit code when the phone is lost */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_recovery TEXT[] NOT NULL DEFAULT '{}';
 
   CREATE TABLE IF NOT EXISTS audit_log (
     id          BIGSERIAL PRIMARY KEY,
@@ -58,6 +60,8 @@ export const DIWAN_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS audit_log_target ON audit_log (target_type, target_id, at DESC);
   CREATE INDEX IF NOT EXISTS audit_log_staff ON audit_log (staff_id, at DESC);
+  /* the activity page's list of actions to filter by (one step through this index per action, not the whole log) */
+  CREATE INDEX IF NOT EXISTS audit_log_action ON audit_log (action);
   CREATE OR REPLACE FUNCTION audit_log_frozen() RETURNS trigger AS $f$ BEGIN RAISE EXCEPTION 'audit_log is append-only'; END $f$ LANGUAGE plpgsql;
   DROP TRIGGER IF EXISTS audit_log_frozen ON audit_log;
   CREATE TRIGGER audit_log_frozen BEFORE UPDATE OR DELETE ON audit_log FOR EACH ROW EXECUTE FUNCTION audit_log_frozen();
@@ -92,6 +96,9 @@ export const DIWAN_SCHEMA = `
   );
   /* a store link belongs to one shop only */
   CREATE UNIQUE INDEX IF NOT EXISTS shops_slug ON shops (lower(slug)) WHERE slug IS NOT NULL AND slug <> '';
+  /* finding a store by its link (every store page, visit, coupon and order asks lower(slug) = $1): the unique index above
+     only covers non-empty links, so Postgres can't use it for a lookup by a parameter and read the whole table */
+  CREATE INDEX IF NOT EXISTS shops_slug_find ON shops (lower(slug));
 
   /* ---------- plans, subscriptions, payments ----------
      The plans and subscriptions tables are unused since 2026-11-16: Dukkan has no plans and no free trial, so nothing
@@ -198,6 +205,7 @@ export const DIWAN_SCHEMA = `
   );
   /* a ticket's pictures are found by their ticket (the chat and the Bugs and ideas board), without reading the table */
   CREATE INDEX IF NOT EXISTS ticket_pictures_ticket ON ticket_pictures (ticket_id, id);
+  CREATE INDEX IF NOT EXISTS ticket_pictures_message ON ticket_pictures (message_id) WHERE message_id IS NOT NULL;
 
   /* ---------- deleted orders: the number and the reason only, never the order ---------- */
   CREATE TABLE IF NOT EXISTS order_deletions (
@@ -271,6 +279,8 @@ export const DIWAN_SCHEMA = `
     new_visit  BOOLEAN NOT NULL
   );
   CREATE INDEX IF NOT EXISTS store_visits_shop_at ON store_visits (account_id, at);
+  /* each saved view asks whether this visitor opened anything in the last 30 minutes (server/storeVisits.ts) */
+  CREATE INDEX IF NOT EXISTS store_visits_visitor ON store_visits (account_id, visitor, at);
   CREATE TABLE IF NOT EXISTS store_visit_days (
     account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
     day        DATE NOT NULL,
@@ -314,6 +324,7 @@ export const DIWAN_SCHEMA = `
   );
   -- the way it was paid (card or cliq), for the payment numbers in Diwan; purchases from before have none
   ALTER TABLE theme_purchases ADD COLUMN IF NOT EXISTS method TEXT;
+  CREATE INDEX IF NOT EXISTS theme_purchases_theme ON theme_purchases (theme_id);
 
   /* ---------- papers staff check (courier proof, commercial registration) ---------- */
   CREATE TABLE IF NOT EXISTS documents (
@@ -408,6 +419,10 @@ export const DIWAN_SCHEMA = `
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS notifications_account ON notifications (account_id, created_at DESC);
+  /* an announcement's bell line, and its reads, are found by the announcement (Diwan's lists count them per row) */
+  CREATE INDEX IF NOT EXISTS notifications_announcement ON notifications (announcement_id) WHERE announcement_id IS NOT NULL;
+  /* "has the merchant an unread reply on this ticket" (the tickets list asks once per ticket) */
+  CREATE INDEX IF NOT EXISTS notifications_account_kind ON notifications (account_id, kind);
   CREATE TABLE IF NOT EXISTS notification_reads (
     notification_id BIGINT NOT NULL REFERENCES notifications (id) ON DELETE CASCADE,
     account_id      BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -503,6 +518,8 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS replaced_at TIMESTAMPTZ;
   /* agent B: Diwan's shop list sorts and filters on these */
   CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at DESC);
+  /* "new stores" audiences count the accounts made since an announcement, pop-up or page went out (server/announce.ts) */
+  CREATE INDEX IF NOT EXISTS accounts_created ON accounts (created_at);
   CREATE INDEX IF NOT EXISTS subscriptions_account ON subscriptions (account_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS impersonations_account ON impersonations (account_id, started_at DESC);
 
@@ -781,4 +798,25 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
   ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
   ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+
+  /* ---------- store files: the platform's own, the way their bytes are kept, and files taken down ----------
+     A file with no account (account_id NULL) is the platform's: a picture of a theme store design or of the starter
+     design (server/media.ts adoptPlatformMedia). Staff upload those while signed in as some merchant, so the ones saved
+     before this change are handed to the platform here (every start: it only moves what is still under an account).
+     Bytes are kept uncompressed (STORAGE EXTERNAL; pictures and videos are already compressed), so a piece of a file
+     (a video's Range, a piece of a stream) is read without reading the whole file first. Applies to files kept from
+     now on. media_blocked: the bytes of files Diwan took down, which can't be kept again. */
+  ALTER TABLE media ALTER COLUMN account_id DROP NOT NULL;
+  ALTER TABLE media ALTER COLUMN data SET STORAGE EXTERNAL;
+  UPDATE media SET account_id = NULL
+   WHERE account_id IS NOT NULL AND id IN (
+     SELECT (regexp_matches(x.v, '/media/([A-Za-z0-9_-]{24})', 'g'))[1]
+       FROM (SELECT design::text AS v FROM catalog_themes WHERE design::text LIKE '%/media/%'
+             UNION ALL SELECT value::text FROM platform_settings WHERE value::text LIKE '%/media/%') x);
+  CREATE TABLE IF NOT EXISTS media_blocked (
+    sha256     TEXT PRIMARY KEY,
+    media_id   TEXT NOT NULL,
+    staff_id   BIGINT REFERENCES staff (id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
 `;

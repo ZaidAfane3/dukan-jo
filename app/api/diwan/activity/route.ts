@@ -60,7 +60,14 @@ export const GET = staffRoute("audit.read", async (req: NextRequest) => {
   /* the choices of the filters, from what the log holds */
   const [people, actions, lines, shopRow] = await Promise.all([
     pool.query(`SELECT id, name, active FROM staff ORDER BY lower(name)`),
-    pool.query(`SELECT DISTINCT a.action FROM audit_log a WHERE ${SHOWN_SQL("a")} ORDER BY a.action LIMIT 300`),
+    /* the actions the log holds, one step through its action index per action (a DISTINCT would read the whole log) */
+    pool.query(
+      `WITH RECURSIVE t AS (
+         (SELECT action FROM audit_log ORDER BY action LIMIT 1)
+         UNION ALL
+         SELECT (SELECT l.action FROM audit_log l WHERE l.action > t.action ORDER BY l.action LIMIT 1) FROM t WHERE t.action IS NOT NULL)
+       SELECT a.action FROM t a WHERE a.action IS NOT NULL AND ${SHOWN_SQL("a")} ORDER BY a.action LIMIT 300`,
+    ),
     /* each line in words: what changed, from what to what, and the store it is about (server/activityDetail.ts) */
     describeActivity(pool, rows.slice(0, PAGE)),
     ID.test(shop) ? pool.query(`SELECT COALESCE(NULLIF(s.name, ''), a.name) AS name FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = $1`, [shop]) : null,

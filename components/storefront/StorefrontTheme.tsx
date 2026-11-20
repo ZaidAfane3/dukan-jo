@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePrefs } from "../Prefs";
 import { defaultConfig, footerColumns, heroTitleFamily, radiusValue, shopTarget, type LogoConfig, type StorefrontConfig } from "./config";
@@ -15,10 +16,13 @@ import { categoriesOf, sampleProducts, storeDataReady, useStoreData, type StoreP
 import { cartQty, ORDER_LIMITS, productId, toFils } from "../safeOrder";
 import { CartPanel, type LostLine } from "./Cart";
 import { footerColors, footerDim, footerNameSize, legibleOn, readsOn } from "./footerColors";
-import { shownMobile } from "../phone";
+import { jordanNumber, shownMobile } from "../phone";
+import { latin } from "../digits";
 import { hasArabic } from "../safe";
 import { useSpots } from "./spotSignal";
-import { ReportStore } from "./ReportStore";
+/* the report form loads after the page, only in the browser: a visitor sees the store first (the cart stays: the
+   sections use it too) */
+const ReportStore = dynamic(() => import("./ReportStore").then((m) => m.ReportStore), { ssr: false });
 import { useVisitorStore } from "./visitorStore";
 import { sendVisit } from "../storeVisits";
 import { usePageTitle } from "../pageTitle";
@@ -1426,11 +1430,15 @@ function resolveLink(raw: string, opts: { pages?: number[]; sections?: string[];
   return { kind: "url", href: `https://${l}`, blank: true };
 }
 
-/* The contact lines as links: WhatsApp and Telegram open the chat (a local 07… number gets Jordan's 962) */
-const digitsOf = (s: string) => s.replace(/\D/g, "");
+/* The contact lines as links: WhatsApp and Telegram open the chat (a local 07… number gets Jordan's 962).
+   A Jordan number is read the way the designer accepts it (jordanNumber): "+962 079…", "00962 79…", "٠٧٩…" all give
+   962 and the number without its 0, never "9620791…", which WhatsApp and phones don't know. */
+const digitsOf = (s: string) => latin(s).replace(/\D/g, "");
 const whatsappHref = (s: string) => {
   const v = s.trim();
   if (/^(https?:\/\/)?(wa\.me|api\.whatsapp\.com|chat\.whatsapp\.com)\//i.test(v)) return /^https?:/i.test(v) ? v : `https://${v}`;
+  const jo = jordanNumber(v);
+  if (jo) return `https://wa.me/962${jo}`;
   let d = digitsOf(v);
   if (d.startsWith("00")) d = d.slice(2);
   else if (d.startsWith("0")) d = `962${d.slice(1)}`;
@@ -1439,7 +1447,7 @@ const whatsappHref = (s: string) => {
 const telegramHref = (s: string) => {
   const v = s.trim();
   if (/^(https?:\/\/)?(t|telegram)\.me\//i.test(v)) return /^https?:/i.test(v) ? v : `https://${v}`;
-  if (/^\+?[\d\s-]+$/.test(v) && digitsOf(v).length >= 7) return `https://t.me/+${digitsOf(v)}`;
+  if (/^\+?[\d\s-]+$/.test(latin(v)) && digitsOf(v).length >= 7) return `https://t.me/+${jordanNumber(v) ? `962${jordanNumber(v)}` : digitsOf(v)}`;
   const h = v.replace(/^@/, "");
   return /^\w{3,}$/.test(h) ? `https://t.me/${h}` : "";
 };
@@ -1502,7 +1510,8 @@ function Footer({ config, data, compact, lang, design, logo, namePlace, onPage, 
     return to?.kind === "url" ? [{ key, href: to.href, blank: to.blank, icon: icons.social[i] }] : [];
   });
   type Line = { key: string; icon: React.ReactNode; text: string; ltr: boolean; href: string; blank?: boolean };
-  const tel = resolveLink(data.phone);
+  /* a Jordan number calls +962 and the number without its 0 (a "+962 079…" would call nowhere) */
+  const tel = jordanNumber(data.phone) ? ({ kind: "url", href: `tel:+962${jordanNumber(data.phone)}`, blank: false } as const) : resolveLink(data.phone);
   const mail = resolveLink(f.email);
   /* the design's own WhatsApp, or the one given in setup */
   const whatsapp = f.whatsapp?.trim() || data.whatsapp;

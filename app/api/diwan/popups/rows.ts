@@ -1,5 +1,5 @@
 import type { QueryResultRow } from "pg";
-import { AUDIENCE_HAS } from "@/server/announce";
+import { AUDIENCE_REACH } from "@/server/announce";
 import { db } from "@/server/db";
 
 /* One pop-up as Diwan's list shows it, for the list (route.ts) and for the answer to a save (route.ts, [id]/route.ts), so
@@ -13,14 +13,16 @@ const POPUP_STOPPED = `CASE WHEN a.status = 'ended' THEN COALESCE(a.ended_at, a.
 
 /** The list's query, for the pop-ups `where` picks (none: all of them); the caller adds its order and limit */
 export const popupRowsSql = (where = "") =>
-  `SELECT a.*, st.name AS by, eb.name AS ended_by_name, ${POPUP_STOPPED} AS stopped_at,
+  /* only the columns the list sends: not the old card columns (image may hold a picture's data, the bodies are in slots) */
+  `SELECT a.id, a.template, a.slots, a.placement, a.title_en, a.title_ar, a.status, a.audience, a.priority, a.starts_at,
+          a.ends_at, a.created_at, a.updated_at, st.name AS by, eb.name AS ended_by_name, ${POPUP_STOPPED} AS stopped_at,
           CASE WHEN a.status <> 'live' THEN a.status
                WHEN a.starts_at > now() THEN 'scheduled'
                WHEN a.ends_at IS NOT NULL AND a.ends_at <= now() THEN 'expired'
                ELSE 'showing' END AS shown,
           (SELECT count(*)::int FROM popup_views v WHERE v.popup_id = a.id) AS seen,
           (SELECT count(*)::int FROM popup_views v WHERE v.popup_id = a.id AND v.clicked_at IS NOT NULL) AS clicked,
-          (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id")}) AS reach
+          ${AUDIENCE_REACH()} AS reach
      FROM popups a LEFT JOIN staff st ON st.id = a.created_by LEFT JOIN staff eb ON eb.id = a.ended_by
     ${where}`;
 

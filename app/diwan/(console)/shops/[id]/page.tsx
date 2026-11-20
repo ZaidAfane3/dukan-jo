@@ -13,6 +13,7 @@ import { OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwor
 import { REASON_WORDS, type ReportReason } from "@/components/storeReports";
 import type { Bi } from "@/components/storefront/config";
 import { findTheme } from "@/components/themes";
+import { latin } from "@/components/digits";
 
 type Shop = {
   id: string;
@@ -750,7 +751,7 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block text-sm">
             <span className="mb-1 block font-medium">{t("Amount (JOD) *", "المبلغ (د.أ) *")}</span>
-            <input inputMode="decimal" dir="ltr" value={pay.amount} onChange={(e) => P("amount")(e.target.value.replace(/[^\d.]/g, ""))} className={field} />
+            <input inputMode="decimal" dir="ltr" value={pay.amount} onChange={(e) => P("amount")(latin(e.target.value).replace(/[^\d.]/g, ""))} className={field} />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">{t("Method *", "الطريقة *")}</span>

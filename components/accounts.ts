@@ -1,3 +1,4 @@
+import { timeoutSignal } from "./timeoutSignal";
 import { accountData, demoActive, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
 import { adoptVersions, dropSaves, flushSaves, forgetOutboxes, leaveWithoutAsking, ONLINE_KEYS, resendOldPictures, resumeSaves, setOnlineRev, stopSaves, waitingKeys, whenSignedOut } from "./serverSync";
 import { releaseTab, tabState } from "./oneTab";
@@ -50,6 +51,7 @@ async function call(path: string, method: "GET" | "POST", body?: unknown): Promi
       credentials: "same-origin",
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
+      signal: timeoutSignal(15_000),
     });
     return { status: r.status, reply: ((await r.json().catch(() => ({}))) ?? {}) as Reply };
   } catch {
@@ -191,7 +193,8 @@ export async function logOut(): Promise<void> {
   releaseTab(true);
   signInAs(null);
   forgetProfile();
-  await sending;
+  /* at most 5 s: the outbox keeps what didn't go, so a slow connection never holds the log out */
+  await Promise.race([sending, new Promise((r) => setTimeout(r, 5_000))]);
   try {
     sessionStorage.removeItem(SYNCED);
   } catch {

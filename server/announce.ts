@@ -17,37 +17,22 @@ export const AUDIENCE_HAS = (account: string, since = "a.starts_at") => `(
         AND EXISTS (SELECT 1 FROM accounts nw WHERE nw.id = (${account})::bigint AND nw.created_at >= ${since}))
   )`;
 
+/** SQL: how many accounts the audience of `a` reaches: the same accounts AUDIENCE_HAS is true for, counted from the
+    audience itself (every account once for the whole list, the chosen ones by their ids, or those made since `since`)
+    rather than by testing every account again for each row of a list. */
+export const AUDIENCE_REACH = (since = "a.starts_at") => `(CASE
+    WHEN a.audience @> '{"all": true}'::jsonb THEN (SELECT count(*)::int FROM accounts)
+    WHEN a.audience @> '{"newStores": true}'::jsonb THEN (SELECT count(*)::int FROM accounts acc WHERE ${AUDIENCE_HAS("acc.id", since)})
+    ELSE (SELECT count(*)::int FROM accounts acc WHERE acc.id IN (
+            SELECT (x #>> '{}')::bigint FROM jsonb_array_elements(CASE WHEN jsonb_typeof(a.audience->'accounts') = 'array' THEN a.audience->'accounts' ELSE '[]'::jsonb END) x
+             WHERE jsonb_typeof(x) = 'number' AND (x #>> '{}') ~ '^[0-9]{1,18}$'))
+  END)`;
+
 /** When a page "goes out", for its new-stores audience: when it was first published (a draft: not yet) */
 export const PAGE_SINCE = "COALESCE(a.published_at, now())";
 
 /** SQL that is true when the announcement `a` is live now and meant for the account in parameter $n */
 export const FOR_ACCOUNT = (n: number) => `(a.starts_at <= now() AND (a.ends_at IS NULL OR a.ends_at > now()) AND ${AUDIENCE_HAS(`$${n}`)})`;
-
-export type LiveAnnouncement = {
-  id: string;
-  notificationId: string;
-  titleEn: string; titleAr: string; bodyEn: string; bodyAr: string;
-  banner: boolean;
-  startsAt: string;
-  read: boolean;
-};
-
-/** The live announcements meant for this shop, newest first, with whether the shop has read each */
-export async function liveAnnouncements(accountId: string): Promise<LiveAnnouncement[]> {
-  const { rows } = await (await db()).query(
-    `SELECT a.id, n.id AS nid, a.title_en, a.title_ar, a.body_en, a.body_ar, a.banner, a.starts_at,
-            EXISTS (SELECT 1 FROM notification_reads r WHERE r.notification_id = n.id AND r.account_id = $1) AS read
-       FROM announcements a JOIN notifications n ON n.announcement_id = a.id AND n.account_id IS NULL
-      WHERE ${FOR_ACCOUNT(1)}
-      ORDER BY a.starts_at DESC LIMIT 20`,
-    [accountId],
-  );
-  return rows.map((r) => ({
-    id: String(r.id), notificationId: String(r.nid),
-    titleEn: r.title_en, titleAr: r.title_ar, bodyEn: r.body_en, bodyAr: r.body_ar,
-    banner: r.banner, startsAt: new Date(r.starts_at).toISOString(), read: r.read,
-  }));
-}
 
 /* ---------------- what Diwan sends ---------------- */
 

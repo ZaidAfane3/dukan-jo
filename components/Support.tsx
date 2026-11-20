@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { brandName, content, dateLocale } from "./content";
+import { brandName, content, dateLocale, type Lang } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { pushNotification, serverMode } from "./notifications";
 import { usePrefs } from "./Prefs";
-import { cleanLine, cleanLines, visibleLength } from "./safe";
+import { cleanLine, cleanLines, imageRules, uploadProblemFor, visibleLength, type FileKind } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { ACCOUNT_LIMITS, cleanTickets, ticketKind, TICKET_MIN, TICKET_PICTURES, type Ticket } from "./safeAccount";
-import { readPhoto } from "./designer/image";
+import { pickPicture } from "./designer/image";
 import {
   createTicket, fetchThread, fetchTickets, pictureUrl, replyTicket, sendable, setTicketOpen,
   type MerchantStatus, type Sent, type ServerTicket, type Thread,
@@ -164,6 +164,22 @@ const maybeSentWords = {
   ar: "ربما لم تُرسل هذه التذكرة عند مغادرتك الصفحة. تأكّد أنها ليست ضمن تذاكرك، ثم أرسلها مرة أخرى.",
 };
 
+/* A ticket's pictures from the files picked: each checked from its bytes, shrunk and drawn again (designer/image.ts).
+   Signed in, only what the server takes (PNG, JPG or WebP: a moving GIF stays a GIF, which can't be sent), so nothing
+   is dropped later without a word. Gives the pictures and, when some were refused, why (the first reason, with the real
+   kinds and limits). */
+async function readTicketPictures(files: File[], server: boolean, lang: Lang): Promise<{ urls: string[]; problem: string }> {
+  const rule = server ? { ...imageRules.photo, kinds: ["png", "jpeg", "webp"] as FileKind[] } : imageRules.photo;
+  const picked = await Promise.all(files.map((f) => pickPicture(f, rule, 1200, "image/jpeg", 0.78)));
+  const urls: string[] = [];
+  let problem = "";
+  for (const p of picked) {
+    if ("url" in p && (!server || sendable([p.url]).length)) urls.push(p.url);
+    else if (!problem) problem = uploadProblemFor("problem" in p ? p.problem : "type", rule, lang);
+  }
+  return { urls, problem };
+}
+
 export function Support() {
   const { lang } = usePrefs();
   const s = content[lang].support;
@@ -182,6 +198,10 @@ export function Support() {
   const [message, setMessage] = useState("");
   const [pictures, setPictures] = useState<string[]>([]);
   const [pictureNote, setPictureNote] = useState("");
+  /* pictures still being read: Send waits for them, so a ticket never goes without them (nor do they turn up in the next
+     one). pictureRound: which form they were picked in; a form started again meanwhile drops them */
+  const [reading, setReading] = useState(0);
+  const pictureRound = useRef(0);
   const [errors, setErrors] = useState<{ subject?: string; message?: string }>({});
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -305,16 +325,18 @@ export function Support() {
   /* Each picture is checked and shrunk (components/designer/image.ts) before it is kept; never more than 5 */
   const addPictures = async (files: FileList | null) => {
     if (!files) return;
-    const room = TICKET_PICTURES - pictures.length;
     const list = Array.from(files);
-    setPictureNote(list.length > room ? s.picturesFull : "");
-    let read = (await Promise.all(list.slice(0, Math.max(0, room)).map((f) => readPhoto(f, 1200)))).filter((u): u is string => !!u);
-    if (server) {
-      const ok = sendable(read);
-      if (ok.length < read.length) setPictureNote(sv.picturesBad);
-      read = ok;
-    }
-    setPictures((p) => [...p, ...read].slice(0, TICKET_PICTURES));
+    const take = list.slice(0, Math.max(0, TICKET_PICTURES - pictures.length - reading));
+    setPictureNote(list.length > take.length ? s.picturesFull : "");
+    if (!take.length) return;
+    const round = pictureRound.current;
+    setReading((n) => n + take.length);
+    const read = await readTicketPictures(take, !!server, lang);
+    if (pictureRound.current !== round) return;
+    setReading((n) => Math.max(0, n - take.length));
+    /* a refused file is said, never dropped without a word */
+    if (read.problem) setPictureNote(read.problem);
+    setPictures((p) => [...p, ...read.urls].slice(0, TICKET_PICTURES));
   };
 
   /* ---------------- drafts ---------------- */
@@ -331,6 +353,8 @@ export function Support() {
     setMessage("");
     setPictures([]);
     setPictureNote("");
+    pictureRound.current++;
+    setReading(0);
     setCategory(0);
     setErrors({});
     setFormError("");
@@ -499,7 +523,8 @@ export function Support() {
     return () => document.removeEventListener("keydown", onKey);
   }, [deleteAsk]);
 
-  const failText = (r: Sent<unknown>) => (r.ok ? "" : r.why === "too-many" ? sv.tooMany : r.field === "pictures" ? sv.picturesBad : sv.sendFailed);
+  const failText = (r: Sent<unknown>) =>
+    r.ok ? "" : r.why === "too-many" ? sv.tooMany : r.why === "pictures-full" ? sv.picturesRoom : r.field === "pictures" ? sv.picturesBad : sv.sendFailed;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -510,6 +535,8 @@ export function Support() {
     setFormError("");
     if (Object.keys(next).length) return;
     if (busy || holding) return;
+    /* pictures still being read would be left out: it waits for them */
+    if (reading > 0) return setFormError(s.picturesLoading);
     /* held for a moment before it is sent (deliver below); the form's words stay as they are until then. From here it
        is a ticket on its way, not a draft: nothing is asked when leaving (its own path keeps it, see DRAFT_KEY) */
     setDraftError("");
@@ -584,6 +611,8 @@ export function Support() {
     setMessage("");
     setPictures([]);
     setPictureNote("");
+    pictureRound.current++;
+    setReading(0);
     setCategory(0);
     autoId.current = null;
     savedId.current = null;
@@ -819,7 +848,7 @@ export function Support() {
                       </button>
                     </span>
                   ))}
-                  {pictures.length < TICKET_PICTURES && (
+                  {pictures.length + reading < TICKET_PICTURES && (
                     <button type="button" onClick={() => fileRef.current?.click()} className="grid h-20 w-20 place-items-center rounded-xl border-2 border-dashed border-fg/20 text-muted transition hover:border-primary hover:text-primary">
                       <span className="grid justify-items-center gap-1 text-[11px] font-semibold">
                         {picIcon}
@@ -979,6 +1008,12 @@ function HelpArticles() {
 /** How often an open conversation asks for new messages (while the tab is in view) */
 const THREAD_REFRESH_MS = 15_000;
 
+/* Closing a conversation with a reply written but not sent: asked in the page first */
+const replyLeaveWords: Record<Lang, { ask: string; keep: string; leave: string }> = {
+  en: { ask: "Your reply is not sent yet. Close without sending it?", keep: "Keep writing", leave: "Close without sending" },
+  ar: { ask: "ردّك لم يُرسل بعد. هل تريد الإغلاق دون إرساله؟", keep: "متابعة الكتابة", leave: "الإغلاق دون إرسال" },
+};
+
 function ThreadView({ number, onClose, onChanged }: { number: number; onClose: () => void; onChanged: () => void }) {
   const { lang } = usePrefs();
   const s = content[lang].support;
@@ -988,6 +1023,8 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
   const [failed, setFailed] = useState<"none" | "error" | "">("");
   const [text, setText] = useState("");
   const [pics, setPics] = useState<string[]>([]);
+  /* pictures still being read: the reply waits for them (see the new ticket's form) */
+  const [reading, setReading] = useState(0);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [toggleError, setToggleError] = useState("");
@@ -1043,25 +1080,31 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
     if (atBottom.current) endRef.current?.scrollIntoView({ block: "end" });
   }, [t?.messages.length]);
 
+  /* Escape, a click outside and the close button: asks first when a reply is written but not sent (tryClose, below) */
+  const [leaving, setLeaving] = useState(false);
+  const tryCloseRef = useRef(onClose);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (big) setBig(null);
-      else onClose();
+      else if (leaving) setLeaving(false);
+      else tryCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [big, onClose]);
+  }, [big, leaving]);
 
   const add = async (files: FileList | null) => {
     if (!files) return;
-    const room = TICKET_PICTURES - pics.length;
     const list = Array.from(files);
-    setNote(list.length > room ? s.picturesFull : "");
-    const read = (await Promise.all(list.slice(0, Math.max(0, room)).map((f) => readPhoto(f, 1200)))).filter((u): u is string => !!u);
-    const ok = sendable(read);
-    if (ok.length < read.length) setNote(sv.picturesBad);
-    setPics((p) => [...p, ...ok].slice(0, TICKET_PICTURES));
+    const take = list.slice(0, Math.max(0, TICKET_PICTURES - pics.length - reading));
+    setNote(list.length > take.length ? s.picturesFull : "");
+    if (!take.length) return;
+    setReading((n) => n + take.length);
+    const read = await readTicketPictures(take, true, lang);
+    setReading((n) => Math.max(0, n - take.length));
+    if (read.problem) setNote(read.problem);
+    setPics((p) => [...p, ...read.urls].slice(0, TICKET_PICTURES));
   };
 
   /* his reply is held for a moment with an Undo, like a new ticket (heldSend.tsx); closing the conversation meanwhile
@@ -1085,7 +1128,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
     if (!r.ok) {
       /* still open: the box keeps his words and says why; closed meanwhile: the draft brings them back next time */
       if (held.alive.current && !held.leaving.current) dropDraft(draft, owner);
-      return setError(r.why === "too-many" ? sv.tooMany : r.field === "pictures" ? sv.picturesBad : sv.sendFailed);
+      return setError(r.why === "too-many" ? sv.tooMany : r.why === "pictures-full" ? sv.picturesRoom : r.field === "pictures" ? sv.picturesBad : sv.sendFailed);
     }
     dropDraft(draft, owner);
     setText("");
@@ -1096,9 +1139,30 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
     await load();
   };
   const held = useHeldSend(deliver);
+  /* words or pictures not sent yet (one held with its Undo goes out as the conversation closes, so nothing to ask) */
+  const unsent = !held.holding && (visibleLength(text) > 0 || pics.length > 0);
+  const tryClose = () => (unsent ? setLeaving(true) : onClose());
+  tryCloseRef.current = tryClose;
+  const leaveKeepRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (leaving) leaveKeepRef.current?.focus();
+  }, [leaving]);
+  /* the tab closing or reloading with a reply not sent: the browser asks first */
+  useEffect(() => {
+    if (!unsent) return;
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (leaveUnasked()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [unsent]);
   const send = (e: React.FormEvent) => {
     e.preventDefault();
     if (busy || held.holding || (visibleLength(text) < 1 && !pics.length)) return;
+    /* pictures still being read would be left out: it waits for them */
+    if (reading > 0) return setError(s.picturesLoading);
     setError("");
     held.hold();
   };
@@ -1117,7 +1181,18 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
   const when = (ts: number) => new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(ts));
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && tryClose()}>
+      {leaving && (
+        <div className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setLeaving(false)}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="reply-leave-ask" className="dash my-8 w-full max-w-md rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
+            <p id="reply-leave-ask" className="text-base font-bold leading-relaxed">{replyLeaveWords[lang].ask}</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button ref={leaveKeepRef} type="button" onClick={() => setLeaving(false)} className="h-11 flex-1 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{replyLeaveWords[lang].keep}</button>
+              <button type="button" onClick={() => { setLeaving(false); onClose(); }} className="h-11 flex-1 rounded-xl border border-rose-500/50 px-6 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{replyLeaveWords[lang].leave}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <section role="dialog" aria-modal="true" aria-label={t ? t.subject : `#${number}`} className="dash flex h-full w-full max-w-2xl flex-col overflow-hidden bg-card text-fg shadow-2xl ring-1 ring-fg/10 sm:h-[min(90vh,52rem)] sm:rounded-3xl">
         <header className="flex items-start gap-3 border-b border-fg/10 px-5 py-4">
           <div className="min-w-0 flex-1">
@@ -1137,7 +1212,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
             )}
             {toggleError && <p role="alert" className="mt-1.5 text-xs text-rose-600">{toggleError}</p>}
           </div>
-          <button type="button" onClick={onClose} aria-label={sv.back} title={sv.back} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-soft hover:text-fg">
+          <button type="button" onClick={tryClose} aria-label={sv.back} title={sv.back} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-soft hover:text-fg">
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
           </button>
         </header>
@@ -1201,7 +1276,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
             {note && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{note}</p>}
             {error && <p role="alert" className="mt-1.5 text-xs text-rose-600">{error}</p>}
             <div className="mt-3 flex items-center gap-2">
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={held.holding || pics.length >= TICKET_PICTURES} className="flex h-10 items-center gap-2 rounded-xl border border-fg/20 px-3 text-xs font-semibold transition hover:bg-soft disabled:opacity-40">
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={held.holding || pics.length + reading >= TICKET_PICTURES} className="flex h-10 items-center gap-2 rounded-xl border border-fg/20 px-3 text-xs font-semibold transition hover:bg-soft disabled:opacity-40">
                 {picIcon}
                 {s.addPicture}
                 <span dir="ltr" className="tabular-nums text-muted">{pics.length}/{TICKET_PICTURES}</span>

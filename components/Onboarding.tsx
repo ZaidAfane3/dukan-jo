@@ -18,7 +18,7 @@ import { loadSetup, saveSetup, setupProductNow, syncSetupProduct } from "./setup
 import { Tilt } from "./ui";
 import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, savedMobile, shownMobile, typedPhone } from "./phone";
-import { cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isMediaUrl, isNewSlug, isPickupAddress, isSlug, latinName, normalizeHex, slugDropped, slugDroppedText, SLUG_RULE, typedSlug, uploadProblemText, visibleLength, type UploadProblem } from "./safe";
+import { cleanFileName, cleanLine, cleanLines, cleanMoney, imageRules, initialOf, isMediaUrl, isNewSlug, isPickupAddress, isSlug, latinName, normalizeHex, slugDropped, slugDroppedText, SLUG_RULE, typedSlug, uploadProblemFor, visibleLength, type UploadProblem } from "./safe";
 import { ACCOUNT_LIMITS, reservedSlugError, savedPhone } from "./safeAccount";
 import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
@@ -465,7 +465,8 @@ function IdentityStep({ store, onSave }: StepProps) {
 
         <div>
           <Label title={c.logoLabel} hint={c.logoHint} optional={c.optional} />
-          <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
+          {/* only what the logo box takes (imageRules.logo), so the picker does not offer a HEIC or a GIF it refuses */}
+          <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={onFile} className="hidden" />
           {logoPending ? (
             <ImageCropper lang={lang} src={logoPending.url} out={256} onLive={setLogoLive} onCancel={() => { setLogoPending(null); setLogoLive(null); }} onDone={(url) => { setLogo({ url, name: logoPending.name, size: formatSize(Math.round((url.length * 3) / 4)) }); setLogoPending(null); setLogoLive(null); }} />
           ) : logo ? (
@@ -485,7 +486,8 @@ function IdentityStep({ store, onSave }: StepProps) {
               {c.logoUpload}
             </button>
           )}
-          {logoProblem && <p role="alert" className="mt-2 text-xs text-rose-600">{uploadProblemText[logoProblem][lang]}</p>}
+          {/* the real reason, with the logo box's own kinds and limits */}
+          {logoProblem && <p role="alert" className="mt-2 text-xs text-rose-600">{uploadProblemFor(logoProblem, imageRules.logo, lang)}</p>}
         </div>
 
         <div>
@@ -1015,7 +1017,7 @@ function ProductStep({ store, onSave }: StepProps) {
       return;
     }
     void pickPicture(file, imageRules.productPhoto, 1600, "image/jpeg", 0.85).then((picked) => {
-      setImageError("problem" in picked ? uploadProblemText[picked.problem][lang] : "");
+      setImageError("problem" in picked ? uploadProblemFor(picked.problem, imageRules.productPhoto, lang) : "");
       if ("url" in picked) setImagePending(picked.url);
     });
   };
@@ -1096,7 +1098,7 @@ function ProductStep({ store, onSave }: StepProps) {
       <div className="grid gap-8 rounded-2xl border border-fg/10 p-4 sm:p-5 lg:grid-cols-[1fr_1.1fr]">
         <div className="space-y-6 lg:order-2">
           <div>
-            <input ref={fileInput} type="file" accept="image/*" onChange={onFile} className="hidden" />
+            <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={onFile} className="hidden" />
             {imagePending ? (
               <ImageCropper lang={lang} src={imagePending} shapes={["square", "tall", "wide"]} out={1200} type="image/jpeg" onLive={setImageLive} onCancel={() => { setImagePending(""); setImageLive(null); }} onDone={(url) => { setImage(url); setImagePending(""); setImageLive(null); void keepPicture(url, "product").then((kept) => kept !== url && setImage((cur) => (cur === url ? kept : cur))); }} />
             ) : image ? (
@@ -1585,7 +1587,7 @@ function ShippingStep({ store, onSave }: StepProps) {
 
         <div>
           <Label title={s.proofLabel} hint={s.proofHint} optional={c.optional} />
-          <input ref={fileInput} type="file" multiple accept="image/*,application/pdf" onChange={onFiles} className="hidden" />
+          <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={onFiles} className="hidden" />
           <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !proofsReady || proofs.length >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
             <span>
               {busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofs.length}/{MAX_PROOFS})</span>

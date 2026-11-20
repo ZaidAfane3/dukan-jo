@@ -1,3 +1,4 @@
+import { jordanNumber } from "./phone";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { arCount } from "./undo";
 import { cleanSetting, PUBLIC_KEYS, SETTING_DEFAULTS, THEME_PAYS, type Bi, type PayMethod, type PublicSettings, type ThemePay } from "./diwan/platformSettings";
@@ -48,7 +49,8 @@ export function refreshPublicSettings(force = false): Promise<boolean> {
   if (typeof window === "undefined") return Promise.resolve(false);
   if (asked && !force && Date.now() - askedAt < MIN_GAP) return asked;
   askedAt = Date.now();
-  return (asked = fetch("/api/platform/settings", { cache: "no-store" })
+  /* the browser may answer from its own copy of under 30 s (the route says how long); a forced ask never does */
+  return (asked = fetch("/api/platform/settings", { cache: force ? "no-store" : "default" })
     .then((r) => (r.ok ? r.json() : null))
     .then((j: unknown) => {
       const v = cleaned(j);
@@ -163,6 +165,9 @@ export function useSettingsChecked(): boolean {
 /** A WhatsApp link for a number: wa.me wants the country code and digits only, so a local Jordanian 07... number gets 962
     in front and a leading 00 is dropped; "" when it is too short to be a number */
 export function waLink(n: string): string {
+  /* a Jordan mobile in any of its forms ("+962 079…", "00962…", "07…", Arabic digits): 962 and the number without its 0 */
+  const jo = jordanNumber(n);
+  if (jo) return `https://wa.me/962${jo}`;
   let d = n.replace(/\D/g, "").replace(/^00/, "");
   if (/^07\d{8}$/.test(d)) d = `962${d.slice(1)}`;
   return d.length >= 8 ? `https://wa.me/${d}` : "";

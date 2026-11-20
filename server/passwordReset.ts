@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import type { NextRequest } from "next/server";
 import { savedMobile } from "@/components/phone";
 import { emailOf } from "@/components/safe";
-import { clearFailures, hashPassword } from "./auth";
+import { clearFailures, hashPassword, visitorIp } from "./auth";
 import { blind, emailKey, phoneKey } from "./crypto";
 import { db } from "./db";
 import { canSendCode, sendCode, type CodeChannel, type CodeLang } from "./sendCode";
@@ -49,7 +49,7 @@ export function contactOf(v: unknown): Contact | null {
 export const codeLang = (v: unknown): CodeLang => (v === "en" ? "en" : "ar");
 
 /* the address the request came from (as tooMany in server/auth.ts reads it), kept only as a keyed fingerprint */
-const ipOf = (req: NextRequest) => req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
+const ipOf = (req: NextRequest) => visitorIp(req);
 const ipHash = (req: NextRequest) => blind(`reset-ip:${ipOf(req)}`);
 
 const codeHash = (contactKey: string, code: string) => blind(`reset-code:${contactKey}:${code}`);

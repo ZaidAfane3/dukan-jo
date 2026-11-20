@@ -7,6 +7,7 @@ import { fromDukkanWords, PageArticle, PageListCard } from "@/components/FromDuk
 import { area, Badge, Btn, card, field, Loaded, PageHead, reachOf, SavedNote, send, useApi, useCreateOnce, useFmt, useJustSaved, useStaff, useT, type Tone } from "@/components/diwan/ui";
 import { PagesSkeleton } from "@/components/diwan/skeletons";
 import { PAGE_LIMITS, PAGE_NEXT, PAGE_SLUG, type PageStatus } from "@/components/dukkanPages";
+import { latin } from "@/components/digits";
 
 /* Dukkan's pages for merchants (guides, news, rules), read in the merchant dashboard at /from-dukkan. Written here in
    English and Arabic, for every store, new stores or chosen stores; Draft → Live → Hidden. "In the menu" pins a page at the top
@@ -306,7 +307,7 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
             </div>
             <div>
               <label className={`${label} whitespace-nowrap`} htmlFor="psort">{t("Place in the list", "الترتيب في القائمة")}</label>
-              <input id="psort" inputMode="numeric" dir="ltr" className={field} value={form.sort} onChange={(e) => set("sort", e.target.value.replace(/\D/g, ""))} />
+              <input id="psort" inputMode="numeric" dir="ltr" className={field} value={form.sort} onChange={(e) => set("sort", latin(e.target.value).replace(/\D/g, ""))} />
             </div>
             <label className="flex items-center gap-2 text-sm font-semibold sm:col-span-2">
               <input type="checkbox" checked={form.inMenu} onChange={(e) => { set("inMenu", e.target.checked); setView("list"); }} />

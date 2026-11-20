@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { answer, currentAccount, guarded, otherAccount, readJson, sameOrigin } from "@/server/auth";
+import { answer, currentAccount, guarded, otherAccount, readJson, sameOrigin, tooManyFor } from "@/server/auth";
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
@@ -115,6 +115,8 @@ export const PUT = guarded(async (req: NextRequest) => {
   /* a tab still on the account signed in before must not save its data under this one */
   if (otherAccount(req, a)) return answer({ result: "other-account" }, 409);
   if (a.suspended) return answer({ result: "suspended" }, 423);
+  /* the heaviest write (up to 8 MB): the pages save at most every few seconds */
+  if (tooManyFor(`store-save:${a.id}`, 120, 10)) return answer({ result: "slow-down" }, 429);
   const body = await readJson(req, MAX_BODY);
   if (!body) return answer({ result: "too-big" }, 413);
   const set = body.set && typeof body.set === "object" && !Array.isArray(body.set) ? Object.entries(body.set as Record<string, unknown>) : [];
@@ -300,12 +302,15 @@ export const PUT = guarded(async (req: NextRequest) => {
       }
     }
     if (remove.length) await client.query(`DELETE FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, remove]);
-    for (const [k, v] of set) {
+    if (set.length) {
+      /* every key in one statement (a save can hold up to 500), so the locks above are held for one round trip, not one
+         per key. The keys are unique (they come from an object). */
       await client.query(
         /* stored encrypted (server/crypto.ts); plain_len keeps the size limit about what the merchant saved */
-        `INSERT INTO store_data (account_id, key, value, plain_len) VALUES ($1, $2, $3, $4)
+        `INSERT INTO store_data (account_id, key, value, plain_len)
+         SELECT $1, t.k, t.v, t.n FROM unnest($2::text[], $3::text[], $4::int[]) AS t(k, v, n)
          ON CONFLICT (account_id, key) DO UPDATE SET value = EXCLUDED.value, plain_len = EXCLUDED.plain_len, updated_at = now()`,
-        [a.id, k, seal(v as string), (v as string).length],
+        [a.id, set.map(([k]) => k), set.map(([, v]) => seal(v as string)), set.map(([, v]) => (v as string).length)],
       );
     }
     const { rows } = await client.query(`SELECT COALESCE(SUM(length(key) + COALESCE(plain_len, length(value))), 0)::bigint AS total FROM store_data WHERE account_id = $1`, [a.id]);
@@ -322,7 +327,7 @@ export const PUT = guarded(async (req: NextRequest) => {
   }
   if ([...set.map(([k]) => k), ...(remove as string[])].some((k) => SHOP_KEYS.has(k))) {
     /* saved already: a problem here only leaves Diwan's numbers behind until the next save */
-    await syncShop(a.id).catch((e) => console.error("[shops] sync", a.id, e));
+    await syncShop(a.id, undefined, { set: new Map(set.map(([k, v]) => [k, v as string])), removed: new Set(remove as string[]) }).catch((e) => console.error("[shops] sync", a.id, e));
   }
   touchShop(a.id);
   /* the new version of each list saved, for the browser's next save of it */

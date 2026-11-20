@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { answer, currentAccount, guarded, otherAccount, sameOrigin, tooMany } from "@/server/auth";
+import { answer, currentAccount, guarded, otherAccount, sameOrigin, tooManyFor } from "@/server/auth";
 import { db } from "@/server/db";
 import { putMedia } from "@/server/media";
 import { isMediaKind, MEDIA_LIMITS } from "@/components/mediaRules";
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
    Refused like saving the store (app/api/store): 401 signed out, 403 "forbidden" (not from Dukkan's own pages),
    423 "suspended", 409 "other-account" (the page names another account than the session's, server/auth.ts
    otherAccount). Also 400 "invalid" (not a picture or video this kind takes, read from its bytes), 413 "too-big" (over the file's limit), 409 "full" (the
-   store's space for files is used up) and 429 "slow-down". */
+   store's space for files, or what it may send in a day, is used up), 503 "space" (Dukkan as a whole has no room left
+   for now, server/media.ts storageFull: the page tries again later) and 429 "slow-down". */
 
 /** Reads the body, stopping as soon as it is longer than max (a missing or false Content-Length can't get past it) */
 async function readBody(req: NextRequest, max: number): Promise<Uint8Array | null> {
@@ -49,13 +50,13 @@ export const POST = guarded(async (req: NextRequest) => {
   if (otherAccount(req, a)) return answer({ result: "other-account" }, 409);
   if (a.suspended) return answer({ result: "suspended" }, 423);
   /* a big store's first save sends many pictures at once (each its own request), so the limit is generous */
-  if (tooMany(req, `media:${a.id}`, 400, 10)) return answer({ result: "slow-down" }, 429);
+  if (tooManyFor(`media:${a.id}`, 400, 10)) return answer({ result: "slow-down" }, 429);
   const kind = req.nextUrl.searchParams.get("kind");
   if (!isMediaKind(kind)) return answer({ result: "invalid" }, 400);
   const data = await readBody(req, kind === "background" ? MEDIA_LIMITS.video : MEDIA_LIMITS.picture);
   if (!data) return answer({ result: "too-big" }, 413);
   if (!data.length) return answer({ result: "invalid" }, 400);
   const r = await putMedia(await db(), a.id, kind, data);
-  if (!r.ok) return answer({ result: r.problem }, r.problem === "too-big" ? 413 : r.problem === "full" ? 409 : 400);
+  if (!r.ok) return answer({ result: r.problem }, r.problem === "too-big" ? 413 : r.problem === "full" ? 409 : r.problem === "space" ? 503 : 400);
   return answer({ result: "ok", id: r.id, url: r.url, bytes: r.bytes });
 });

@@ -1,4 +1,4 @@
-import { answer, readJson } from "@/server/auth";
+import { answer, readJson, tooManyFor } from "@/server/auth";
 import { db } from "@/server/db";
 import { prepareShops, SHOP_LIST_COLUMNS, shopListSql } from "@/server/shops";
 import { audit, staffRoute } from "@/server/staff";
@@ -13,6 +13,8 @@ const MAX = 20_000;
    server/staffConfirm.ts passwordAgain), and the activity log keeps who exported, when, how many rows and with which
    filters. */
 export const POST = staffRoute("shops.export", async (req, staff) => {
+  /* every export holds thousands of merchants' contacts: a few an hour per staff member */
+  if (tooManyFor(`diwan-export:${staff.id}`, 10, 60)) return answer({ result: "slow-down" }, 429);
   const refused = await passwordAgain(req, staff, (await readJson(req, 1_000))?.myPassword, "shops.export");
   if (refused) return refused;
   await prepareShops();

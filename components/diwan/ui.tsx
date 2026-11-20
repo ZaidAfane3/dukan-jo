@@ -7,6 +7,7 @@ import { usePrefs } from "../Prefs";
 import { ArchOutline, type IconName } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS } from "./nav";
 import type { Role } from "./perms";
+import { timeoutSignal } from "../timeoutSignal";
 
 /* Diwan's shared building blocks, so every page looks and behaves the same. Every page reads live data from
    /api/diwan/... with useApi; there is no sample data anywhere in Diwan. Merchant text is always shown as plain text
@@ -35,7 +36,10 @@ export function useApi<T>(url: string | null): ApiState<T> {
     if (!url) return;
     let alive = true;
     setLoading(true);
-    fetch(url, { credentials: "same-origin", cache: "no-store" })
+    /* stopped when the page closes or asks again, and given up after 20 s (the page shows its error and "Try again"
+       instead of a spinner that turns forever) */
+    const stop = new AbortController();
+    fetch(url, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000, stop.signal) })
       .then(async (r) => {
         if (r.status === 401) {
           window.location.href = "/diwan/login";
@@ -53,6 +57,7 @@ export function useApi<T>(url: string | null): ApiState<T> {
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
+      stop.abort();
     };
   }, [url, n]);
   return { data, error, loading, reload: () => setN((x) => x + 1) };
@@ -94,6 +99,8 @@ export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELE
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      /* a save with no answer in a minute ends like one with no connection (a theme's design can be a few MB to send) */
+      signal: timeoutSignal(60_000),
     });
   } catch {
     return { ok: false, status: 0, data: null };
@@ -540,7 +547,7 @@ export function useMore<T extends { rows: unknown[] }>(url: string | null, nextO
     if (!url || !base || !next || moreLoading) return;
     setMoreLoading(true);
     setMoreFailed(false);
-    fetch(`${url}${url.includes("?") ? "&" : "?"}${next}`, { credentials: "same-origin", cache: "no-store" })
+    fetch(`${url}${url.includes("?") ? "&" : "?"}${next}`, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000) })
       .then(async (r) => {
         if (r.status === 401) {
           window.location.href = "/diwan/login";

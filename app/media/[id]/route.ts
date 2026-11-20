@@ -1,19 +1,23 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { tooMany } from "@/server/auth";
 import { db } from "@/server/db";
-import { mediaInfo, readMedia, SERVED_MIME, type ByteRange } from "@/server/media";
+import { mediaInfo, SERVED_MIME, streamMedia, type ByteRange } from "@/server/media";
 
 export const dynamic = "force-dynamic";
 
 /* A store's picture or video (server/media.ts), for anyone: the storefront's visitors and the merchant's own pages
    load it without a session. The id is random and long, so only someone who was shown the
-   address has it. A file never changes once kept (a new picture is a new file), so browsers and caches keep it for a
-   year. It is only ever sent as the picture or video type read from its bytes when it was kept, never sniffed as
-   anything else, and sandboxed, so even a strange file can't run anything as a Dukkan page. A video can be asked for
-   in parts (Range), which browsers need to start playing and to jump ahead. */
+   address has it. A file never changes once kept (a new picture is a new file), but it can go: cleared when no page
+   uses it any more, taken down from Diwan, or hidden while its store is suspended. So a browser keeps it for 30 days
+   and a shared cache (Cloudflare) for one day, then asks again with its tag (a 304, no bytes read). It is only ever
+   sent as the picture or video type read from its bytes when it was kept, never sniffed as anything else, and
+   sandboxed, so even a strange file can't run anything as a Dukkan page. A video can be asked for in parts (Range),
+   which browsers need to start playing and to jump ahead. The bytes are streamed from the database a piece at a time
+   (server/media.ts streamMedia), never held whole in memory. */
 
 const headersFor = (mime: string, etag: string) => ({
   "Content-Type": mime,
-  "Cache-Control": "public, max-age=31536000, immutable",
+  "Cache-Control": "public, max-age=2592000, s-maxage=86400",
   "X-Content-Type-Options": "nosniff",
   "Content-Security-Policy": "default-src 'none'; sandbox",
   "Cross-Origin-Resource-Policy": "same-site",
@@ -43,9 +47,12 @@ function rangeOf(header: string | null, size: number): ByteRange | null | "bad" 
 
 async function serve(req: NextRequest, id: string, head: boolean): Promise<NextResponse> {
   try {
+    /* per visitor: browsers and Cloudflare keep each file for a year, so only a script asks this often */
+    if (tooMany(req, "media", 2000, 10)) return new NextResponse(null, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "60" } });
     const pool = await db();
     const file = await mediaInfo(pool, id);
-    if (!file || !SERVED_MIME.has(file.mime)) return missing();
+    /* a suspended store's files are not shown while it is suspended (they come back with it) */
+    if (!file || !SERVED_MIME.has(file.mime) || file.suspended) return missing();
     const etag = `"${file.sha256}"`;
     const base = headersFor(file.mime, etag);
     const tags = req.headers.get("if-none-match");
@@ -60,9 +67,9 @@ async function serve(req: NextRequest, id: string, head: boolean): Promise<NextR
     const extra: Record<string, string> = range ? { "Content-Range": `bytes ${range.start}-${range.end}/${file.bytes}` } : {};
     const status = range ? 206 : 200;
     if (head) return new NextResponse(null, { status, headers: { ...base, ...extra, "Content-Length": String(length) } });
-    const bytes = await readMedia(pool, file, range ?? undefined);
-    if (!bytes) return missing();
-    return new NextResponse(new Uint8Array(bytes), { status, headers: { ...base, ...extra, "Content-Length": String(bytes.length) } });
+    const body = await streamMedia(pool, file, range ?? undefined);
+    if (!body) return missing();
+    return new NextResponse(body, { status, headers: { ...base, ...extra, "Content-Length": String(length) } });
   } catch (e) {
     console.error("[media] serving", id, e);
     return new NextResponse(null, { status: 503, headers: { "Cache-Control": "no-store" } });

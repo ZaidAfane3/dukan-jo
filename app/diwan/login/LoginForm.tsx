@@ -7,6 +7,7 @@ import { DiwanMark } from "@/components/diwan/icons";
 import { PAPER } from "@/components/diwan/Shell";
 import { passwordWords, STAFF_2FA_REQUIRED, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
 import { Btn, field, useT } from "@/components/diwan/ui";
+import { latin } from "@/components/digits";
 
 /* The staff sign-in: email and password, then the 6-digit code of an authenticator app. On the first sign-in the app is
    set up here (the secret to type in, or the otpauth link), and a temporary password given by an owner is replaced.
@@ -176,7 +177,8 @@ export function LoginForm() {
         maxLength={7}
         required
         value={code}
-        onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
+        /* a code typed in Arabic digits (٠-٩) counts the same as one in Latin digits */
+        onChange={(e) => setCode(latin(e.target.value).replace(/[^\d ]/g, ""))}
         autoFocus
       />
     </div>

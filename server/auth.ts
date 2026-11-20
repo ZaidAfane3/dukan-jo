@@ -274,26 +274,89 @@ export function sameOrigin(req: NextRequest): boolean {
   return process.env.NODE_ENV === "development" && !!host && page.host === host;
 }
 
-/* A simple limit per visitor: at most `max` tries in `minutes`. Kept in memory, which is enough for one server. */
-const tries = new Map<string, { n: number; until: number }>();
-/** The visitor's address, as the limits count it */
-export const visitorIp = (req: NextRequest) => req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
+/* ---------------- limits on tries ---------------- */
+
+/** The visitor's address, as the limits and the activity log count it. Cloudflare's own header first (the tunnel sets
+    it); an x-forwarded-for comes second. An IPv6 address counts by its /64: one machine is usually given a whole /64,
+    so counting each address apart would give it endless tries. */
+export function visitorIp(req: NextRequest): string {
+  const raw = (req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0] ?? "").trim().slice(0, 64);
+  if (!raw) return "local";
+  return raw.includes(":") ? ipv6Block(raw) : raw;
+}
+
+/** The first 4 groups (the /64) of an IPv6 address, written out in full */
+function ipv6Block(ip: string): string {
+  const a = ip.replace(/^\[|\]$/g, "").split("%")[0].toLowerCase();
+  /* an IPv4 address written as IPv6 (::ffff:1.2.3.4) is that IPv4 address */
+  const v4 = a.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4) return v4[1];
+  const [head, tail] = a.includes("::") ? a.split("::", 2) : [a, null];
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const groups = tail === null ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  return groups.slice(0, 4).map((g) => (parseInt(g, 16) || 0).toString(16)).join(":") + "::/64";
+}
+
+/* Counts tries per key in memory (enough for one server; they start again after a deploy). The window slides: the
+   last window's count still weighs in as it ages, so nobody gets twice the limit by trying at the edge of a window.
+   The map is kept in order of last use and never holds more than MAX_KEYS (the oldest go first), and expired keys are
+   swept at most once a minute, so random keys can't make it grow or slow every request down. */
+type Window = { start: number; n: number; prev: number; ms: number };
+const tries = new Map<string, Window>();
+const MAX_KEYS = 50_000;
+let swept = 0;
+
+function windowOf(key: string, minutes: number, now: number): Window {
+  const ms = minutes * 60_000;
+  let w = tries.get(key);
+  if (w) tries.delete(key);
+  if (!w || w.ms !== ms) w = { start: now, n: 0, prev: 0, ms };
+  else if (now - w.start >= ms) {
+    const passed = Math.floor((now - w.start) / ms);
+    w.prev = passed === 1 ? w.n : 0;
+    w.start += passed * ms;
+    w.n = 0;
+  }
+  tries.set(key, w);
+  if (now - swept > 60_000) {
+    swept = now;
+    tries.forEach((v, k) => now - v.start >= 2 * v.ms && tries.delete(k));
+  }
+  if (tries.size > MAX_KEYS) {
+    /* the least recently used first (the map keeps them in that order) */
+    const drop = tries.size - Math.floor(MAX_KEYS * 0.9);
+    Array.from(tries.keys()).slice(0, drop).forEach((k) => tries.delete(k));
+  }
+  return w;
+}
+
+const used = (w: Window, now: number) => w.prev * (1 - (now - w.start) / w.ms) + w.n;
+
+/** A limit per visitor: this try counts, and true when it is over `max` tries in `minutes` */
 export function tooMany(req: NextRequest, what: string, max: number, minutes: number): boolean {
   return tooManyFor(`${what}:${visitorIp(req)}`, max, minutes);
 }
 
-/** The same limit for anything else than a visitor, such as one store for all its visitors together: at most `max`
-    tries for this key in `minutes` */
+/** The same limit for anything else than a visitor, such as one account from any address, or one store for all its
+    visitors together: this try counts, and true when it is over `max` tries for this key in `minutes` */
 export function tooManyFor(key: string, max: number, minutes: number): boolean {
   const now = Date.now();
-  if (tries.size > 10_000) tries.forEach((v, k) => v.until < now && tries.delete(k));
-  const t = tries.get(key);
-  if (!t || t.until < now) {
-    tries.set(key, { n: 1, until: now + minutes * 60_000 });
-    return false;
-  }
-  t.n++;
-  return t.n > max;
+  const w = windowOf(key, minutes, now);
+  w.n++;
+  return used(w, now) > max;
+}
+
+/** Whether `max` tries for this key in `minutes` are already used, without counting one: for limits that count only
+    what went through (countTry), such as orders a store really got, so failed tries by a stranger can't use them up */
+export function limitReached(key: string, max: number, minutes: number): boolean {
+  const now = Date.now();
+  return used(windowOf(key, minutes, now), now) >= max;
+}
+
+/** Counts one try for this key, for limitReached */
+export function countTry(key: string, minutes: number): void {
+  windowOf(key, minutes, Date.now()).n++;
 }
 
 /* Wrong tries counted per account (or per anything else named by `key`), whatever address they come from: after `max`
@@ -309,6 +372,8 @@ export function failedTooOften(key: string, max: number): boolean {
 export function noteFailure(key: string, minutes: number): void {
   const now = Date.now();
   if (fails.size > 10_000) fails.forEach((v, k) => v.until < now && fails.delete(k));
+  /* still full (random keys that haven't expired): the oldest go */
+  if (fails.size > MAX_KEYS) Array.from(fails.keys()).slice(0, fails.size - Math.floor(MAX_KEYS * 0.9)).forEach((k) => fails.delete(k));
   const f = fails.get(key);
   if (!f || f.until < now) fails.set(key, { n: 1, until: now + minutes * 60_000 });
   else f.n++;
@@ -389,6 +454,7 @@ export const answer = (body: unknown, status = 200) => NextResponse.json(body, {
 /** Wraps a route so a database that is down gives a clear 503 instead of a crash */
 export function guarded(fn: (req: NextRequest) => Promise<NextResponse>) {
   return async (req: NextRequest) => {
+    const started = Date.now();
     try {
       return await fn(req);
     } catch (e) {
@@ -398,6 +464,10 @@ export function guarded(fn: (req: NextRequest) => Promise<NextResponse>) {
       if (code === "22021" || code === "22P05" || e instanceof URIError) return answer({ result: "invalid" }, 400);
       console.error("[api]", req.method, req.nextUrl.pathname, e);
       return answer({ result: "error" }, 503);
+    } finally {
+      /* a slow answer goes to the log (the method and path only, never what was sent) */
+      const ms = Date.now() - started;
+      if (ms > 500) console.warn("[slow]", req.method, req.nextUrl.pathname, `${ms} ms`);
     }
   };
 }

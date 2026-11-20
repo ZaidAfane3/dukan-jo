@@ -652,3 +652,14 @@ input[type="radio"]:not(.sr-only):disabled { opacity: 0.5; cursor: not-allowed; 
 @media (prefers-reduced-motion: reduce) {
   .sticky-note-in { animation: none; }
 }
+
+/* Press feedback: every button shrinks a little while it is held, so a tap is felt at once (scale 0.97, 160 ms, a strong
+   ease-out). It uses the `scale` property, which adds to a hover lift (transform) instead of replacing it, and it eases
+   where the element already has a transition (tailwind.config.ts adds scale to "transition"). Not for disabled buttons;
+   kept for people who ask for less motion, as a 3% press is feedback, not movement across the screen. */
+:where(button, [role="button"], input[type="submit"], input[type="button"], summary):not(:disabled):not([aria-disabled="true"]):active {
+  scale: 0.97;
+}
+:where(button, [role="button"], input[type="submit"], input[type="button"], summary):not([class*="transition"]) {
+  transition: scale 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}

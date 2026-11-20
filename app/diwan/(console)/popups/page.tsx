@@ -8,6 +8,7 @@ import { RunTabs, StartAgain, type RunView } from "@/components/diwan/pastRuns";
 import { area, Badge, Btn, card, field, Loaded, LoadMore, PageHead, reachOf, SavedNote, send, useApi, useCreateOnce, useFmt, useJustSaved, useMore, useStaff, useT, type Tone } from "@/components/diwan/ui";
 import { PopupsSkeleton } from "@/components/diwan/skeletons";
 import { content } from "@/components/content";
+import { latin } from "@/components/digits";
 import { menuEntries } from "@/components/DashboardBar";
 import { POPUP_IMAGE_MAX, POPUP_NEXT, type PopupStatus } from "@/components/popupRules";
 import {
@@ -396,7 +397,10 @@ function SlotField({ def, value, onChange, onLang }: { def: SlotDef; value: Slot
     const c = await checkImage(file, rule);
     if ("problem" in c) return setPicErr(uploadProblemFor(c.problem, rule, t("en", "ar") as "en" | "ar"));
     const reader = new FileReader();
-    reader.onload = () => typeof reader.result === "string" && onChange(reader.result);
+    /* the picture data is named by what its bytes are (c.kind), not by the file's name: a PNG named .jpg (common from
+       WhatsApp) would otherwise say image/jpeg, and the server, which reads the bytes, refuses a type that does not match */
+    reader.onload = () => typeof reader.result === "string" && onChange(reader.result.replace(/^data:[^;,]*;/, `data:image/${c.kind};`));
+    reader.onerror = () => setPicErr(t("This file couldn't be read. Try another copy.", "تعذّرت قراءة هذا الملف. جرّب نسخة أخرى."));
     reader.readAsDataURL(file);
   };
   return (
@@ -565,7 +569,7 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
             </div>
             <div>
               <label className={label} htmlFor="ppr">{t("Priority (0–100)", "الأولوية (0–100)")}</label>
-              <input id="ppr" inputMode="numeric" dir="ltr" className={field} value={form.priority} onChange={(e) => set("priority", e.target.value.replace(/\D/g, "").slice(0, 3))} />
+              <input id="ppr" inputMode="numeric" dir="ltr" className={field} value={form.priority} onChange={(e) => set("priority", latin(e.target.value).replace(/\D/g, "").slice(0, 3))} />
             </div>
           </div>
           <p className="-mt-2 text-xs text-muted">{t("A store sees one pop-up at a time: the highest priority first, then the newest. The next one waits for its next page.", "يرى المتجر نافذة واحدة في كل مرة: الأعلى أولوية أولًا، ثم الأحدث. التالية تنتظر الصفحة التالية.")}</p>

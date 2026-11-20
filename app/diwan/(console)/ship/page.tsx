@@ -9,6 +9,7 @@ import { ShipSkeleton } from "@/components/diwan/skeletons";
 import { useUrlParam } from "@/components/diwan/shopBits";
 import { ShipOrders } from "@/components/diwan/ShipOrders";
 import { typedText, useListScroll, useListState } from "@/components/diwan/useListState";
+import { latin } from "@/components/digits";
 
 /* Dukkan Ship, Dukkan's own delivery. Two tabs, kept in the address (?tab=settings) so a reload or a shared link opens
    the same one: Orders (the first), the customer orders of stores that deliver with it, for staff to pick up, deliver
@@ -256,15 +257,14 @@ function PriceCard({ d, onSaved }: { d: Data; onSaved: () => void }) {
             <input
               id="ship-price"
               data-autofocus
-              type="number"
+              /* a text box, not type="number": a price typed in Arabic digits (٠-٩) becomes Latin digits instead of being
+                 refused by the browser (the check below holds it to 0 to the highest price, 3 decimals) */
+              type="text"
               inputMode="decimal"
-              min={0}
-              max={LIMITS.shipPrice}
-              step="0.001"
               dir="ltr"
               className={`${field} max-w-[10rem] text-lg font-semibold tabular-nums`}
               value={price}
-              onChange={(x) => setPrice(x.target.value)}
+              onChange={(x) => setPrice(latin(x.target.value))}
               aria-invalid={!ok}
               aria-describedby="ship-price-help"
             />

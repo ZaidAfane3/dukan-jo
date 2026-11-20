@@ -11,6 +11,7 @@ import { COUPON_MAX, cleanCoupon, cleanCouponDescription, cleanCouponName, coupo
 import { dropUndos, listUndo, offerUndo } from "./undo";
 import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { usePageTitle } from "./pageTitle";
+import { leaveUnasked } from "./serverSync";
 
 /* ====================================================================
    Types
@@ -102,6 +103,12 @@ function loadCoupons(): Coupon[] {
    Create / edit dialog
    ==================================================================== */
 
+/* Closing the coupon with changes not saved: asked in the page, like a product (productsContent.ts discardAsk) */
+const discardWords: Record<Lang, { ask: string; keep: string; leave: string }> = {
+  en: { ask: "You have changes that are not saved. Leave without saving?", keep: "Keep editing", leave: "Leave without saving" },
+  ar: { ask: "لديك تعديلات لم تُحفظ. هل تريد الخروج دون حفظ؟", keep: "متابعة التعديل", leave: "الخروج دون حفظ" },
+};
+
 function CouponDialog({
   type,
   initial,
@@ -134,12 +141,41 @@ function CouponDialog({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const first = useRef<HTMLInputElement>(null);
 
+  /* Something typed since the dialog opened: Escape, a click outside and Cancel ask before throwing it away, and the
+     browser asks when the tab closes or reloads */
+  const now = JSON.stringify([name, description, code, kind, value, minOrder, start, end, limit, validDays]);
+  const opened = useRef(now);
+  const dirty = now !== opened.current;
+  const [asking, setAsking] = useState(false);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const tryClose = () => (dirty ? setAsking(true) : onClose());
+  const live = useRef({ tryClose, asking });
+  live.current = { tryClose, asking };
+  useEffect(() => {
+    if (asking) keepRef.current?.focus();
+  }, [asking]);
+
   useEffect(() => {
     first.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    /* with the "leave without saving?" box open, Escape answers "Keep editing" */
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (live.current.asking) setAsking(false);
+      else live.current.tryClose();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
+  useEffect(() => {
+    if (!dirty) return;
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (leaveUnasked()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [dirty]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,7 +228,7 @@ function CouponDialog({
   const fix = (key: string) => errors[key] && setErrors((x) => ({ ...x, [key]: "" }));
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && tryClose()}>
       <form onSubmit={submit} noValidate role="dialog" aria-modal="true" aria-label={initial ? f.editTitle : m.types[type].title} className="dash my-8 w-full max-w-lg rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
         <div className="flex items-center gap-3">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-soft text-primary">{typeIcons[type]}</span>
@@ -291,9 +327,20 @@ function CouponDialog({
 
         <div className="mt-7 flex gap-3">
           <button type="submit" className="h-12 flex-1 rounded-xl bg-ink text-sm font-semibold text-onink transition hover:-translate-y-0.5 hover:bg-deep">{f.save}</button>
-          <button type="button" onClick={onClose} className="h-12 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{f.cancel}</button>
+          <button type="button" onClick={tryClose} className="h-12 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{f.cancel}</button>
         </div>
       </form>
+      {asking && (
+        <div className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && setAsking(false)}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="coupon-discard-ask" className="dash my-8 w-full max-w-md rounded-3xl bg-card p-6 text-fg shadow-2xl ring-1 ring-fg/10">
+            <p id="coupon-discard-ask" className="text-base font-bold leading-relaxed">{discardWords[lang].ask}</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button ref={keepRef} type="button" onClick={() => setAsking(false)} className="h-11 flex-1 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{discardWords[lang].keep}</button>
+              <button type="button" onClick={onClose} className="h-11 flex-1 rounded-xl border border-rose-500/50 px-6 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">{discardWords[lang].leave}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -446,7 +493,8 @@ export function Coupons() {
     const header = m.cols.slice(0, 5).join(",");
     const rows = shown.map((c) =>
       [couponName(c), c.code, discountText(c), c.start || m.startsNow, c.end || m.noEnd, m.statuses[statusOf(c)]]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        /* a cell starting with = + - @ (or a tab or line break) would run as a formula in Excel: a ' in front keeps it text */
+        .map((v) => `"${String(v).replace(/^[=+\-@\t\r]/, "'$&").replace(/"/g, '""')}"`)
         .join(","),
     );
     const blob = new Blob(["﻿" + [header, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });

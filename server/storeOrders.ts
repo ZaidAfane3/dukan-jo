@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { STATUS_KEYS, type StatusKey } from "@/components/ordersContent";
-import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as recordMoney, orderMatches, parseList, type Coupon, type CouponRefusal } from "@/components/records";
-import { safeStoredImage, SLUG_RULE } from "@/components/safe";
+import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as recordMoney, orderMatches, parseList, PRODUCT_MAX, type Coupon, type CouponRefusal } from "@/components/records";
+import { cleanLine, safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import {
   checkCheckout, checkoutShipMode, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productShips, productSizes, salePrice, sellableStock, stockNotBack, stockTaken, takeStock, toFils, money,
@@ -79,7 +79,7 @@ function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number
     seen.add(id);
     const price = money(p.price);
     const sizes = productSizes(p);
-    catalog.push({ id, name: String(p.name ?? ""), price, sale: salePrice(price, p.sale), quantity: sellableStock(p), ...(sizes.length ? { sizes } : {}) });
+    catalog.push({ id, name: cleanLine(p.name, PRODUCT_MAX.name) || "—", price, sale: salePrice(price, p.sale), quantity: sellableStock(p), ...(sizes.length ? { sizes } : {}) });
     if (!productShips(p)) noShip.add(id);
     /* the picture the merchant sees on the order: a file's address only, never picture data kept inside the product */
     const img = Array.isArray(p.images) ? safeStoredImage(p.images[0]) : "";
@@ -269,7 +269,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     if (couponCode.trim()) {
       const coupons = parseList(data.get("seen-coupons") ?? null, cleanCoupon);
       const cp = checkCoupon(couponCode, coupons, priced.subtotal);
-      if (!cp.ok) return { status: 409, body: { result: "coupon", why: cp.why } };
+      if (!cp.ok) return { status: 409, body: { result: "coupon", why: publicRefusal(cp.why) } };
       discount = cp.discount;
       freeByCoupon = cp.freeDelivery;
       couponUsed = cp.coupon.code;
@@ -339,6 +339,13 @@ async function writeKey(c: PoolClient, accountId: string, key: string, value: st
   await c.query(`UPDATE store_data SET value = $3, plain_len = $4, updated_at = now() WHERE account_id = $1 AND key = $2`, [accountId, key, seal(value), value.length]);
 }
 
+/** Why a code is refused, as a customer may be told: a code that does not exist, is paused, not started, ended or
+    used up all answer "unknown", so trying codes can't find which ones are real. Only "min" stays apart: the cart
+    needs it, and it comes only after a code that works. */
+function publicRefusal(why: CouponRefusal): CouponRefusal {
+  return why === "min" ? "min" : "unknown";
+}
+
 /** A coupon code a customer types on the store's page, checked against the shop's coupons (switched on, inside its
     dates, not used up). Its minimum order is not checked here: the cart checks it against the basket as it changes,
     and placing the order checks everything again. Answers what the cart needs to show the discount, or why not. */
@@ -350,7 +357,7 @@ export async function checkStoreCoupon(slug: unknown, code: unknown): Promise<{ 
   const { rows } = await pool.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-coupons'`, [shop.account_id]);
   const coupons = parseList((rows[0]?.value as string | undefined) ?? null, cleanCoupon);
   const cp = checkCoupon(code, coupons, Number.MAX_SAFE_INTEGER);
-  if (!cp.ok) return { status: 200, body: { result: "refused", why: cp.why } };
+  if (!cp.ok) return { status: 200, body: { result: "refused", why: publicRefusal(cp.why) } };
   /* only the terms the cart works the discount out from */
   return { status: 200, body: { result: "ok", coupon: couponTerms(cp.coupon) } };
 }
@@ -420,7 +427,7 @@ export const ORDERS_PAGE = 100;
     the order `before` (its server id). `next`: what to ask for the page after, or null when there is none; `total`:
     how many store orders the shop has, so the page can say how many it has not loaded yet. The customer's details come
     opened (db() opens them). `q`: a client inside a transaction (tests), else the pool. */
-export async function listStoreOrders(accountId: string, before: string | null = null, q?: { query: PoolClient["query"] }): Promise<{ orders: MerchantStoreOrder[]; next: string | null; total: number }> {
+export async function listStoreOrders(accountId: string, before: string | null = null, q?: { query: PoolClient["query"] }): Promise<{ orders: MerchantStoreOrder[]; next: string | null; total?: number }> {
   const pool = q ?? (await db());
   const older = before && /^\d{1,18}$/.test(before) ? before : null;
   const { rows } = await pool.query(
@@ -429,8 +436,15 @@ export async function listStoreOrders(accountId: string, before: string | null =
   );
   const more = rows.length > ORDERS_PAGE;
   const page = rows.slice(0, ORDERS_PAGE);
-  const count = await pool.query(`SELECT count(*)::int AS n FROM store_orders WHERE account_id = $1`, [accountId]);
-  return { orders: page.map(merchantRow), next: more ? String(page[page.length - 1].id) : null, total: Number(count.rows[0].n) };
+  /* the total only with the first page (later pages leave it out, and the page keeps the one it has) */
+  const total = older ? undefined : Number((await pool.query(`SELECT count(*)::int AS n FROM store_orders WHERE account_id = $1`, [accountId])).rows[0].n);
+  return { orders: page.map(merchantRow), next: more ? String(page[page.length - 1].id) : null, total };
+}
+
+/** Every store order of the shop at once, newest first, at most `max`: one query (the home page and Reports count them all) */
+export async function allStoreOrders(accountId: string, max = 10_000): Promise<MerchantStoreOrder[]> {
+  const { rows } = await (await db()).query(`SELECT ${ROW} FROM store_orders WHERE account_id = $1 ORDER BY id DESC LIMIT $2`, [accountId, max]);
+  return rows.map(merchantRow);
 }
 
 /** How many store orders the shop has in each status (the Orders page counts every order, not only the pages loaded) */

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { tooMany } from "@/server/auth";
 import { publicStore } from "@/server/publicStore";
 
 export const dynamic = "force-dynamic";
@@ -12,9 +13,11 @@ export const dynamic = "force-dynamic";
 
 const headers = { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60", "X-Content-Type-Options": "nosniff" };
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
   const p = await ctx.params;
   try {
+    /* per visitor: shared caches answer most visits, so only someone fetching it over and over gets here this often */
+    if (tooMany(req, "public-store", 300, 10)) return NextResponse.json({ result: "slow-down" }, { status: 429, headers: { "Cache-Control": "no-store" } });
     const store = await publicStore(p.slug);
     if (!store) return NextResponse.json({ result: "none" }, { status: 404, headers });
     /* a store Dukkan suspended says so in a header too, so middleware.ts can give its page a 404 without reading the body

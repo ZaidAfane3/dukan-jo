@@ -95,12 +95,16 @@ export function countShop(data: Map<string, string>): Counts {
     ship_name and pickup. */
 export const SHOP_COUNTS_VERSION = 1;
 
-/** Works the shops row out again from the account's saved data, and saves it. */
-export async function syncShop(accountId: string | number, q?: Q): Promise<void> {
+/** Works the shops row out again from the account's saved data, and saves it. `fresh`: what a save just wrote (the
+    values, plain) and removed, so those keys are not read and opened again (the products and orders can be megabytes). */
+export async function syncShop(accountId: string | number, q?: Q, fresh?: { set: Map<string, string>; removed: Set<string> }): Promise<void> {
   const c: Q = q ?? (await db());
+  const known = (k: string) => !!fresh && (fresh.set.has(k) || fresh.removed.has(k));
+  const ask = Array.from(SHOP_KEYS).filter((k) => !known(k));
   /* the values come back opened by db() */
-  const { rows } = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [accountId, Array.from(SHOP_KEYS)]);
+  const { rows } = ask.length ? await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [accountId, ask]) : { rows: [] };
   const data = new Map<string, string>(rows.map((r: { key: string; value: string }) => [r.key, r.value]));
+  if (fresh) for (const [k, v] of fresh.set) if (SHOP_KEYS.has(k)) data.set(k, v);
   let setup = null;
   try {
     setup = data.has("seen-setup") ? cleanSetup(JSON.parse(data.get("seen-setup")!)) : null;

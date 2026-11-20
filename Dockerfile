@@ -19,6 +19,7 @@ RUN --mount=type=cache,id=next-cache,target=/app/.next/cache NEXT_PUBLIC_BUILD_T
 FROM node:20-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production \
+    UV_THREADPOOL_SIZE=16 \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0

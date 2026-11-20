@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
 import { REPORT_LIMITS, REPORT_REASONS, reportContact, type ReportReason } from "@/components/storeReports";
-import { answer, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { answer, guarded, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
 import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { ipOf } from "@/server/staff";
@@ -24,6 +24,8 @@ export const POST = guarded(async (req: NextRequest) => {
   /* an email or a Jordan mobile, or nothing (the form checks the same: storeReports reportContact) */
   const contact = reportContact(cleanLine(body?.contact ?? "", REPORT_LIMITS.contact));
   if (!/^[a-z0-9-]{1,40}$/.test(slug) || !reason || visibleLength(text) < REPORT_LIMITS.min) return answer({ result: "invalid" }, 400);
+  /* per store too, from everyone together: one store can't be flooded with reports from many addresses (same "ok") */
+  if (tooManyFor(`store-report:${slug}`, 30, 60)) return answer({ result: "ok" });
   if (contact === null) return answer({ result: "invalid", field: "contact" }, 400);
 
   const pool = await db();

@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
-import { answer, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
+import { latin } from "@/components/digits";
+import { answer, countTry, limitReached, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { findStoreAttempt, placeStoreOrder } from "@/server/storeOrders";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +25,23 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     if (tooMany(req, "store-order", 20, 15)) return answer({ result: "slow-down" }, 429);
     const body = await readJson(req, MAX_BODY);
     if (!body) return answer({ result: "too-big" }, 413);
-    /* per store, from every visitor together */
-    if (tooManyFor(`store-order-shop:${String(p.slug ?? "").toLowerCase().slice(0, 64)}`, 60, 60)) return answer({ result: "slow-down" }, 429);
     /* { lookup: <key> }: only asks whether the order sent with that key got in (a reloaded checkout), places nothing */
-    const r = typeof body.lookup === "string" ? await findStoreAttempt(p.slug, body.lookup) : await placeStoreOrder(p.slug, body);
+    if (typeof body.lookup === "string") {
+      const r = await findStoreAttempt(p.slug, body.lookup);
+      return answer(r.body, r.status);
+    }
+    /* per store, from every visitor together, and per customer mobile: only orders that went in count, so a stranger
+       sending empty or broken orders can't use up a store's allowance and lock its real customers out */
+    const shopKey = `store-order-shop:${String(p.slug ?? "").toLowerCase().slice(0, 64)}`;
+    const customer = body.customer && typeof body.customer === "object" ? (body.customer as Record<string, unknown>) : {};
+    const mobile = typeof customer.phone === "string" ? latin(customer.phone).replace(/\D/g, "").slice(-9) : "";
+    const phoneKey = mobile ? `${shopKey}:${mobile}` : null;
+    if (limitReached(shopKey, 200, 60) || (phoneKey && limitReached(phoneKey, 5, 60))) return answer({ result: "slow-down" }, 429);
+    const r = await placeStoreOrder(p.slug, body);
+    if (r.status === 200) {
+      countTry(shopKey, 60);
+      if (phoneKey) countTry(phoneKey, 60);
+    }
     return answer(r.body, r.status);
   } catch (e) {
     console.error("[store order]", p.slug, e);

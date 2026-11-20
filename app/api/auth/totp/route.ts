@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { answer, finishPendingSession, guarded, noteLogin, pendingAccount, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { useRecoveryCode } from "@/server/recovery";
 import { touchShop } from "@/server/shops";
 import { useTotpCode } from "@/server/staff";
 
@@ -20,8 +21,8 @@ const noteWrong = (id: string) => {
   else w.n++;
 };
 
-/* The second step of signing in, for accounts with 2-step codes on: { code } from the authenticator app, after the
-   password (/api/auth/login answered "code"). A code works once: the same code again, even inside its 90 seconds, is
+/* The second step of signing in, for accounts with 2-step codes on: { code } from the authenticator app, or one of the
+   account's recovery codes (each works once: server/recovery.ts), after the password (/api/auth/login answered "code"). A code works once: the same code again, even inside its 90 seconds, is
    "wrong". Answers "ok" with the account, "wrong", "expired" (no session waiting: sign in again) or "slow-down" (too
    many tries). */
 export const POST = guarded(async (req: NextRequest) => {
@@ -32,7 +33,7 @@ export const POST = guarded(async (req: NextRequest) => {
   const a = await pendingAccount(req);
   if (!a) return answer({ result: "expired" }, 401);
   if (blocked(a.id)) return answer({ result: "slow-down" }, 429);
-  if (!(await useTotpCode("accounts", a.id, a.secret, code))) {
+  if (!(await useTotpCode("accounts", a.id, a.secret, code)) && !(await useRecoveryCode(a.id, code))) {
     noteWrong(a.id);
     return answer({ result: "wrong" }, 401);
   }

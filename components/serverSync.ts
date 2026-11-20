@@ -19,6 +19,7 @@ import { accountValue, replaceAccountValue, restoreAccountValue, signedInAs } fr
 import { lastOrderNumber, ORDER_NUMBER_KEY } from "./orderNumbers";
 import { LIST_KEYS, listMarks, mergeList, VERSION_KEYS, type ItemMarks } from "./listMerge";
 import { bounceIfSuspended } from "./suspended";
+import { timeoutSignal } from "./timeoutSignal";
 
 /* ---------------- store orders and the saved stock ----------------
    Customers' orders on the public store take their products out of the saved stock on the server, and count a
@@ -67,7 +68,7 @@ export async function pullOnlineKeys(): Promise<void> {
   if (!signedInAs() || running || paused || !gate()) return;
   const before = Object.fromEntries(ONLINE_KEYS.map((k) => [k, accountValue(k)]));
   try {
-    const r = await fetch(`/api/store?keys=${[...ONLINE_KEYS, ORDER_NUMBER_KEY].join(",")}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader() });
+    const r = await fetch(`/api/store?keys=${[...ONLINE_KEYS, ORDER_NUMBER_KEY].join(",")}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader(), signal: timeoutSignal(20_000) });
     if (r.status === 401 || r.status === 409) return lostSession();
     /* another tab signed this browser out or in as someone else meanwhile: the answer is not this tab's account's */
     if (!r.ok || halted) return;
@@ -565,7 +566,9 @@ async function request(set: Record<string, string>, remove: string[], owner: str
   const keepalive = keptAlive + bytes <= KEEPALIVE_MAX;
   if (keepalive) keptAlive += bytes;
   try {
-    const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json", [CLIENT_HEADER]: "1", ...accountHeader(me) }, body, keepalive, credentials: "same-origin" });
+    /* a save with no answer in 90 s counts as not sent (it stays in the outbox and goes again), so one that hangs never
+       holds up every save after it; 90 s leaves room for a big save on a slow line, under Cloudflare's 100 s */
+    const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json", [CLIENT_HEADER]: "1", ...accountHeader(me) }, body, keepalive, credentials: "same-origin", signal: timeoutSignal(90_000) });
     const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown; versions?: unknown; stale?: unknown; refused?: unknown };
     return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten: asObject(j.rewritten), versions: asObject(j.versions), stale: asObject(j.stale), refused: asObject(j.refused) };
   } catch {
@@ -878,7 +881,7 @@ export async function saveNow(key: string, before: string): Promise<boolean> {
 async function serverValue(key: string): Promise<string | null | undefined> {
   if (halted) return undefined;
   try {
-    const r = await fetch(`/api/store?keys=${encodeURIComponent(key)}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader() });
+    const r = await fetch(`/api/store?keys=${encodeURIComponent(key)}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader(), signal: timeoutSignal(20_000) });
     if (!r.ok || halted) return undefined;
     const j = (await r.json()) as { data?: Record<string, unknown> };
     if (!j.data || typeof j.data !== "object") return undefined;

@@ -1,3 +1,5 @@
+import { timeoutSignal } from "./timeoutSignal";
+
 /* The merchant's tickets on the server (app/api/tickets). Used by Support and the designer's "Bug or idea?" button when a
    merchant is signed in (notifications.ts serverMode); in the tour or signed out they keep tickets in this browser. */
 
@@ -19,8 +21,9 @@ export type ServerTicket = {
 export type ThreadMessage = { id: string; from: "me" | "dukkan" | "system"; body: string; at: number; pictures: string[] };
 export type Thread = Omit<ServerTicket, "preview" | "pictures" | "unread"> & { where: string; messages: ThreadMessage[] };
 
-/** "ok", or why it failed: "bad" (refused: field says which), "too-many", "signed-out", "error" (offline or server down) */
-export type Sent<T> = { ok: true; data: T } | { ok: false; why: "bad" | "too-many" | "signed-out" | "none" | "error"; field?: string };
+/** "ok", or why it failed: "bad" (refused: field says which), "too-many", "signed-out", "pictures-full" (the account sent
+    as many ticket pictures as it may in 30 days, server/tickets.ts pictureRoom), "error" (offline or server down) */
+export type Sent<T> = { ok: true; data: T } | { ok: false; why: "bad" | "too-many" | "signed-out" | "none" | "pictures-full" | "error"; field?: string };
 
 /* opts.keepalive: the request may finish after the page is closed (browsers allow it only for small bodies: 64 KiB
    for all of them together, so a large one goes as a normal request) */
@@ -34,10 +37,13 @@ async function call<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", b
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: text,
       keepalive: !!opts.keepalive && !!text && new TextEncoder().encode(text).length < 32_000,
+      /* no answer in time counts as "error" (a message with pictures gets longer to go up) */
+      signal: timeoutSignal(text ? 60_000 : 15_000),
     });
     const j = await r.json().catch(() => ({}));
     if (r.ok) return { ok: true, data: j as T };
-    const why = r.status === 401 ? "signed-out" : r.status === 429 ? "too-many" : r.status === 404 ? "none" : r.status === 400 ? "bad" : "error";
+    const why =
+      r.status === 401 ? "signed-out" : r.status === 429 ? "too-many" : r.status === 404 ? "none" : r.status === 400 ? "bad" : r.status === 409 && j?.result === "pictures-full" ? "pictures-full" : "error";
     return { ok: false, why, field: j?.field };
   } catch {
     return { ok: false, why: "error" };
