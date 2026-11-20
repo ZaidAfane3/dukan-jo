@@ -74,9 +74,11 @@ function wordsFor(kind: NotifyKind, p: Params): EmailWords | null {
   }
 }
 
-/* the account owner's email (sealed in accounts: db() opens it), or null */
+/* the account owner's email (sealed in accounts: db() opens it), or null. Only a confirmed address: a notice tells
+   private things (ticket subjects, document notes, why a store was stopped), so a new email that may be mistyped gets
+   nothing until its owner confirms it (server/emailVerify.ts); the bell still has every notice. */
 async function ownerEmail(accountId: string): Promise<string | null> {
-  const { rows } = await (await db()).query(`SELECT email FROM accounts WHERE id = $1`, [accountId]);
+  const { rows } = await (await db()).query(`SELECT email FROM accounts WHERE id = $1 AND email_verified`, [accountId]);
   const to = String(rows[0]?.email ?? "").trim();
   return to.includes("@") ? to : null;
 }

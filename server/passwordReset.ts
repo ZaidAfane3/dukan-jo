@@ -63,8 +63,8 @@ export const canSendTo = (c: Contact) => canSendCode(c.channel);
 export async function requestCode(req: NextRequest, c: Contact, lang: CodeLang): Promise<void> {
   const pool = await db();
   const col = c.channel === "phone" ? "phone_hash" : "email_hash";
-  const { rows } = await pool.query(`SELECT id, email, phone FROM accounts WHERE ${col} = $1 LIMIT 1`, [c.key]);
-  const a = rows[0] as { id: string; email: string; phone: string } | undefined;
+  const { rows } = await pool.query(`SELECT id, email, phone, email_verified FROM accounts WHERE ${col} = $1 LIMIT 1`, [c.key]);
+  const a = rows[0] as { id: string; email: string; phone: string; email_verified: boolean } | undefined;
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   /* nobody has it: a code nobody knows, so this row can never be used, but it answers like a real one */
   const hash = a ? codeHash(c.key, code) : codeHash(c.key, randomBytes(16).toString("hex"));
@@ -91,6 +91,10 @@ export async function requestCode(req: NextRequest, c: Contact, lang: CodeLang):
   /* sent to what the account has (the same as what was typed, in its saved form). Not waited for: a slow provider must
      not make a real account answer later than an unknown one. Its failure is logged without the code. */
   const byEmail = c.channel === "phone" && phoneCodesByEmail();
+  /* a code by email goes only to a confirmed address: an email changed to a mistyped one (someone else's) must not let
+     that person reset the password and take the account. The answer stays "sent" either way (nothing is told); the
+     owner of an unconfirmed address asks Dukkan support. */
+  if ((c.channel === "email" || byEmail) && !a.email_verified) return;
   const to = c.channel === "phone" && !byEmail ? a.phone : a.email;
   void sendCode(byEmail ? "email" : c.channel, to, code, lang).catch((e) => console.error("[reset] the code could not be sent:", (e as Error)?.message ?? e));
 }
