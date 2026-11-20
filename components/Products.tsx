@@ -25,6 +25,7 @@ import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, type ProductKind } fr
 import type { Lang } from "./content";
 import { dropUndos, listUndo, offerUndo } from "./undo";
 import { usePageTitle } from "./pageTitle";
+import { Skeleton } from "./Skeleton";
 import { leaveUnasked } from "./serverSync";
 
 
@@ -730,7 +731,10 @@ export function Products() {
               )}
             </div>
 
-            {shown.length === 0 ? (
+            {/* still loading: rows of placeholders, not "No products yet" for a moment */}
+            {!ready ? (
+              <div className="space-y-3 px-5 py-5" aria-busy="true">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+            ) : shown.length === 0 ? (
               <div className="px-5 py-14 text-center">
                 {/* "no match" only when something was searched: an empty filter (Deleted products) says what it holds */}
                 <p className="font-bold">{items.length === 0 && filter !== "deleted" ? p.empty : query.trim() ? p.noMatch : filter === "deleted" ? p.binEmpty : p.noneHere}</p>

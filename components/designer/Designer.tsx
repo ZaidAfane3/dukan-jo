@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { brandName } from "../content";
@@ -7,7 +8,6 @@ import { refreshCatalog, useCatalog } from "../catalog";
 import { demoActive, setOwnCopy } from "../demoSandbox";
 import { adoptTheme, baseTheme, defaultTheme, findTheme, keepActiveLook, loadThemeState, markThemeInUse, notBought, previewProducts, refreshThemeAccess, saveDesignAsTheme, unboughtBase, withoutUnboughtLooks, type ThemeInfo } from "../themes";
 import { NewPageDialog, OpenPage, useStorePages } from "./PageLink";
-import { PageEditor } from "./PageEditor";
 import { load as loadPages, savePages } from "../InfoPages";
 import { LangSwitch, usePrefs } from "../Prefs";
 import { oneSided, startingWords, textsNow, TRANSLATE_WORDS } from "./translations";
@@ -19,7 +19,9 @@ import { defaultConfig, headingFamily, type PicEdit, type SectionMove } from "..
 import { Canvas } from "./Canvas";
 import { HEX, input } from "./controls";
 import { dc } from "./copy";
-import { BugReport } from "./BugReport";
+/* loaded only when they are shown: a page being edited, the "report a problem" button after the page is up */
+const PageEditor = dynamic(() => import("./PageEditor").then((m) => m.PageEditor), { ssr: false });
+const BugReport = dynamic(() => import("./BugReport").then((m) => m.BugReport), { ssr: false });
 import { legibleOn } from "../storefront/footerColors";
 import { OptionsPanel, PageLookNow, PreviewProducts, SampleProducts, StoreColorNow, UsingTheme, TextColorNow, PagesPanel, ProductPicturePanel, TextsPanel, okEmail, okPhone, type Draft, type Focus, type OptionsScreen } from "./panels";
 import { hasStoreContact, visibleLength } from "../safe";

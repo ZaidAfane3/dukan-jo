@@ -15,6 +15,7 @@ import {
   type MerchantStatus, type Sent, type ServerTicket, type Thread,
 } from "./ticketsApi";
 import { usePageTitle } from "./pageTitle";
+import { Skeleton } from "./Skeleton";
 import { draftOwner, dropDraft, HeldSendBar, heldWords, keepDraft, takeDraft, useHeldSend } from "./heldSend";
 import { pageText, useMerchant } from "./FromDukkan";
 import type { MerchantPage } from "./dukkanPages";
@@ -787,7 +788,9 @@ export function Support() {
                     })}
               </tbody>
             </table>
-            {server && remote === null && !loadError && <p className="px-4 py-10 text-center text-sm text-muted">{sv.loading}</p>}
+            {server && remote === null && !loadError && (
+              <div className="space-y-3 px-4 py-5" aria-busy="true" aria-label={sv.loading}>{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+            )}
             {server && loadError && (
               <p role="alert" className="px-4 py-10 text-center text-sm text-rose-600">
                 {sv.loadFailed}{" "}
@@ -1218,7 +1221,13 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
         </header>
 
         <div ref={listRef} onScroll={onScroll} className="flex-1 space-y-4 overflow-y-auto bg-page/40 px-5 py-5">
-          {!t && !failed && <p className="py-10 text-center text-sm text-muted">{sv.loading}</p>}
+          {!t && !failed && (
+            <div className="space-y-4" aria-busy="true" aria-label={sv.loading}>
+              <Skeleton className="h-16 w-3/4" />
+              <Skeleton className="ms-auto h-16 w-2/3" />
+              <Skeleton className="h-12 w-1/2" />
+            </div>
+          )}
           {failed && <p role="alert" className="py-10 text-center text-sm text-rose-600">{failed === "none" ? sv.notFound : sv.loadFailed}</p>}
           {t?.where && <p className="rounded-xl bg-soft px-3 py-2 text-xs text-muted"><span className="font-semibold">{sv.where}:</span> {t.where}</p>}
           {t?.messages.map((m) => {
