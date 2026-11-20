@@ -67,8 +67,10 @@ const sameHex = (a: string, b: string) => a.length === b.length && timingSafeEqu
 /** Makes a new code for the account's email (ending the codes before it) and sends it, without waiting for the send:
     a slow provider never slows the answer, and its failure is logged without the code (server/email.ts). Does nothing
     while email is off. */
-export async function sendVerifyCode(accountId: string, email: string, lang: VerifyLang, changed = false): Promise<void> {
-  if (!emailOn()) return;
+export async function sendVerifyCode(accountId: string, email: string, lang: VerifyLang, changed = false): Promise<"sent" | "slow-down" | "off"> {
+  if (!emailOn()) return "off";
+  /* past the cap for this address nothing changes: the code already sent keeps working, and the caller says "slow-down" */
+  if (codeMailLimited(email)) return "slow-down";
   const pool = await db();
   const key = emailKey(email);
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
@@ -90,9 +92,8 @@ export async function sendVerifyCode(accountId: string, email: string, lang: Ver
   /* now and then, clear out what ran out more than a day ago */
   if (Math.random() < 0.05) pool.query(`DELETE FROM email_verifications WHERE expires_at < now() - interval '1 day'`).catch(() => {});
   const w = verifyWords(lang, changed);
-  /* past the cap for this address the code stays made (the banner can ask again later) but isn't emailed now */
-  if (codeMailLimited(email)) return;
   sendEmailSoon({ to: email, subject: w.subject, heading: w.heading, text: w.text, lang, code }, "the email confirmation code");
+  return "sent";
 }
 
 export type VerifyResult = "ok" | "wrong" | "expired" | "too-many";

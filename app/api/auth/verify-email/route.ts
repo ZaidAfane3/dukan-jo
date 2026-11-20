@@ -28,7 +28,8 @@ export const POST = guarded(async (req: NextRequest) => {
     if (!(await emailUnconfirmed(a.id))) return answer({ result: "ok", verified: true });
     if (tooManyFor(`verify-email-send:${a.id}`, SEND_PER_ACCOUNT.max, SEND_PER_ACCOUNT.minutes)) return answer({ result: "slow-down" }, 429);
     if (tooMany(req, "verify-email-send", SEND_PER_IP.max, SEND_PER_IP.minutes)) return answer({ result: "slow-down" }, 429);
-    await sendVerifyCode(a.id, a.email, verifyLang(req, body.lang));
+    const sent = await sendVerifyCode(a.id, a.email, verifyLang(req, body.lang));
+    if (sent === "slow-down") return answer({ result: "slow-down" }, 429);
     return answer({ result: "ok", sent: true });
   }
 

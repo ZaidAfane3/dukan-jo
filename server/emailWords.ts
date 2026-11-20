@@ -15,16 +15,27 @@ import { SITE_HOST } from "@/components/siteAddress";
    customer's name, phone or address. Nothing here holds a password or a secret. */
 
 export type EmailLang = "ar" | "en";
-export type EmailWords = { subject: string; heading: string; text: string; button?: { label: string; url: string } };
+type Button = { label: string; url: string };
+export type EmailWords = { subject: string; heading: string; text: string; button?: Button; parts?: { lang: EmailLang; heading: string; text: string; button?: Button }[] };
 
 const link = (path: string) => `https://${SITE_HOST}${path}`;
 /* "3 طلبات جديدة", "11 طلبًا جديدًا" (Arabic counts take another form from 11 on) */
-const arOrders = (n: number) => (n === 2 ? "طلبان جديدان" : n <= 10 ? `${n} طلبات جديدة` : `${n} طلبًا جديدًا`);
+const arOrders = (n: number) => {
+  if (n === 2) return "طلبان جديدان";
+  const r = n % 100;
+  if (r >= 3 && r <= 10) return `${n} طلبات جديدة`;
+  if (r >= 11) return `${n} طلبًا جديدًا`;
+  /* 100, 101, 102, 200…: the singular */
+  return `${n} طلب جديد`;
+};
 const jod = (total: string | number, lang: EmailLang) => `${Number(total).toFixed(3)} ${lang === "ar" ? "د.أ" : "JOD"}`;
 /* free text from elsewhere (a reason, a note, a ticket's subject) on one short line */
 const line = (s: unknown, max = 200) => {
   const t = String(s ?? "").replace(/\s+/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+  const cut = t.length > max ? `${t.slice(0, max - 1)}…` : t;
+  /* kept apart from the sentence around it (Unicode isolate marks), so an English name in an Arabic line, or the other
+     way round, keeps its own order and its brackets */
+  return cut ? `⁨${cut}⁩` : cut;
 };
 
 /** One email in both languages: the Arabic first, the English under it */
@@ -36,6 +47,11 @@ export function bothLangs(words: (lang: EmailLang) => EmailWords): EmailWords {
     heading: `${ar.heading} · ${en.heading}`,
     text: `${ar.text}\n—\n${en.text}`,
     ...(ar.button && en.button ? { button: { label: `${ar.button.label} · ${en.button.label}`, url: en.button.url } } : {}),
+    /* the email itself shows each language in its own block, right to left then left to right (email.ts) */
+    parts: [
+      { lang: "ar", heading: ar.heading, text: ar.text, ...(ar.button ? { button: ar.button } : {}) },
+      { lang: "en", heading: en.heading, text: en.text, ...(en.button ? { button: en.button } : {}) },
+    ],
   };
 }
 

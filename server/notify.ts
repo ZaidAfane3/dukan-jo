@@ -86,7 +86,7 @@ async function ownerEmail(accountId: string): Promise<string | null> {
 function sendToOwner(accountId: string, words: EmailWords, what: string) {
   void ownerEmail(accountId)
     .then((to) => {
-      if (to) sendEmailSoon({ to, lang: "ar", ...words }, what);
+      if (to) sendEmailSoon({ to, lang: "ar", help: "dashboard", ...words }, what);
     })
     .catch((e) => console.error(`[email] ${what}: the owner's address could not be read:`, (e as Error)?.message ?? e));
 }

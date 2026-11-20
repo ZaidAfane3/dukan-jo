@@ -1,4 +1,4 @@
-import { codeMailLimited, emailOn } from "./email";
+import { emailOn } from "./email";
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { savedMobile } from "@/components/phone";
@@ -64,14 +64,17 @@ export const canSendTo = (c: Contact) => canSendCode(c.channel);
 export async function requestCode(req: NextRequest, c: Contact, lang: CodeLang): Promise<void> {
   const pool = await db();
   const col = c.channel === "phone" ? "phone_hash" : "email_hash";
-  const { rows } = await pool.query(`SELECT id, email, phone, email_verified FROM accounts WHERE ${col} = $1 LIMIT 1`, [c.key]);
-  const a = rows[0] as { id: string; email: string; phone: string; email_verified: boolean } | undefined;
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  /* nobody has it: a code nobody knows, so this row can never be used, but it answers like a real one */
-  const hash = a ? codeHash(c.key, code) : codeHash(c.key, randomBytes(16).toString("hex"));
+  let a: { id: string; email: string; phone: string; email_verified: boolean } | undefined;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    /* the account row is read FOR SHARE, so a change of its email or mobile (app/api/account PUT) waits for this code to
+       be written, and then ends it; or it went first, and this reads the new email or mobile */
+    const { rows } = await client.query(`SELECT id, email, phone, email_verified FROM accounts WHERE ${col} = $1 LIMIT 1 FOR SHARE`, [c.key]);
+    a = rows[0] as typeof a;
+    /* nobody has it: a code nobody knows, so this row can never be used, but it answers like a real one */
+    const hash = a ? codeHash(c.key, code) : codeHash(c.key, randomBytes(16).toString("hex"));
     /* the older codes stay good until they run out or one is used (see the top of this file) */
     await client.query(
       `INSERT INTO password_resets (account_id, contact_hash, code_hash, channel, expires_at, ip_hash)
@@ -95,7 +98,7 @@ export async function requestCode(req: NextRequest, c: Contact, lang: CodeLang):
   /* a code by email goes only to a confirmed address: an email changed to a mistyped one (someone else's) must not let
      that person reset the password and take the account. The answer stays "sent" either way (nothing is told); the
      owner of an unconfirmed address asks Dukkan support. */
-  if ((c.channel === "email" || byEmail) && emailOn() && (!a.email_verified || codeMailLimited(a.email))) return;
+  if ((c.channel === "email" || byEmail) && emailOn() && !a.email_verified) return;
   const to = c.channel === "phone" && !byEmail ? a.phone : a.email;
   void sendCode(byEmail ? "email" : c.channel, to, code, lang).catch((e) => console.error("[reset] the code could not be sent:", (e as Error)?.message ?? e));
 }
@@ -104,6 +107,8 @@ export type CheckResult = { result: "ok"; token: string } | { result: "wrong" | 
 
 /* the codes still good for this email or mobile (asked for in the last CODE_MINUTES, so a few at most), newest first */
 const LIVE = `contact_hash = $1 AND used_at IS NULL AND verified_at IS NULL AND expires_at > now()`;
+/* a reset whose email or mobile is no longer the account's (it was changed since) is never good */
+const STILL_THEIRS = `EXISTS (SELECT 1 FROM accounts x WHERE x.id = password_resets.account_id AND (x.email_hash = password_resets.contact_hash OR x.phone_hash = password_resets.contact_hash))`;
 
 /** Checks a code typed for this email or mobile against its codes that are still good */
 export async function checkCode(c: Contact, code: string): Promise<CheckResult> {
@@ -138,7 +143,7 @@ export async function checkCode(c: Contact, code: string): Promise<CheckResult> 
   const token = randomBytes(32).toString("base64url");
   const done = await pool.query(
     `UPDATE password_resets SET verified_at = now(), token_hash = $2, token_expires_at = now() + make_interval(mins => $3)
-      WHERE id = $1 AND verified_at IS NULL AND used_at IS NULL`,
+      WHERE id = $1 AND verified_at IS NULL AND used_at IS NULL AND ${STILL_THEIRS}`,
     [match, tokenHash(token), TOKEN_MINUTES],
   );
   if (done.rowCount !== 1) return { result: "expired" };
@@ -159,7 +164,8 @@ export async function setNewPassword(token: string, password: string): Promise<"
     await client.query("BEGIN");
     const { rows } = await client.query(
       `SELECT id, account_id FROM password_resets
-        WHERE token_hash = $1 AND used_at IS NULL AND token_expires_at > now() AND account_id IS NOT NULL FOR UPDATE`,
+        WHERE token_hash = $1 AND used_at IS NULL AND token_expires_at > now() AND account_id IS NOT NULL AND ${STILL_THEIRS}
+        FOR UPDATE`,
       [tokenHash(token)],
     );
     if (!rows[0]) {
