@@ -330,7 +330,21 @@ export const PUT = guarded(async (req: NextRequest) => {
   }
   if ([...set.map(([k]) => k), ...(remove as string[])].some((k) => SHOP_KEYS.has(k))) {
     /* saved already: a problem here only leaves Diwan's numbers behind until the next save */
-    await syncShop(a.id, undefined, { set: new Map(set.map(([k, v]) => [k, v as string])), removed: new Set(remove as string[]) }).catch((e) => console.error("[shops] sync", a.id, e));
+    /* read again as saved now, under the account's save lock (the one the save above takes), never from this save's own
+       values: a slower sync of an older save then can't write its older link, pause or published state over a newer
+       save's, as each one reads the newest saved values and they write one after the other */
+    const sc = await (await db()).connect();
+    try {
+      await sc.query("BEGIN");
+      await sc.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [a.id]);
+      await syncShop(a.id, sc);
+      await sc.query("COMMIT");
+    } catch (e) {
+      await sc.query("ROLLBACK").catch(() => {});
+      console.error("[shops] sync", a.id, e);
+    } finally {
+      sc.release();
+    }
   }
   touchShop(a.id);
   /* a picture the pages no longer use doesn't stay public for long */

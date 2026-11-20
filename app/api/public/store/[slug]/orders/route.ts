@@ -32,6 +32,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     }
     /* per store, from every visitor together, and per customer mobile: only orders that went in count, so a stranger
        sending empty or broken orders can't use up a store's allowance and lock its real customers out */
+    /* a checkout sent again (its answer was lost, or the page was reloaded): its order, if it got in, comes back before
+       any limit, and doesn't count again */
+    for (const key of [body.attempt, body.previous]) {
+      if (typeof key !== "string") continue;
+      const before = await findStoreAttempt(p.slug, key);
+      if (before.status === 200 && before.body.result === "ok") return answer(before.body, 200);
+    }
     const shopKey = `store-order-shop:${String(p.slug ?? "").toLowerCase().slice(0, 64)}`;
     const customer = body.customer && typeof body.customer === "object" ? (body.customer as Record<string, unknown>) : {};
     const mobile = typeof customer.phone === "string" ? latin(customer.phone).replace(/\D/g, "").slice(-9) : "";

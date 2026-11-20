@@ -185,8 +185,10 @@ export async function putMedia(pool: Pool, accountId: string, kind: MediaKind, d
   const bytes = Buffer.from(clean.buffer, clean.byteOffset, clean.byteLength);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const blobs = mediaBackend();
-  /* a file Diwan took down can't come back under another address */
-  if ((await pool.query(`SELECT 1 FROM media_blocked WHERE sha256 = $1`, [sha256])).rows.length) return { ok: false, problem: "invalid" };
+  /* a file Diwan took down can't come back under another address: checked as kept and as sent (a file kept before
+     hidden data was taken out was blocked under the hash of the bytes as sent) */
+  const sentHash = createHash("sha256").update(data).digest("hex");
+  if ((await pool.query(`SELECT 1 FROM media_blocked WHERE sha256 = ANY($1::text[])`, [[sha256, sentHash]])).rows.length) return { ok: false, problem: "invalid" };
 
   const attempt = () =>
     inTx(pool, async (c): Promise<PutResult> => {
@@ -380,8 +382,16 @@ export async function adoptPlatformMedia(pool: Query, text: string): Promise<num
 export async function takeDownMedia(pool: Pool, id: string, staffId: string): Promise<MediaFile | null> {
   const file = await mediaInfo(pool, id);
   if (!file) return null;
-  await pool.query(`INSERT INTO media_blocked (sha256, media_id, staff_id) VALUES ($1, $2, $3) ON CONFLICT (sha256) DO NOTHING`, [file.sha256, file.id, staffId]);
-  const { rows } = await pool.query(`DELETE FROM media WHERE sha256 = $1 RETURNING id, backend`, [file.sha256]);
+  /* a file kept before hidden data was taken out on upload was hashed as it was sent: the same picture sent now is kept
+     cleaned, under another hash. Both forms are blocked and every copy of either is removed. */
+  const hashes = new Set([file.sha256]);
+  const kept = await readMedia(pool, file).catch(() => null);
+  const kind = kindOfMime(file.mime);
+  const clean = kept && kind ? stripMetadata(kept, kind) : null;
+  if (clean) hashes.add(createHash("sha256").update(clean).digest("hex"));
+  for (const h of hashes)
+    await pool.query(`INSERT INTO media_blocked (sha256, media_id, staff_id) VALUES ($1, $2, $3) ON CONFLICT (sha256) DO NOTHING`, [h, file.id, staffId]);
+  const { rows } = await pool.query(`DELETE FROM media WHERE sha256 = ANY($1::text[]) RETURNING id, backend`, [Array.from(hashes)]);
   await removeBlobs(rows);
   return file;
 }
