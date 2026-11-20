@@ -20,7 +20,8 @@ export const isShipTab = (v: unknown): v is ShipTab => typeof v === "string" && 
 /* an order the merchant cancelled or refunded is not taken to anyone */
 const STOPPED = `o.status IN ('cancelled', 'refunded')`;
 const TAB_SQL: Record<ShipTab, string> = {
-  waiting: `o.ship_state = 'waiting' AND NOT ${STOPPED}`,
+  /* a big order waiting for the merchant to confirm it (status "review") isn't Dukkan's to deliver yet */
+  waiting: `o.ship_state = 'waiting' AND o.status <> 'review' AND NOT ${STOPPED}`,
   delivered: `o.ship_state = 'delivered'`,
   failed: `o.ship_state = 'failed'`,
   cancelled: `o.ship_state = 'waiting' AND ${STOPPED}`,

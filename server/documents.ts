@@ -4,7 +4,7 @@ import { ACCOUNT_LIMITS } from "@/components/safeAccount";
 import { answer, currentAccount, guarded, sameOrigin, type SessionAccount } from "./auth";
 import { openBytes } from "./crypto";
 import { db } from "./db";
-import { stripMetadata } from "./mediaBytes";
+import { stripMetadata, stripPdf } from "./mediaBytes";
 
 /* Papers a merchant sends for Dukkan's staff to check (for now, proof for the merchant's own delivery partner). The
    merchant routes (app/api/documents) and Diwan's routes (app/api/diwan/documents) share what is here. A file is kept in
@@ -35,7 +35,7 @@ export type CheckedFile = { bytes: Buffer; mime: string; size: number };
     detail: the page already explained the limits. The type the browser named (`_declared`) is not asked to agree any
     more: it comes from the file's name, and a PNG named .jpg (common from WhatsApp) is still a good PNG; it is kept
     as what its bytes are. A picture is kept without its hidden data (EXIF with GPS, XMP, comments:
-    server/mediaBytes.ts). */
+    server/mediaBytes.ts), a PDF without its author, title and the other words about who made it. */
 export function checkUpload(data: unknown, _declared?: unknown): CheckedFile | null {
   if (typeof data !== "string" || !data || data.length > BODY_MAX) return null;
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return null;
@@ -45,7 +45,13 @@ export function checkUpload(data: unknown, _declared?: unknown): CheckedFile | n
   if ("problem" in check || check.kind === "svg") return null;
   const mime = MIME[check.kind];
   if (!mime) return null;
-  if (check.kind === "pdf") return { bytes: raw, mime, size: raw.length };
+  /* a PDF keeps its pages; who made it (its document information and XMP) is blanked in place, same length
+     (server/mediaBytes.ts stripPdf), or it is kept as it came when it is encrypted, signed or unusual */
+  if (check.kind === "pdf") {
+    const clean = stripPdf(raw);
+    const bytes = clean === raw ? raw : Buffer.from(clean.buffer, clean.byteOffset, clean.byteLength);
+    return { bytes, mime, size: bytes.length };
+  }
   const clean = stripMetadata(raw, check.kind as "jpeg" | "png" | "webp");
   if (!clean) return null;
   const bytes = Buffer.from(clean.buffer, clean.byteOffset, clean.byteLength);

@@ -125,8 +125,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
        merchant removed it (the row stays as a record); never its file */
     part(
       can(staff, "documents"),
-      `SELECT public_id, kind, status, created_at, seq, removed_at FROM documents WHERE account_id = $1 ORDER BY created_at DESC, id DESC`,
-      `SELECT count(*)::int AS n FROM documents WHERE account_id = $1`,
+      `SELECT public_id, kind, status, created_at, seq, removed_at FROM documents WHERE account_id = $1 AND NOT draft ORDER BY created_at DESC, id DESC`,
+      `SELECT count(*)::int AS n FROM documents WHERE account_id = $1 AND NOT draft`,
     ),
     part(
       can(staff, "complaints"),
@@ -182,6 +182,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     /* a live store with no delivery choice saved delivers with Dukkan Ship by default while it serves a city (safeOrder
        checkoutShipMode): it is not "without delivery"; its Delivery line says "Dukkan Ship (default, not chosen)" */
     if (shop[0].published && !setup?.shipping && platform.shipCities.en.length > 0) notReady = notReady.filter((m) => m !== "delivery");
+    /* a store already live keeps selling with setup steps left: they only stop it going live */
+    if (shop[0].published) notReady = notReady.filter((m) => m !== "setup");
   }
   /* the theme columns leave the shop row: they go out as one "theme" */
   const { theme_id, theme_listed_name, theme_source, theme_list_price, theme_paid, theme_deleted_name, ...shopRow } = shop[0] ?? {};

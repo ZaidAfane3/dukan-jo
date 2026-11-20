@@ -124,10 +124,14 @@ export const orderPays = (dukkanOn: readonly Payment[], chosen: readonly Payment
 
 /** What a store still needs before it can sell: "pay" (no way to pay is on: orderPays is empty) and "delivery" (no way
     for customers to get their orders: pickup is off and there is no valid delivery choice). */
-export type SellNeed = "pay" | "delivery";
+export type SellNeed = "pay" | "delivery" | "setup";
+
+/** How many first-time setup steps there are (Onboarding): all of them must be marked done before a store can go live */
+export const SETUP_STEPS = 6;
 
 /** The parts of a saved setup (setup.ts SavedSetup, safeAccount cleanSetup) that decide whether the store can sell */
 type SellSetup = {
+  done?: readonly boolean[];
   pays?: readonly Payment[];
   pickup?: boolean;
   shipping?: { mode?: "own" | "seen" | null; name?: string; phone?: string; fee?: number; cities?: unknown } | null;
@@ -149,6 +153,9 @@ export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment
   const courierOk = ship?.mode !== "own" || (visibleLength(ship.name ?? "") >= 2 && isJordanMobile(ship.phone ?? ""));
   const delivers = !!offer && offer.cities.en.length > 0 && courierOk;
   if (setup?.pickup !== true && !delivers) missing.push("delivery");
+  /* every setup step finished (its Done pressed), not only the ones selling needs */
+  const done = setup?.done ?? [];
+  if (done.length < SETUP_STEPS || done.slice(0, SETUP_STEPS).some((d) => d !== true)) missing.push("setup");
   return { ok: missing.length === 0, missing };
 }
 

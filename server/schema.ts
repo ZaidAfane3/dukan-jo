@@ -375,6 +375,9 @@ export const DIWAN_SCHEMA = `
      the row stays as a record for staff: a proof staff were checking, or already approved, doesn't vanish from Diwan
      without a trace. The merchant's own pages and limits never count it again. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;
+  /* A courier proof sent while the merchant is still filling in his delivery choice (setup or the Delivery page) is a
+     draft: Diwan doesn't see it until he saves that choice with his own courier (app/api/store PUT). */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS draft BOOLEAN NOT NULL DEFAULT false;
 
   /* ---------- pictures and videos of the stores (product photos, logos, designs, page backgrounds) ---------- */
   /* One row per file a merchant's store shows, served to anyone at /media/<id> (server/media.ts). The id is random and

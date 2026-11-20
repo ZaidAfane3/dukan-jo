@@ -4,8 +4,8 @@
    - videoLooksReal: an MP4 or WebM must be built the way a real video is (its boxes or elements fit together from the
      first byte to the last, with a video track), not just start with "ftyp" or the WebM mark. Anything else is refused.
    - stripMetadata: the hidden data a phone or a camera writes into a file (EXIF with GPS, XMP, comments, and for a
-     video its "udta" and "meta" boxes, where phones keep the place it was filmed) is taken out, and whatever comes
-     after the end of the picture is dropped. The picture itself is never decoded or changed. A JPEG keeps only which
+     video its "udta" and "meta" boxes, where phones keep the place it was filmed, its timed metadata tracks, and a
+     WebM's Tags, Chapters, title and date) is taken out, and whatever comes after the end of the picture is dropped. The picture itself is never decoded or changed. A JPEG keeps only which
      way up it is (its EXIF orientation), so a photo sent without being redrawn does not turn on its side.
 
    Each gives null when the file is not built the way its kind must be: the caller refuses it. */
@@ -75,19 +75,99 @@ function mp4Boxes(b: Uint8Array): { top: Box[]; moov: Box; moovKids: Box[] } | n
   return { top, moov, moovKids };
 }
 
+/** The first box of a type inside another, or undefined */
+const kidOf = (b: Uint8Array, parent: Box | undefined, type: string) => (parent ? boxesIn(b, parent.body, parent.end)?.find((x) => x.type === type) : undefined);
+
+/** A track's handler (moov > trak > mdia > hdlr): "vide", "soun", "meta"..., or null */
+function handlerOf(b: Uint8Array, trak: Box): string | null {
+  const hdlr = kidOf(b, kidOf(b, trak, "mdia"), "hdlr");
+  return hdlr && hdlr.end - hdlr.body >= 12 ? ascii(b, hdlr.body + 8, 4) : null;
+}
+
 /** Whether an MP4 has a video track: moov > trak > mdia > hdlr with the handler "vide" */
 function hasVideoTrack(b: Uint8Array, moovKids: Box[]): boolean {
-  for (const trak of moovKids.filter((x) => x.type === "trak")) {
-    const mdia = boxesIn(b, trak.body, trak.end)?.find((x) => x.type === "mdia");
-    const hdlr = mdia && boxesIn(b, mdia.body, mdia.end)?.find((x) => x.type === "hdlr");
-    if (hdlr && hdlr.end - hdlr.body >= 12 && ascii(b, hdlr.body + 8, 4) === "vide") return true;
+  return moovKids.some((x) => x.type === "trak" && handlerOf(b, x) === "vide");
+}
+
+/** Where a track's samples are in the file, read from its sample tables (stsc, stsz or stz2, stco or co64): one
+    [start, end) per chunk. Null when the tables are missing, don't agree with each other, point outside the file's
+    mdat boxes, or the samples are kept in another file (a data reference that is not "this file"). */
+function sampleRanges(b: Uint8Array, trak: Box, mdats: Box[]): [number, number][] | null {
+  const minf = kidOf(b, kidOf(b, trak, "mdia"), "minf");
+  const stbl = kidOf(b, minf, "stbl");
+  if (!stbl) return null;
+  const dref = kidOf(b, kidOf(b, minf, "dinf"), "dref");
+  if (dref) {
+    const entries = dref.end - dref.body >= 8 ? boxesIn(b, dref.body + 8, dref.end) : null;
+    /* each entry's flag 1 means "the data is in this file" */
+    if (!entries || entries.some((e) => e.end - e.body < 4 || !(b[e.body + 3] & 1))) return null;
   }
-  return false;
+  const kids = boxesIn(b, stbl.body, stbl.end);
+  if (!kids) return null;
+  const box = (t: string) => kids.find((x) => x.type === t);
+  const stsc = box("stsc");
+  const stsz = box("stsz") ?? box("stz2");
+  const stco = box("stco") ?? box("co64");
+  if (!stsc || !stsz || !stco) return null;
+
+  /* the chunks' offsets */
+  const wide = stco.type === "co64";
+  if (stco.end - stco.body < 8) return null;
+  const chunkCount = u32be(b, stco.body + 4);
+  if (stco.body + 8 + chunkCount * (wide ? 8 : 4) > stco.end) return null;
+  const chunkAt = (c: number) => (wide ? u32be(b, stco.body + 8 + c * 8) * 2 ** 32 + u32be(b, stco.body + 12 + c * 8) : u32be(b, stco.body + 8 + c * 4));
+
+  /* the samples' sizes */
+  if (stsz.end - stsz.body < 12) return null;
+  const sampleCount = u32be(b, stsz.body + 8);
+  let sizeOf: (s: number) => number;
+  if (stsz.type === "stsz") {
+    const fixed = u32be(b, stsz.body + 4);
+    if (fixed) {
+      if (sampleCount * fixed > b.length) return null;
+      sizeOf = () => fixed;
+    } else {
+      if (stsz.body + 12 + sampleCount * 4 > stsz.end) return null;
+      sizeOf = (s) => u32be(b, stsz.body + 12 + s * 4);
+    }
+  } else {
+    const field = b[stsz.body + 7];
+    if (field !== 4 && field !== 8 && field !== 16) return null;
+    if (stsz.body + 12 + Math.ceil((sampleCount * field) / 8) > stsz.end) return null;
+    const at = stsz.body + 12;
+    sizeOf = field === 16 ? (s) => u16be(b, at + s * 2) : field === 8 ? (s) => b[at + s] : (s) => (s & 1 ? b[at + (s >> 1)] & 0x0f : b[at + (s >> 1)] >> 4);
+  }
+
+  /* how many samples each chunk holds: runs of chunks, each from its first chunk (counted from 1) */
+  if (stsc.end - stsc.body < 8) return null;
+  const runs = u32be(b, stsc.body + 4);
+  if (stsc.body + 8 + runs * 12 > stsc.end) return null;
+  const runAt = (r: number) => ({ first: u32be(b, stsc.body + 8 + r * 12), per: u32be(b, stsc.body + 12 + r * 12) });
+
+  const out: [number, number][] = [];
+  let sample = 0;
+  let run = 0;
+  for (let c = 0; c < chunkCount; c++) {
+    while (run + 1 < runs && runAt(run + 1).first <= c + 1) run++;
+    const per = runs ? runAt(run).per : 0;
+    if (sample + per > sampleCount) return null;
+    let len = 0;
+    for (let k = 0; k < per; k++) len += sizeOf(sample++);
+    if (!len) continue;
+    const start = chunkAt(c);
+    const end = start + len;
+    if (!mdats.some((m) => m.body <= start && end <= m.end)) return null;
+    out.push([start, end]);
+  }
+  return sample === sampleCount ? out : null;
 }
 
 /* The boxes phones keep the place, the date and the device in. They are turned into "free" boxes of the same size, their
    contents zeroed: nothing after them moves, so the offsets the video's tables hold stay right and it still plays. */
 const MP4_HIDDEN = new Set(["udta", "meta", "uuid"]);
+/* A track of timed metadata (an iPhone's, a GoPro's GPS stream) has the handler "meta" ("mdta" is the same idea in
+   QuickTime's keys) */
+const META_TRACK = new Set(["meta", "mdta"]);
 
 function stripMp4(src: Uint8Array): Uint8Array | null {
   const parsed = mp4Boxes(src);
@@ -97,10 +177,25 @@ function stripMp4(src: Uint8Array): Uint8Array | null {
     b.set([0x66, 0x72, 0x65, 0x65], x.start + 4); /* "free" */
     b.fill(0, x.body, x.end);
   };
+  const mdats = parsed.top.filter((x) => x.type === "mdat");
+  /* a fragmented video (moof) keeps its samples' places in each fragment, not in the track's tables: its metadata
+     tracks can't be found byte for byte, so they stay (phones and cameras don't write fragmented files) */
+  const fragmented = parsed.top.some((x) => x.type === "moof");
   for (const x of parsed.top) if (MP4_HIDDEN.has(x.type)) blank(x);
   for (const x of parsed.moovKids) {
     if (x.type === "udta" || x.type === "meta") blank(x);
     if (x.type !== "trak") continue;
+    /* a metadata track goes whole: its samples in the mdat are zeroed (nothing moves, so the other tracks' offsets
+       stay right) and the track itself becomes a "free" box. When its tables can't be read exactly, the file is refused
+       rather than kept with the track's data still inside. */
+    const handler = handlerOf(src, x);
+    if (!fragmented && handler && META_TRACK.has(handler)) {
+      const ranges = sampleRanges(src, x, mdats);
+      if (!ranges) return null;
+      for (const [start, end] of ranges) b.fill(0, start, end);
+      blank(x);
+      continue;
+    }
     for (const k of boxesIn(src, x.body, x.end) ?? []) if (k.type === "udta" || k.type === "meta") blank(k);
   }
   return b;
@@ -143,10 +238,16 @@ const SEGMENT = 0x18538067;
 const CLUSTER = 0x1f43b675;
 const TRACKS = 0x1654ae6b;
 const TAGS = 0x1254c367;
-/* what a WebM's segment holds; never Attachments (files carried inside the video) */
-const SEGMENT_KIDS = new Set([0x114d9b74, 0x1549a966, TRACKS, CLUSTER, 0x1c53bb6b, TAGS, 0x1043a770, 0xec, 0xbf]);
+const INFO = 0x1549a966;
+const CHAPTERS = 0x1043a770;
+/* what a WebM's segment holds; never Attachments (files carried inside the video): a file with them is refused */
+const SEGMENT_KIDS = new Set([0x114d9b74, INFO, TRACKS, CLUSTER, 0x1c53bb6b, TAGS, CHAPTERS, 0xec, 0xbf]);
+/* what the segment's Info may say in words: Title, the date it was made (DateUTC) and the file names it had
+   (SegmentFilename, PrevFilename, NextFilename). MuxingApp and WritingApp (the program that wrote it) stay. */
+const INFO_HIDDEN = new Set([0x7ba9, 0x4461, 0x7384, 0x3c83b9, 0x3e83bb]);
 
-function webmParts(b: Uint8Array): { tags: Element[] } | null {
+/** The WebM's parts, and the elements that hold words or dates about it (Tags, Chapters, the Info fields above) */
+function webmParts(b: Uint8Array): { hidden: Element[] } | null {
   const head = elementAt(b, 0, b.length);
   if (!head || head.id !== EBML || head.unknown || head.end - head.start > 256) return null;
   let docType = "";
@@ -160,7 +261,7 @@ function webmParts(b: Uint8Array): { tags: Element[] } | null {
   const seg = elementAt(b, head.end, b.length);
   /* a known size must reach the end of the file: nothing is kept after the video */
   if (!seg || seg.id !== SEGMENT || seg.end !== b.length) return null;
-  const tags: Element[] = [];
+  const hidden: Element[] = [];
   let tracks = false;
   let cluster = false;
   for (let i = seg.body; i < seg.end; ) {
@@ -168,7 +269,21 @@ function webmParts(b: Uint8Array): { tags: Element[] } | null {
     if (!e || !SEGMENT_KIDS.has(e.id)) return null;
     if (e.id === TRACKS) tracks = true;
     if (e.id === CLUSTER) cluster = true;
-    if (e.id === TAGS) tags.push(e);
+    if (e.id === TAGS || e.id === CHAPTERS) hidden.push(e);
+    if (e.id === INFO && !e.unknown) {
+      const found: Element[] = [];
+      let crc: Element | null = null;
+      for (let k = e.body; k < e.end; ) {
+        const f = elementAt(b, k, e.end);
+        if (!f || f.unknown) return null;
+        if (INFO_HIDDEN.has(f.id)) found.push(f);
+        if (f.id === 0xbf) crc = f;
+        k = f.end;
+      }
+      /* the Info's checksum (CRC-32), when it has one, would no longer match: it goes too */
+      if (found.length && crc) found.push(crc);
+      hidden.push(...found);
+    }
     /* a cluster of unknown size (a recording written as it went) runs to the end: the walk stops there */
     if (e.unknown) {
       if (e.id !== CLUSTER) return null;
@@ -176,31 +291,37 @@ function webmParts(b: Uint8Array): { tags: Element[] } | null {
     }
     i = e.end;
   }
-  return tracks && cluster ? { tags } : null;
+  return tracks && cluster ? { hidden } : null;
 }
 
-/* A WebM's Tags (where a recorder may write the place, the date or the device) become a Void element of exactly the
-   same length, its contents zeroed: nothing after it moves, so the video's index (Cues, SeekHead) stays right. */
+/** Turns an element into a Void element of exactly the same length, its contents zeroed. The Void id is 1 byte, so its
+    size takes the bytes the element's longer id and size took (at most 8; a longer header gives the body its extra
+    bytes instead). False when it can't be written. */
+function voidOver(b: Uint8Array, e: Element): boolean {
+  const len = Math.min(8, e.body - e.start - 1);
+  if (len < 1) return false;
+  const value = e.end - e.start - 1 - len;
+  /* all ones would mean "unknown size" */
+  if (value < 0 || value >= 2 ** (7 * len) - 1) return false;
+  b[e.start] = 0xec;
+  let v = value;
+  for (let k = len - 1; k >= 1; k--) {
+    b[e.start + 1 + k] = v % 256;
+    v = Math.floor(v / 256);
+  }
+  b[e.start + 1] = (0x80 >> (len - 1)) | v;
+  b.fill(0, e.start + 1 + len, e.end);
+  return true;
+}
+
+/* A WebM's Tags and Chapters (where a recorder may write the place, the date, the device or a name) and the Info fields
+   above become Void elements of exactly the same length: nothing after them moves, so the video's index (Cues,
+   SeekHead) and the Info's own size stay right. */
 function stripWebm(src: Uint8Array): Uint8Array | null {
   const parts = webmParts(src);
   if (!parts) return null;
   const b = new Uint8Array(src);
-  for (const t of parts.tags) {
-    /* the Tags id (4 bytes) and its size become the Void id (1 byte) and a size 3 bytes longer, so the body stays put */
-    const sizeLen = t.body - t.start - 4;
-    const len = sizeLen + 3;
-    if (len > 8) return null;
-    const value = t.end - t.body;
-    b[t.start] = 0xec;
-    let v = value;
-    for (let k = len - 1; k >= 1; k--) {
-      b[t.start + 1 + k] = v % 256;
-      v = Math.floor(v / 256);
-    }
-    if (v >= 0x80 >> (len - 1)) return null;
-    b[t.start + 1] = (0x80 >> (len - 1)) | v;
-    b.fill(0, t.body, t.end);
-  }
+  for (const e of parts.hidden) if (!voidOver(b, e)) return null;
   return b;
 }
 
@@ -374,6 +495,195 @@ function stripGif(b: Uint8Array): Uint8Array | null {
     const keep = label === 0xf9 || label === 0x01 || (label === 0xff && (app === "NETSCAPE2.0" || app === "ANIMEXTS1.0"));
     if (keep) parts.push(b.subarray(i, end));
     i = end;
+  }
+}
+
+/* ============================== PDF ============================== */
+
+/* A PDF says who made it in two places: its document information (the trailer's /Info: Author, Creator, Producer,
+   Title, Subject, Keywords, and whatever else a program adds) and XMP (a /Metadata stream, the catalog's and sometimes
+   a picture's). A PDF is found by byte offsets (its xref), so nothing may move: each text is overwritten in place with
+   spaces of the same length (an empty text to a reader), and an XMP stream with an empty XMP packet padded with
+   spaces. Only what can be read plainly is touched: an entry inside a compressed object stream, or a compressed XMP
+   stream, stays. The dates (CreationDate, ModDate) stay. An encrypted or signed PDF, or anything that doesn't read the
+   way it should, is kept exactly as it came (a signature would no longer match; an encrypted text can't be blanked). */
+
+const PDF_WS = "\0\t\n\f\r ";
+const PDF_DELIM = "()<>[]{}/%";
+const PDF_KEEP = new Set(["CreationDate", "ModDate"]);
+
+type PdfValue = {
+  kind: "string" | "hex" | "ref" | "dict" | "array" | "name" | "other";
+  start: number;
+  end: number;
+  ref?: [number, number];
+  dict?: Map<string, PdfValue>;
+  items?: PdfValue[];
+};
+
+function pdfSkipWs(s: string, i: number): number {
+  while (i < s.length) {
+    if (s[i] === "%") while (i < s.length && s[i] !== "\n" && s[i] !== "\r") i++;
+    else if (PDF_WS.includes(s[i])) i++;
+    else break;
+  }
+  return i;
+}
+
+/** The plain word (a name's letters, a number, true/false/null) from i */
+function pdfWordEnd(s: string, i: number): number {
+  while (i < s.length && !PDF_WS.includes(s[i]) && !PDF_DELIM.includes(s[i])) i++;
+  return i;
+}
+
+/** The PDF value at i (after any spaces), or null when it doesn't read */
+function pdfValue(s: string, i: number, depth = 0): PdfValue | null {
+  if (depth > 32) return null;
+  i = pdfSkipWs(s, i);
+  const start = i;
+  const c = s[i];
+  if (c === undefined) return null;
+  if (c === "(") {
+    let level = 0;
+    for (; i < s.length; i++) {
+      if (s[i] === "\\") i++;
+      else if (s[i] === "(") level++;
+      else if (s[i] === ")" && --level === 0) return { kind: "string", start, end: i + 1 };
+    }
+    return null;
+  }
+  if (c === "<" && s[i + 1] === "<") {
+    const dict = new Map<string, PdfValue>();
+    i += 2;
+    for (;;) {
+      i = pdfSkipWs(s, i);
+      if (s[i] === ">" && s[i + 1] === ">") return { kind: "dict", start, end: i + 2, dict };
+      if (s[i] !== "/") return null;
+      const keyEnd = pdfWordEnd(s, i + 1);
+      const v = pdfValue(s, keyEnd, depth + 1);
+      if (!v) return null;
+      dict.set(s.slice(i + 1, keyEnd), v);
+      i = v.end;
+    }
+  }
+  if (c === "<") {
+    const end = s.indexOf(">", i);
+    if (end < 0 || !/^[0-9A-Fa-f\0\t\n\f\r ]*$/.test(s.slice(i + 1, end))) return null;
+    return { kind: "hex", start, end: end + 1 };
+  }
+  if (c === "[") {
+    const items: PdfValue[] = [];
+    i++;
+    for (;;) {
+      i = pdfSkipWs(s, i);
+      if (s[i] === "]") return { kind: "array", start, end: i + 1, items };
+      const v = pdfValue(s, i, depth + 1);
+      if (!v) return null;
+      items.push(v);
+      i = v.end;
+    }
+  }
+  if (c === "/") return { kind: "name", start, end: pdfWordEnd(s, i + 1) };
+  const end = pdfWordEnd(s, i);
+  if (end === i) return null;
+  const word = s.slice(i, end);
+  /* "12 0 R": a reference to another object */
+  const ref = /^\d+$/.test(word) ? /^[\0\t\n\f\r ]+(\d+)[\0\t\n\f\r ]+R(?![^\0\t\n\f\r ()<>[\]{}/%])/.exec(s.slice(end, end + 32)) : null;
+  if (ref) return { kind: "ref", start, end: end + ref[0].length, ref: [Number(word), Number(ref[1])] };
+  return /^([+-]?(\d+\.?\d*|\.\d+)|true|false|null)$/.test(word) ? { kind: "other", start, end } : null;
+}
+
+/** Where each copy of object `num gen` begins (just after "obj"): an updated PDF can hold several */
+function pdfObjects(s: string, [num, gen]: [number, number]): number[] {
+  const out: number[] = [];
+  const re = new RegExp(`(?<![0-9])${num}[\\0\\t\\n\\f\\r ]+${gen}[\\0\\t\\n\\f\\r ]+obj(?![^\\0\\t\\n\\f\\r ()<>[\\]{}/%])`, "g");
+  for (let m = re.exec(s); m; m = re.exec(s)) out.push(m.index + m[0].length);
+  return out;
+}
+
+/** The PDF with its document information and XMP blanked (see above), or the same bytes when it is encrypted, signed,
+    has nothing to blank, or doesn't read the way it should. Never longer or shorter. */
+export function stripPdf(src: Uint8Array): Uint8Array {
+  try {
+    const s = Buffer.from(src.buffer, src.byteOffset, src.byteLength).toString("latin1");
+    if (/\/(Encrypt|ByteRange)(?![^\0\t\n\f\r ()<>[\]{}/%])/.test(s)) return src;
+    const b = new Uint8Array(src);
+    let changed = false;
+    const spaces = (v: PdfValue) => {
+      b.fill(0x20, v.start + 1, v.end - 1);
+      changed = true;
+    };
+    const refsTo = (key: string) => {
+      const out = new Map<string, [number, number]>();
+      const re = new RegExp(`/${key}[\\0\\t\\n\\f\\r ]+(\\d+)[\\0\\t\\n\\f\\r ]+(\\d+)[\\0\\t\\n\\f\\r ]+R(?![^\\0\\t\\n\\f\\r ()<>[\\]{}/%])`, "g");
+      for (let m = re.exec(s); m; m = re.exec(s)) out.set(`${m[1]} ${m[2]}`, [Number(m[1]), Number(m[2])]);
+      return Array.from(out.values());
+    };
+    /* a text, a list of texts (Apple's keywords), or a reference to an object that is only a text; anything else there
+       (a name, a number) is left alone. False when a reference leads to something that is not a text. */
+    const blankText = (v: PdfValue): boolean => {
+      if (v.kind === "string" || v.kind === "hex") {
+        spaces(v);
+        return true;
+      }
+      if (v.kind === "array") return (v.items ?? []).every((x) => x.kind === "ref" || blankText(x));
+      if (v.kind !== "ref" || !v.ref) return true;
+      for (const at of pdfObjects(s, v.ref)) {
+        const t = pdfValue(s, at);
+        if (!t || (t.kind !== "string" && t.kind !== "hex")) return false;
+        spaces(t);
+      }
+      return true;
+    };
+
+    /* the document information: every text in it but the dates */
+    for (const ref of refsTo("Info")) {
+      for (const at of pdfObjects(s, ref)) {
+        const info = pdfValue(s, at);
+        if (!info || info.kind !== "dict" || !info.dict) return src;
+        for (const [key, v] of Array.from(info.dict)) {
+          if (PDF_KEEP.has(key)) continue;
+          if (!blankText(v)) return src;
+        }
+      }
+    }
+
+    /* XMP: a /Metadata stream of /Subtype /XML that is not compressed */
+    for (const ref of refsTo("Metadata")) {
+      for (const at of pdfObjects(s, ref)) {
+        const head = pdfValue(s, at);
+        if (!head || head.kind !== "dict" || !head.dict) return src;
+        const d = head.dict;
+        const sub = d.get("Subtype");
+        if (!sub || s.slice(sub.start, sub.end) !== "/XML" || d.has("Filter")) continue;
+        /* the stream's data: just after "stream" and its line end, for /Length bytes, then "endstream" */
+        const kw = /^[\0\t\n\f\r ]*stream(\r\n|\n)/.exec(s.slice(head.end, head.end + 64));
+        if (!kw) return src;
+        const from = head.end + kw[0].length;
+        let length = -1;
+        const len = d.get("Length");
+        if (len?.kind === "other") length = Number(s.slice(len.start, len.end));
+        else if (len?.kind === "ref" && len.ref) {
+          const objs = pdfObjects(s, len.ref);
+          const n = objs.length === 1 ? pdfValue(s, objs[0]) : null;
+          if (n?.kind === "other") length = Number(s.slice(n.start, n.end));
+        }
+        if (!Number.isInteger(length) || length < 0 || from + length > s.length) return src;
+        if (!/^[\0\t\n\f\r ]*endstream/.test(s.slice(from + length, from + length + 32))) return src;
+        /* an XMP packet that says nothing, padded with spaces (as XMP packets are) to the stream's length */
+        const empty = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/></x:xmpmeta>`;
+        const end = `<?xpacket end="w"?>`;
+        /* a line end the stream's data ends with stays */
+        let room = length;
+        while (room > 0 && (s[from + room - 1] === "\n" || s[from + room - 1] === "\r")) room--;
+        const text = room >= empty.length + end.length ? empty + " ".repeat(room - empty.length - end.length) + end : " ".repeat(room);
+        for (let k = 0; k < room; k++) b[from + k] = text.charCodeAt(k);
+        changed = true;
+      }
+    }
+    return changed ? b : src;
+  } catch {
+    return src;
   }
 }
 

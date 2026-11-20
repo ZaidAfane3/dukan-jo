@@ -950,13 +950,14 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
       {chartOpen && p.sizeChart && (
         /* the chart over the page: a press outside it, its close button or Escape closes it */
         <div role="dialog" aria-modal="true" aria-label={w.sizeChart} onClick={() => setChartOpen(false)} onKeyDown={(e) => e.key === "Escape" && setChartOpen(false)} className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4">
-          <div onClick={(e) => e.stopPropagation()} className="relative max-h-full max-w-3xl overflow-auto rounded-2xl bg-white p-3 shadow-2xl">
+          <div onClick={(e) => e.stopPropagation()} className="relative max-h-full w-full max-w-3xl overflow-auto rounded-2xl bg-white p-3 shadow-2xl">
             <div className="mb-2 flex items-center justify-between gap-4 px-1">
               <p className="text-sm font-bold text-[#1c1a17]">{w.sizeChart}</p>
               <button type="button" autoFocus onClick={() => setChartOpen(false)} aria-label={c.close} className="grid h-9 w-9 place-items-center rounded-full text-[#1c1a17] transition hover:bg-black/[0.06]">{icons.close}</button>
             </div>
+            {/* a box of a set shape (the chart fits inside it), so the dialog does not jump when the picture arrives */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.sizeChart} alt={w.sizeChart} className="mx-auto max-h-[75vh] w-auto rounded-lg object-contain" />
+            <img src={p.sizeChart} alt={w.sizeChart} width={1200} height={900} decoding="async" className="mx-auto aspect-[4/3] h-auto max-h-[75vh] w-full rounded-lg object-contain" />
           </div>
         </div>
       )}
@@ -1380,6 +1381,7 @@ function FitTitle({ size, lines, className = "", style, children }: { size: numb
 }
 
 function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { type: "hero" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   /* the default cover line without its delivery promise, for a store that does not deliver (heroLine) */
   const delivers = ctx.sells.delivers;
   const s = useMemo(() => {
@@ -1509,13 +1511,13 @@ function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { t
             <div onClick={open("photo")} className={`absolute right-[7%] top-[9%] w-[47%] overflow-hidden border-2 bg-[#ece4dc] ${ctx.design ? "cursor-pointer" : ""}`} style={{ aspectRatio: "3/4", borderColor: ink, borderRadius: "999px 999px var(--sf-ri) var(--sf-ri)" }}>
               {s.photo && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.photo} alt="" className="h-full w-full object-cover" style={picStyle(s.photoPos)} />
+                <img {...imgLoad} src={s.photo} alt="" className="h-full w-full object-cover" style={picStyle(s.photoPos)} />
               )}
             </div>
             <div onClick={open("photo2")} className={`absolute bottom-[8%] left-[6%] w-[38%] overflow-hidden border-2 ${ctx.design ? "cursor-pointer" : ""}`} style={{ aspectRatio: "3/4", background: "#bfe36a", borderColor: ink, borderRadius: "var(--sf-ri)", transform: "rotate(-7deg)" }}>
               {s.photo2 && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.photo2} alt="" className="h-full w-full object-cover" style={picStyle(s.photo2Pos)} />
+                <img {...imgLoad} src={s.photo2} alt="" className="h-full w-full object-cover" style={picStyle(s.photo2Pos)} />
               )}
             </div>
             {sticker && (
@@ -1594,7 +1596,7 @@ function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { t
               <div onClick={open("photo")} className={`absolute inset-0 overflow-hidden rounded-full ${ctx.design ? "cursor-pointer" : ""}`} style={{ outline: `1px solid ${ringColor}`, outlineOffset: 8, background: "color-mix(in srgb, var(--sf-text) 6%, var(--sf-bg))" }}>
                 {s.photo && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={s.photo} alt={label || pick(s.title)} className="h-full w-full object-cover" style={picFill(s.photoPos)} />
+                  <img {...imgLoad} src={s.photo} alt={label || pick(s.title)} className="h-full w-full object-cover" style={picFill(s.photoPos)} />
                 )}
               </div>
               {(label || s.price) && (
@@ -1635,7 +1637,7 @@ function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { t
           <div className={`relative overflow-hidden ${ctx.compact ? "aspect-[4/3]" : full ? "min-h-[720px]" : "min-h-[26rem]"} ${photoFirst ? "" : "md:order-2"}`}>
             {s.photo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={s.photo} alt="" className="absolute inset-0 h-full w-full object-cover" style={picFill(s.photoPos)} />
+              <img {...imgLoad} src={s.photo} alt="" className="absolute inset-0 h-full w-full object-cover" style={picFill(s.photoPos)} />
             ) : (
               <span className="absolute inset-0 grid place-items-center bg-black/10 px-6 text-center text-sm font-semibold opacity-80">
                 {ctx.design ? (l === "ar" ? "أضف صورة الغلاف من القائمة الجانبية" : "Add the cover photo from the side panel") : ""}
@@ -1728,7 +1730,7 @@ function Hero({ id, s: given, ctx }: { id: string; s: Extract<SectionConfig, { t
             {b.kind === "image" && b.image && (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={b.image} alt="" className="h-full w-full object-cover" style={picFill(b.pos)} />
+                <img {...imgLoad} src={b.image} alt="" className="h-full w-full object-cover" style={picFill(b.pos)} />
                 {/* a dark fade keeps the words readable; it is deepest on the side where the words sit */}
                 <span className="absolute inset-0" style={{ background: low ? "linear-gradient(to top, rgb(0 0 0 / 0.65), rgb(0 0 0 / 0.25) 45%, rgb(0 0 0 / 0.05))" : "linear-gradient(to top, rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.2))" }} />
               </>
@@ -1897,6 +1899,7 @@ const heroLine = (b: { en: string; ar: string }, delivers: boolean) =>
     : { en: STOCK_HERO_LINES[b.en?.trim() ?? ""] ?? b.en, ar: STOCK_HERO_LINES[b.ar?.trim() ?? ""] ?? b.ar };
 
 function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const perkLine = perkLineWith(ctx.sells);
   const items = (s.items ?? []).flatMap((p) => {
     const d = perkLine(p, ctx.lang);
@@ -1929,7 +1932,7 @@ function Perks({ s, ctx }: { s: Extract<SectionConfig, { type: "perks" }>["setti
             <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl" style={onTint(ctx, 11)}>
               {p.icon === "image" && p.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.image} alt="" className="h-full w-full object-cover" />
+                <img {...imgLoad} src={p.image} alt="" className="h-full w-full object-cover" />
               ) : (
                 ic[p.icon as keyof typeof ic] ?? icons.truck
               )}
@@ -1981,6 +1984,7 @@ function Collection({ s, ctx }: { s: Extract<SectionConfig, { type: "collection"
 /* ---------------- Picture tiles ---------------- */
 
 function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const list = (s.items ?? []).filter((x) => x.image);
   const other = ctx.lang === "ar" ? "en" : "ar";
   const title = s.title?.[ctx.lang] || s.title?.[other] || "";
@@ -2013,7 +2017,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
               <div className={`group flex flex-col items-center ${dense ? "px-1" : "px-3"}`}>
                 <div className="aspect-square w-full overflow-hidden rounded-full" style={{ outline: `1px solid ${ringColor}`, outlineOffset: dense ? 4 : 8 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" style={picFill(x.pos)} />
+                  <img {...imgLoad} src={x.image} alt={label} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" style={picFill(x.pos)} />
                 </div>
                 {label && <span className={`${dense ? "mt-3" : "mt-5"} text-center`} style={{ fontFamily: "var(--sf-heading)", fontSize: dense ? (ctx.compact ? 13 : 16) : ctx.compact ? 18 : 22 }}><Say>{label}</Say></span>}
               </div>
@@ -2034,7 +2038,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
           const body = (
             <div className={`group relative overflow-hidden bg-black/5 ${editorial ? `rounded-[4px] ${ctx.compact ? "h-[200px]" : "h-[260px]"}` : "aspect-[4/5] rounded-[var(--sf-r)]"}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={x.image} alt={label} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" style={picFill(x.pos)} />
+              <img {...imgLoad} src={x.image} alt={label} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" style={picFill(x.pos)} />
               {label &&
                 (editorial ? (
                   <span
@@ -2064,6 +2068,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
 /* ---------------- Promo banners: text and a button laid over a picture ---------------- */
 
 function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const list = s.items ?? [];
   const other = ctx.lang === "ar" ? "en" : "ar";
   if (!list.length) {
@@ -2104,7 +2109,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const sizeClass = tall ? (ctx.compact ? "h-[420px]" : "h-[600px]") : ctx.compact ? "aspect-[4/3]" : ratio;
           const photo = b.image && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={b.image} alt="" className="absolute inset-0 -z-10 h-full w-full object-cover" style={picStyle(b.pos)} />
+            <img {...imgLoad} src={b.image} alt="" className="absolute inset-0 -z-10 h-full w-full object-cover" style={picStyle(b.pos)} />
           );
           const shell = `relative isolate overflow-hidden rounded-[var(--sf-r)] ${sizeClass}`;
           /* no picture (or he removed his): the default Dukkan look, in the store's own color, whatever theme is on */
@@ -2174,7 +2179,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
                           >
                             {src && (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={src} alt="" className="h-full w-full object-cover" style={k === 0 ? picStyle(b.pos) : picFill(b.imagesPos?.[k - 1])} />
+                              <img {...imgLoad} src={src} alt="" className="h-full w-full object-cover" style={k === 0 ? picStyle(b.pos) : picFill(b.imagesPos?.[k - 1])} />
                             )}
                           </div>
                         );
@@ -2278,6 +2283,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
 }
 
 function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const list = (s.slides ?? []).filter((x) => x.image);
   const [i, setI] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -2313,7 +2319,7 @@ function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["set
         {list.map((x, n) => {
           const img = (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={x.image} alt="" className="h-full w-full object-cover" style={picFill(x.pos)} />
+            <img {...imgLoad} src={x.image} alt="" className="h-full w-full object-cover" style={picFill(x.pos)} />
           );
           return (
             <div key={n} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: n === idx ? 1 : 0 }} aria-hidden={n !== idx}>
@@ -2864,6 +2870,7 @@ function saveSubscriber(email: string) {
 }
 
 function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "newsletter" }>["settings"]; ctx: Ctx }) {
+  const imgLoad = useImgLoad();
   const [email, setEmail] = useState("");
   const [bad, setBad] = useState(false);
   const [done, setDone] = useState(false);
@@ -2985,7 +2992,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
             </button>
             {pp?.image && (
               // eslint-disable-next-line @next/next/no-img-element
-              <div className="h-44 w-full overflow-hidden"><img src={pp.image} alt="" className="h-full w-full object-cover" style={picFill(pp.imagePos)} /></div>
+              <div className="h-44 w-full overflow-hidden"><img {...imgLoad} src={pp.image} alt="" className="h-full w-full object-cover" style={picFill(pp.imagePos)} /></div>
             )}
             <div className="px-8 pb-8 pt-9">
               <h3 className="text-3xl font-extrabold leading-tight" style={{ fontFamily: "var(--sf-heading)" }}>{popTitle}</h3>
@@ -3129,13 +3136,24 @@ const sectionNames = {
   ar: { hero: "الغلاف الرئيسي", perks: "مزايا المتجر", featured: "منتجات مميزة", discounts: "التخفيضات", products: "شبكة المنتجات", text: "نص حر", reviews: "آراء العملاء", collection: "منتجات ثابتة", slides: "صور متحركة", tiles: "معرض صور", banners: "بنرات ترويجية", ribbon: "شريط الكلمات", chips: "أزرار ملوّنة", newsletter: "النشرة البريدية" },
 };
 
-export function renderSection(s: SectionConfig, ctx: Ctx) {
+/** One section of the page. first: it is the first section shown, so its pictures load first (fetchPriority high) and
+    pictures of the later sections wait until they come near the screen (StorefrontTheme.tsx passes it) */
+export function renderSection(s: SectionConfig, ctx: Ctx, first = false) {
   if (!s.visible) return null;
-  return <SectionView key={s.id} s={s} ctx={ctx} />;
+  return <SectionView key={s.id} s={s} ctx={ctx} first={first} />;
+}
+
+/* whether the section being drawn is the first one shown on the page (renderSection) */
+const FirstSection = createContext(false);
+const FIRST_IMG = { fetchPriority: "high" } as const;
+const LATER_IMG = { loading: "lazy", decoding: "async" } as const;
+/** How a section's pictures load: the first section's at once and first, a later section's only near the screen */
+function useImgLoad() {
+  return useContext(FirstSection) ? FIRST_IMG : LATER_IMG;
 }
 
 /* One section. It draws again only when its own settings or what all sections share (ctx) change, not when another section is edited. */
-const SectionView = memo(function SectionView({ s, ctx }: { s: SectionConfig; ctx: Ctx }) {
+const SectionView = memo(function SectionView({ s, ctx, first }: { s: SectionConfig; ctx: Ctx; first: boolean }) {
   const inner = (() => {
     switch (s.type) {
       case "hero":
@@ -3171,7 +3189,9 @@ const SectionView = memo(function SectionView({ s, ctx }: { s: SectionConfig; ct
   return (
     <Movers id={s.id} moves={s.moves} pics={s.pics} subFont={s.subFont} design={ctx.design} lang={ctx.lang} flat={s.type === "hero"}>
       <Selectable id={s.id} name={sectionNames[ctx.lang][s.type]} ctx={ctx}>
-        <SectionTitleLook.Provider value={s.titleLook}>{inner}</SectionTitleLook.Provider>
+        <FirstSection.Provider value={first}>
+          <SectionTitleLook.Provider value={s.titleLook}>{inner}</SectionTitleLook.Provider>
+        </FirstSection.Provider>
       </Selectable>
     </Movers>
   );

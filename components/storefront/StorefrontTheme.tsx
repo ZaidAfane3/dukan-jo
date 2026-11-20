@@ -1018,6 +1018,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       )}
     </div>
   );
+  /* the home page's first section shown: its pictures load first, the later sections' only near the screen */
+  const firstShown = config.sections.find((s) => s.visible)?.id;
 
   return (
     <div ref={root} dir={lang === "ar" ? "rtl" : "ltr"} className="store-preview relative isolate overflow-hidden text-[var(--sf-text)]" style={vars}>
@@ -1244,7 +1246,8 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           <>
             {searchQ && <SearchResults query={searchQ} items={found} ctx={ctx} onClear={clearFromResults} />}
             {/* hidden, not taken away, while a search shows: its sliders and places are as he left them when it clears */}
-            <div style={{ display: searchQ ? "none" : "contents" }}>{config.sections.map((s) => renderSection(s, ctx))}</div>
+            {/* the first section shown (most often the hero) loads its picture first: fetchPriority high (sections.tsx) */}
+            <div style={{ display: searchQ ? "none" : "contents" }}>{config.sections.map((s) => renderSection(s, ctx, s.id === firstShown))}</div>
           </>
         )}
       </main>

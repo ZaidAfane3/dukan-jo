@@ -21,7 +21,8 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
   const asked = sp.get("status") ?? "waiting";
   const status = FILTERS.includes(asked) ? asked : "all";
   const kind = KINDS.includes(sp.get("kind") ?? "") ? sp.get("kind")! : "";
-  const where: string[] = [];
+  /* a courier proof whose delivery choice isn't saved yet is the merchant's draft, not Diwan's to check */
+  const where: string[] = ["NOT d.draft"];
   const args: unknown[] = [];
   if (STATUSES.includes(status)) where.push(`d.status = $${args.push(status)}`, "d.removed_at IS NULL");
   if (status === "removed") where.push("d.removed_at IS NOT NULL");
@@ -48,7 +49,7 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
   /* each status counts the documents still kept; the removed ones have a count of their own */
   const counts = await pool.query(
     `SELECT CASE WHEN removed_at IS NULL THEN status ELSE 'removed' END AS status, count(*)::int AS n
-       FROM documents ${one ? "WHERE account_id = $1" : ""} GROUP BY 1`,
+       FROM documents WHERE NOT draft${one ? " AND account_id = $1" : ""} GROUP BY 1`,
     one ? [shop] : [],
   );
   /* the store's name for "Only this store", known even when the chosen tab has no document of it */

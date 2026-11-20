@@ -73,15 +73,20 @@ export async function publicStore(slug: string): Promise<PublicStore | null> {
   const name = String(slug ?? "").toLowerCase();
   if (!SLUG_RULE.test(name)) return null;
   const pool = await db();
+  /* one trip to the database: the shop, and beside it one row per saved key it has (none: one row with key null). A
+     suspended shop's saved data is not read at all. */
   const { rows } = await pool.query(
-    `SELECT account_id, name, slug, color, status, paused, published FROM shops WHERE lower(slug) = $1 LIMIT 1`,
-    [name],
+    `SELECT s.account_id, s.name, s.slug, s.color, s.status, s.paused, s.published, d.key, d.value
+       FROM (SELECT account_id, name, slug, color, status, paused, published FROM shops WHERE lower(slug) = $1 LIMIT 1) s
+       LEFT JOIN store_data d ON d.account_id = s.account_id AND s.status <> 'suspended' AND d.key = ANY($2::text[])`,
+    [name, READ_KEYS],
   );
-  const shop = rows[0] as ShopRow | undefined;
-  if (!shop) return null;
+  const first = rows[0] as (ShopRow & { key: string | null; value: string | null }) | undefined;
+  if (!first) return null;
+  const shop: ShopRow = { account_id: first.account_id, name: first.name, slug: first.slug, color: first.color, status: first.status, paused: first.paused, published: first.published };
   if (shop.status === "suspended") return { status: "unavailable" };
-  const saved = await pool.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [shop.account_id, READ_KEYS]);
-  const data = new Map<string, string>(saved.rows.map((r: { key: string; value: string }) => [r.key, r.value]));
+  const data = new Map<string, string>();
+  for (const r of rows as { key: string | null; value: string | null }[]) if (r.key !== null && r.value !== null) data.set(r.key, r.value);
   return shapePublicStore(
     shop,
     data,

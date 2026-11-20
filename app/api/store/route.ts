@@ -349,6 +349,20 @@ export const PUT = guarded(async (req: NextRequest) => {
     }
   }
   touchShop(a.id);
+  /* his delivery choice saved with his own courier: the courier proofs he sent for it go to Diwan to be checked */
+  const savedSetup = set.find(([k]) => k === "seen-setup");
+  if (savedSetup) {
+    let mode: string | null | undefined = null;
+    try {
+      mode = cleanSetup(JSON.parse(savedSetup[1] as string))?.shipping?.mode;
+    } catch {
+      /* not JSON: nothing to hand over */
+    }
+    if (mode === "own")
+      await (await db())
+        .query(`UPDATE documents SET draft = false WHERE account_id = $1 AND draft AND kind = 'courier_proof'`, [a.id])
+        .catch((e) => console.error("[documents] hand over", a.id, e));
+  }
   /* a picture the pages no longer use doesn't stay public for long */
   sweepSoon(await db(), a.id);
   /* the new version of each list saved, for the browser's next save of it */

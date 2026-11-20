@@ -1,4 +1,5 @@
 import { answer, readJson, tooManyFor } from "@/server/auth";
+import { cleanSetup } from "@/components/safeAccount";
 import { seal, sealBytes } from "@/server/crypto";
 import { db } from "@/server/db";
 import { ACCOUNT_BYTES, BODY_MAX, checkUpload, documentName, documentsRoute, MERCHANT_KINDS, merchantDocument, partnerKind, partnerName, PER_ACCOUNT, PER_PARTNER, type MerchantKind } from "@/server/documents";
@@ -37,6 +38,19 @@ export const POST = documentsRoute(async (req, me) => {
   const name = documentName(body.name);
   const partner = partnerName(body.partner);
   const pKind = partnerKind(body.partnerKind);
+  /* a courier proof is a draft (Diwan doesn't see it) until his delivery choice is saved with his own courier: already
+     saved so (the Delivery page of a store that uses its courier), it goes to Diwan at once */
+  let draft = false;
+  if (kind === "courier_proof") {
+    const r = await (await db()).query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [me.id]);
+    let mode: string | null | undefined = null;
+    try {
+      mode = r.rows[0] ? cleanSetup(JSON.parse(r.rows[0].value as string))?.shipping?.mode : null;
+    } catch {
+      mode = null;
+    }
+    draft = mode !== "own";
+  }
 
   const saved = await inTransaction(async (c) => {
     /* one upload at a time per account, so two sent together can't both slip under a limit */
@@ -59,10 +73,10 @@ export const POST = documentsRoute(async (req, me) => {
     /* the platform's own ceiling, shared by every account's files (server/media.ts storageFull) */
     if (await storageFull(c, file.size)) return "storage-full" as const;
     const ins = await c.query(
-      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9)
+      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, draft)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10)
        RETURNING id, public_id, rejection_seen, seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
-      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq],
+      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, draft],
     );
     return ins.rows[0] as Record<string, unknown>;
   });

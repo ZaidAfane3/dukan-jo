@@ -319,6 +319,8 @@ export type Coupon = {
   end: string; /* YYYY-MM-DD, or "" for "no end date" */
   limit: number; /* 0 = unlimited */
   validDays: number; /* only for next-order coupons */
+  /* next-order coupons: the day it was made (YYYY-MM-DD), from which its days are counted when it has no start date */
+  from?: string;
   used: number;
   /* How many of those uses were orders on the public store, counted by the server: kept as it is, so a save of an older
      copy of the coupons gets the uses it has not seen added again (mergeUsedOnline) */
@@ -379,6 +381,16 @@ export function couponDates(c: { start: string; end: string }, today = storeToda
   return "now";
 }
 
+/** A next-order coupon past its days: counted from its start date, or the day it was made, both days included */
+export function nextOrderEnded(c: { type?: CouponType; validDays?: number; start?: string; from?: string }, today = storeToday()): boolean {
+  if (c.type !== 3 || !c.validDays || c.validDays <= 0) return false;
+  const base = c.start || c.from;
+  if (!base || !/^\d{4}-\d{2}-\d{2}$/.test(base)) return false;
+  const last = new Date(`${base}T00:00:00Z`);
+  last.setUTCDate(last.getUTCDate() + c.validDays - 1);
+  return today > last.toISOString().slice(0, 10);
+}
+
 /** Why a code typed at checkout is not taken */
 export type CouponRefusal = "unknown" | "off" | "soon" | "ended" | "usedUp" | "min";
 
@@ -392,6 +404,7 @@ export function checkCoupon(code: unknown, coupons: Coupon[], subtotal: number, 
   if (!c.active) return { ok: false, why: "off" };
   const when = couponDates(c, today);
   if (when !== "now") return { ok: false, why: when };
+  if (nextOrderEnded(c, today)) return { ok: false, why: "ended" };
   if (c.limit > 0 && c.used >= c.limit) return { ok: false, why: "usedUp" };
   if (c.minOrder > 0 && subtotal < c.minOrder) return { ok: false, why: "min" };
   const off = c.kind === "percent" ? (subtotal * c.value) / 100 : c.kind === "fixed" ? c.value : 0;
@@ -461,6 +474,7 @@ export function cleanCoupon(x: Record<string, unknown>): Coupon | null {
     end: cleanDate(x.end),
     limit: count(x.limit),
     validDays: type === 3 ? count(x.validDays, 30, 365, 1) : 0,
+    ...(type === 3 && cleanDate(x.from) ? { from: cleanDate(x.from) } : {}),
     used: count(x.used),
     ...(count(x.usedOnline) > 0 ? { usedOnline: count(x.usedOnline) } : {}),
     active: x.active !== false,

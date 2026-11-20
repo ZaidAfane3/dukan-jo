@@ -116,7 +116,13 @@ export type PlacedOrder = {
   /* delivered by his own courier with no fee set: none is in the total and the receipt says the store confirms it (never
      "Free"). Left out on an order sent again after its answer was lost (the cart then keeps what it showed). */
   feeOpen?: boolean;
+  /* a big order (more than BIG_ORDER_ITEMS pieces): it waits for the store to confirm it ("review"), its stock held */
+  review?: boolean;
 };
+
+/** An order with more pieces than this waits for the merchant to confirm it: it is placed as "review" (Awaiting review),
+    its stock is taken (held) as for any order, and goes back if he cancels it (cancelling gives stock back). */
+export const BIG_ORDER_ITEMS = 7;
 
 /** What the cart works the delivery and the discount out from, as the store has them now: sent back with a "changed"
     answer, so a customer whose page has older ones (a new delivery fee, offer or coupon) sees the right total */
@@ -144,13 +150,13 @@ export type PlaceResult =
 /** The order a checkout's key placed at this store, as the checkout shows it, or null */
 async function orderByAttempt(c: PoolClient, account: string, key: string): Promise<PlacedOrder | null> {
   const done = await c.query(
-    `SELECT number, items, subtotal, discount, delivery_fee, total, coupon, fulfil, payment_method FROM store_orders WHERE account_id = $1 AND attempt_key = $2`,
+    `SELECT number, items, subtotal, discount, delivery_fee, total, coupon, fulfil, payment_method, status FROM store_orders WHERE account_id = $1 AND attempt_key = $2`,
     [account, key],
   );
   const o = done.rows[0];
   if (!o) return null;
   const items = (Array.isArray(o.items) ? o.items : []).map((it: Record<string, unknown>) => ({ id: Number(it.id), name: String(it.name ?? ""), qty: Number(it.qty), price: Number(it.price), ...(typeof it.size === "string" && it.size ? { size: it.size } : {}) }));
-  return { number: Number(o.number), items, subtotal: Number(o.subtotal), discount: Number(o.discount), delivery: Number(o.delivery_fee), total: Number(o.total), coupon: o.coupon ?? null, fulfil: o.fulfil === "pickup" ? "pickup" : "delivery", pay: o.payment_method as Payment };
+  return { number: Number(o.number), items, subtotal: Number(o.subtotal), discount: Number(o.discount), delivery: Number(o.delivery_fee), total: Number(o.total), coupon: o.coupon ?? null, fulfil: o.fulfil === "pickup" ? "pickup" : "delivery", pay: o.payment_method as Payment, ...(o.status === "review" ? { review: true } : {}) };
 }
 
 /** Whether the order a checkout's key was sent with got in (a page reloaded while it was on its way: Cart keptAttempt).
@@ -298,17 +304,18 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
        Ship > Orders) */
     /* who takes it to the customer; nothing to deliver (A2: only codes, services...): nobody, so it never reaches
        Dukkan Ship's To deliver list */
+    const big = items.reduce((n, it) => n + Number(it.qty || 0), 0) > BIG_ORDER_ITEMS;
     const shipBy = !ships ? "none" : v.fulfil === "pickup" ? "pickup" : checkoutShipMode(setup) === "own" ? "own" : "dukkan";
     await c.query(
       `INSERT INTO store_orders (account_id, number, items, subtotal, discount, delivery_fee, total, coupon, fulfil,
-                                 customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key, ship_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17, $18)`,
+                                 customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key, ship_by, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17, $18, $19)`,
       [
         /* the lines (product names, sizes) and the coupon code are the shop's own words, kept unsealed: made safe first */
         id, number, JSON.stringify(plainDeep(items)), priced.subtotal, discount, delivery, total, plainText(couponUsed), v.fulfil,
         /* the customer's details are private: sealed, and opened again only for the shop's own owner (GET /api/orders) */
         seal(v.customer), v.phone ? seal(v.phone) : null, v.email ? seal(v.email) : null,
-        v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt, shipBy,
+        v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt, shipBy, big ? "review" : "pending",
       ],
     );
 
@@ -330,7 +337,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);
 
     const feeOpen = ships && fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !(freeDelivery.on && priced.subtotal >= freeDelivery.min);
-    return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen } } };
+    return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen, ...(big ? { review: true } : {}) } } };
   });
 }
 

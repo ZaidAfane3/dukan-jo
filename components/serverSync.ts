@@ -15,7 +15,7 @@
    down in this browser, per account (the "outbox"), until the server confirms them, and the next page load of that
    account sends them first (resumeSaves). Leaving the page while a change is still on its way asks first. */
 
-import { accountValue, replaceAccountValue, restoreAccountValue, signedInAs } from "./demoSandbox";
+import { accountFrozen, accountValue, replaceAccountValue, restoreAccountValue, signedInAs } from "./demoSandbox";
 import { lastOrderNumber, ORDER_NUMBER_KEY } from "./orderNumbers";
 import { LIST_KEYS, listMarks, mergeList, VERSION_KEYS, type ItemMarks } from "./listMerge";
 import { bounceIfSuspended } from "./suspended";
@@ -464,6 +464,9 @@ function readBases(owner: string): Record<string, Base> {
 }
 
 function writeBases(owner: string, change: Record<string, Base>) {
+  /* only for the account signed in here: a save answered after a log out (accounts.ts forgetAccount) never writes
+     anything of the account back into this browser. A change still waiting keeps the version it was made from. */
+  if (owner !== signedInAs() || accountFrozen()) return;
   try {
     localStorage.setItem(basesKey(owner), JSON.stringify({ ...readBases(owner), ...change }));
   } catch {
@@ -827,6 +830,36 @@ export async function resendOldPictures(data: Record<string, string>) {
   }
   /* a save already coming takes them along */
   if (any && !timer) schedule(2_000);
+}
+
+/** Before a log out: sends every change of the signed-in account the server has not confirmed yet (this page's, and any
+    a page left in the outbox), and waits for the answers. True once none is left waiting; false when some could not
+    go (no connection, the server not answering, this tab may not save: oneTab.ts), so the merchant is asked before
+    they are lost. A change the server refused for good is not waiting any more (the page already said so). */
+export async function sendAllWaiting(): Promise<boolean> {
+  const me = signedInAs();
+  if (!me) return true;
+  /* this tab may send nothing (stopped, or not the account's active tab): what waits stays as it is */
+  if (halted || !gate()) return !waitingKeys().size;
+  /* a list the server changed since comes back to be merged and sent again (mergeStale): a few rounds for that */
+  for (let round = 0; round < 4; round++) {
+    for (const [k, mark] of Object.entries(readOutbox(me))) {
+      if (pending.has(k) || onTheWay.has(k)) continue;
+      /* not this page's own change: it names the version it was made from, as when resumeSaves takes it */
+      if (marks.get(k) !== mark) replay.add(k);
+      pending.set(k, accountValue(k));
+      marks.set(k, mark);
+    }
+    failures = 0;
+    await flushSaves();
+    /* the quick saves sent as the tab was hidden are still answered first */
+    await Promise.all(Array.from(onTheWay.values()));
+    if (signedInAs() !== me) return false;
+    if (!waitingKeys().size) return true;
+    /* could not be sent (put back to try later), or nothing could even be tried: asking is next */
+    if (failures > 0 || halted || paused || !gate()) return false;
+  }
+  return !waitingKeys().size;
 }
 
 /** Forgets the changes waiting to go in this page (used when signing out after they were sent, or when the account

@@ -2,8 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { checkImageBytes } from "@/components/safe";
 import { dataUrlBytes, isMovablePicture, MEDIA_ID, MEDIA_LIMITS, mediaIdsIn, mediaRule, mediaUrl, PICTURE_KEYS, swapInSaved, type MediaKind } from "@/components/mediaRules";
-import { seal } from "./crypto";
-import { kindOfMime, stripMetadata, videoLooksReal } from "./mediaBytes";
+import { SITE_HOST } from "@/components/siteAddress";
+import { openBytes, seal, sealBytes } from "./crypto";
+import { kindOfMime, stripMetadata, stripPdf, videoLooksReal } from "./mediaBytes";
 
 /* The pictures and videos of the merchants' stores: product photos, logos, the designer's pictures and the page
    background. Each file is kept once, under the account that sent it, and served to anyone at /media/<id>
@@ -393,7 +394,35 @@ export async function takeDownMedia(pool: Pool, id: string, staffId: string): Pr
     await pool.query(`INSERT INTO media_blocked (sha256, media_id, staff_id) VALUES ($1, $2, $3) ON CONFLICT (sha256) DO NOTHING`, [h, file.id, staffId]);
   const { rows } = await pool.query(`DELETE FROM media WHERE sha256 = ANY($1::text[]) RETURNING id, backend`, [Array.from(hashes)]);
   await removeBlobs(rows);
+  /* Cloudflare would go on showing its copy for up to a day (app/media/[id]/route.ts): it is told to forget each address */
+  await purgeFromCache(Array.from(new Set([file.id, ...rows.map((r: { id: string }) => r.id)])));
   return file;
+}
+
+/** Asks Cloudflare to forget its copies of these files (POST zones/<zone>/purge_cache), when CLOUDFLARE_ZONE_ID and
+    CLOUDFLARE_API_TOKEN are set (a token allowed only "Zone > Cache Purge" on Dukkan's zone is enough). The address
+    is the site's own (components/siteAddress.ts SITE_HOST) on https. A failure is logged and nothing more: the file is
+    already gone from Dukkan, and Cloudflare's copy ends within a day anyway. */
+export async function purgeFromCache(ids: string[]): Promise<void> {
+  const zone = process.env.CLOUDFLARE_ZONE_ID?.trim();
+  const token = process.env.CLOUDFLARE_API_TOKEN?.trim();
+  if (!zone || !token || !ids.length) return;
+  const urls = ids.map((id) => `https://${SITE_HOST}${mediaUrl(id)}`);
+  /* Cloudflare takes at most 30 addresses in one request */
+  for (let i = 0; i < urls.length; i += 30) {
+    try {
+      const res = await fetch(`https://api.cloudflare.com/client/v4/zones/${encodeURIComponent(zone)}/purge_cache`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ files: urls.slice(i, i + 30) }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const out = (await res.json().catch(() => null)) as { success?: boolean; errors?: unknown } | null;
+      if (!res.ok || !out?.success) console.error(`[media] Cloudflare purge failed (${res.status}):`, JSON.stringify(out?.errors ?? null).slice(0, 300));
+    } catch (e) {
+      console.error("[media] Cloudflare purge failed:", e instanceof Error ? e.message : e);
+    }
+  }
 }
 
 /* ---------------- moving picture data out of saved data ---------------- */
@@ -455,6 +484,142 @@ export async function moveOldPictures(pool: Pool): Promise<{ keys: number; chang
     return { keys: list.length, changed };
   } finally {
     if (locked) await lockClient.query(`SELECT pg_advisory_unlock($1)`, [MOVE_LOCK]).catch(() => {});
+    lockClient.release();
+  }
+}
+
+/* ---------------- taking the hidden data out of files kept before ---------------- */
+
+/* The one-time pass over the files kept before hidden data was taken out on the way in (server/mediaBytes.ts): store
+   files (media), the papers sent for checking (documents, sealed) and ticket pictures (sealed data URLs). Each file is
+   cleaned as a new one would be and written back only when that changed it and nobody changed it meanwhile. It runs in
+   the background once the database is ready (server/db.ts), on one server at a time (an advisory lock), a few rows at a
+   time (each file is read by its own query: a 25 MB video in a batch would not fit the 30 s query limit), and is marked
+   done in start_seeds once every table went through, so later starts skip it. Running it again is harmless: a clean
+   file comes out of the cleaning the same.
+   A store file's hash changes with its bytes. media_blocked stays right: when either the old or the new hash is blocked,
+   both are, and the file goes as a takedown would have taken it (the same picture, kept before it was cleaned, was
+   never matched by the takedown's hashes). A file whose cleaned form the same account already keeps as another file is
+   left as it is: both addresses are in use, and the two can't share a hash (media_account_sha). */
+const CLEAN_DONE = "media-cleaned-1";
+const CLEAN_LOCK = 71009;
+const CLEAN_BATCH = 25;
+
+type CleanCount = { checked: number; cleaned: number; skipped: number; removed: number; failed: number };
+type Cleaned = "same" | "cleaned" | "skipped" | "removed";
+
+const DOCUMENT_KIND: Record<string, "jpeg" | "png" | "webp" | "pdf"> = { "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" };
+const sha256Of = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
+const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0;
+
+/** One store file: "same", "cleaned", "skipped" (it can't be cleaned, or the account keeps its cleaned form already),
+    or "removed" (its bytes were taken down) */
+async function cleanOneMedia(pool: Pool, id: string): Promise<Cleaned> {
+  const { rows } = await pool.query(`SELECT kind, mime, sha256, data FROM media WHERE id = $1 AND backend = 'postgres'`, [id]);
+  const r = rows[0];
+  if (!r || !Buffer.isBuffer(r.data)) return "skipped";
+  const kind = kindOfMime(r.mime);
+  const clean = kind ? stripMetadata(r.data, kind) : null;
+  if (!clean) return "skipped";
+  if (sameBytes(clean, r.data)) return "same";
+  /* taking things out must never make a file the upload would refuse (unless the rules changed since it was kept) */
+  if ("problem" in checkMedia(clean, r.kind) && !("problem" in checkMedia(r.data, r.kind))) return "skipped";
+  const oldHash = String(r.sha256);
+  const newHash = sha256Of(clean);
+  const bytes = Buffer.from(clean.buffer, clean.byteOffset, clean.byteLength);
+
+  const blocked = await pool.query(`SELECT sha256, media_id, staff_id FROM media_blocked WHERE sha256 = ANY($1::text[])`, [[oldHash, newHash]]);
+  if (blocked.rows.length) {
+    const b = blocked.rows[0];
+    for (const h of [oldHash, newHash])
+      await pool.query(`INSERT INTO media_blocked (sha256, media_id, staff_id) VALUES ($1, $2, $3) ON CONFLICT (sha256) DO NOTHING`, [h, b.media_id, b.staff_id]);
+    const gone = await pool.query(`DELETE FROM media WHERE sha256 = ANY($1::text[]) RETURNING id, backend`, [[oldHash, newHash]]);
+    await removeBlobs(gone.rows);
+    await purgeFromCache(gone.rows.map((x: { id: string }) => x.id));
+    console.log(`[media] cleaning old files: ${gone.rows.length} copies of a file Diwan took down were removed`);
+    return "removed";
+  }
+  try {
+    const up = await pool.query(`UPDATE media SET data = $2, bytes = $3, sha256 = $4 WHERE id = $1 AND sha256 = $5`, [id, bytes, bytes.length, newHash, oldHash]);
+    return up.rowCount ? "cleaned" : "skipped";
+  } catch (e) {
+    /* the account already keeps the cleaned bytes as another file (media_account_sha) */
+    if ((e as { code?: string }).code === "23505") return "skipped";
+    throw e;
+  }
+}
+
+/** One paper sent for checking: its file opened, cleaned (a picture's hidden data, a PDF's author and title) and sealed
+    again */
+async function cleanOneDocument(pool: Pool, id: string): Promise<Cleaned> {
+  const { rows } = await pool.query(`SELECT data, mime FROM documents WHERE id = $1 AND data IS NOT NULL`, [id]);
+  const r = rows[0];
+  const kind = r ? DOCUMENT_KIND[r.mime] : undefined;
+  const plain = r && kind ? openBytes(r.data) : null;
+  if (!plain || !kind) return "skipped";
+  const clean = kind === "pdf" ? stripPdf(plain) : stripMetadata(plain, kind);
+  if (!clean) return "skipped";
+  if (sameBytes(clean, plain)) return "same";
+  const up = await pool.query(`UPDATE documents SET data = $2, bytes = $3 WHERE id = $1 AND data = $4`, [id, sealBytes(clean), clean.length, r.data]);
+  return up.rowCount ? "cleaned" : "skipped";
+}
+
+/** One ticket picture (a data URL, sealed; db.ts hands it back opened) */
+async function cleanOneTicketPicture(pool: Pool, id: string): Promise<Cleaned> {
+  const { rows } = await pool.query(`SELECT data, mime FROM ticket_pictures WHERE id = $1`, [id]);
+  const r = rows[0];
+  const kind = r ? ({ "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp" } as const)[r.mime as "image/jpeg"] : undefined;
+  const m = r && kind && typeof r.data === "string" ? /^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(r.data) : null;
+  if (!m || !kind) return "skipped";
+  const plain = Buffer.from(m[1], "base64");
+  const clean = stripMetadata(plain, kind);
+  if (!clean) return "skipped";
+  if (sameBytes(clean, plain)) return "same";
+  const data = `data:${r.mime};base64,${Buffer.from(clean.buffer, clean.byteOffset, clean.byteLength).toString("base64")}`;
+  const up = await pool.query(`UPDATE ticket_pictures SET data = $2, bytes = $3 WHERE id = $1`, [id, seal(data), clean.length]);
+  return up.rowCount ? "cleaned" : "skipped";
+}
+
+export async function cleanOldFiles(pool: Pool): Promise<Record<string, CleanCount> | null> {
+  const lockClient = await pool.connect();
+  let locked = false;
+  try {
+    locked = (await lockClient.query(`SELECT pg_try_advisory_lock($1) AS ok`, [CLEAN_LOCK])).rows[0]?.ok === true;
+    /* another server is doing it */
+    if (!locked) return null;
+    const done = await pool.query(`SELECT 1 FROM start_seeds WHERE key = $1`, [CLEAN_DONE]);
+    if (done.rows.length) return null;
+    /* files kept from now on are cleaned on the way in: only the ones already there are looked at */
+    const until = (await pool.query(`SELECT now()::text AS t`)).rows[0].t as string;
+    /* the table, how its ids sort, and how one row is cleaned; the ids only are read a batch at a time (keyset) */
+    const tables: [string, string, string, (id: string) => Promise<Cleaned>][] = [
+      ["media", `SELECT id FROM media WHERE id > $1 AND backend = 'postgres' AND created_at < $2::timestamptz ORDER BY id LIMIT $3`, "", (id) => cleanOneMedia(pool, id)],
+      ["documents", `SELECT id::text AS id FROM documents WHERE id > $1::bigint AND data IS NOT NULL AND created_at < $2::timestamptz ORDER BY id LIMIT $3`, "0", (id) => cleanOneDocument(pool, id)],
+      ["ticket_pictures", `SELECT id::text AS id FROM ticket_pictures WHERE id > $1::bigint AND created_at < $2::timestamptz ORDER BY id LIMIT $3`, "0", (id) => cleanOneTicketPicture(pool, id)],
+    ];
+    const counts: Record<string, CleanCount> = {};
+    for (const [table, list, first, clean] of tables) {
+      const n: CleanCount = (counts[table] = { checked: 0, cleaned: 0, skipped: 0, removed: 0, failed: 0 });
+      for (let after = first; ; ) {
+        const { rows } = await pool.query(list, [after, until, CLEAN_BATCH]);
+        for (const { id } of rows) {
+          n.checked++;
+          /* a row that fails is counted and the pass goes on; it is not marked done then, so it runs again next start */
+          const got = await clean(String(id)).catch((e): "failed" => {
+            console.error(`[media] cleaning old files: ${table} ${id}`, e instanceof Error ? e.message : e);
+            return "failed";
+          });
+          if (got !== "same") n[got]++;
+        }
+        if (rows.length < CLEAN_BATCH) break;
+        after = String(rows[rows.length - 1].id);
+      }
+    }
+    if (Object.values(counts).every((n) => !n.failed)) await pool.query(`INSERT INTO start_seeds (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`, [CLEAN_DONE]);
+    for (const [table, n] of Object.entries(counts)) if (n.cleaned || n.removed || n.skipped || n.failed) console.log(`[media] cleaning old files, ${table}:`, JSON.stringify(n));
+    return counts;
+  } finally {
+    if (locked) await lockClient.query(`SELECT pg_advisory_unlock($1)`, [CLEAN_LOCK]).catch(() => {});
     lockClient.release();
   }
 }

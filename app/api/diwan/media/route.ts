@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
 /* One store file (a picture or video at /media/<id>, server/media.ts), for staff who look after stores: what it is and
    whose, and taking it down for good. A merchant who uploaded something by mistake (an ID card, a customer's details)
    or a file that breaks the rules: the file goes at once, with every copy of the same bytes, and those bytes can't be
-   kept again. Pages that used it show nothing in its place. Browsers that already loaded it may keep it up to 30 days,
-   and Cloudflare up to a day (app/media/[id]/route.ts). */
+   kept again. Pages that used it show nothing in its place. Browsers that already loaded it may keep it up to 30 days
+   (app/media/[id]/route.ts). Cloudflare is told to forget it when CLOUDFLARE_ZONE_ID and CLOUDFLARE_API_TOKEN are set
+   (server/media.ts purgeFromCache); without them its copy lasts up to a day. */
 
 /** The file's id from what staff pasted: the id, its address (/media/<id>) or a full link to it */
 function idOf(v: unknown): string | null {

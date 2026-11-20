@@ -18,6 +18,7 @@ import { storeIsLive } from "./storefront/storage";
 
 export const sellWords = {
   en: {
+    setup: "Finish all 6 setup steps",
     pay: "Turn on at least one way to pay",
     delivery: "Choose how customers get their orders (delivery or pickup)",
     notReady: "Not ready to sell yet. Before your store can go live:",
@@ -28,6 +29,7 @@ export const sellWords = {
     shipDefaultCta: "Choose your delivery option",
   },
   ar: {
+    setup: "أكمل خطوات الإعداد الست كلها",
     pay: "فعّل طريقة دفع واحدة على الأقل",
     delivery: "اختر كيف يستلم العملاء طلباتهم (توصيل أو استلام)",
     notReady: "متجرك غير جاهز للبيع بعد. قبل أن يُنشر متجرك:",
@@ -40,7 +42,7 @@ export const sellWords = {
 };
 
 /** Where each missing thing is fixed: the Delivery options page, its Ways to pay card for a way to pay */
-export const SELL_LINKS: Record<SellNeed, string> = { pay: "/delivery#ways-to-pay", delivery: "/delivery" };
+export const SELL_LINKS: Record<SellNeed, string> = { pay: "/delivery#ways-to-pay", delivery: "/delivery", setup: "/onboarding" };
 
 /** The rule's inputs from Diwan's settings as the pages have them */
 export const sellPlatformOf = (s: PublicSettingsLike) => ({ pays: storePays(s), shipCities: shipCityLists(s) });
@@ -78,7 +80,9 @@ export function useSellReady() {
 
 /** What a live store is missing, with "delivery" left out when it delivers with Dukkan Ship by default (shipsByDefault:
     ShipDefaultNote says so instead) */
-export const liveMissing = (missing: SellNeed[], shipDefault: boolean): SellNeed[] => (shipDefault ? missing.filter((m) => m !== "delivery") : missing);
+export const liveMissing = (missing: SellNeed[], shipDefault: boolean): SellNeed[] =>
+  /* a store already live keeps selling with setup steps left (customers can still order): only going live needs them */
+  missing.filter((m) => m !== "setup" && !(shipDefault && m === "delivery"));
 
 /** A live store that delivers with Dukkan Ship by default: says so, with a link to choose on Delivery options */
 export function ShipDefaultNote({ lang, className = "" }: { lang: Lang; className?: string }) {

@@ -17,6 +17,12 @@ services:
       # The key for encrypting stored data. Run openssl rand -base64 32 in your shell, then put its output in .env as
       # DUKKAN_DATA_KEY=<generated value>. Keep it safe and never change it once data has been saved with it.
       DUKKAN_DATA_KEY: ${DUKKAN_DATA_KEY:-}
+      # Optional. The most all stored files may take together, in bytes (default 40 GB).
+      STORAGE_MAX_BYTES: ${STORAGE_MAX_BYTES:-}
+      # Optional. When both are set, a file Diwan takes down is also cleared from Cloudflare's cache. The token only
+      # needs Zone > Cache Purge on this site's zone.
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
     depends_on:
       db:
         condition: service_healthy

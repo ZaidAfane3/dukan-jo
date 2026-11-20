@@ -93,6 +93,7 @@ const words = {
     placedTitle: "Thank you, your order is in",
     placedBoth: "Order #{id}. The store will contact you on {phone} or at {email} to confirm it.",
     placedCard: "Nothing was charged to your card.",
+    placedReview: "This is a big order, so the store will confirm it with you before preparing it.",
     yourOrder: "Your order",
     place: "Place the order",
     errName: "Enter your name.",
@@ -197,6 +198,7 @@ const words = {
     placedTitle: "شكرًا لك، وصلنا طلبك",
     placedBoth: "طلب رقم {id}. سيتواصل معك المتجر على رقمك {phone} أو بريدك الإلكتروني {email} لتأكيده.",
     placedCard: "لم يُخصم أي مبلغ من بطاقتك.",
+    placedReview: "هذا طلب كبير، لذلك سيؤكده المتجر معك قبل تجهيزه.",
     yourOrder: "طلبك",
     place: "تأكيد الطلب",
     errName: "اكتب اسمك.",
@@ -336,7 +338,7 @@ function keepDetails(slug: string, form: Record<(typeof DETAIL_KEYS)[number], st
 }
 
 /* the server's answer for an order that is in (POST /api/public/store/<link>/orders) */
-type PlacedAnswer = { number: number; items: PricedLine[]; total: number; subtotal?: number; discount?: number; delivery?: number; coupon?: string | null; fulfil?: string; feeOpen?: boolean };
+type PlacedAnswer = { number: number; items: PricedLine[]; total: number; subtotal?: number; discount?: number; delivery?: number; coupon?: string | null; fulfil?: string; feeOpen?: boolean; review?: boolean };
 
 /* how long one send of an order may take before it is given up (and sent once more with the same key) */
 const SEND_TIMEOUT = 20_000;
@@ -419,7 +421,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const [sendErr, setSendErr] = useState("");
   /* (the receipt's lines as the server worked them out: the subtotal, the coupon's discount and the delivery, so they add
      up to the total; `feeOpen`: his own courier with no fee set, the store confirms it) */
-  const [placed, setPlaced] = useState<{ number: number; items: PricedLine[]; subtotal: number; discount: number; coupon: string | null; delivery: number; fulfil: Fulfil; feeOpen: boolean; total: number; phone: string; email: string; pay: Pay | null; /* something in it is delivered (no delivery line otherwise) */ ships: boolean } | null>(null);
+  const [placed, setPlaced] = useState<{ number: number; items: PricedLine[]; subtotal: number; discount: number; coupon: string | null; delivery: number; fulfil: Fulfil; feeOpen: boolean; review: boolean; total: number; phone: string; email: string; pay: Pay | null; /* something in it is delivered (no delivery line otherwise) */ ships: boolean } | null>(null);
   /* the public store: the delivery fee and free delivery offer as the server answered them, when they changed since the
      page opened (the cart then works its total out from these, as the server does) */
   /* (`fee` null: his own courier with no fee set, the store confirms it) */
@@ -619,6 +621,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       delivery: num(got.delivery, delivery),
       fulfil: got.fulfil === "pickup" || got.fulfil === "delivery" ? got.fulfil : fulfil,
       feeOpen: typeof got.feeOpen === "boolean" ? got.feeOpen : feeOpen,
+      review: got.review === true,
       total: got.total,
       phone: mobile ? `0${mobile}` : phoneIn.trim(),
       email: emailIn.trim().toLowerCase(),
@@ -1149,6 +1152,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
             return <>{before}<bdi dir="ltr">{placed.phone}</bdi>{middle}<bdi dir="ltr">{placed.email}</bdi>{after}</>;
           })()}
         </p>
+        {placed.review && <p className="mt-1 text-xs font-semibold opacity-70">{w.placedReview}</p>}
         {placed.pay === "card" && <p className="mt-1 text-xs font-semibold opacity-70">{w.placedCard}</p>}
         {placed.pay === "cliq" && <p dir="auto" className="mt-1 text-xs font-semibold opacity-70">{cliqOr("cliq")}</p>}
         <div className="mt-5 rounded-[var(--sf-ri,10px)] bg-sf-text/[0.04] p-4 text-start">

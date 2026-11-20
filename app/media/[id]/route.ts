@@ -47,7 +47,7 @@ function rangeOf(header: string | null, size: number): ByteRange | null | "bad" 
 
 async function serve(req: NextRequest, id: string, head: boolean): Promise<NextResponse> {
   try {
-    /* per visitor: browsers and Cloudflare keep each file for a year, so only a script asks this often */
+    /* per visitor: browsers keep each file for 30 days and Cloudflare for a day, so only a script asks this often */
     if (tooMany(req, "media", 2000, 10)) return new NextResponse(null, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "60" } });
     const pool = await db();
     const file = await mediaInfo(pool, id);
@@ -55,8 +55,9 @@ async function serve(req: NextRequest, id: string, head: boolean): Promise<NextR
     if (!file || !SERVED_MIME.has(file.mime) || file.suspended) return missing();
     const etag = `"${file.sha256}"`;
     const base = headersFor(file.mime, etag);
+    /* the browser (or Cloudflare) already holds these bytes: the tag is the file's sha256, so it matches only them */
     const tags = req.headers.get("if-none-match");
-    if (tags && tags.split(",").some((t) => t.trim().replace(/^W\//, "") === etag)) return new NextResponse(null, { status: 304, headers: base });
+    if (tags && (tags.trim() === "*" || tags.split(",").some((t) => t.trim().replace(/^W\//, "") === etag))) return new NextResponse(null, { status: 304, headers: base });
 
     /* an If-Range that does not match this file asks for all of it */
     const ifRange = req.headers.get("if-range");

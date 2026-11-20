@@ -1,6 +1,7 @@
 "use client";
 
-import { createAccount, logIn, logOut } from "./accounts";
+import { createAccount, logIn } from "./accounts";
+import { useLogOut } from "./LogOut";
 import { demoActive, endDemo } from "./demoSandbox";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -137,6 +138,8 @@ export function SignupForm() {
   const [tab, setTab] = useState<Tab>("create");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
+  /* the guest button signs out an account still signed in here, the same way the account menu does */
+  const out = useLogOut(lang);
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", loginId: "" });
   const [errors, setErrors] = useState<Errors>({});
   /* a message about the whole form, not one field (too many sign-ups from this connection) */
@@ -477,20 +480,22 @@ export function SignupForm() {
           </div>
           <button
             type="button"
-            onClick={() => {
-              try {
-                void logOut();
-                sessionStorage.removeItem("seen-account-phone");
-                sessionStorage.setItem("seen-signed-in", "1");
-              } catch {
-                /* ignore */
-              }
-              router.push(tour ? "/demo" : "/onboarding");
-            }}
+            onClick={() =>
+              out.start(() => {
+                try {
+                  sessionStorage.removeItem("seen-account-phone");
+                  sessionStorage.setItem("seen-signed-in", "1");
+                } catch {
+                  /* ignore */
+                }
+                router.push(tour ? "/demo" : "/onboarding");
+              })
+            }
             className="mt-6 h-12 w-full rounded-xl border border-fg/20 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-soft"
           >
             {c.guest}
           </button>
+          {out.dialog}
 
           {tab === "create" && (
             <p className="mt-6 text-center text-xs leading-relaxed text-muted">

@@ -1,6 +1,8 @@
 import { timeoutSignal } from "./timeoutSignal";
-import { accountData, demoActive, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
-import { adoptVersions, dropSaves, flushSaves, forgetOutboxes, leaveWithoutAsking, ONLINE_KEYS, resendOldPictures, resumeSaves, setOnlineRev, stopSaves, waitingKeys, whenSignedOut } from "./serverSync";
+import { accountData, demoActive, freezeAccount, replaceAccountData, signedInAs, signInAs, storedValue } from "./demoSandbox";
+import { adoptVersions, dropSaves, flushSaves, forgetOutboxes, leaveWithoutAsking, ONLINE_KEYS, resendOldPictures, resumeSaves, sendAllWaiting, setOnlineRev, stopSaves, waitingKeys, whenSignedOut } from "./serverSync";
+import { forgetAccount, forgetHeldSince, forgetOtherAccounts, heldForNobody } from "./forgetAccount";
+import { loadDrafts } from "./ticketDrafts";
 import { releaseTab, tabState } from "./oneTab";
 import { asSuspension, forgetSuspension, rememberSuspension, SUSPENDED_PATH } from "./suspended";
 
@@ -24,12 +26,32 @@ function rememberProfile(a: PublicAccount) {
   }
 }
 
-/* Whether this tab was signed in to an account: its profile is kept here from the sign-in until a log out (forgetProfile) */
+/* Whether this tab was signed in to an account: its profile is kept here from the sign-in until a log out (forgetProfile).
+   A sign-out the merchant did not choose forgets the profile too (forgetAccount.ts: it is his name, email and number),
+   and leaves only this mark, which names nobody */
+const HAD_ACCOUNT = "dukkan-had-account";
 function tabHadAccount(): boolean {
   try {
-    return sessionStorage.getItem("seen-account-profile") !== null;
+    return sessionStorage.getItem("seen-account-profile") !== null || sessionStorage.getItem(HAD_ACCOUNT) === "1";
   } catch {
     return false;
+  }
+}
+function markTabHadAccount() {
+  try {
+    if (tabHadAccount()) sessionStorage.setItem(HAD_ACCOUNT, "1");
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/* The email of the account this tab's profile names (the browser may no longer name one) */
+function profileEmail(): string {
+  try {
+    const p = JSON.parse(sessionStorage.getItem("seen-account-profile") ?? "null") as { email?: unknown } | null;
+    return typeof p?.email === "string" ? p.email : "";
+  } catch {
+    return "";
   }
 }
 
@@ -38,6 +60,7 @@ function forgetProfile() {
   try {
     sessionStorage.removeItem("seen-account-phone");
     sessionStorage.removeItem("seen-account-profile");
+    sessionStorage.removeItem(HAD_ACCOUNT);
   } catch {
     /* storage blocked */
   }
@@ -105,10 +128,13 @@ export async function createAccount(a: { email: string; name: string; phone: str
   if (result === "taken" || result === "taken-phone" || result === "slow-down") return result;
   if (result !== "ok" || !r?.reply.account) return "error";
   dropSaves({ keepOutbox: true });
+  dropPendingLogOut();
+  const before = signedInAs() ?? (profileEmail() || null);
   signInAs(r.reply.account.email);
   /* a new account starts with an empty store, even if this browser kept something under the same email before, and no
      account's unsent changes from before are sent under it */
   forgetOutboxes(null);
+  forgetOtherAccounts(r.reply.account.email, before);
   replaceAccountData({});
   setOnlineRev(0);
   markSynced();
@@ -130,7 +156,7 @@ export async function logIn(id: string, password: string): Promise<"ok" | "wrong
   if (suspension) rememberSuspension(suspension);
   if (result === "wrong" || result === "slow-down" || result === "suspended" || result === "code") return result;
   if (result !== "ok" || !r?.reply.account) return "error";
-  await signedIn(r.reply.account);
+  if (!(await signedIn(r.reply.account))) return "error";
   askTwoStep();
   return "ok";
 }
@@ -142,26 +168,47 @@ export async function logInCode(code: string): Promise<"ok" | "wrong" | "expired
   const result = r?.reply.result;
   if (result === "wrong" || result === "expired" || result === "slow-down") return result;
   if (result !== "ok" || !r?.reply.account) return "error";
-  await signedIn(r.reply.account);
+  if (!(await signedIn(r.reply.account))) return "error";
   return "ok";
 }
 
-async function signedIn(a: PublicAccount) {
+/* False when the store could not be brought here: the sign-in does not hold (see below) */
+async function signedIn(a: PublicAccount): Promise<boolean> {
   forgetSuspension();
+  dropPendingLogOut();
   /* this page's waiting changes were whoever was signed in before: forgotten here (their outbox is decided below) */
   dropSaves({ keepOutbox: true });
+  const before = signedInAs() ?? (profileEmail() || null);
   signInAs(a.email);
-  rememberProfile(a);
   /* changes this same account left unsent in this browser (the page closed, or its session ended) go first, now that
      the session is its own, so the copy loaded next has them; any other account's are dropped, never sent */
   forgetOutboxes(a.email);
+  /* and nothing else another account left here either (signed out without a log out: forgetAccount.ts) */
+  forgetOtherAccounts(a.email, before);
+  rememberProfile(a);
   resumeSaves();
   const keep = waitingKeys();
   if (keep.size) await flushSaves();
-  /* if the store can't be loaded right now, what this browser has is used, and the next page load tries again. Changes
-     that still could not go keep this browser's value */
-  await loadStore(keep);
+  /* Changes that still could not go keep this browser's value. This browser keeps no copy of the store once signed out
+     (forgetAccount.ts), so the sign-in holds only once the store is here: a page opening on an empty copy saves its
+     empty list, which would go over the server's store. Tried twice; otherwise this browser is signed out again, what
+     could not go stays in the outbox for the next try, and the sign-in form says the server could not be reached. */
+  if (!(await loadStore(keep)) && !(await loadStore(keep))) {
+    dropSaves({ keepOutbox: true });
+    releaseTab(true);
+    signInAs(null);
+    forgetProfile();
+    /* the session the server just made is ended on the next page load (told now, its answer could land after the
+       next sign-in and end that one); a sign-in before then takes its place */
+    try {
+      localStorage.setItem(LOGOUT_PENDING, "1");
+    } catch {
+      /* storage blocked */
+    }
+    return false;
+  }
   watchSession();
+  return true;
 }
 
 /* Just signed in or up without 2-step codes: the first dashboard page asks to turn them on, once per sign-in
@@ -179,29 +226,85 @@ function askTwoStep(newAccount = false) {
   }
 }
 
-/** Logging out: what is left is sent first, then the session ends, and the next visitor sees no one's store */
+/** Before a log out (LogOut.tsx): sends everything of the account still waiting to go and waits for it, at most `waitMs`
+    (a slow connection never holds the log out: what is still on its way goes on by itself, and he is asked). `saved`:
+    none is left (false: some could not go, or not yet, and a log out now loses them); `drafts`: the account's support
+    ticket drafts in this browser, which a log out removes (they are never sent to Dukkan, see ticketDrafts.ts). */
+export async function readyToLogOut(waitMs = 5_000): Promise<{ saved: boolean; drafts: number }> {
+  if (!signedInAs()) return { saved: true, drafts: 0 };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<boolean>((r) => (timer = setTimeout(() => r(false), waitMs)));
+  const saved = await Promise.race([sendAllWaiting(), late]);
+  clearTimeout(timer);
+  return { saved, drafts: signedInAs() ? loadDrafts().length : 0 };
+}
+
+/** Logging out, chosen by the merchant (after readyToLogOut, and his answer when something could not be saved): the
+    session ends and this browser forgets the account: its store, its unsent changes, its drafts and this tab's notes of
+    it (forgetAccount.ts). The store comes back from the server at the next sign-in, here or anywhere. */
 export async function logOut(): Promise<void> {
   forgetSuspension();
-  const wasSignedIn = !!signedInAs();
-  /* flushSaves takes the waiting changes at once, so this browser can leave the account straight away (the next page
-     must not open its store) while they are still on their way */
-  const sending = wasSignedIn ? flushSaves() : Promise.resolve();
-  /* the outbox stays: each change is crossed out as the server confirms it, and what is left (another tab's, or one
-     that could not go) is sent when this account signs in again here; another account signing in deletes it */
-  dropSaves({ keepOutbox: true });
+  const email = signedInAs();
+  /* sends held for Undo as he logs out go as their pages close, for nobody by then (see forgetHeldSince) */
+  const held = heldForNobody();
+  /* nothing more is sent: what was waiting went (readyToLogOut), or he chose to leave it */
+  dropSaves();
   /* another tab of this account may take over at once; the tab lease cookies go with the account (oneTab.ts) */
   releaseTab(true);
   signInAs(null);
   forgetProfile();
-  /* at most 5 s: the outbox keeps what didn't go, so a slow connection never holds the log out */
-  await Promise.race([sending, new Promise((r) => setTimeout(r, 5_000))]);
   try {
     sessionStorage.removeItem(SYNCED);
   } catch {
     /* storage blocked */
   }
-  if (wasSignedIn) await call("/api/auth/logout", "POST");
+  if (!email) return;
+  forgetAccount(email, { keepUnsent: false });
+  /* the dashboard's pages close after this, and a request still on its way may answer meanwhile (a send held for Undo
+     goes as its page closes and keeps its words until it is answered): whatever they wrote under the account's name is
+     forgotten too, unless the same account signed in again by then, in this tab or another (the browser's own mark) */
+  setTimeout(() => {
+    forgetHeldSince(held);
+    if (signedInAs() !== email && storedValue("local", ACCOUNT_MARK) !== email) forgetAccount(email, { keepUnsent: false });
+  }, 4_000);
+  /* at most 5 s: the browser has already forgotten the account, and a log out the server has not heard of yet is told
+     later (endServerSession) */
+  await Promise.race([endServerSession(), new Promise((r) => setTimeout(r, 5_000))]);
 }
+
+/* A log out the server could not be told of (no connection): the browser forgot the account, but its session cookie,
+   which the page can't read or remove, would still open the store on the server for whoever uses this browser next.
+   A mark that names nobody is kept until it is told: when the connection comes back, and on the next page load
+   (syncOnOpen). A sign-in here drops it: its new session takes the cookie's place. */
+const LOGOUT_PENDING = "dukkan-logout-pending";
+async function endServerSession() {
+  /* kept before asking: the page may close before the answer comes */
+  try {
+    localStorage.setItem(LOGOUT_PENDING, "1");
+  } catch {
+    /* storage blocked */
+  }
+  const r = await call("/api/auth/logout", "POST");
+  /* told (or there was no session): done. No answer, the server failing, or too many requests: later (the mark stays,
+     unless a sign-in here dropped it meanwhile: its own session counts then) */
+  if (r && r.status < 500 && r.status !== 429 && r.status !== 408) dropPendingLogOut();
+  else window.addEventListener("online", () => void tellPendingLogOut(), { once: true });
+}
+async function tellPendingLogOut() {
+  try {
+    if (signedInAs() || localStorage.getItem(LOGOUT_PENDING) !== "1") return;
+  } catch {
+    return;
+  }
+  await endServerSession();
+}
+const dropPendingLogOut = () => {
+  try {
+    localStorage.removeItem(LOGOUT_PENDING);
+  } catch {
+    /* storage blocked */
+  }
+};
 
 /* ---------------- this tab and the browser's session ----------------
    The session cookie and the signed-in account (demoSandbox.ts keeps it under "dukkan-account") are the browser's,
@@ -231,11 +334,24 @@ function leaveForSignIn(elsewhere = false) {
   } catch {
     /* storage blocked */
   }
-  /* the browser still names this account: it is signed out for every tab. Another account's sign-in is left alone. */
-  if (mark !== null && mark === signedInAs()) {
-    signInAs(null);
-    releaseTab(true);
+  /* the browser still names this account, or none (another tab of it signed out): it is signed out for every tab, and
+     this browser keeps only what the account had not sent yet, for its next sign-in here (forgetAccount.ts). Another
+     account's sign-in is left alone: that sign-in forgets this one (forgetOtherAccounts). */
+  const mine = signedInAs() ?? profileEmail();
+  if (mine && (mark === null || mark === mine)) {
+    /* none: this tab still goes by the account until it has left, so a ticket being written as its page closes is kept
+       as the account's draft, never left for nobody; but its pages keep none of the store's data any more (a list saved
+       again as it closes, read from the copy just emptied, would be sent over the server's: demoSandbox.ts freezeAccount) */
+    if (mark !== null) {
+      signInAs(null);
+      releaseTab(true);
+    }
+    markTabHadAccount();
+    forgetAccount(mine, { keepUnsent: true });
   }
+  /* still going by the account (signed out, or another account signed in, in another tab): its pages write none of its
+     store back here while this tab leaves */
+  if (signedInAs()) freezeAccount();
   try {
     sessionStorage.removeItem("seen-signed-in");
     sessionStorage.removeItem(SYNCED);
@@ -337,6 +453,8 @@ export async function syncOnOpen() {
   checked = true;
   const email = signedInAs();
   if (!email) {
+    /* a log out the server has not heard of yet: told now */
+    void tellPendingLogOut();
     /* the browser names no account, but this tab still does (its profile, kept until a log out): its session ended
        without a log out here (a suspension signed it out, then Dukkan reactivated the store; another tab signed out).
        A dashboard page then never shows the empty store of no account under that name: it goes to sign in, like any
@@ -348,7 +466,19 @@ export async function syncOnOpen() {
   /* not the account's active Dukkan tab (oneTab.ts): it loads and sends nothing until "Use here", which loads it again */
   if (tabState() === "inactive") return;
   lastCheck = Date.now();
-  const me = await call("/api/auth/me", "GET");
+  /* this tab already has the store as the server has it (then only the session is asked) */
+  let done = false;
+  try {
+    done = sessionStorage.getItem(SYNCED) === "1";
+  } catch {
+    /* storage blocked */
+  }
+  /* taken before asking: a change that lands while the answers come is not in them (the outbox's keys are in it too,
+     which resumeSaves below sends) */
+  const keep = waitingKeys();
+  /* both asked at once, neither needs the other's answer: the store's is used only once the session is known to be
+     this account's (and dropped otherwise) */
+  const [me, r] = await Promise.all([call("/api/auth/me", "GET"), done ? Promise.resolve(null) : call("/api/store", "GET")]);
   /* the server can't be reached: carry on with this browser's copy */
   if (!me || me.status >= 500 || leaving) return;
   /* Dukkan suspended the store while this tab was signed in: the tab is signed out like below, but goes to the page
@@ -357,6 +487,10 @@ export async function syncOnOpen() {
   if (suspension) {
     dropSaves();
     signInAs(null);
+    /* this browser forgets the store; the outbox was dropped above (a suspended store's saves are refused anyway), so
+       only his ticket drafts stay */
+    markTabHadAccount();
+    forgetAccount(email, { keepUnsent: true });
     try {
       sessionStorage.removeItem("seen-signed-in");
       sessionStorage.removeItem(SYNCED);
@@ -382,19 +516,10 @@ export async function syncOnOpen() {
   }
   /* the session is this account's: changes a page left unsent here go first (serverSync.ts outbox) */
   resumeSaves();
-  let done = false;
-  try {
-    done = sessionStorage.getItem(SYNCED) === "1";
-  } catch {
-    /* storage blocked */
-  }
   /* This tab has the store as the server has it: pictures still kept inside it (saved before they went to the server as
      files, or a page background kept only in this browser) are sent now, once. */
   const pictures = () => void resendOldPictures(accountData());
   if (done) return pictures();
-  /* taken before asking: a change that lands while the answer comes is not in it */
-  const keep = waitingKeys();
-  const r = await call("/api/store", "GET");
   if (r?.status === 401) return void checkSession(true);
   if (r?.status !== 200 || !r.reply.data || leaving) return;
   markSynced();

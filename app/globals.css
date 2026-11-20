@@ -663,3 +663,28 @@ input[type="radio"]:not(.sr-only):disabled { opacity: 0.5; cursor: not-allowed; 
 :where(button, [role="button"], input[type="submit"], input[type="button"], summary):not([class*="transition"]) {
   transition: scale 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
+
+/* The 2-step sign-in page (components/TwoStepPrompt.tsx): fades over the dashboard, its text rises a little, and it fades
+   away when closed. Plain CSS so the dashboard does not load an animation library for it. Reduced motion: the fade only. */
+@keyframes two-step-fade-in {
+  from { opacity: 0; }
+}
+@keyframes two-step-fade-out {
+  to { opacity: 0; }
+}
+@keyframes two-step-rise {
+  from { opacity: 0; transform: translateY(16px); }
+}
+.two-step-in {
+  animation: two-step-fade-in 200ms cubic-bezier(0.23, 1, 0.32, 1) backwards;
+}
+.two-step-out {
+  animation: two-step-fade-out 150ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  pointer-events: none;
+}
+.two-step-rise {
+  animation: two-step-rise 250ms cubic-bezier(0.23, 1, 0.32, 1) 50ms backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .two-step-rise { animation-name: two-step-fade-in; }
+}

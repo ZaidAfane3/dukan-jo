@@ -7,7 +7,7 @@ import { pushNotification } from "./notifications";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
 import { latin } from "./digits";
-import { COUPON_MAX, cleanCoupon, cleanCouponDescription, cleanCouponName, couponDates, couponName, couponProblems, parseList, storeToday, typedMoney, type Coupon, type CouponKind, type CouponType } from "./records";
+import { cleanCoupon, cleanCouponDescription, cleanCouponName, type Coupon, COUPON_MAX, couponDates, type CouponKind, couponName, couponProblems, type CouponType, nextOrderEnded, parseList, storeToday, typedMoney } from "./records";
 import { dropUndos, listUndo, offerUndo } from "./undo";
 import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { usePageTitle } from "./pageTitle";
@@ -68,7 +68,7 @@ function randomCode(length = 6): string {
 type Status = 1 | 2 | 3 | 4 | 5;
 function statusOf(c: Coupon): Status {
   const when = couponDates(c, isoToday());
-  if (when === "ended") return 3;
+  if (when === "ended" || nextOrderEnded(c, isoToday())) return 3;
   if (c.limit > 0 && c.used >= c.limit) return 4;
   if (!c.active) return 2;
   return when === "soon" ? 5 : 1;
@@ -214,6 +214,8 @@ function CouponDialog({
       end,
       limit: parseInt(limit, 10) > 0 ? parseInt(limit, 10) : 0,
       validDays: type === 3 ? days : 0,
+      /* its days are counted from the day it was made (kept when it is edited) */
+      ...(type === 3 ? { from: initial?.from || isoToday() } : {}),
       used: initial?.used ?? 0,
       /* its uses on the public store stay counted, so the server never adds them again (records.ts mergeUsedOnline) */
       ...(initial?.usedOnline ? { usedOnline: initial.usedOnline } : {}),
