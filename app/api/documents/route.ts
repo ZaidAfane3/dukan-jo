@@ -38,23 +38,25 @@ export const POST = documentsRoute(async (req, me) => {
   const name = documentName(body.name);
   const partner = partnerName(body.partner);
   const pKind = partnerKind(body.partnerKind);
-  /* a courier proof is a draft (Diwan doesn't see it) until his delivery choice is saved with his own courier: already
-     saved so (the Delivery page of a store that uses its courier), it goes to Diwan at once */
-  let draft = false;
-  if (kind === "courier_proof") {
-    const r = await (await db()).query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [me.id]);
-    let mode: string | null | undefined = null;
-    try {
-      mode = r.rows[0] ? cleanSetup(JSON.parse(r.rows[0].value as string))?.shipping?.mode : null;
-    } catch {
-      mode = null;
-    }
-    draft = mode !== "own";
-  }
-
   const saved = await inTransaction(async (c) => {
     /* one upload at a time per account, so two sent together can't both slip under a limit */
     await c.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [me.id]);
+    /* a courier proof is a draft (Diwan doesn't see it) until his delivery choice is saved with his own courier: already
+       saved so (the Delivery page of a store that uses its courier), it goes to Diwan at once. Read under the account's
+       save lock (app/api/store PUT takes it to save the setup, and hands drafts over after): a save running now either
+       finished before this read (own: not a draft) or waits for this row and then hands it over. */
+    let draft = false;
+    if (kind === "courier_proof") {
+      await c.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [me.id]);
+      const r = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [me.id]);
+      let mode: string | null | undefined = null;
+      try {
+        mode = r.rows[0] ? cleanSetup(JSON.parse(r.rows[0].value as string))?.shipping?.mode : null;
+      } catch {
+        mode = null;
+      }
+      draft = mode !== "own";
+    }
     /* the counts are of what the merchant still keeps; the bytes also count a removed file whose bytes are still stored
        (the few minutes it can be restored in, until purgeRemovedFiles clears data and file_key), so removing and sending
        again can't store more than the limit; the next number counts removed ones too, so it is never reused */

@@ -601,12 +601,34 @@ function pdfObjects(s: string, [num, gen]: [number, number]): number[] {
   return out;
 }
 
+/** The PDF text with the data of every stream (between "stream" and its "endstream") turned to spaces, or null when a
+    stream has no end (the file can't be read safely) */
+function maskPdfStreams(raw: string): string | null {
+  const parts: string[] = [];
+  let at = 0;
+  const re = /(?<![A-Za-z])stream(\r\n|\n)/g;
+  for (let m = re.exec(raw); m; m = re.exec(raw)) {
+    const from = m.index + m[0].length;
+    const end = raw.indexOf("endstream", from);
+    if (end < 0) return null;
+    parts.push(raw.slice(at, from), " ".repeat(end - from));
+    at = end;
+    re.lastIndex = end + "endstream".length;
+  }
+  parts.push(raw.slice(at));
+  return parts.join("");
+}
+
 /** The PDF with its document information and XMP blanked (see above), or the same bytes when it is encrypted, signed,
     has nothing to blank, or doesn't read the way it should. Never longer or shorter. */
 export function stripPdf(src: Uint8Array): Uint8Array {
   try {
-    const s = Buffer.from(src.buffer, src.byteOffset, src.byteLength).toString("latin1");
-    if (/\/(Encrypt|ByteRange)(?![^\0\t\n\f\r ()<>[\]{}/%])/.test(s)) return src;
+    const raw = Buffer.from(src.buffer, src.byteOffset, src.byteLength).toString("latin1");
+    if (/\/(Encrypt|ByteRange)(?![^\0\t\n\f\r ()<>[\]{}/%])/.test(raw)) return src;
+    /* the file with every stream's data turned to spaces (same length), for finding objects and references: a page's
+       own text can look like "5 0 obj" or "/Info 5 0 R" and must never be taken for the file's structure */
+    const s = maskPdfStreams(raw);
+    if (s === null) return src;
     const b = new Uint8Array(src);
     let changed = false;
     const spaces = (v: PdfValue) => {
@@ -675,7 +697,7 @@ export function stripPdf(src: Uint8Array): Uint8Array {
         const end = `<?xpacket end="w"?>`;
         /* a line end the stream's data ends with stays */
         let room = length;
-        while (room > 0 && (s[from + room - 1] === "\n" || s[from + room - 1] === "\r")) room--;
+        while (room > 0 && (raw[from + room - 1] === "\n" || raw[from + room - 1] === "\r")) room--;
         const text = room >= empty.length + end.length ? empty + " ".repeat(room - empty.length - end.length) + end : " ".repeat(room);
         for (let k = 0; k < room; k++) b[from + k] = text.charCodeAt(k);
         changed = true;
