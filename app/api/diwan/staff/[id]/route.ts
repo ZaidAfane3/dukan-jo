@@ -39,7 +39,7 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
   const pool = await db();
   const c = await pool.connect();
   let meta: Record<string, unknown> = {};
-  let target = { name: "", email: "" };
+  let target: { id?: string; name: string; email: string } = { name: "", email: "" };
   try {
     await c.query("BEGIN");
     const { rows } = await c.query(`SELECT id, active, email, name FROM staff WHERE id = $1 FOR UPDATE`, [id]);
@@ -71,7 +71,7 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
     } else throw new Bad("invalid");
     await c.query("COMMIT");
     meta.email = s.email;
-    target = { name: String(s.name ?? ""), email: String(s.email ?? "") };
+    target = { id, name: String(s.name ?? ""), email: String(s.email ?? "") };
   } catch (e) {
     await c.query("ROLLBACK").catch(() => {});
     if (e instanceof Bad) return answer({ result: e.message }, e.message === "invalid" ? 400 : 409);

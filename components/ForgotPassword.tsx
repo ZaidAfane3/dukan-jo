@@ -29,7 +29,8 @@ const words = {
     sent: "If this email or number has an account, we sent a code.",
     sentEmail: "If this number has an account, we sent a code to that account's email.",
     codeTitle: "Enter the code",
-    codeIntro: "Enter the 6-digit code we sent to",
+    codeIntro: "If this email has an account, enter the 6-digit code we sent to",
+    codeIntroPhone: "If this number has an account, enter the 6-digit code we sent to that account's email. You typed",
     codeLabel: "6-digit code",
     codeNote: "The code works for 10 minutes.",
     verify: "Continue",
@@ -71,7 +72,8 @@ const words = {
     sent: "إذا كان لهذا البريد أو الرقم حساب، فقد أرسلنا إليه رمزًا.",
     sentEmail: "إذا كان لهذا الرقم حساب، فقد أرسلنا رمزًا إلى البريد الإلكتروني لذلك الحساب.",
     codeTitle: "أدخل الرمز",
-    codeIntro: "أدخل الرمز المكوّن من 6 أرقام الذي أرسلناه إلى",
+    codeIntro: "إذا كان لهذا البريد حساب، فأدخل الرمز المكوّن من 6 أرقام الذي أرسلناه إلى",
+    codeIntroPhone: "إذا كان لهذا الرقم حساب، فأدخل الرمز المكوّن من 6 أرقام الذي أرسلناه إلى البريد الإلكتروني لذلك الحساب. الرقم الذي أدخلته",
     codeLabel: "رمز من 6 أرقام",
     codeNote: "الرمز صالح لمدة 10 دقائق.",
     verify: "متابعة",
@@ -170,6 +172,8 @@ export function ForgotPassword({
   const [contact, setContact] = useState(initial.trim());
   /* the email or mobile the code was sent to, as typed (the next steps name it) */
   const [sentTo, setSentTo] = useState("");
+  /* the code went to the account's email although a mobile was typed (no SMS service yet) */
+  const [viaEmail, setViaEmail] = useState(false);
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
   const [password, setPassword] = useState("");
@@ -214,6 +218,7 @@ export function ForgotPassword({
     if (r?.result === "sent") {
       setNoSender(false);
       setNote(r.via === "email" ? w.sentEmail : w.sent);
+      setViaEmail(r.via === "email");
       setResendAt(Date.now() + RESEND_SECONDS * 1000);
       setNow(Date.now());
       return true;
@@ -357,7 +362,7 @@ export function ForgotPassword({
       {step === "code" && (
         <form method="post" action="#" onSubmit={submitCode} noValidate className="mt-6 space-y-5">
           <p className="text-sm leading-relaxed text-muted">
-            {w.codeIntro}{" "}
+            {viaEmail && jordanMobile(sentTo) ? w.codeIntroPhone : w.codeIntro}{" "}
             <bdi dir="ltr" className="font-semibold text-fg">{maskedContact(sentTo)}</bdi>
           </p>
           {note && <p role="status" className="rounded-xl bg-soft px-4 py-3 text-sm">{note}</p>}

@@ -1,3 +1,4 @@
+import { codeMailLimited, emailOn } from "./email";
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { savedMobile } from "@/components/phone";
@@ -94,7 +95,7 @@ export async function requestCode(req: NextRequest, c: Contact, lang: CodeLang):
   /* a code by email goes only to a confirmed address: an email changed to a mistyped one (someone else's) must not let
      that person reset the password and take the account. The answer stays "sent" either way (nothing is told); the
      owner of an unconfirmed address asks Dukkan support. */
-  if ((c.channel === "email" || byEmail) && !a.email_verified) return;
+  if ((c.channel === "email" || byEmail) && emailOn() && (!a.email_verified || codeMailLimited(a.email))) return;
   const to = c.channel === "phone" && !byEmail ? a.phone : a.email;
   void sendCode(byEmail ? "email" : c.channel, to, code, lang).catch((e) => console.error("[reset] the code could not be sent:", (e as Error)?.message ?? e));
 }

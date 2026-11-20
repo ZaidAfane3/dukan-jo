@@ -5,7 +5,7 @@ import { ACCOUNT_LIMITS } from "@/components/safeAccount";
 import { answer, guarded, hashPassword, noteLogin, readJson, sameOrigin, startSession, tooMany, tooManyFor } from "@/server/auth";
 import { emailKey, NAME_KEYS_VERSION, nameKeys, phoneKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { SEND_PER_ACCOUNT, sendVerifyCode, startsVerified, verifyLang } from "@/server/emailVerify";
+import { SEND_PER_ACCOUNT, SEND_PER_IP, sendVerifyCode, startsVerified, verifyLang } from "@/server/emailVerify";
 import { touchShop } from "@/server/shops";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +53,8 @@ export const POST = guarded(async (req: NextRequest) => {
      first of the account's sends (app/api/auth/verify-email). */
   if (!verified) {
     tooManyFor(`verify-email-send:${id}`, SEND_PER_ACCOUNT.max, SEND_PER_ACCOUNT.minutes);
-    void sendVerifyCode(id, email, verifyLang(req, body?.lang)).catch((e) => console.error("[signup] the email code could not be made:", (e as Error)?.message ?? e));
+    if (!tooMany(req, "verify-email-send", SEND_PER_IP.max, SEND_PER_IP.minutes))
+      void sendVerifyCode(id, email, verifyLang(req, body?.lang)).catch((e) => console.error("[signup] the email code could not be made:", (e as Error)?.message ?? e));
   }
   const res = answer({ result: "ok", account: { email, name, phone }, emailVerified: verified, totpOn: false });
   await startSession(res, req, id);

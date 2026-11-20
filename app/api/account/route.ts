@@ -6,7 +6,7 @@ import { answer, checkPassword, clearFailures, currentAccount, failedTooOften, g
 import { emailKey, NAME_KEYS_VERSION, nameKeys, phoneKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { emailOn } from "@/server/email";
-import { SEND_PER_ACCOUNT, sendVerifyCode, startsVerified, verifyLang } from "@/server/emailVerify";
+import { SEND_PER_ACCOUNT, SEND_PER_IP, sendVerifyCode, startsVerified, verifyLang } from "@/server/emailVerify";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +66,7 @@ export const PUT = guarded(async (req: NextRequest) => {
      what it had, since nothing could confirm it */
   const newEmail = cur.rows[0].email_hash !== emailKey(email);
   const unconfirm = newEmail && !startsVerified();
+  const newPhone = cur.rows[0].phone_hash !== phoneKey(phone);
   try {
     const { rows } = await pool.query(
       `UPDATE accounts SET name = $2, email = $3, phone = $4, dob = $5, gender = $6, city = $7, email_hash = $8, phone_hash = $9,
@@ -76,7 +77,9 @@ export const PUT = guarded(async (req: NextRequest) => {
     /* the code to the new address, not waited for. Counted as one of the account's sends (app/api/auth/verify-email), so
        changing the email again and again can't send codes to many addresses: past the limit the banner's "Send a new
        code" sends it later. */
-    if (unconfirm && !tooManyFor(`verify-email-send:${a.id}`, SEND_PER_ACCOUNT.max, SEND_PER_ACCOUNT.minutes))
+    /* a password reset asked for at the old email or mobile no longer works: whoever still has that mailbox can't use it */
+    if (newEmail || newPhone) await pool.query(`UPDATE password_resets SET used_at = now() WHERE account_id = $1 AND used_at IS NULL`, [a.id]);
+    if (unconfirm && !tooManyFor(`verify-email-send:${a.id}`, SEND_PER_ACCOUNT.max, SEND_PER_ACCOUNT.minutes) && !tooMany(req, "verify-email-send", SEND_PER_IP.max, SEND_PER_IP.minutes))
       void sendVerifyCode(a.id, email, verifyLang(req, body?.lang), true).catch((e) => console.error("[account] the email code could not be made:", (e as Error)?.message ?? e));
     return answer({ result: "ok", profile: shape(rows[0]), emailVerified: rows[0].email_verified !== false || !emailOn() });
   } catch (e) {

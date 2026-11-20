@@ -1,4 +1,6 @@
 import { SITE_HOST } from "@/components/siteAddress";
+import { tooManyFor } from "./auth";
+import { emailKey } from "./crypto";
 
 /* Dukkan's emails, sent through Resend (https://resend.com). Two settings in the server's environment turn it on:
    - RESEND_API_KEY: an API key from Resend (Sending access is enough);
@@ -97,6 +99,18 @@ export async function sendEmail(e: Email): Promise<void> {
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!r.ok) throw new Error(`Resend refused the email (${r.status})`);
+}
+
+/* codes (email confirmation and password reset) to one address, whoever asks: 3 an hour and 10 a day, so nobody can
+   flood someone's mailbox through sign-ups, email changes or reset requests (and Resend doesn't flag the domain) */
+export const CODES_PER_ADDRESS = { hour: 3, day: 10 };
+
+/** Counts a code email to this address; true when it is over the limit and must not be sent */
+export function codeMailLimited(to: string): boolean {
+  const key = emailKey(to);
+  const hour = tooManyFor(`code-mail-hour:${key}`, CODES_PER_ADDRESS.hour, 60);
+  const day = tooManyFor(`code-mail-day:${key}`, CODES_PER_ADDRESS.day, 24 * 60);
+  return hour || day;
 }
 
 /** The same, never throwing: for notices that must not stop what caused them (a staff change, an order). */

@@ -2,7 +2,7 @@ import { randomInt, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { blind, emailKey } from "./crypto";
 import { db } from "./db";
-import { emailOn, sendEmailSoon } from "./email";
+import { codeMailLimited, emailOn, sendEmailSoon } from "./email";
 
 /* A merchant's email, confirmed by a one-time code (app/api/auth/verify-email). A new account starts unconfirmed while
    Dukkan can send email (server/email.ts emailOn) and gets a code at once; so does a change of the email in settings.
@@ -34,8 +34,10 @@ export function verifyLang(req: NextRequest, asked?: unknown): VerifyLang {
   return first === "en" ? "en" : "ar";
 }
 
-/** What a sign-up or a new email writes to email_verified: false only while a code can be sent (email is on) */
-export const startsVerified = (): boolean => !emailOn();
+/** A new or changed email starts unconfirmed, whether email is on or not: nothing proved it. While email is off this
+    holds nobody back (emailUnconfirmed is false then); once it is on, that address is asked to confirm before it gets
+    reset codes or notices, and before the store goes live. Accounts from before confirmation existed stay confirmed. */
+export const startsVerified = (): boolean => false;
 
 /** Whether this account still has to confirm its email: never while email is off (nothing could confirm it) */
 export async function emailUnconfirmed(accountId: string): Promise<boolean> {
@@ -88,6 +90,8 @@ export async function sendVerifyCode(accountId: string, email: string, lang: Ver
   /* now and then, clear out what ran out more than a day ago */
   if (Math.random() < 0.05) pool.query(`DELETE FROM email_verifications WHERE expires_at < now() - interval '1 day'`).catch(() => {});
   const w = verifyWords(lang, changed);
+  /* past the cap for this address the code stays made (the banner can ask again later) but isn't emailed now */
+  if (codeMailLimited(email)) return;
   sendEmailSoon({ to: email, subject: w.subject, heading: w.heading, text: w.text, lang, code }, "the email confirmation code");
 }
 
