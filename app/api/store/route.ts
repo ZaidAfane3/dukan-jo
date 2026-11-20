@@ -4,7 +4,7 @@ import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { movePicturesOut } from "@/server/media";
+import { movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
 import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, type OnlineKey } from "@/server/storeOrders";
 import { readyToSell, type SellNeed } from "@/components/safeOrder";
@@ -135,20 +135,13 @@ export const PUT = guarded(async (req: NextRequest) => {
   /* the last order number the store gave (components/orderNumbers.ts): store orders raise it too, so a save never lowers it */
   const numberEntry = set.find(([k]) => k === ORDER_NUMBER_KEY);
 
-  /* pictures still inside the data become files, before anything is measured */
-  const rewritten: Record<string, string> = {};
-  for (const entry of set) {
-    const next = await movePicturesOut(await db(), a.id, entry[0], entry[1] as string);
-    if (next !== null) {
-      entry[1] = next;
-      rewritten[entry[0]] = next;
-    }
-  }
   /* what the browser says about its themes is checked against the purchases Dukkan recorded (server/themeOwnership.ts):
      a paid theme the store did not buy leaves its "owned" list, and a save that puts one on the store (as the theme in
      use, or a copy or edit of it in use) is refused for that key, with the design saved with it: both stay as they are
      on the server and come back in "refused" (result "theme-not-bought", the theme), for the page to put back and say
      so. The rest of the save goes on. */
+  /* each key the server changed from what the browser sent, sent back for it to keep */
+  const rewritten: Record<string, string> = {};
   const refused: Record<string, { result: "theme-not-bought"; theme: string; value: string | null } | { result: "not-ready"; missing: SellNeed[]; value: string | null }> = {};
   const themeState = set.find(([k]) => k === "seen-themes");
   const designSave = set.find(([k]) => k === "seen-storefront");
@@ -204,8 +197,6 @@ export const PUT = guarded(async (req: NextRequest) => {
      reopening it) are checked one after the other, so the second sees what the first kept. */
   const touchesLive = [...set.map(([k]) => k), ...(remove as string[])].some((k) => LIVE_KEYS.includes(k));
   const platform = touchesLive ? await sellPlatform() : null;
-  const tooLong = set.find(([, v]) => (v as string).length > MAX_VALUE);
-  if (tooLong) return answer({ result: "too-big", key: tooLong[0] }, 413);
 
   /* a store link belongs to one shop only */
   const setup = set.find(([k]) => k === "seen-setup");
@@ -223,6 +214,18 @@ export const PUT = guarded(async (req: NextRequest) => {
       if ((cur.rows[0]?.slug as string | null | undefined)?.toLowerCase() !== slug.toLowerCase()) return answer({ result: "slug-reserved" }, 409);
     }
   }
+
+  /* pictures still inside the data become files, before anything is measured, and only once the
+     store link is checked, so a save refused for it leaves no files behind */
+  for (const entry of set) {
+    const next = await movePicturesOut(await db(), a.id, entry[0], entry[1] as string);
+    if (next !== null) {
+      entry[1] = next;
+      rewritten[entry[0]] = next;
+    }
+  }
+  const tooLong = set.find(([, v]) => (v as string).length > MAX_VALUE);
+  if (tooLong) return answer({ result: "too-big", key: tooLong[0] }, 413);
 
   const stale: Record<string, { value: string | null; v: string }> = {};
   const client = await (await db()).connect();
@@ -330,6 +333,8 @@ export const PUT = guarded(async (req: NextRequest) => {
     await syncShop(a.id, undefined, { set: new Map(set.map(([k, v]) => [k, v as string])), removed: new Set(remove as string[]) }).catch((e) => console.error("[shops] sync", a.id, e));
   }
   touchShop(a.id);
+  /* a picture the pages no longer use doesn't stay public for long */
+  sweepSoon(await db(), a.id);
   /* the new version of each list saved, for the browser's next save of it */
   const versions: Record<string, string> = {};
   for (const [k, v] of set) if (VERSIONED(k)) versions[k] = valueVersion(v as string);
