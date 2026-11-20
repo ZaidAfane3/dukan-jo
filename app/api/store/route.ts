@@ -333,16 +333,18 @@ export const PUT = guarded(async (req: NextRequest) => {
     /* read again as saved now, under the account's save lock (the one the save above takes), never from this save's own
        values: a slower sync of an older save then can't write its older link, pause or published state over a newer
        save's, as each one reads the newest saved values and they write one after the other */
+    /* the lock is held by the connection, not a transaction, so syncShop's own retry after a link another shop just
+       took (23505) still runs: in a transaction that error would undo it */
     const sc = await (await db()).connect();
+    let locked = false;
     try {
-      await sc.query("BEGIN");
-      await sc.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [a.id]);
+      await sc.query(`SELECT pg_advisory_lock(71004, ($1::bigint % 2147483647)::int)`, [a.id]);
+      locked = true;
       await syncShop(a.id, sc);
-      await sc.query("COMMIT");
     } catch (e) {
-      await sc.query("ROLLBACK").catch(() => {});
       console.error("[shops] sync", a.id, e);
     } finally {
+      if (locked) await sc.query(`SELECT pg_advisory_unlock(71004, ($1::bigint % 2147483647)::int)`, [a.id]).catch(() => {});
       sc.release();
     }
   }
