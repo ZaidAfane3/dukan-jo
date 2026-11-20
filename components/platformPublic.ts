@@ -182,7 +182,7 @@ export function supportLinks(s: Pick<PublicSettings, "support_contact">) {
 }
 
 /** How soon Dukkan's support usually answers (platform setting support_reply_hours), as the merchant Support page says it:
-    "We usually reply within 24 hours." / «نردّ عادةً خلال 24 ساعة.» (1 «ساعة واحدة», 2 «ساعتين», 3–10 «ساعات»). Diwan's
+    "We usually reply within 2 hours." / «نردّ عادةً خلال ساعتين.» (1 «ساعة واحدة», 2 «ساعتين», 3–10 «ساعات»). Diwan's
     settings page previews it with the same words. */
 export function replyWithin(hours: number, lang: "en" | "ar"): string {
   if (lang === "ar") return `نردّ عادةً خلال ${arCount(hours, { one: "ساعة واحدة", two: "ساعتين", few: "ساعات", many: "ساعة" })}.`;
