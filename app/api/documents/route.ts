@@ -39,15 +39,17 @@ export const POST = documentsRoute(async (req, me) => {
   const partner = partnerName(body.partner);
   const pKind = partnerKind(body.partnerKind);
   const saved = await inTransaction(async (c) => {
-    /* one upload at a time per account, so two sent together can't both slip under a limit */
-    await c.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [me.id]);
+    /* the account's save lock first (the order a store save takes it in: this lock, then the account row through its
+       new keys), then one upload at a time per account, so two sent together can't both slip under a limit. NO KEY
+       UPDATE: a save adding a key to store_data only needs to know the account exists, so it never waits on this. */
+    if (kind === "courier_proof") await c.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [me.id]);
+    await c.query(`SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE`, [me.id]);
     /* a courier proof is a draft (Diwan doesn't see it) until his delivery choice is saved with his own courier: already
        saved so (the Delivery page of a store that uses its courier), it goes to Diwan at once. Read under the account's
        save lock (app/api/store PUT takes it to save the setup, and hands drafts over after): a save running now either
        finished before this read (own: not a draft) or waits for this row and then hands it over. */
     let draft = false;
     if (kind === "courier_proof") {
-      await c.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [me.id]);
       const r = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [me.id]);
       let mode: string | null | undefined = null;
       try {
