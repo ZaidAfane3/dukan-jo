@@ -512,6 +512,11 @@ export const DIWAN_SCHEMA = `
   /* agent A: a staff member given a temporary password by an owner picks their own at the first sign-in */
   ALTER TABLE staff ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
 
+  /* the language each merchant and staff member uses Dukkan in (server/lang.ts), saved when they sign in or switch it, so
+     the emails sent while they are away come in that language alone. NULL until then: those emails come in both. */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS lang TEXT CHECK (lang IN ('ar', 'en'));
+  ALTER TABLE staff ADD COLUMN IF NOT EXISTS lang TEXT CHECK (lang IN ('ar', 'en'));
+
   /* agent B: merchants' optional 2-step codes. totp_secret is kept while it is being set up (totp_on false) and once on.
      pending_totp: the password was right, the session waits for the code (counts as signed out until then). */
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_secret TEXT;

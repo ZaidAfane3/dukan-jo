@@ -2,8 +2,8 @@ import { PRIVATE_PARAMS, seal } from "./crypto";
 import { db } from "./db";
 import { emailOn, sendEmailSoon } from "./email";
 import {
-  bothLangs, documentStatusEmail, type EmailWords, orderPlacedEmail, shipFailedEmail, shopReactivatedEmail, shopSuspendedEmail,
-  ticketRepliedEmail,
+  documentStatusEmail, type EmailLang, type EmailWords, orderPlacedEmail, shipFailedEmail, shopReactivatedEmail, shopSuspendedEmail,
+  ticketRepliedEmail, wordsIn,
 } from "./emailWords";
 
 /* Puts a message in a merchant's bell (the notifications table). The bell shows it in their language from the kind and
@@ -49,44 +49,49 @@ export function emailNotice(accountId: string | number, kind: NotifyKind, params
 /* ---------------- the same notice by email ---------------- */
 
 /* The kinds that also go to the owner's email (their words: server/emailWords.ts). The others stay in the bell only.
-   Accounts have no saved language (the dashboard's is kept in the browser), so each email is in Arabic, then English.
+   Each email is in the owner's saved language (accounts.lang, server/lang.ts), or in Arabic then English while none is saved.
    Sent with sendEmailSoon: never waited for and never thrown, so an email can't slow down or undo what caused it. */
 const EMAILED = new Set<NotifyKind>(["orderPlaced", "ticketReplied", "documentStatus", "shopSuspended", "shopReactivated", "shipFailed"]);
 
 type Params = Record<string, string | number>;
 
-/* the words of one notice, or null when it isn't emailed (a document's status other than approved or not accepted) */
-function wordsFor(kind: NotifyKind, p: Params): EmailWords | null {
+type Words = (lang: EmailLang) => EmailWords;
+
+/* the words of one notice in either language, or null when it isn't emailed (a document's status other than approved or
+   not accepted) */
+function wordsFor(kind: NotifyKind, p: Params): Words | null {
   switch (kind) {
     case "ticketReplied":
-      return bothLangs((l) => ticketRepliedEmail(l, { number: p.number, subject: String(p.subject ?? "") }));
+      return (l) => ticketRepliedEmail(l, { number: p.number, subject: String(p.subject ?? "") });
     case "documentStatus":
       if (p.status !== "approved" && p.status !== "rejected") return null;
-      return bothLangs((l) => documentStatusEmail(l, { name: String(p.name ?? ""), approved: p.status === "approved", note: String(p.note ?? "") }));
+      return (l) => documentStatusEmail(l, { name: String(p.name ?? ""), approved: p.status === "approved", note: String(p.note ?? "") });
     case "shopSuspended":
-      return bothLangs((l) => shopSuspendedEmail(l, { reason: String(p.reason ?? "") }));
+      return (l) => shopSuspendedEmail(l, { reason: String(p.reason ?? "") });
     case "shopReactivated":
-      return bothLangs((l) => shopReactivatedEmail(l));
+      return (l) => shopReactivatedEmail(l);
     case "shipFailed":
-      return bothLangs((l) => shipFailedEmail(l, { number: p.number, note: String(p.note ?? "") }));
+      return (l) => shipFailedEmail(l, { number: p.number, note: String(p.note ?? "") });
     default:
       return null;
   }
 }
 
-/* the account owner's email (sealed in accounts: db() opens it), or null. Only a confirmed address: a notice tells
-   private things (ticket subjects, document notes, why a store was stopped), so a new email that may be mistyped gets
-   nothing until its owner confirms it (server/emailVerify.ts); the bell still has every notice. */
-async function ownerEmail(accountId: string): Promise<string | null> {
-  const { rows } = await (await db()).query(`SELECT email FROM accounts WHERE id = $1 AND email_verified`, [accountId]);
+/* the account owner's email (sealed in accounts: db() opens it) and saved language, or null. Only a confirmed address: a
+   notice tells private things (ticket subjects, document notes, why a store was stopped), so a new email that may be
+   mistyped gets nothing until its owner confirms it (server/emailVerify.ts); the bell still has every notice. */
+async function owner(accountId: string): Promise<{ to: string; lang: unknown } | null> {
+  const { rows } = await (await db()).query(`SELECT email, lang FROM accounts WHERE id = $1 AND email_verified`, [accountId]);
   const to = String(rows[0]?.email ?? "").trim();
-  return to.includes("@") ? to : null;
+  return to.includes("@") ? { to, lang: rows[0].lang } : null;
 }
 
-function sendToOwner(accountId: string, words: EmailWords, what: string) {
-  void ownerEmail(accountId)
-    .then((to) => {
-      if (to) sendEmailSoon({ to, lang: "ar", help: "dashboard", ...words }, what);
+function sendToOwner(accountId: string, words: Words, what: string) {
+  void owner(accountId)
+    .then((o) => {
+      if (!o) return;
+      const w = wordsIn(o.lang, words);
+      sendEmailSoon({ to: o.to, lang: w.lang, help: "dashboard", ...w.words }, what);
     })
     .catch((e) => console.error(`[email] ${what}: the owner's address could not be read:`, (e as Error)?.message ?? e));
 }
@@ -107,7 +112,7 @@ const g = globalThis as unknown as { dukkanOrderEmails?: Map<string, OrderBatch>
 const batches = (g.dukkanOrderEmails ??= new Map());
 
 const sendOrders = (accountId: string, b: { number: number; total: string; count: number }) =>
-  sendToOwner(accountId, bothLangs((l) => orderPlacedEmail(l, b)), "the orderPlaced email");
+  sendToOwner(accountId, (l) => orderPlacedEmail(l, b), "the orderPlaced email");
 
 function orderPlaced(accountId: string, number: number, total: string) {
   if (!Number.isFinite(number)) return;

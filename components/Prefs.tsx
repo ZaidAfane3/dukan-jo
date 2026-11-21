@@ -79,6 +79,22 @@ function safeSet(key: string, value: string) {
   }
 }
 
+/* The language in a cookie too, so the server knows it when someone signs in, and the emails sent to them later are in it
+   (server/lang.ts) */
+function langCookie(l: Lang) {
+  try {
+    document.cookie = `seen-lang=${l}; path=/; max-age=31536000; samesite=lax${location.protocol === "https:" ? "; secure" : ""}`;
+  } catch {
+    /* cookies blocked: their emails stay in both languages */
+  }
+}
+
+/* A switch is saved on the signed-in account and Diwan staff member right away (app/api/prefs/lang); nobody signed in:
+   nothing is saved, and the cookie is read at the next sign-in */
+function saveLang(l: Lang) {
+  fetch("/api/prefs/lang", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lang: l }), keepalive: true }).catch(() => {});
+}
+
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export function PrefsProvider({ children }: { children: React.ReactNode }) {
@@ -98,6 +114,7 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+    langCookie(lang);
   }, [lang]);
 
   useEffect(() => {
@@ -114,6 +131,8 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
   const setLang = useCallback((l: Lang) => {
     if (switching.current) return;
     safeSet("seen-lang", l);
+    langCookie(l);
+    saveLang(l);
 
     const apply = () => {
       document.documentElement.lang = l;

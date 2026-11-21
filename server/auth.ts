@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { PoolClient } from "pg";
 import { SITE_HOST } from "@/components/siteAddress";
 import { db } from "./db";
+import { cookieLang } from "./lang";
 
 /* Passwords, sessions and the checks every account request goes through (docs/security-checklist.md, section 5). */
 
@@ -212,9 +213,12 @@ export async function finishPendingSession(res: NextResponse, req: NextRequest):
   res.cookies.set(COOKIE, token, cookieOptions(req, DAYS * 86400));
 }
 
-/** Notes a full sign-in (for Diwan: when, and how many times) */
-export async function noteLogin(accountId: string): Promise<void> {
-  await (await db()).query(`UPDATE accounts SET last_login_at = now(), login_count = login_count + 1 WHERE id = $1`, [accountId]);
+/** Notes a full sign-in (for Diwan: when, and how many times), and the language the page is in (server/lang.ts) */
+export async function noteLogin(accountId: string, req: NextRequest): Promise<void> {
+  await (await db()).query(
+    `UPDATE accounts SET last_login_at = now(), login_count = login_count + 1, lang = COALESCE($2, lang) WHERE id = $1`,
+    [accountId, cookieLang(req)],
+  );
 }
 
 /** Gives the session cookie another 60 days, to match the database */

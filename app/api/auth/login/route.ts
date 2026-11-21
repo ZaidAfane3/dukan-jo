@@ -63,7 +63,7 @@ export const POST = guarded(async (req: NextRequest) => {
   }
   const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone }, totpOn: false });
   await startSession(res, req, String(a.id));
-  await noteLogin(String(a.id));
+  await noteLogin(String(a.id), req);
   touchShop(a.id);
   return res;
 });

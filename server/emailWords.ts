@@ -10,8 +10,9 @@ import { SITE_HOST } from "@/components/siteAddress";
                            components/content.ts, notifications.server)
    - staffChangeEmail      the Diwan staff routes (app/api/diwan/staff), to the other owners
 
-   Accounts and staff have no saved language, so notices go out in both: bothLangs puts the Arabic first and the English
-   under it (one subject, one heading, one button). Order notices carry only the order's number and total, never the
+   Notices go out in the language the reader uses Dukkan in (accounts.lang / staff.lang, server/lang.ts): wordsIn. Someone
+   whose language isn't saved yet (they haven't signed in since it was) gets both: bothLangs puts the Arabic first and
+   the English under it (one subject, one heading, one button). Order notices carry only the order's number and total, never the
    customer's name, phone or address. Nothing here holds a password or a secret. */
 
 export type EmailLang = "ar" | "en";
@@ -53,6 +54,11 @@ export function bothLangs(words: (lang: EmailLang) => EmailWords): EmailWords {
       { lang: "en", heading: en.heading, text: en.text, ...(en.button ? { button: en.button } : {}) },
     ],
   };
+}
+
+/** One email in the reader's saved language (`lang` as read from the database), or in both while there is none */
+export function wordsIn(lang: unknown, words: (lang: EmailLang) => EmailWords): { lang: EmailLang; words: EmailWords } {
+  return lang === "ar" || lang === "en" ? { lang, words: words(lang) } : { lang: "ar", words: bothLangs(words) };
 }
 
 /* ---------------- password reset (server/sendCode.ts) ---------------- */

@@ -2,6 +2,7 @@ import { randomInt, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { blind, emailKey } from "./crypto";
 import { db } from "./db";
+import { cookieLang } from "./lang";
 import { codeMailLimited, emailOn, sendEmailSoon } from "./email";
 
 /* A merchant's email, confirmed by a one-time code (app/api/auth/verify-email). A new account starts unconfirmed while
@@ -27,9 +28,12 @@ export const SEND_PER_IP = { max: 10, minutes: 60 };
 
 export type VerifyLang = "ar" | "en";
 
-/** The language of the email: what the page asked for, else the browser's own language, else Arabic */
+/** The language of the email: what the page asked for, else the page's saved language (server/lang.ts), else the
+    browser's own language, else Arabic */
 export function verifyLang(req: NextRequest, asked?: unknown): VerifyLang {
   if (asked === "en" || asked === "ar") return asked;
+  const saved = cookieLang(req);
+  if (saved) return saved;
   const first = (req.headers.get("accept-language") ?? "").trim().slice(0, 2).toLowerCase();
   return first === "en" ? "en" : "ar";
 }

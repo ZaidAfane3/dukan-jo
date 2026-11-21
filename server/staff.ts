@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { NextResponse, type NextRequest } from "next/server";
 import { answer, guarded, sameOrigin, secureCookies, tooManyFor, visitorIp } from "./auth";
 import { db } from "./db";
+import { cookieLang } from "./lang";
 
 /* Diwan's staff: their sign-in, roles, 2-step codes and the activity log. Staff accounts are separate from merchant
    accounts: their own table, their own cookie (dukkan-diwan, SameSite=Strict), 12 hours at most and 60 minutes idle.
@@ -35,6 +36,9 @@ export async function startStaffSession(res: NextResponse, req: NextRequest, sta
     [tokenHash(token), staffId, ipOf(req), verified, HOURS, passwordHash],
   );
   if (!r.rowCount) return false;
+  /* the language the sign-in page is in, for the staff emails (server/lang.ts) */
+  const lang = cookieLang(req);
+  if (lang) await pool.query(`UPDATE staff SET lang = $2 WHERE id = $1 AND lang IS DISTINCT FROM $2`, [staffId, lang]);
   if (Math.random() < 0.1) pool.query(`DELETE FROM staff_sessions WHERE expires_at < now()`).catch(() => {});
   res.cookies.set(STAFF_COOKIE, token, { httpOnly: true, sameSite: "strict", secure: secureCookies(req), path: "/", maxAge: HOURS * 3600 });
   return true;

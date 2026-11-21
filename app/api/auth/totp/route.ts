@@ -40,7 +40,7 @@ export const POST = guarded(async (req: NextRequest) => {
   wrong.delete(a.id);
   const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone }, totpOn: true });
   await finishPendingSession(res, req);
-  await noteLogin(a.id);
+  await noteLogin(a.id, req);
   touchShop(a.id);
   return res;
 });
