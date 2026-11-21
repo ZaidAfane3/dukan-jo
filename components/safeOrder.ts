@@ -123,10 +123,8 @@ export const orderPays = (dukkanOn: readonly Payment[], chosen: readonly Payment
   PAYMENTS.filter((p) => dukkanOn.includes(p) && (chosen === undefined || chosen.includes(p)));
 
 /** What a store still needs before it can sell: "pay" (no way to pay is on: orderPays is empty) and "delivery" (no way
-    for customers to get their orders: pickup is off and there is no valid delivery choice). "email": the account has not
-    confirmed its email yet; readyToSell never gives it (it knows only the setup), the server adds it while Dukkan can
-    send the code (server/emailVerify.ts, app/api/store PUT) and the pages from /api/auth/me (ReadyToSell useSellReady). */
-export type SellNeed = "pay" | "delivery" | "setup" | "email";
+    for customers to get their orders: pickup is off and there is no valid delivery choice). */
+export type SellNeed = "pay" | "delivery" | "setup";
 
 /** How many first-time setup steps there are (Onboarding): all of them must be marked done before a store can go live */
 export const SETUP_STEPS = 6;

@@ -273,7 +273,7 @@ function PriceCard({ d, onSaved }: { d: Data; onSaved: () => void }) {
           <p id="ship-price-help" className={`mt-1 text-xs ${ok ? "text-muted" : "text-red-600 dark:text-red-400"}`}>
             {t(`From 0 to ${LIMITS.shipPrice} JOD, up to 3 decimals. 0 is free delivery.`, `من 0 إلى ${LIMITS.shipPrice} د.أ، حتى 3 خانات عشرية. 0 يعني توصيلًا مجانيًا.`)}
           </p>
-          <label htmlFor="ship-reason" className="mb-1 mt-4 block text-sm font-medium">{t("Reason (optional, kept in the activity log)", "السبب (اختياري، يُحفظ في سجل النشاط)")}</label>
+          <label htmlFor="ship-reason" className="mb-1 mt-4 block text-sm font-medium">{t("Reason (optional, kept in the staff log)", "السبب (اختياري، يُحفظ في سجل الفريق)")}</label>
           <textarea id="ship-reason" dir="auto" rows={2} maxLength={300} className={area} value={reason} onChange={(x) => setReason(x.target.value)} />
           {ok && !same && (
             <p className="mt-4 rounded-xl bg-primary/10 px-3 py-2 text-sm ring-1 ring-primary/25">

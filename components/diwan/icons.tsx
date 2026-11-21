@@ -23,6 +23,8 @@ const P = {
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
   staff: "M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM20 20v-1.5a3.5 3.5 0 0 0-2.5-3.4M15.5 4.2a3.5 3.5 0 0 1 0 6.6",
   activity: "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z",
+  /* a list with lines, for the merchant log and the logs section */
+  log: "M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01",
   sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z",
   pulse: "M3 12h4l3-8 4 16 3-8h4",
   wallet: "M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v3M21 12v3h-4a1.5 1.5 0 0 1 0-3zM3 6v12a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-3",
@@ -56,10 +58,10 @@ const BY_PATH: [string, IconName][] = [
   ["/diwan/feedback", "feedback"], ["/diwan/documents", "documents"], ["/diwan/complaints", "complaints"],
   ["/diwan/themes", "themes"], ["/diwan/pages", "pages"], ["/diwan/popups", "popups"], ["/diwan/announcements", "announcements"],
   ["/diwan/marketplace", "developers"], ["/diwan/settings", "settings"], ["/diwan/staff", "staff"],
-  ["/diwan/activity", "activity"],
+  ["/diwan/activity", "activity"], ["/diwan/merchant-log", "log"],
 ];
 /* Each sidebar section's picture */
-export const GROUP_ICON: Record<NavGroup, IconName> = { stores: "bag", support: "lifebuoy", merchants: "growth", themes: "layers", admin: "shield" };
+export const GROUP_ICON: Record<NavGroup, IconName> = { stores: "bag", support: "lifebuoy", merchants: "growth", themes: "layers", admin: "shield", logs: "log" };
 
 export function iconForPath(path: string): IconName {
   if (path === "/diwan" || path === "/diwan/") return "overview";

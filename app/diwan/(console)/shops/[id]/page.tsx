@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRef, useState, use } from "react";
 import { ActivityText, type ActivityRow } from "@/components/diwan/ActivityLine";
+import { MerchantLineText, type MerchantLine } from "@/components/diwan/merchantLogWords";
+import { usePrefs } from "@/components/Prefs";
 import { ContactDialog } from "@/components/diwan/Contact";
 import { ticketHref } from "@/components/diwan/TicketChat";
 import { MARK_METHODS, MethodBadge, methodText, Select, STATUS_LOOK, StatusBadge, StatusIcon, storeLink, storeLinkHref, todayJo, type ShopStatus } from "@/components/diwan/shopBits";
@@ -50,7 +52,7 @@ type Shop = {
   /* visitors of its store at its link over the last 30 days (each day's visitors added up) */
   visitors_30?: number;
   /* what it still needs before it can sell (safeOrder readyToSell): no way to pay on, no way to get orders */
-  not_ready?: ("pay" | "delivery" | "setup" | "email")[];
+  not_ready?: ("pay" | "delivery" | "setup")[];
   total_sales: string;
   first_product_at: string | null;
   published_at: string | null;
@@ -90,6 +92,7 @@ type Detail = {
   reports: Part<ReportRow>;
   deletions: Part<DeletionRow>;
   activity: Part<ActivityRow>;
+  merchantLog: Part<MerchantLine>;
   can: { status: boolean; billing: boolean; themes?: boolean };
 };
 
@@ -107,6 +110,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const t = useT();
   const f = useFmt();
+  const { lang } = usePrefs();
   const s = useApi<Detail>(`/api/diwan/shops/${encodeURIComponent(params.id)}`);
   const [panel, setPanel] = useState<Panel>(null);
   const [contact, setContact] = useState(false);
@@ -166,7 +170,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                     {!!sh.not_ready?.length && (
                       <p className="mt-0.5 text-sm font-semibold opacity-90">
                         {t("Not ready to sell: ", "غير جاهز للبيع: ")}
-                        {sh.not_ready.map((m) => (m === "pay" ? t("no way to pay is on", "لا طريقة دفع مفعّلة") : m === "setup" ? t("setup steps not all done", "خطوات الإعداد لم تكتمل") : m === "email" ? t("email not confirmed yet", "البريد الإلكتروني لم يُؤكَّد بعد") : t("no delivery or pickup", "لا توصيل ولا استلام"))).join(t(" · ", " · "))}
+                        {sh.not_ready.map((m) => (m === "pay" ? t("no way to pay is on", "لا طريقة دفع مفعّلة") : m === "setup" ? t("setup steps not all done", "خطوات الإعداد لم تكتمل") : t("no delivery or pickup", "لا توصيل ولا استلام"))).join(t(" · ", " · "))}
                       </p>
                     )}
                     {key === "suspended" && <p className="mt-1 text-xs opacity-75">{t("The merchant sees this reason when they try to sign in.", "يرى التاجر هذا السبب عند محاولة الدخول.")}</p>}
@@ -472,10 +476,24 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                   ))}
                 </Part>
               )}
+              {/* what the merchant did: signing in, password and email changes, setup steps, going live... */}
+              {d.merchantLog && (
+              <Part
+                wide
+                title={t("Merchant log", "سجل التاجر")}
+                count={d.merchantLog.count}
+                all={[{ href: `/diwan/merchant-log?shop=${id}`, label: t("See all", "عرض الكل") }]}
+                empty={t("Nothing logged yet.", "لا يوجد شيء مسجّل بعد.")}
+              >
+                {d.merchantLog.rows.map((r) => (
+                  <Item key={r.id} lead={<span className="font-medium"><MerchantLineText row={r} t={t} lang={lang} /></span>} sub={f.dateTime(r.at)} />
+                ))}
+              </Part>
+              )}
               {d.activity && (
                 <Part
                   wide
-                  title={t("Activity about this store", "النشاط على هذا المتجر")}
+                  title={t("Staff log about this store", "سجل الفريق عن هذا المتجر")}
                   count={d.activity.count}
                   all={[{ href: `/diwan/activity?shop=${id}`, label: t("See all", "عرض الكل") }]}
                   empty={t("Nothing logged yet.", "لا يوجد نشاط مسجّل بعد.")}

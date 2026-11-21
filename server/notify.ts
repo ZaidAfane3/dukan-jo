@@ -77,11 +77,10 @@ function wordsFor(kind: NotifyKind, p: Params): Words | null {
   }
 }
 
-/* the account owner's email (sealed in accounts: db() opens it) and saved language, or null. Only a confirmed address: a
-   notice tells private things (ticket subjects, document notes, why a store was stopped), so a new email that may be
-   mistyped gets nothing until its owner confirms it (server/emailVerify.ts); the bell still has every notice. */
+/* the account owner's email (sealed in accounts: db() opens it) and saved language, or null. Every account's address was
+   confirmed by a code (at sign-up, or before an email change took effect: server/emailVerify.ts). */
 async function owner(accountId: string): Promise<{ to: string; lang: unknown } | null> {
-  const { rows } = await (await db()).query(`SELECT email, lang FROM accounts WHERE id = $1 AND email_verified`, [accountId]);
+  const { rows } = await (await db()).query(`SELECT email, lang FROM accounts WHERE id = $1`, [accountId]);
   const to = String(rows[0]?.email ?? "").trim();
   return to.includes("@") ? { to, lang: rows[0].lang } : null;
 }

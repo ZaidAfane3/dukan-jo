@@ -1,6 +1,6 @@
 import { timeoutSignal } from "./timeoutSignal";
 import { accountData, demoActive, freezeAccount, replaceAccountData, signedInAs, signInAs, storedValue } from "./demoSandbox";
-import { adoptVersions, dropSaves, flushSaves, forgetOutboxes, leaveWithoutAsking, ONLINE_KEYS, resendOldPictures, resumeSaves, sendAllWaiting, setOnlineRev, stopSaves, waitingKeys, whenSignedOut } from "./serverSync";
+import { adoptVersions, dropSaves, flushSaves, forgetOutboxes, leaveWithoutAsking, ONLINE_KEYS, pauseSaves, renameAccount, resendOldPictures, resumeSaves, sendAllWaiting, setOnlineRev, stopSaves, waitingKeys, whenSignedOut } from "./serverSync";
 import { forgetAccount, forgetHeldSince, forgetOtherAccounts, heldForNobody } from "./forgetAccount";
 import { loadDrafts } from "./ticketDrafts";
 import { releaseTab, tabState } from "./oneTab";
@@ -14,7 +14,7 @@ import { asSuspension, forgetSuspension, rememberSuspension, SUSPENDED_PATH } fr
    The pages only call createAccount, logIn and logOut, and syncOnOpen runs on every page. */
 
 export type PublicAccount = { email: string; name: string; phone: string };
-type Reply = { result?: string; account?: PublicAccount; data?: Record<string, string>; rev?: number; versions?: Record<string, string>; reason?: string; since?: string | null };
+type Reply = { result?: string; account?: PublicAccount; data?: Record<string, string>; rev?: number; versions?: Record<string, string>; reason?: string; since?: string | null; email?: string; to?: string; sent?: boolean; why?: string; pending?: boolean };
 
 /* Kept for this tab, as the sign-up form does, so setup and settings can show the account's name, email and number */
 function rememberProfile(a: PublicAccount) {
@@ -119,39 +119,99 @@ async function loadStore(keep: Set<string> = new Set()): Promise<boolean> {
   return true;
 }
 
-/** Makes a new account and signs in to it. "taken": that email already has an account; "taken-phone": that mobile
-    does; "slow-down": too many sign-ups from here lately; "error": the server could not be reached or refused it. */
-export async function createAccount(a: { email: string; name: string; phone: string; password: string; lang?: "ar" | "en" }): Promise<"ok" | "taken" | "taken-phone" | "slow-down" | "error"> {
+/** Signing up, step 1: sends the details. "code": a 6-digit code went to the email, and nothing is made until it is
+    typed (signupCode); "ok": made and signed in at once (a server without email). "taken": that email already has an
+    account; "taken-phone": that mobile does; "slow-down": too many sign-ups from here lately; "email-slow-down": too
+    many codes went to this email lately; "send-failed": the email could not be sent (often a mistyped address);
+    "locked": too many wrong codes from here this hour, so no code was sent (wait an hour);
+    "error": the server could not be reached or refused it. */
+export async function createAccount(a: { email: string; name: string; phone: string; password: string; lang?: "ar" | "en" }): Promise<"ok" | "code" | "taken" | "taken-phone" | "slow-down" | "email-slow-down" | "send-failed" | "locked" | "error"> {
   const r = await call("/api/auth/signup", "POST", a);
   const result = r?.reply.result;
-  /* "slow-down": too many sign-ups from this connection in the last hour */
-  if (result === "taken" || result === "taken-phone" || result === "slow-down") return result;
+  if (result === "code" || result === "taken" || result === "taken-phone" || result === "slow-down" || result === "email-slow-down" || result === "send-failed" || result === "locked") return result;
   if (result !== "ok" || !r?.reply.account) return "error";
+  madeAccount(r.reply.account);
+  return "ok";
+}
+
+/* the brand-new account is this tab's now */
+function madeAccount(account: PublicAccount) {
   dropSaves({ keepOutbox: true });
   dropPendingLogOut();
   const before = signedInAs() ?? (profileEmail() || null);
-  signInAs(r.reply.account.email);
+  signInAs(account.email);
   /* a new account starts with an empty store, even if this browser kept something under the same email before, and no
      account's unsent changes from before are sent under it */
   forgetOutboxes(null);
-  forgetOtherAccounts(r.reply.account.email, before);
+  forgetOtherAccounts(account.email, before);
   replaceAccountData({});
   setOnlineRev(0);
   markSynced();
   watchSession();
   askTwoStep(true);
+}
+
+/* "recovery-wait": too many wrong recovery codes at sign-in (wait 15 minutes; no new code helps) */
+export type CodeAnswer = "ok" | "wrong" | "expired" | "too-many" | "locked" | "slow-down" | "send-failed" | "taken" | "taken-phone" | "gone" | "made" | "recovery-wait" | "error";
+const codeAnswer = (result: unknown): CodeAnswer =>
+  result === "wrong" || result === "expired" || result === "too-many" || result === "locked" || result === "slow-down" || result === "send-failed" ||
+  result === "taken" || result === "taken-phone" || result === "gone" || result === "made" || result === "recovery-wait"
+    ? result
+    : "error";
+
+/* the account the last sign-up code made, as the server has it: the sign-up form keeps it for setup and settings
+   (after a refresh, the form no longer has what was typed) */
+let lastMade: PublicAccount | null = null;
+export const madeProfile = () => lastMade;
+
+/** Signing up, step 2: the code from the email. "ok": the account is made and signed in. */
+export async function signupCode(code: string): Promise<CodeAnswer> {
+  const r = await call("/api/auth/signup/code", "POST", { code });
+  if (r?.reply.result !== "ok" || !r.reply.account) return codeAnswer(r?.reply.result);
+  lastMade = r.reply.account;
+  madeAccount(r.reply.account);
   return "ok";
 }
+
+/** The email of the sign-up this browser is waiting on (its code was sent and not typed yet), or null: the page was
+    loaded again during the code step, which comes back with no new code sent */
+export async function signupWaiting(): Promise<string | null> {
+  const r = await call("/api/auth/signup/code", "GET");
+  return r?.status === 200 && r.reply.pending === true && typeof r.reply.email === "string" && r.reply.email ? r.reply.email : null;
+}
+
+/** A new sign-up code (the one before stops working) */
+export async function signupResend(lang: "ar" | "en"): Promise<CodeAnswer> {
+  const r = await call("/api/auth/signup/code", "POST", { resend: true, lang });
+  return r?.reply.result === "ok" ? "ok" : codeAnswer(r?.reply.result);
+}
+
+/** The sign-up is given up (back to the form to change something) */
+export async function signupCancel(): Promise<void> {
+  await call("/api/auth/signup/code", "POST", { cancel: true });
+}
+
+/** A new 2-step sign-in code to the account's email */
+export async function logInResend(lang: "ar" | "en"): Promise<CodeAnswer> {
+  const r = await call("/api/auth/totp", "POST", { resend: true, lang });
+  return r?.reply.result === "ok" ? "ok" : codeAnswer(r?.reply.result);
+}
+
+/* where the last 2-step sign-in code went ("sa••••@gmail.com"), and whether it could be sent, for the code page.
+   `locked`: none was sent because of too many wrong codes this hour (the page opens locked; a recovery code still works) */
+let lastCodeTo: { to: string; sent: boolean; locked: boolean } = { to: "", sent: true, locked: false };
+export const loginCodeTo = () => lastCodeTo;
 
 /** Signs in with an email (or mobile) and password, and brings back that account's store. "wrong": no such account,
     or the password does not match (the server gives one answer for both, so nobody can test which emails have an
     account); "slow-down": too many wrong tries, wait 15 minutes; "suspended": Dukkan suspended the store (its reason
     and date are kept for the /suspended page); "code": the account has 2-step codes on, so logInCode must follow;
     "error": the server could not be reached. */
-export async function logIn(id: string, password: string): Promise<"ok" | "wrong" | "slow-down" | "suspended" | "code" | "error"> {
+export async function logIn(id: string, password: string, lang?: "ar" | "en"): Promise<"ok" | "wrong" | "slow-down" | "suspended" | "code" | "error"> {
   forgetSuspension();
-  const r = await call("/api/auth/login", "POST", { id, password });
+  const r = await call("/api/auth/login", "POST", { id, password, lang });
   const result = r?.reply.result;
+  if (result === "code") lastCodeTo = { to: typeof r?.reply.to === "string" ? r.reply.to : "", sent: r?.reply.sent !== false, locked: r?.reply.sent === false && r.reply.why === "locked" };
   const suspension = asSuspension(r?.reply);
   if (suspension) rememberSuspension(suspension);
   if (result === "wrong" || result === "slow-down" || result === "suspended" || result === "code") return result;
@@ -161,13 +221,12 @@ export async function logIn(id: string, password: string): Promise<"ok" | "wrong
   return "ok";
 }
 
-/** The 6-digit code from the authenticator app, after logIn answered "code". "expired": more than 10 minutes went by
-    (sign in again); "slow-down": too many wrong codes. */
-export async function logInCode(code: string): Promise<"ok" | "wrong" | "expired" | "slow-down" | "error"> {
+/** The 6-digit code emailed for 2-step sign-in (or a recovery code), after logIn answered "code". "gone": more than 15
+    minutes went by (sign in again); "too-many" / "locked" / "slow-down": too many wrong codes. */
+export async function logInCode(code: string): Promise<CodeAnswer> {
   const r = await call("/api/auth/totp", "POST", { code });
   const result = r?.reply.result;
-  if (result === "wrong" || result === "expired" || result === "slow-down") return result;
-  if (result !== "ok" || !r?.reply.account) return "error";
+  if (result !== "ok" || !r?.reply.account) return codeAnswer(result);
   if (!(await signedIn(r.reply.account))) return "error";
   return "ok";
 }
@@ -413,6 +472,53 @@ async function checkSession(lost = false) {
   leaveForSignIn(me?.status === 401 && (me.reply as { why?: unknown }).why === "elsewhere");
 }
 
+/* Another tab named a new email for the browser: someone else signed in there, or this same account took a new email
+   in that tab's Settings (confirmNewEmail, which already moved this browser's copy of the store and its waiting changes
+   to the new email). The server tells which: the session gives the new email and this tab's own mobile number (a
+   mobile belongs to one account only), so it is the same account: this tab follows it, still signed in, instead of
+   saying it was signed out. A tab that is not the account's active one (oneTab.ts) never asked who it is, but it holds
+   nothing and sends nothing, and "Use here" loads it again from the session: it follows whenever the session names the
+   new email. Anything else (another account, no answer, a mobile also changed meanwhile): this tab leaves for sign-in,
+   as before. Nothing is sent while the server is asked (a save taken under the old email would be refused as another
+   account's). */
+const digitsOf = (v: unknown) => (typeof v === "string" ? v.replace(/\D/g, "") : "");
+async function followOrLeave(mine: string, now: string) {
+  const resume = pauseSaves();
+  try {
+    let profile: Partial<PublicAccount> | null = null;
+    try {
+      profile = JSON.parse(sessionStorage.getItem("seen-account-profile") ?? "null") as Partial<PublicAccount> | null;
+    } catch {
+      /* storage blocked */
+    }
+    const myPhone = digitsOf(profile?.phone);
+    const idle = tabState() === "inactive";
+    const me = myPhone || idle ? await call("/api/auth/me", "GET") : null;
+    if (leaving || signedInAs() !== mine) return;
+    let still: string | null = null;
+    try {
+      still = localStorage.getItem(ACCOUNT_MARK);
+    } catch {
+      /* storage blocked */
+    }
+    const account = me?.status === 200 ? me.reply.account : undefined;
+    if (still === now && account?.email === now && (myPhone ? digitsOf(account.phone) === myPhone : idle)) {
+      signInAs(now);
+      renameAccount(mine, now);
+      /* this tab's profile names the new email too (the settings page and setup show it) */
+      try {
+        sessionStorage.setItem("seen-account-profile", JSON.stringify(profile ? { ...profile, email: now } : account));
+      } catch {
+        /* storage blocked */
+      }
+      return;
+    }
+    leaveForSignIn();
+  } finally {
+    resume();
+  }
+}
+
 /* Looked at again when the tab comes back to the front, at most every 30 seconds (another device may have signed out) */
 const recheck = () => {
   if (Date.now() - lastCheck >= 30_000) void checkSession();
@@ -432,7 +538,11 @@ function watchSession() {
     } catch {
       return;
     }
-    if (mine && now !== mine) leaveForSignIn();
+    if (!mine || now === mine || leaving) return;
+    /* signed out: nobody is named any more */
+    if (!now) return leaveForSignIn();
+    /* another email is named: someone else signed in, or the same account took a new email in another tab's Settings */
+    void followOrLeave(mine, now);
   });
   window.addEventListener("focus", recheck);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && recheck());

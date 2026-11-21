@@ -10,7 +10,6 @@ type PublicSettingsLike = Pick<PublicSettings, "payment_methods" | "dukkan_ship"
 import { readyToSell, type SellNeed } from "./safeOrder";
 import { loadSetup, type SavedSetup } from "./setup";
 import { storeIsLive } from "./storefront/storage";
-import { useEmailUnconfirmed } from "./VerifyEmail";
 
 /* Whether the store can sell, as every merchant page asks it: the shared rule (safeOrder readyToSell) on his saved
    setup and what Diwan has on now. The server runs the same rule before a save opens the store (app/api/store PUT
@@ -20,7 +19,6 @@ import { useEmailUnconfirmed } from "./VerifyEmail";
 export const sellWords = {
   en: {
     setup: "Finish all 6 setup steps",
-    email: "Confirm your email address",
     pay: "Turn on at least one way to pay",
     delivery: "Choose how customers get their orders (delivery or pickup)",
     notReady: "Not ready to sell yet. Before your store can go live:",
@@ -32,7 +30,6 @@ export const sellWords = {
   },
   ar: {
     setup: "أكمل خطوات الإعداد الست كلها",
-    email: "أكّد بريدك الإلكتروني",
     pay: "فعّل طريقة دفع واحدة على الأقل",
     delivery: "اختر كيف يستلم العملاء طلباتهم (توصيل أو استلام)",
     notReady: "متجرك غير جاهز للبيع بعد. قبل أن يُنشر متجرك:",
@@ -44,9 +41,8 @@ export const sellWords = {
   },
 };
 
-/** Where each missing thing is fixed: the Delivery options page, its Ways to pay card for a way to pay, and for the email
-    the code box at the top of the dashboard (VerifyEmail.tsx) */
-export const SELL_LINKS: Record<SellNeed, string> = { pay: "/delivery#ways-to-pay", delivery: "/delivery", setup: "/onboarding", email: "/dashboard#verify-email" };
+/** Where each missing thing is fixed: the Delivery options page, its Ways to pay card for a way to pay */
+export const SELL_LINKS: Record<SellNeed, string> = { pay: "/delivery#ways-to-pay", delivery: "/delivery", setup: "/onboarding" };
 
 /** The rule's inputs from Diwan's settings as the pages have them */
 export const sellPlatformOf = (s: PublicSettingsLike) => ({ pays: storePays(s), shipCities: shipCityLists(s) });
@@ -63,9 +59,7 @@ export const shipsByDefault = (s: PublicSettingsLike, setup: SavedSetup | null |
 export const storeLiveNow = () => storeIsLive() && !loadMaintenance().on;
 
 /** The store's readiness, read again when the setup changes (this tab or another). `checked`: Diwan's settings came
-    from the server, so a warning about them is not a flash of the starting values. "email" is added while the account has
-    not confirmed its email and Dukkan can send the code (/api/auth/me, VerifyEmail.tsx), as the server adds it (app/api/store
-    PUT "not-ready"). */
+    from the server, so a warning about them is not a flash of the starting values. */
 export function useSellReady() {
   const platform = usePublicSettings();
   const checked = useSettingsChecked();
@@ -80,17 +74,15 @@ export function useSellReady() {
       window.removeEventListener("storage", again);
     };
   }, []);
-  const email = useEmailUnconfirmed();
-  const base = readyToSell(setup ?? null, sellPlatformOf(platform));
-  const r = email.unconfirmed ? { ok: false, missing: [...base.missing, "email" as SellNeed] } : base;
+  const r = readyToSell(setup ?? null, sellPlatformOf(platform));
   return { ...r, read: setup !== undefined, checked, shipDefault: setup !== undefined && shipsByDefault(platform, setup) };
 }
 
 /** What a live store is missing, with "delivery" left out when it delivers with Dukkan Ship by default (shipsByDefault:
-    ShipDefaultNote says so instead), and "setup" and "email" left out (only going live needs them) */
+    ShipDefaultNote says so instead), and "setup" left out (only going live needs it) */
 export const liveMissing = (missing: SellNeed[], shipDefault: boolean): SellNeed[] =>
   /* a store already live keeps selling with setup steps left (customers can still order): only going live needs them */
-  missing.filter((m) => m !== "setup" && m !== "email" && !(shipDefault && m === "delivery"));
+  missing.filter((m) => m !== "setup" && !(shipDefault && m === "delivery"));
 
 /** A live store that delivers with Dukkan Ship by default: says so, with a link to choose on Delivery options */
 export function ShipDefaultNote({ lang, className = "" }: { lang: Lang; className?: string }) {

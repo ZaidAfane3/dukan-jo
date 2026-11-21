@@ -1,9 +1,9 @@
 import { createHash, randomInt } from "node:crypto";
 import { db } from "./db";
 
-/* Recovery codes for a merchant's 2-step sign-in: 10 one-time codes given when 2-step codes are turned on, so losing the
-   phone doesn't lock the owner out of their store. Each can be typed instead of the 6-digit code once, at sign-in or to
-   turn 2-step codes off. Only their SHA-256 is kept (accounts.totp_recovery); the codes are shown once and never again.
+/* Recovery codes for a merchant's 2-step sign-in: 10 one-time codes given when 2-step sign-in is turned on, so losing
+   access to the email the codes go to doesn't lock the owner out of their store. Each can be typed instead of the
+   emailed 6-digit code once, at sign-in or to turn 2-step sign-in off. Only their SHA-256 is kept (accounts.totp_recovery); the codes are shown once and never again.
    Shown as XXXX-XXXX, from letters and digits that can't be mistaken for each other. */
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

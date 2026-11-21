@@ -2,11 +2,13 @@ import type { NextRequest } from "next/server";
 import { isJordanMobile, savedMobile } from "@/components/phone";
 import { cleanDate, cleanLine, emailOf, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS, DOB_MIN } from "@/components/safeAccount";
-import { answer, checkPassword, clearFailures, currentAccount, failedTooOften, guarded, noteFailure, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
+import { answer, checkPassword, clearFailures, currentAccount, failedTooOften, guarded, noteFailure, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { emailKey, NAME_KEYS_VERSION, nameKeys, phoneKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { emailOn } from "@/server/email";
-import { SEND_PER_ACCOUNT, SEND_PER_IP, sendVerifyCode, startsVerified, verifyLang } from "@/server/emailVerify";
+import { endCodes, pendingEmailChange, sendCodeEmail, verifyLang } from "@/server/emailVerify";
+import { logMerchant } from "@/server/merchantLog";
+import { emailTaken, newRef, oldRef, pendingOldStep, sendOldStep, sentState } from "./emailSteps";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +16,16 @@ export const dynamic = "force-dynamic";
    optional date of birth, gender and city. An email or mobile another account has is refused: "taken" (email) or
    "taken-phone". Changing the email or the mobile (what the account signs in with) also needs the account's password,
    sent as `password`: without it "password-needed", with a wrong one "wrong-password" (403), so someone at an unlocked
-   screen can't quietly make the account his. A new email has to be confirmed again while Dukkan can send email: the
-   code goes to it (server/emailVerify.ts; `lang`, optional, is the language of that email). Answers "ok" with the
-   profile and emailVerified, "invalid", "none" (signed out). */
+   screen can't quietly make the account his. A new email takes effect only once its code is typed
+   (app/api/account/email; `lang`, optional, is the language of the emails): until then the account keeps its old email,
+   and the answer says so in emailChange { step, email, sent, waiting }:
+   - step "old" (2-step sign-in is on): a code went to the CURRENT email first, to approve the change (emailSteps.ts);
+   - step "new": the code went to the new email;
+   - sent: "sent", "failed" (a new one can be asked for), "slow-down" or "locked" (refused for now: no code);
+   - waiting: a code is waiting to be typed (or can be sent again): only then does the page ask for it.
+   `check: true` only checks (the password, an email or mobile another account has) and keeps nothing: the page asks it
+   before changing the password in the same save, so a refused email never leaves a changed password behind.
+   Answers "ok" with the profile, "invalid", "none" (signed out). */
 
 /* all stored encrypted (server/crypto.ts) and opened by db(); dob is kept as "YYYY-MM-DD" text */
 const PROFILE = `name, email, phone, city, gender, COALESCE(dob, '') AS dob`;
@@ -49,7 +58,7 @@ export const PUT = guarded(async (req: NextRequest) => {
 
   /* a new email or mobile: the password again first (a few wrong tries, then a wait, like signing in) */
   const pool = await db();
-  const cur = await pool.query(`SELECT email_hash, phone_hash, password_hash FROM accounts WHERE id = $1`, [a.id]);
+  const cur = await pool.query(`SELECT email, email_hash, phone_hash, password_hash, name, dob, gender, city FROM accounts WHERE id = $1`, [a.id]);
   if (!cur.rows[0]) return answer({ result: "none" }, 401);
   if (cur.rows[0].email_hash !== emailKey(email) || cur.rows[0].phone_hash !== phoneKey(phone)) {
     const who = `account-identity:${a.id}`;
@@ -62,26 +71,64 @@ export const PUT = guarded(async (req: NextRequest) => {
     clearFailures(who);
   }
 
-  /* a new email is not confirmed yet while Dukkan can send it a code (server/emailVerify.ts); with email off it keeps
-     what it had, since nothing could confirm it */
   const newEmail = cur.rows[0].email_hash !== emailKey(email);
-  const unconfirm = newEmail && !startsVerified();
+  /* a new email waits for its code while Dukkan can send one (on the dev server the code is in its console); without
+     email it takes effect at once, since nothing could confirm it */
+  const byCode = newEmail && (emailOn() || process.env.NODE_ENV === "development");
+  if (newEmail && (await emailTaken(email, a.id))) return answer({ result: "taken" }, 409);
+  if (body?.check === true) {
+    const { rows: other } = await pool.query(`SELECT 1 FROM accounts WHERE phone_hash = $1 AND id <> $2`, [phoneKey(phone), a.id]);
+    return other.length ? answer({ result: "taken-phone" }, 409) : answer({ result: "ok", check: true });
+  }
+  const kept = byCode ? String(cur.rows[0].email) : email;
   const newPhone = cur.rows[0].phone_hash !== phoneKey(phone);
   try {
     const { rows } = await pool.query(
       `UPDATE accounts SET name = $2, email = $3, phone = $4, dob = $5, gender = $6, city = $7, email_hash = $8, phone_hash = $9,
-              name_keys = $10, name_keys_v = $11, email_verified = CASE WHEN $12::boolean THEN false ELSE email_verified END
-        WHERE id = $1 RETURNING ${PROFILE}, email_verified`,
-      [a.id, seal(name), seal(email), seal(phone), seal(dob || null), seal(gender), seal(city), emailKey(email), phoneKey(phone), nameKeys(name), NAME_KEYS_VERSION, unconfirm],
+              name_keys = $10, name_keys_v = $11
+        WHERE id = $1 RETURNING ${PROFILE}`,
+      [a.id, seal(name), seal(kept), seal(phone), seal(dob || null), seal(gender), seal(city), emailKey(kept), phoneKey(phone), nameKeys(name), NAME_KEYS_VERSION],
     );
-    /* the code to the new address, not waited for. Counted as one of the account's sends (app/api/auth/verify-email), so
-       changing the email again and again can't send codes to many addresses: past the limit the banner's "Send a new
-       code" sends it later. */
-    /* a password reset asked for at the old email or mobile no longer works: whoever still has that mailbox can't use it */
-    if (newEmail || newPhone) await pool.query(`UPDATE password_resets SET used_at = now() WHERE account_id = $1 AND used_at IS NULL`, [a.id]);
-    if (unconfirm && !tooManyFor(`verify-email-send:${a.id}`, SEND_PER_ACCOUNT.max, SEND_PER_ACCOUNT.minutes) && !tooMany(req, "verify-email-send", SEND_PER_IP.max, SEND_PER_IP.minutes))
-      void sendVerifyCode(a.id, email, verifyLang(req, body?.lang), true).catch((e) => console.error("[account] the email code could not be made:", (e as Error)?.message ?? e));
-    return answer({ result: "ok", profile: shape(rows[0]), emailVerified: rows[0].email_verified !== false || !emailOn() });
+    /* a password reset asked for at the old email or mobile no longer works: whoever still has that mailbox can't use it
+       (for an email waiting for its code this happens when it takes effect: app/api/account/email) */
+    if ((newEmail && !byCode) || newPhone) await pool.query(`UPDATE password_resets SET used_at = now() WHERE account_id = $1 AND used_at IS NULL`, [a.id]);
+    /* the code(s) for a new email (see the top): with 2-step on, the current email approves it first, unless that was
+       done already for this same address (its code to the new email is what waits now) */
+    let change: { step: "old" | "new"; email: string; to?: string; sent: string; waiting: boolean } | null = null;
+    if (byCode) {
+      const lang = verifyLang(req, body?.lang);
+      const current = String(cur.rows[0].email);
+      const approved = (await pendingEmailChange(a.id)) === email;
+      if (a.totpOn && !approved) {
+        const sent = await sendOldStep(req, a.id, current, email, lang);
+        const st = sentState(sent, (await pendingOldStep(a.id))?.email === email);
+        /* a new ask replaces a change to another address still waiting for its own code */
+        if (st.waiting) await endCodes(newRef(a.id), true);
+        change = { step: "old", email, to: current, ...st };
+      } else {
+        const sent = await sendCodeEmail(req, "change", newRef(a.id), email, lang);
+        const st = sentState(sent, (await pendingEmailChange(a.id)) === email);
+        if (st.waiting) await endCodes(oldRef(a.id), true);
+        change = { step: "new", email, ...st };
+      }
+    }
+    /* the merchant log: what changed, by name only (his new email once it is confirmed: app/api/account/email) */
+    const was = cur.rows[0];
+    if (newEmail && change) logMerchant(a.id, "email.change-asked", { to: email, sent: change.sent === "sent", step: change.step });
+    else if (newEmail) logMerchant(a.id, "email.change", { from: String(was.email ?? ""), to: email });
+    if (newPhone) logMerchant(a.id, "phone.change");
+    const fields = [
+      ["name", String(was.name ?? ""), name],
+      ["birthday", String(was.dob ?? ""), dob || ""],
+      ["gender", String(was.gender ?? ""), gender],
+      ["city", String(was.city ?? ""), city],
+    ].filter(([, from, to]) => from !== to).map(([k]) => k);
+    if (fields.length) logMerchant(a.id, "profile.change", { fields: fields.join(",") });
+    return answer({
+      result: "ok",
+      profile: shape(rows[0]),
+      ...(change ? { emailChange: change } : {}),
+    });
   } catch (e) {
     const err = e as { code?: string; constraint?: string };
     if (err.code === "23505") return answer({ result: err.constraint === "accounts_phone_hash" ? "taken-phone" : "taken" }, 409);

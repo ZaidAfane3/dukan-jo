@@ -16,7 +16,7 @@ import { loadSetup } from "./setup";
 
 /* Right after signing up or in (accounts.ts marks the tab with TWO_STEP_ASK; signing in with a 2-step code does not), a
    full page over the dashboard asks to turn 2-step sign-in on. Its button opens TwoStepSettings on
-   /settings#two-step-start, which starts the setup at once. "Not now" (or Esc) hides it for this sign-in only: it is
+   /settings#two-step-start, which opens the setup at once (the password is all it asks). "Not now" (or Esc) hides it for this sign-in only: it is
    back on the next sign-in, until the code is on.
 
    When it shows. It never lands on top of something the merchant has started:
@@ -42,26 +42,26 @@ import { loadSetup } from "./setup";
 
 const words = {
   en: {
-    title: "Protect your account with two-step sign-in",
-    why: "When you sign in, we'll also ask for a 6-digit code from an app on your phone. Someone who learns your password still can't get in without it.",
-    stepsTitle: "It takes about two minutes:",
+    title: "Protect your account with 2-step sign-in",
+    why: "Every time you sign in, we'll also email you a 6-digit code. Someone who learns your password still can't get in without it.",
+    stepsTitle: "It takes less than a minute:",
     steps: [
-      "Install an authenticator app on your phone, such as Google Authenticator or Microsoft Authenticator.",
-      "Add Dukkan to the app with the key we give you.",
-      "Type the 6-digit code the app shows, and you're done.",
+      "Choose how to get the code: by email (WhatsApp is coming soon).",
+      "Type your password to turn it on, and you're done.",
+      "From then on, each sign-in also asks for a 6-digit code we email you.",
     ],
-    yes: "Turn on two-step sign-in",
+    yes: "Turn on 2-step sign-in",
     later: "Not now",
     remind: "We'll remind you the next time you sign in.",
   },
   ar: {
     title: "احمِ حسابك بالتحقق بخطوتين",
-    why: "عند تسجيل الدخول سنطلب منك أيضًا رمزًا من 6 أرقام يظهر في تطبيق على هاتفك. فمن يعرف كلمة مرورك لن يستطيع الدخول بدونه.",
-    stepsTitle: "يستغرق الأمر دقيقتين تقريبًا:",
+    why: "في كل مرة تسجّل فيها الدخول سنرسل إلى بريدك أيضًا رمزًا من 6 أرقام. فمن يعرف كلمة مرورك لن يستطيع الدخول بدونه.",
+    stepsTitle: "يستغرق الأمر أقل من دقيقة:",
     steps: [
-      "ثبّت تطبيق مصادقة على هاتفك، مثل Google Authenticator أو Microsoft Authenticator.",
-      "أضف دكّان إلى التطبيق بالمفتاح الذي نعطيك إياه.",
-      "اكتب الرمز المكوّن من 6 أرقام الذي يظهره التطبيق، وانتهى.",
+      "اختر طريقة استلام الرمز: عبر البريد الإلكتروني (واتساب قريبًا).",
+      "اكتب كلمة المرور لتفعيله، وانتهى.",
+      "بعدها يطلب كل تسجيل دخول أيضًا رمزًا من 6 أرقام نرسله إلى بريدك.",
     ],
     yes: "فعّل التحقق بخطوتين",
     later: "ليس الآن",

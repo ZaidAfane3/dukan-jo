@@ -3,6 +3,8 @@ import type { NextRequest } from "next/server";
 import { passwordProblem } from "@/components/safe";
 import { answer, checkPassword, currentAccount, guarded, hashPassword, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
 import { db } from "@/server/db";
+import { logMerchant } from "@/server/merchantLog";
+import { freshSignInCodes } from "@/server/emailVerify";
 
 export const dynamic = "force-dynamic";
 
@@ -40,5 +42,7 @@ export const POST = guarded(async (req: NextRequest) => {
   } finally {
     client.release();
   }
+  logMerchant(a.id, "password.change");
+  await freshSignInCodes(a.id).catch(() => {});
   return answer({ result: "ok" });
 });

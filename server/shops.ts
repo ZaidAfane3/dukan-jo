@@ -4,6 +4,8 @@ import { cleanSetup } from "@/components/safeAccount";
 import { isTestOrder, saleState } from "@/components/storeNumbers";
 import { lookupKeys, NAME_KEYS_VERSION, nameKeys, nameSearchKeys, plainText, seal } from "./crypto";
 import { db } from "./db";
+import { logMerchant, type MerchantAction, type MerchantMeta } from "./merchantLog";
+import { SETUP_STEPS } from "@/components/safeOrder";
 
 /* The shops table: one row per merchant account, worked out on the server from what the merchant's pages sync to
    store_data. Diwan reads only this row (names, counts and totals), never the products, orders or customers
@@ -97,8 +99,17 @@ export const SHOP_COUNTS_VERSION = 1;
 
 /** Works the shops row out again from the account's saved data, and saves it. `fresh`: what a save just wrote (the
     values, plain) and removed, so those keys are not read and opened again (the products and orders can be megabytes). */
-export async function syncShop(accountId: string | number, q?: Q, fresh?: { set: Map<string, string>; removed: Set<string> }): Promise<void> {
+export async function syncShop(
+  accountId: string | number,
+  q?: Q,
+  fresh?: { set: Map<string, string>; removed: Set<string> },
+  /* the merchant's own save: what changed goes to the merchant log (not a recount or Diwan opening the store) */
+  opts?: { log?: boolean },
+): Promise<void> {
   const c: Q = q ?? (await db());
+  const was = opts?.log
+    ? ((await c.query(`SELECT name, slug, setup_done, published, paused, ship_mode, theme_id, product_count, order_count FROM shops WHERE account_id = $1`, [accountId])).rows[0] as ShopWas | undefined)
+    : undefined;
   const known = (k: string) => !!fresh && (fresh.set.has(k) || fresh.removed.has(k));
   const ask = Array.from(SHOP_KEYS).filter((k) => !known(k));
   /* the values come back opened by db() */
@@ -157,13 +168,50 @@ export async function syncShop(accountId: string | number, q?: Q, fresh?: { set:
       first_product_at = LEAST(shops.first_product_at, $17::timestamptz, CASE WHEN shops.product_count = 0 AND EXCLUDED.product_count > 0 THEN now() END),
       first_order_at = LEAST(shops.first_order_at, $15::timestamptz, CASE WHEN shops.order_count = 0 AND EXCLUDED.order_count > 0 THEN now() END),
       updated_at = now()`;
+  let slugKept = values[2] as string | null;
   try {
     await c.query(sql, values);
   } catch (e) {
     /* the link belongs to another shop (saved before links were checked, or two saves at once): kept without it */
     if ((e as { code?: string }).code !== "23505") throw e;
     await c.query(sql, [...values.slice(0, 2), null, ...values.slice(3)]);
+    slugKept = null;
   }
+  if (was)
+    logShopChanges(accountId, was, {
+      name: values[1] as string,
+      slug: slugKept,
+      done: setup ? setup.done.slice(0, SETUP_STEPS).map((d) => d === true) : [],
+      setup_done: values[5] as number,
+      published: values[6] as boolean,
+      paused: values[7] as boolean,
+      ship_mode: values[8] as string,
+      theme_id: (values[15] as string | null) ?? null,
+      product_count: Number(values[11]),
+      order_count: Number(values[12]),
+    });
+}
+
+type ShopWas = { name: string; slug: string | null; setup_done: number; published: boolean; paused: boolean; ship_mode: string; theme_id: string | null; product_count: number; order_count: number };
+
+/* what a merchant's save changed in his store, as merchant log lines (server/merchantLog.ts) */
+function logShopChanges(id: string | number, was: ShopWas, now: Omit<ShopWas, "setup_done"> & { setup_done: number; done: boolean[] }) {
+  const log = (a: MerchantAction, meta?: MerchantMeta) => logMerchant(id, a, meta);
+  if ((was.name ?? "") !== now.name && now.name) log("store.name", { from: was.name || null, to: now.name });
+  if ((was.slug ?? "") !== (now.slug ?? "") && now.slug) log("store.link", { from: was.slug || null, to: now.slug });
+  if (now.setup_done > Number(was.setup_done ?? 0)) {
+    /* which steps: the saved setup says which are done; the row only kept how many */
+    if (now.setup_done >= SETUP_STEPS) log("store.setup-done");
+    else log("store.setup-step", { done: now.setup_done, of: SETUP_STEPS, steps: now.done.map((d, i) => (d ? i + 1 : 0)).filter(Boolean).join(",") });
+  }
+  if (!was.published && now.published) log("store.live");
+  if (was.published && !now.published) log("store.offline");
+  if (!was.paused && now.paused) log("store.paused");
+  if (was.paused && !now.paused) log("store.resumed");
+  if ((was.ship_mode ?? "") !== now.ship_mode && now.ship_mode) log("store.delivery", { from: was.ship_mode || null, to: now.ship_mode });
+  if ((was.theme_id ?? null) !== now.theme_id && now.theme_id) log("store.theme", { from: was.theme_id, to: now.theme_id });
+  if (!Number(was.product_count) && now.product_count > 0) log("store.first-product");
+  if (!Number(was.order_count) && now.order_count > 0) log("store.first-order");
 }
 
 /** True when another shop already uses this store link (case does not matter) */

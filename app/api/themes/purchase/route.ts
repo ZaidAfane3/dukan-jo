@@ -5,6 +5,7 @@ import { answer, currentAccount, guarded, readJson, sameOrigin, tooMany } from "
 import { livePrice } from "@/server/catalog";
 import { db } from "@/server/db";
 import { readSettings } from "@/server/settings";
+import { logMerchant } from "@/server/merchantLog";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +30,10 @@ export const POST = guarded(async (req: NextRequest) => {
   const s = await readSettings(["payment_methods"] as const);
   const method = THEME_PAYS.find((m) => m === body?.method) as ThemePay | undefined;
   if (price > 0 && (!method || !s.payment_methods[method].on)) return answer({ result: "method-off" }, 400);
-  await (await db()).query(
+  const bought = await (await db()).query(
     `INSERT INTO theme_purchases (account_id, theme_id, price, method) VALUES ($1, $2, $3, $4) ON CONFLICT (account_id, theme_id) DO NOTHING`,
     [a.id, themeId, price, price > 0 ? method : null],
   );
+  if (bought.rowCount) logMerchant(a.id, "theme.bought", { theme: String(themeId), price });
   return answer({ result: "ok" });
 });

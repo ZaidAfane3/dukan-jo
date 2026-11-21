@@ -61,7 +61,7 @@ export default function MediaTakedown() {
     const words =
       passwordAgainWords(t, r.data) ??
       (r.data?.result === "reason-needed"
-        ? t("Write why (at least 5 letters): it goes in the activity log.", "اكتب السبب (5 أحرف على الأقل): يُحفظ في سجل النشاط.")
+        ? t("Write why (at least 5 letters): it goes in the staff log.", "اكتب السبب (5 أحرف على الأقل): يُحفظ في سجل الفريق.")
         : r.status === 404
           ? t("This file is already gone.", "هذا الملف محذوف من قبل.")
           : t("Couldn't take it down. Try again.", "تعذّرت الإزالة. حاول مجددًا."));

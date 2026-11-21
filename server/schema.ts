@@ -517,7 +517,9 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS lang TEXT CHECK (lang IN ('ar', 'en'));
   ALTER TABLE staff ADD COLUMN IF NOT EXISTS lang TEXT CHECK (lang IN ('ar', 'en'));
 
-  /* agent B: merchants' optional 2-step codes. totp_secret is kept while it is being set up (totp_on false) and once on.
+  /* agent B: merchants' optional 2-step sign-in (totp_on). Since 2026-11-21 its codes come by email (server/emailVerify.ts,
+     two_step_method below); totp_secret was the authenticator app's secret before that, is no longer written for
+     merchants, and is cleared whenever 2-step is turned on or off (staff still use theirs for Diwan).
      pending_totp: the password was right, the session waits for the code (counts as signed out until then). */
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_secret TEXT;
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_on BOOLEAN NOT NULL DEFAULT false;
@@ -849,4 +851,68 @@ export const DIWAN_SCHEMA = `
     used_at     TIMESTAMPTZ
   );
   CREATE INDEX IF NOT EXISTS email_verifications_account ON email_verifications (account_id, id DESC);
+
+  /* ---------- email codes: sign-up, 2-step sign-in, a new email (server/emailVerify.ts) ----------
+     Since 2026-11-21 an account exists only once its email was confirmed at sign-up, so every account counts as
+     confirmed (email_verified stays, always true; email_verifications above is no longer written).
+     email_codes: every code sent by email. ref: what it is for ("s:" a sign-up waiting, "l:" a session waiting for its
+     2-step code, "c:" an account's new email, "t:" turning 2-step on or off). Kept only as an HMAC (crypto.ts blind).
+     new_email: for "c:", the address the account moves to (sealed). confirmed_at: the code was right (a second tab
+     sending the same code at once is answered "ok" too). cancelled_at: the email change was given up.
+     signup_pending: a sign-up whose email code isn't typed yet. Nothing in accounts until it is, so an address
+     nobody confirmed holds nothing. Its browser holds the token (cookie dukkan-signup). Kept an hour.
+     two_step_method: how a merchant with 2-step on (totp_on) gets the code: 'email' (WhatsApp later). The authenticator
+     app is gone: accounts that used it get their codes by email. */
+  UPDATE accounts SET email_verified = true WHERE NOT email_verified;
+  CREATE TABLE IF NOT EXISTS email_codes (
+    id           BIGSERIAL PRIMARY KEY,
+    ref          TEXT NOT NULL,
+    purpose      TEXT NOT NULL,
+    email_hash   TEXT NOT NULL,
+    new_email    TEXT,
+    code_hash    TEXT NOT NULL,
+    attempts     SMALLINT NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ NOT NULL,
+    used_at      TIMESTAMPTZ,
+    confirmed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS email_codes_ref ON email_codes (ref, id DESC);
+  CREATE TABLE IF NOT EXISTS signup_pending (
+    id            BIGSERIAL PRIMARY KEY,
+    token_hash    TEXT NOT NULL UNIQUE,
+    email         TEXT NOT NULL,
+    email_hash    TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    phone         TEXT NOT NULL,
+    phone_hash    TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    name_keys     TEXT[],
+    name_keys_v   SMALLINT NOT NULL DEFAULT 0,
+    account_id    BIGINT REFERENCES accounts (id) ON DELETE CASCADE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at    TIMESTAMPTZ NOT NULL
+  );
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS two_step_method TEXT;
+  UPDATE accounts SET two_step_method = 'email', totp_secret = NULL WHERE totp_on AND two_step_method IS NULL;
+
+  /* ---------- the merchant log: what each merchant did with his account and store (server/merchantLog.ts) ----------
+     Diwan's "Merchant log" and each store's page read it. Only what happened, never his products, orders or customers:
+     signing up and in, his password, email, mobile and 2-step, his setup steps, going live, his store's name, link,
+     theme and delivery. meta: the line's details (from / to), sealed. Lines are never changed (a trigger refuses it);
+     they go with the account. */
+  CREATE TABLE IF NOT EXISTS merchant_log (
+    id         BIGSERIAL PRIMARY KEY,
+    at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    action     TEXT NOT NULL,
+    meta       TEXT
+  );
+  CREATE INDEX IF NOT EXISTS merchant_log_account ON merchant_log (account_id, id DESC);
+  CREATE INDEX IF NOT EXISTS merchant_log_action ON merchant_log (action);
+  CREATE INDEX IF NOT EXISTS merchant_log_at ON merchant_log (at);
+  CREATE OR REPLACE FUNCTION merchant_log_frozen() RETURNS trigger AS $f$ BEGIN RAISE EXCEPTION 'merchant_log is append-only'; END $f$ LANGUAGE plpgsql;
+  DROP TRIGGER IF EXISTS merchant_log_frozen ON merchant_log;
+  CREATE TRIGGER merchant_log_frozen BEFORE UPDATE ON merchant_log FOR EACH ROW EXECUTE FUNCTION merchant_log_frozen();
 `;

@@ -67,7 +67,7 @@ export type Content = {
     errTooMany: string;
     errSignupMany: string;
     terms: { before: string; terms: string; and: string; privacy: string };
-    side: { kicker: string; heading: string; panelTitle: string; steps: string[]; caption: string };
+    side: { kicker: string; heading: string; panelTitle: string; caption: string };
   };
   onboarding: {
     nav: string[];
@@ -544,8 +544,8 @@ export const content: Record<Lang, Content> = {
       forgot: "Forgot your password?",
       or: "or",
       guest: "Continue without an account",
-      errTaken: "This email already has an account. Log in instead.",
-      errPhoneTaken: "This mobile number already has an account. Log in instead.",
+      errTaken: "This email is already in use.",
+      errPhoneTaken: "This mobile number is already in use.",
       errServer: "We couldn't reach Dukkan right now. Check your connection and try again.",
       errWrongPassword: "The email, number or password is not right. Try again.",
       errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
@@ -560,7 +560,6 @@ export const content: Record<Lang, Content> = {
         kicker: "Getting started is the easy part",
         heading: "We'll guide you from signup to your first sale",
         panelTitle: "Your launch path",
-        steps: ["Create your store", "Add your products", "Turn on payments", "Set up shipping", "Share your store link"],
         caption: "Set up in minutes, not days.",
       },
     },
@@ -1135,9 +1134,9 @@ export const content: Record<Lang, Content> = {
       forgot: "نسيت كلمة المرور؟",
       or: "أو",
       guest: "المتابعة بدون حساب",
-      errTaken: "يوجد حساب بهذا البريد. سجّل الدخول بدلًا من ذلك.",
-      errPhoneTaken: "يوجد حساب بهذا الرقم. سجّل الدخول بدلًا من ذلك.",
-      errServer: "تعذّر الاتصال بدكان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
+      errTaken: "هذا البريد مستخدم بالفعل.",
+      errPhoneTaken: "رقم الجوال هذا مستخدم بالفعل.",
+      errServer: "تعذّر الاتصال بدكّان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
       errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
       errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
       errSignupMany: "أُنشئت حسابات كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
@@ -1151,7 +1150,6 @@ export const content: Record<Lang, Content> = {
         kicker: "البداية أسهل مما تتخيل",
         heading: "نرافقك من التسجيل حتى أول عملية بيع",
         panelTitle: "رحلة إطلاق متجرك",
-        steps: ["أنشئ متجرك", "أضف منتجاتك", "فعّل المدفوعات", "اضبط الشحن", "شارك رابط متجرك"],
         caption: "جاهز خلال دقائق لا أيام.",
       },
     },

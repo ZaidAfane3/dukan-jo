@@ -5,6 +5,7 @@ import { db } from "@/server/db";
 import { ACCOUNT_BYTES, BODY_MAX, checkUpload, documentName, documentsRoute, MERCHANT_KINDS, merchantDocument, partnerKind, partnerName, PER_ACCOUNT, PER_PARTNER, type MerchantKind } from "@/server/documents";
 import { storageFull } from "@/server/media";
 import { inTransaction } from "@/server/tickets";
+import { logMerchant } from "@/server/merchantLog";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,7 @@ export const POST = documentsRoute(async (req, me) => {
   if (saved === "too-many" || saved === "too-big") return answer({ result: saved }, 409);
   if (saved === "storage-full") return answer({ result: saved }, 503);
   /* the row came back from a transaction client, whose answers are opened like the pool's (server/db.ts) */
+  logMerchant(me.id, "document.sent", { kind: String(saved.kind ?? "") });
   return answer({ result: "ok", document: merchantDocument(saved) });
 });
 

@@ -1,8 +1,8 @@
 import { phoneCodesByEmail } from "@/server/sendCode";
 import { randomInt } from "node:crypto";
 import type { NextRequest } from "next/server";
-import { answer, guarded, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
-import { canSendTo, codeLang, contactOf, requestCode, SEND_PER_CONTACT, SEND_PER_IP } from "@/server/passwordReset";
+import { answer, guarded, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { canSendTo, codeLang, contactOf, noteResetSend, requestCode, resetSendLimited, SEND_PER_IP } from "@/server/passwordReset";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,9 @@ export const dynamic = "force-dynamic";
    Answers:
    - "sent" (200): the same whether that email or mobile has an account or not ("If this email or number has an account,
      we sent a code"), after about the same wait, so nobody can test which ones have one;
-   - "slow-down" (429): 3 codes for this email or mobile in 15 minutes, or 10 from this address in an hour;
+   - "slow-down" (429): 3 codes for this email or mobile from this visitor in 15 minutes, 10 for it from everyone in an
+     hour (30 a day), or 10 requests from this address in an hour (server/passwordReset.ts SEND_PER_CONTACT). Refused
+     requests never count, so a stranger can't keep the owner's reset closed;
    - "no-sender" (503): nothing can send codes yet (production without an email/SMS provider, server/sendCode.ts);
    - "invalid" (400): neither an email nor a Jordan mobile. */
 
@@ -25,7 +27,9 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!c) return answer({ result: "invalid" }, 400);
   /* decided by the kind of contact only, never by the account */
   if (!canSendTo(c)) return answer({ result: "no-sender" }, 503);
-  if (tooManyFor(`reset-send:${c.key}`, SEND_PER_CONTACT.max, SEND_PER_CONTACT.minutes)) return answer({ result: "slow-down" }, 429);
+  /* looked at and counted in one step (nothing waited for in between), and the same for an unknown email or mobile */
+  if (resetSendLimited(req, c)) return answer({ result: "slow-down" }, 429);
+  noteResetSend(req, c);
   const until = Date.now() + MIN_MS + randomInt(150);
   await requestCode(req, c, codeLang(body?.lang));
   const left = until - Date.now();

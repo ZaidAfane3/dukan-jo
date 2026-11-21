@@ -8,6 +8,7 @@ import { emailOf, passwordProblem } from "./safe";
 import { passwordError } from "./safeAccount";
 import { supportLinks, usePublicSettings } from "./platformPublic";
 import { CodeInput } from "./TwoStepSettings";
+import { secondsText } from "./EmailCodeStep";
 
 /* A forgotten password, on the sign-in page (SignupForm.tsx): the merchant types the email or mobile of his account, gets
    a 6-digit code there, types it, then picks a new password (app/api/auth/reset/...). When it is done the sign-in form
@@ -35,7 +36,7 @@ const words = {
     codeNote: "The code works for 10 minutes.",
     verify: "Continue",
     resend: "Send a new code",
-    resendIn: (s: number) => `Send a new code in ${s} s`,
+    resendIn: (s: number) => `Send a new code in ${secondsText(s, "en")}`,
     other: "Use another email or number",
     wrongCode: "That code isn't right. Check it and try again.",
     expired: "This code has expired. Ask for a new one.",
@@ -77,8 +78,8 @@ const words = {
     codeLabel: "رمز من 6 أرقام",
     codeNote: "الرمز صالح لمدة 10 دقائق.",
     verify: "متابعة",
-    resend: "أرسل رمزًا جديدًا",
-    resendIn: (s: number) => `أرسل رمزًا جديدًا بعد ${s} ث`,
+    resend: "إرسال رمز جديد",
+    resendIn: (s: number) => `إرسال رمز جديد بعد ${secondsText(s, "ar")}`,
     other: "استخدم بريدًا أو رقمًا آخر",
     wrongCode: "الرمز غير صحيح. تحقّق منه وحاول مرة أخرى.",
     expired: "انتهت صلاحية هذا الرمز. اطلب رمزًا جديدًا.",

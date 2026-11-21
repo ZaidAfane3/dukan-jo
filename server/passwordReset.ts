@@ -1,12 +1,14 @@
-import { emailOn } from "./email";
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { savedMobile } from "@/components/phone";
 import { emailOf } from "@/components/safe";
-import { clearFailures, hashPassword, visitorIp } from "./auth";
+import { clearFailures, countTry, hashPassword, limitReached, visitorIp } from "./auth";
 import { blind, emailKey, phoneKey } from "./crypto";
 import { db } from "./db";
 import { canSendCode, phoneCodesByEmail, sendCode, type CodeChannel, type CodeLang } from "./sendCode";
+import { logMerchant } from "./merchantLog";
+import { freshSignInCodes } from "./emailVerify";
+import { cookieLang, langOf } from "./lang";
 
 /* A forgotten password, by a one-time code (app/api/auth/reset/...). The merchant types the email or mobile of his
    account, gets a 6-digit code there (server/sendCode.ts), types it, and picks a new password.
@@ -30,9 +32,42 @@ export const CODE_TRIES = 5;
 /* tries per account (or per unknown email or mobile) in an hour, across all its codes */
 export const ACCOUNT_CODE_TRIES = 10;
 
-/* asking for a code: per email or mobile, and per address */
+/* Asking for a code. Only codes really made count (resetSendLimited, then noteResetSend), so asking again while refused
+   never uses anything up: a stranger who knows the email or mobile can't keep the owner's reset closed by asking for it
+   again and again. Counted like the other code emails (server/email.ts CODE_LIMITS):
+   - per email or mobile AND visitor (SEND_PER_CONTACT): what one person can ask for;
+   - per email or mobile from everyone, higher (SEND_PER_CONTACT_ALL): only so nobody floods one mailbox from many places;
+   - per visitor, every request (SEND_PER_IP, in the route).
+   Unknown emails and mobiles are counted exactly like real ones (a row is made for them too), so the answers say nothing
+   about which ones have an account. */
 export const SEND_PER_CONTACT = { max: 3, minutes: 15 };
+export const SEND_PER_CONTACT_ALL = { hour: 10, day: 30 };
 export const SEND_PER_IP = { max: 10, minutes: 60 };
+
+const sendKeys = (req: NextRequest, c: Contact) => ({
+  mine: `reset-send-v:${c.key}|${visitorIp(req)}`,
+  hour: `reset-send-h:${c.key}`,
+  day: `reset-send-d:${c.key}`,
+});
+
+/** True when no code may be made for this email or mobile now, for this visitor (counts nothing) */
+export function resetSendLimited(req: NextRequest, c: Contact): boolean {
+  const k = sendKeys(req, c);
+  return (
+    limitReached(k.mine, SEND_PER_CONTACT.max, SEND_PER_CONTACT.minutes) ||
+    limitReached(k.hour, SEND_PER_CONTACT_ALL.hour, 60) ||
+    limitReached(k.day, SEND_PER_CONTACT_ALL.day, 24 * 60)
+  );
+}
+
+/** Counts one code made. Called right after resetSendLimited, before anything is waited for, so requests sent at the
+    same moment can't all pass the look while the first ones are still being written. */
+export function noteResetSend(req: NextRequest, c: Contact): void {
+  const k = sendKeys(req, c);
+  countTry(k.mine, SEND_PER_CONTACT.minutes);
+  countTry(k.hour, 60);
+  countTry(k.day, 24 * 60);
+}
 
 export type Contact = { channel: CodeChannel; saved: string; key: string };
 
@@ -46,8 +81,8 @@ export function contactOf(v: unknown): Contact | null {
   return email ? { channel: "email", saved: email, key: emailKey(email) } : null;
 }
 
-/** The language the code's message is written in: Arabic unless English was asked for */
-export const codeLang = (v: unknown): CodeLang => (v === "en" ? "en" : "ar");
+/** The language the page asked for the code's message in, or null (then requestCode works it out) */
+export const codeLang = (v: unknown): CodeLang | null => langOf(v);
 
 /* the address the request came from (as tooMany in server/auth.ts reads it), kept only as a keyed fingerprint */
 const ipOf = (req: NextRequest) => visitorIp(req);
@@ -61,17 +96,17 @@ export const canSendTo = (c: Contact) => canSendCode(c.channel);
 
 /** Makes a new code for this email or mobile and sends it when an account has it. Gives nothing back on purpose: the
     route answers the same either way. */
-export async function requestCode(req: NextRequest, c: Contact, lang: CodeLang): Promise<void> {
+export async function requestCode(req: NextRequest, c: Contact, asked: CodeLang | null): Promise<void> {
   const pool = await db();
   const col = c.channel === "phone" ? "phone_hash" : "email_hash";
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  let a: { id: string; email: string; phone: string; email_verified: boolean } | undefined;
+  let a: { id: string; email: string; phone: string; lang: string | null } | undefined;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     /* the account row is read FOR SHARE, so a change of its email or mobile (app/api/account PUT) waits for this code to
        be written, and then ends it; or it went first, and this reads the new email or mobile */
-    const { rows } = await client.query(`SELECT id, email, phone, email_verified FROM accounts WHERE ${col} = $1 LIMIT 1 FOR SHARE`, [c.key]);
+    const { rows } = await client.query(`SELECT id, email, phone, lang FROM accounts WHERE ${col} = $1 LIMIT 1 FOR SHARE`, [c.key]);
     a = rows[0] as typeof a;
     /* nobody has it: a code nobody knows, so this row can never be used, but it answers like a real one */
     const hash = a ? codeHash(c.key, code) : codeHash(c.key, randomBytes(16).toString("hex"));
@@ -95,11 +130,11 @@ export async function requestCode(req: NextRequest, c: Contact, lang: CodeLang):
   /* sent to what the account has (the same as what was typed, in its saved form). Not waited for: a slow provider must
      not make a real account answer later than an unknown one. Its failure is logged without the code. */
   const byEmail = c.channel === "phone" && phoneCodesByEmail();
-  /* a code by email goes only to a confirmed address: an email changed to a mistyped one (someone else's) must not let
-     that person reset the password and take the account. The answer stays "sent" either way (nothing is told); the
-     owner of an unconfirmed address asks Dukkan support. */
-  if ((c.channel === "email" || byEmail) && emailOn() && !a.email_verified) return;
   const to = c.channel === "phone" && !byEmail ? a.phone : a.email;
+  /* in the person's own language: what the page showed when it was asked for, else this browser's chosen language, else
+     the language the account last used Dukkan in, else the browser's own language, else Arabic */
+  const first = (req.headers.get("accept-language") ?? "").trim().slice(0, 2).toLowerCase();
+  const lang: CodeLang = asked ?? cookieLang(req) ?? langOf(a.lang) ?? (first === "en" ? "en" : "ar");
   void sendCode(byEmail ? "email" : c.channel, to, code, lang).catch((e) => console.error("[reset] the code could not be sent:", (e as Error)?.message ?? e));
 }
 
@@ -188,5 +223,7 @@ export async function setNewPassword(token: string, password: string): Promise<"
   /* wrong passwords typed before (by him, or by someone trying) no longer hold back his sign-in with the new one
      (app/api/auth/login counts them under this key) */
   clearFailures(`login:account:${accountId}`);
+  logMerchant(accountId, "password.reset");
+  await freshSignInCodes(accountId).catch(() => {});
   return "ok";
 }

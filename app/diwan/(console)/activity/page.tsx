@@ -52,7 +52,7 @@ export default function ActivityPage() {
   return (
     <div>
       <PageHead
-        title={t("Activity log", "سجل النشاط")}
+        title={t("Staff log", "سجل الفريق")}
         sub={t("When Diwan's team signed in and what they changed. Nothing here can be edited or deleted.", "متى سجّل فريق الديوان دخوله وما الذي غيّره. لا يمكن تعديل أي شيء هنا أو حذفه.")}
       />
 

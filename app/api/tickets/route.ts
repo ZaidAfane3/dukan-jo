@@ -5,6 +5,7 @@ import { addMessage, checkPictures, inTransaction, merchantRoute, merchantStatus
 import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS, TICKET_MIN } from "@/components/safeAccount";
 import { onceByKey } from "@/server/onceKey";
+import { logMerchant } from "@/server/merchantLog";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,7 @@ export const POST = merchantRoute(async (req, me) => {
       return Number(rows[0].number);
     });
     if (typeof number === "string") return pictureRoomAnswer(number);
+    logMerchant(me.id, "ticket.opened", { number });
     return answer({ result: "ok", number });
   });
 });

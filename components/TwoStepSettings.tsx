@@ -1,105 +1,125 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { logInCode } from "./accounts";
+import { useEffect, useRef, useState } from "react";
+import { secondsText } from "./EmailCodeStep";
 import { merchantCall, onServer } from "./merchantApi";
 import { usePrefs } from "./Prefs";
 
-/* Optional 2-step codes for merchants: a 6-digit code from an authenticator app (Google Authenticator, Microsoft
-   Authenticator, 1Password...) asked after the password. Three pieces:
-   - TwoStepSettings: on the settings page, turning it on (scan or type the secret, then confirm with a code) and off
-     (password and a code);
-   - TwoStepCodeStep: the code step of the sign-in form;
-   - the full page asking to turn it on right after signing up or in without it is its own piece (TwoStepPrompt.tsx),
-     which leads here and starts the setup at once (/settings#two-step-start).
-   None of this runs in the platform tour or signed out: the server holds everything (app/api/auth/totp). */
+/* Optional 2-step sign-in for merchants: after the password, every sign-in asks for a 6-digit code sent to the account's
+   email (WhatsApp is to come: shown in the list as soon). Two pieces:
+   - TwoStepSettings: on the settings page, choosing how to get the code and turning it on (the password only: the email
+     was confirmed with a code when the account was made or its email changed) or off (an emailed code, or a recovery
+     code, and the password);
+   - the full page asking to turn it on after signing up or in without it is its own piece (TwoStepPrompt.tsx), which
+     leads here and starts it at once (/settings#two-step-start).
+   The sign-in's own code page is EmailCodeStep.tsx. None of this runs in the platform tour or signed out: the server
+   holds everything (app/api/auth/totp). */
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 const field =
   "h-12 w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
 const primary = "h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep disabled:cursor-not-allowed disabled:opacity-50";
 const ghost = "h-11 rounded-xl border border-fg/20 px-5 text-sm font-semibold transition hover:bg-soft";
+const link = "text-sm font-semibold text-primary underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline";
 
 const words = {
   en: {
-    title: "2-step code",
-    offHint: "Optional. After your password, Dukkan also asks for a 6-digit code from an app on your phone, so a stolen password alone can't open your store.",
-    onHint: "On. Signing in asks for your password and a code from your authenticator app.",
+    title: "2-step sign-in",
+    offHint: "Optional, and strongly suggested. After your password, Dukkan also asks for a 6-digit code it sends you, so a stolen password alone can't open your store.",
+    onHint: "On. Every sign-in asks for your password and a code we email you.",
     on: "On",
     off: "Off",
-    setUp: "Set up",
-    step1: "1. In your authenticator app, add an account and paste this link, or type the key below.",
-    link: "Setup link",
-    key: "Key",
-    copy: "Copy",
-    copied: "Copied",
-    step2: "2. Type the 6-digit code the app shows.",
+    how: "Get the code by",
+    email: "Email",
+    whatsapp: "WhatsApp (coming soon)",
+    start: "Turn on",
+    onIntro: (to: string) => `From now on, each sign-in will also ask for a 6-digit code we email to ${to}. Type your password to turn 2-step sign-in on.`,
+    offNoCode: "We couldn't send a code to your email just now. Type one of your recovery codes and your password to turn 2-step sign-in off, or send a new code.",
+    sentToOff: (to: string) => `We sent a 6-digit code to ${to}. Type it (or a recovery code) and your password to turn 2-step sign-in off.`,
+    yourEmail: "your email",
     code: "6-digit code",
+    password: "Your password",
     confirm: "Turn on",
     cancel: "Cancel",
-    nowOn: "2-step code is on.",
-    nowOff: "2-step code is off.",
+    resend: "Send a new code",
+    resendIn: (n: number) => `Send a new code in ${secondsText(n, "en")}`,
+    resent: "We sent a new code. Use the code in the newest email.",
+    nowOn: "2-step sign-in is on.",
+    nowOff: "2-step sign-in is off.",
     turnOff: "Turn off",
-    offTitle: "Turn off the 2-step code",
-    password: "Your password",
-    wrongCode: "That code is not right. Check the time on your phone and try the newest code.",
-    wrongPassword: "The password is not right.",
+    offTitle: "Turn off 2-step sign-in",
+    wrongCode: "That code isn't right. Use the code in the newest email from Dukkan.",
+    expired: "This code has expired. Send a new code.",
+    tooMany: "Too many wrong tries for this code. Send a new code.",
+    locked: "Too many wrong tries. For your safety, wait an hour and try again.",
+    wrongPassword: "The password isn't right.",
     slow: "Too many tries. Wait a few minutes and try again.",
+    sendFailed: "We couldn't send the email just now. Try again in a moment.",
+    unavailable: "Dukkan can't send email right now. Try again later.",
     server: "We couldn't reach Dukkan right now. Try again.",
-    lost: "Lost your phone? Use one of your recovery codes instead of the 6-digit code, or contact Dukkan support.",
-    step3: "3. Type your password to turn it on.",
+    lost: "Can't reach your email? Use one of your recovery codes instead of the emailed code, or contact Dukkan support.",
     useRecovery: "Use a recovery code instead",
-    useApp: "Use the code from the app",
+    useEmail: "Use the code from the email",
     recovery: "Recovery code",
     codesTitle: "Your recovery codes",
-    codesHint: "If you lose your phone, each of these opens your store once instead of the 6-digit code. Save them somewhere safe now: they won't be shown again.",
+    codesHint: "If you can't reach your email, each of these opens your store once instead of the emailed code. Save them somewhere safe now: they won't be shown again.",
     copyAll: "Copy all",
+    copied: "Copied",
     saved: "I saved them",
     left: (n: number) => (n === 1 ? "1 recovery code left." : `${n} recovery codes left.`),
-    signInTitle: "Enter your 2-step code",
-    signInHint: "Open your authenticator app and type the 6-digit code for Dukkan.",
-    verify: "Continue",
-    expired: "This took too long. Sign in again.",
+    alreadyOn: "2-step sign-in is already on (turned on from another tab or device).",
   },
   ar: {
-    title: "رمز التحقق بخطوتين",
-    offHint: "اختياري. بعد كلمة المرور يطلب دكّان رمزًا من 6 أرقام من تطبيق على هاتفك، فلا تكفي كلمة مرور مسروقة وحدها لفتح متجرك.",
-    onHint: "مفعّل. يطلب تسجيل الدخول كلمة المرور ورمزًا من تطبيق المصادقة.",
+    title: "التحقق بخطوتين",
+    offHint: "اختياري، وننصح به بشدة. بعد كلمة المرور يطلب دكّان أيضًا رمزًا من 6 أرقام يرسله إليك، فلا تكفي كلمة مرور مسروقة وحدها لفتح متجرك.",
+    onHint: "مفعّل. يطلب كل تسجيل دخول كلمة المرور ورمزًا نرسله إلى بريدك.",
     on: "مفعّل",
     off: "غير مفعّل",
-    setUp: "إعداد",
-    step1: "1. في تطبيق المصادقة أضف حسابًا والصق هذا الرابط، أو اكتب المفتاح أدناه.",
-    link: "رابط الإعداد",
-    key: "المفتاح",
-    copy: "نسخ",
-    copied: "تم النسخ",
-    step2: "2. اكتب الرمز المكوّن من 6 أرقام الذي يظهره التطبيق.",
+    how: "استلام الرمز عبر",
+    email: "البريد الإلكتروني",
+    whatsapp: "واتساب (قريبًا)",
+    start: "تفعيل",
+    onIntro: (to: string) => `من الآن سيطلب كل تسجيل دخول أيضًا رمزًا من 6 أرقام نرسله إلى ${to}. اكتب كلمة المرور لتفعيل التحقق بخطوتين.`,
+    offNoCode: "لم نتمكّن من إرسال رمز إلى بريدك الآن. اكتب أحد رموز الاسترداد مع كلمة المرور لإيقاف التحقق بخطوتين، أو أرسل رمزًا جديدًا.",
+    sentToOff: (to: string) => `أرسلنا رمزًا من 6 أرقام إلى ${to}. اكتبه (أو رمز استرداد) مع كلمة المرور لإيقاف التحقق بخطوتين.`,
+    yourEmail: "بريدك الإلكتروني",
     code: "رمز من 6 أرقام",
+    password: "كلمة المرور",
     confirm: "تفعيل",
     cancel: "إلغاء",
-    nowOn: "تم تفعيل رمز التحقق بخطوتين.",
-    nowOff: "تم إيقاف رمز التحقق بخطوتين.",
+    resend: "إرسال رمز جديد",
+    resendIn: (n: number) => `إرسال رمز جديد بعد ${secondsText(n, "ar")}`,
+    resent: "أرسلنا رمزًا جديدًا. استخدم الرمز الموجود في أحدث رسالة.",
+    nowOn: "تم تفعيل التحقق بخطوتين.",
+    nowOff: "تم إيقاف التحقق بخطوتين.",
     turnOff: "إيقاف",
-    offTitle: "إيقاف رمز التحقق بخطوتين",
-    password: "كلمة المرور",
-    wrongCode: "الرمز غير صحيح. تأكد من وقت هاتفك وجرّب أحدث رمز.",
+    offTitle: "إيقاف التحقق بخطوتين",
+    wrongCode: "الرمز غير صحيح. استخدم الرمز الموجود في أحدث رسالة من دكّان.",
+    expired: "انتهت صلاحية هذا الرمز. أرسل رمزًا جديدًا.",
+    tooMany: "محاولات خاطئة كثيرة لهذا الرمز. أرسل رمزًا جديدًا.",
+    locked: "محاولات خاطئة كثيرة. حفاظًا على أمانك، انتظر ساعة ثم حاول مرة أخرى.",
     wrongPassword: "كلمة المرور غير صحيحة.",
-    slow: "محاولات كثيرة. انتظر بضع دقائق وحاول مجددًا.",
-    server: "تعذّر الاتصال بدكّان الآن. حاول مجددًا.",
-    lost: "فقدت هاتفك؟ استخدم أحد رموز الاسترداد بدل الرمز المكوّن من 6 أرقام، أو تواصل مع دعم دكّان.",
-    step3: "3. اكتب كلمة مرورك للتفعيل.",
+    slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مرة أخرى.",
+    sendFailed: "لم نتمكّن من إرسال الرسالة الآن. حاول مرة أخرى بعد قليل.",
+    unavailable: "لا يستطيع دكّان إرسال البريد الآن. حاول لاحقًا.",
+    server: "تعذّر الاتصال بدكّان الآن. حاول مرة أخرى.",
+    lost: "لا يمكنك الوصول إلى بريدك؟ استخدم أحد رموز الاسترداد بدل الرمز المرسَل، أو تواصل مع دعم دكّان.",
     useRecovery: "استخدم رمز استرداد بدلًا منه",
-    useApp: "استخدم الرمز من التطبيق",
+    useEmail: "استخدم الرمز من الرسالة",
     recovery: "رمز الاسترداد",
     codesTitle: "رموز الاسترداد",
-    codesHint: "إذا فقدت هاتفك، يفتح كل رمز منها متجرك مرة واحدة بدل الرمز المكوّن من 6 أرقام. احفظها في مكان آمن الآن: لن تظهر مرة أخرى.",
+    codesHint: "إذا لم تستطع الوصول إلى بريدك، يفتح كل رمز منها متجرك مرة واحدة بدل الرمز المرسَل. احفظها في مكان آمن الآن: لن تظهر مرة أخرى.",
     copyAll: "نسخ الكل",
+    copied: "تم النسخ",
     saved: "حفظتها",
-    left: (n: number) => (n === 1 ? "بقي رمز استرداد واحد." : `بقي ${n} رموز استرداد.`),
-    signInTitle: "أدخل رمز التحقق",
-    signInHint: "افتح تطبيق المصادقة واكتب الرمز المكوّن من 6 أرقام الخاص بدكّان.",
-    verify: "متابعة",
-    expired: "استغرق الأمر وقتًا طويلًا. سجّل الدخول من جديد.",
+    /* the counted noun as Arabic needs it: one, two, 3 to 10 (plural), 11 and up (singular, accusative) */
+    left: (n: number) =>
+      n === 0 ? "لم يبقَ لديك أي رمز استرداد."
+      : n === 1 ? "بقي لديك رمز استرداد واحد."
+      : n === 2 ? "بقي لديك رمزان للاسترداد."
+      : n <= 10 ? `بقيت لديك ${n} رموز للاسترداد.`
+      : `بقي لديك ${n} رمزًا للاسترداد.`,
+    alreadyOn: "التحقق بخطوتين مفعّل بالفعل (فُعّل من علامة تبويب أو جهاز آخر).",
   },
 };
 
@@ -110,8 +130,8 @@ const typedCode = (v: string) =>
     .replace(/\D/g, "")
     .slice(0, 6);
 
-/** The 6-digit code field (also the forgotten-password code, ForgotPassword.tsx). invalid / describedBy: its mistake,
-    for screen readers. */
+/** The 6-digit code field (also the forgotten-password code, ForgotPassword.tsx, and EmailCodeStep.tsx). invalid /
+    describedBy: its mistake, for screen readers. */
 export function CodeInput({ value, onChange, id, label, invalid, describedBy }: { value: string; onChange: (v: string) => void; id: string; label: string; invalid?: boolean; describedBy?: string }) {
   return (
     <input
@@ -138,9 +158,9 @@ const typedRecovery = (v: string) =>
     .toUpperCase()
     .replace(/[^A-Z0-9-]/g, "")
     .slice(0, 9);
-const recoveryReady = (v: string) => v.replace(/-/g, "").length === 8;
+export const recoveryReady = (v: string) => v.replace(/-/g, "").length === 8;
 
-function RecoveryInput({ value, onChange, id, label }: { value: string; onChange: (v: string) => void; id: string; label: string }) {
+export function RecoveryInput({ value, onChange, id, label }: { value: string; onChange: (v: string) => void; id: string; label: string }) {
   return (
     <input
       id={id}
@@ -156,24 +176,39 @@ function RecoveryInput({ value, onChange, id, label }: { value: string; onChange
   );
 }
 
-/** The settings page section */
-export function TwoStepSettings() {
+/** The settings page section. email: the account's address, named when a code is sent to it. */
+export function TwoStepSettings({ email }: { email?: string }) {
   const { lang } = usePrefs();
   const w = words[lang];
   const [state, setState] = useState<"hidden" | "loading" | "off" | "on">("loading");
-  const [setup, setSetup] = useState<{ link: string; grouped: string } | null>(null);
-  const [turningOff, setTurningOff] = useState(false);
+  /* the form that is open: turning it on (the password), or off (a code and the password) */
+  const [step, setStep] = useState<"on" | "off" | null>(null);
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState("");
-  /* turning off with a recovery code instead of the app's code */
+  const [copied, setCopied] = useState(false);
   const [byRecovery, setByRecovery] = useState(false);
-  /* the recovery codes, shown once right after turning on */
+  /* turning it off: whether the last code asked for really went (if not, the form still opens for a recovery code) */
+  const [offSent, setOffSent] = useState(false);
   const [codes, setCodes] = useState<string[] | null>(null);
   const [left, setLeft] = useState<number | null>(null);
+  /* the one-minute wait after a code: kept across Cancel, so closing and opening the form again never sends another
+     code at once */
+  const [until, setUntil] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const passwordBox = useRef<HTMLInputElement>(null);
+  const wait = Math.max(0, Math.ceil((until - now) / 1000));
+  useEffect(() => {
+    if (!wait) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [wait]);
+  const startWait = () => {
+    setUntil(Date.now() + 60_000);
+    setNow(Date.now());
+  };
 
   useEffect(() => {
     if (!onServer()) return setState("hidden");
@@ -185,85 +220,130 @@ export function TwoStepSettings() {
 
   const fail = (result: unknown) =>
     setError(
-      result === "wrong" || result === "wrong-code"
-        ? w.wrongCode
-        : result === "wrong-password"
-          ? w.wrongPassword
-          : result === "slow-down"
-            ? w.slow
-            : w.server,
+      result === "wrong" || result === "wrong-code" ? w.wrongCode
+      : result === "expired" ? w.expired
+      : result === "too-many" ? w.tooMany
+      : result === "locked" ? w.locked
+      : result === "wrong-password" ? w.wrongPassword
+      : result === "slow-down" ? w.slow
+      : result === "send-failed" ? w.sendFailed
+      : result === "unavailable" ? w.unavailable
+      : w.server,
     );
 
-  const start = async () => {
+  const reset = () => {
+    setStep(null);
+    setCode("");
+    setPassword("");
+    setError("");
+    setByRecovery(false);
+  };
+
+  /* turning it on: only the password is asked (the form opens with the cursor in it) */
+  const openOn = () => {
+    reset();
+    setNote("");
+    setStep("on");
+    requestAnimationFrame(() => passwordBox.current?.focus({ preventScroll: true }));
+  };
+
+  /* turning it off: a code to the email. When it can't be sent (refused, failed, locked), the form opens anyway with a
+     recovery code: a merchant who can't get an email can still turn it off. Within a minute of the last code, opening
+     the form again sends nothing: the code already sent still works. */
+  const sendOff = async (again = false) => {
+    if (busy) return;
+    if (wait && !again) {
+      setStep("off");
+      setByRecovery(!offSent);
+      return;
+    }
+    if (again && wait) return;
     setBusy(true);
     setError("");
     setNote("");
-    const r = await merchantCall("/api/auth/totp/setup", "POST", {});
+    const r = await merchantCall("/api/auth/totp/disable", "POST", { send: true, lang });
     setBusy(false);
-    if (r?.status === 200) setSetup({ link: r.data.link, grouped: r.data.grouped });
-    else fail(r?.data.result);
+    /* already off (in another tab) */
+    if (r?.status === 200 && r.data.on === false) {
+      reset();
+      return setState("off");
+    }
+    /* refused for asking too often: the button waits a minute too */
+    if (r?.data.result === "slow-down") startWait();
+    setStep("off");
+    setCode("");
+    if (r?.status !== 200) {
+      setOffSent(false);
+      setByRecovery(true);
+      return fail(r?.data.result);
+    }
+    startWait();
+    setOffSent(true);
+    setByRecovery(false);
+    if (again) setNote(w.resent);
   };
 
-  /* opened with a link to it: the section is drawn only once the server answered, so the browser could not scroll to it
-     by itself. #two-step: scrolled to, its first button focused. #two-step-start (the full page after signing in,
-     TwoStepPrompt.tsx): the setup starts at once when the code is off, so one press there goes straight into it */
+  /* opened with a link to it: #two-step scrolls to it; #two-step-start (the full page after signing in,
+     TwoStepPrompt.tsx) also opens the form to turn it on, with the cursor in the password, so one press there goes
+     straight into it */
   const ready = state === "on" || state === "off";
   useEffect(() => {
     const hash = window.location.hash;
     if (!ready || (hash !== "#two-step" && hash !== "#two-step-start")) return;
     const el = document.getElementById("two-step");
     el?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    const focusFirst = () => el?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    const focusFirst = () => el?.querySelector<HTMLElement>("input, button, select")?.focus({ preventScroll: true });
     if (hash !== "#two-step-start" || state !== "off") return void focusFirst();
     /* started once: a reload or the browser's back does not start it again */
     history.replaceState(history.state, "", `${window.location.pathname}${window.location.search}#two-step`);
-    void start().then(() => requestAnimationFrame(focusFirst));
+    openOn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
   if (state === "hidden" || state === "loading") return null;
 
-  const confirm = async () => {
+  const finish = async () => {
     setBusy(true);
     setError("");
-    const r = await merchantCall("/api/auth/totp/setup", "POST", { code, password });
+    setNote("");
+    const r =
+      step === "on"
+        ? await merchantCall("/api/auth/totp/setup", "POST", { password, method: "email", lang })
+        : await merchantCall("/api/auth/totp/disable", "POST", { code, password });
     setBusy(false);
-    if (r?.status !== 200) return fail(r?.data.result);
-    setSetup(null);
-    setCode("");
-    setPassword("");
-    setState("on");
-    setNote(w.nowOn);
-    if (Array.isArray(r.data.recoveryCodes)) {
+    /* turned on meanwhile from another tab or device: nothing to do here */
+    if (step === "on" && r?.data.result === "already-on") {
+      reset();
+      setState("on");
+      return setNote(w.alreadyOn);
+    }
+    if (r?.status !== 200) {
+      if (r?.data.result !== "wrong-password") setCode("");
+      return fail(r?.data.result);
+    }
+    const turnedOn = step === "on";
+    reset();
+    setState(turnedOn ? "on" : "off");
+    setNote(turnedOn ? w.nowOn : w.nowOff);
+    if (turnedOn && Array.isArray(r.data.recoveryCodes)) {
       setCodes(r.data.recoveryCodes);
       setLeft(r.data.recoveryCodes.length);
     }
+    if (!turnedOn) setLeft(null);
   };
 
-  const disable = async () => {
-    setBusy(true);
-    setError("");
-    const r = await merchantCall("/api/auth/totp/disable", "POST", { password, code });
-    setBusy(false);
-    if (r?.status !== 200) return fail(r?.data.result);
-    setTurningOff(false);
-    setByRecovery(false);
-    setCode("");
-    setPassword("");
-    setState("off");
-    setLeft(null);
-    setNote(w.nowOff);
-  };
-
-  const copy = async (what: string, text: string) => {
+  const copyCodes = async () => {
+    if (!codes) return;
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(what);
-      setTimeout(() => setCopied(""), 1500);
+      await navigator.clipboard.writeText(codes.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
     } catch {
-      /* clipboard blocked: the text can still be selected */
+      /* clipboard blocked: the codes can still be selected */
     }
   };
+
+  const ready6 = step === "on" || (byRecovery ? recoveryReady(code) : code.length === 6);
 
   return (
     <section id="two-step" className={`${card} scroll-mt-24`}>
@@ -275,50 +355,69 @@ export function TwoStepSettings() {
       </div>
       <p className="mt-2 text-sm text-muted">{state === "on" ? w.onHint : w.offHint}</p>
 
-      {state === "off" && !setup && (
-        <button type="button" disabled={busy} onClick={start} className={`${primary} mt-5`}>
-          {w.setUp}
-        </button>
+      {!step && !codes && (
+        <div className="mt-5 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-muted">{w.how}</span>
+            {/* only email for now: WhatsApp shows as coming soon */}
+            <select value="email" disabled={state === "on"} onChange={() => {}} className={`${field} w-64`}>
+              <option value="email">{w.email}</option>
+              <option value="whatsapp" disabled>
+                {w.whatsapp}
+              </option>
+            </select>
+          </label>
+          {state === "off" ? (
+            <button type="button" disabled={busy} onClick={openOn} className={primary}>
+              {w.start}
+            </button>
+          ) : (
+            <button type="button" disabled={busy} onClick={() => void sendOff()} className={ghost}>
+              {w.turnOff}
+            </button>
+          )}
+        </div>
       )}
 
-      {state === "off" && setup && (
-        <div className="mt-5 space-y-4">
-          <p className="text-sm font-medium">{w.step1}</p>
-          {(
-            [
-              ["link", w.link, setup.link],
-              ["key", w.key, setup.grouped],
-            ] as const
-          ).map(([k, label, text]) => (
-            <div key={k}>
-              <p className="mb-1 text-xs font-semibold text-muted">{label}</p>
-              <div className="flex items-stretch gap-2">
-                <code dir="ltr" className="min-w-0 flex-1 select-all break-all rounded-xl bg-soft px-3 py-2.5 text-xs">
-                  {text}
-                </code>
-                <button type="button" onClick={() => copy(k, k === "key" ? text.replace(/ /g, "") : text)} className={`${ghost} shrink-0`}>
-                  {copied === k ? w.copied : w.copy}
-                </button>
-              </div>
-            </div>
-          ))}
-          <p className="text-sm font-medium">{w.step2}</p>
-          <div className="max-w-xs">
-            <CodeInput id="two-step-code" label={w.code} value={code} onChange={setCode} />
-          </div>
-          <p className="text-sm font-medium">{w.step3}</p>
-          <div className="max-w-xs">
-            <input type="password" autoComplete="current-password" aria-label={w.password} placeholder={w.password} value={password} maxLength={128} onChange={(e) => setPassword(e.target.value)} className={field} />
-          </div>
+      {step && (
+        <form
+          className="mt-5 max-w-md space-y-4"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy && ready6 && password) void finish();
+          }}
+        >
+          {step === "off" && <p className="text-sm font-semibold">{w.offTitle}</p>}
+          <p className="text-sm">{step === "on" ? w.onIntro(email || w.yourEmail) : offSent ? w.sentToOff(email || w.yourEmail) : w.offNoCode}</p>
+          {step === "off" &&
+            (byRecovery ? (
+              <RecoveryInput id="two-step-code" label={w.recovery} value={code} onChange={(v) => (setCode(v), setError(""))} />
+            ) : (
+              <CodeInput id="two-step-code" label={w.code} value={code} onChange={(v) => (setCode(v), setError(""))} />
+            ))}
+          <input ref={passwordBox} id="two-step-password" type="password" autoComplete="current-password" aria-label={w.password} placeholder={w.password} value={password} maxLength={128} onChange={(e) => (setPassword(e.target.value), setError(""))} className={field} />
           <div className="flex flex-wrap gap-3">
-            <button type="button" disabled={busy || code.length !== 6 || !password} onClick={confirm} className={primary}>
-              {w.confirm}
+            <button type="submit" disabled={busy || !ready6 || !password} className={primary}>
+              {step === "on" ? w.confirm : w.turnOff}
             </button>
-            <button type="button" onClick={() => (setSetup(null), setCode(""), setPassword(""), setError(""))} className={ghost}>
+            <button type="button" onClick={reset} className={ghost}>
               {w.cancel}
             </button>
           </div>
-        </div>
+          {step === "off" && (
+            <div className="flex flex-col items-start gap-2">
+              {!byRecovery && (
+                <button type="button" disabled={busy || wait > 0} onClick={() => void sendOff(true)} className={link}>
+                  {wait > 0 ? w.resendIn(wait) : w.resend}
+                </button>
+              )}
+              <button type="button" onClick={() => (setByRecovery((v) => !v), setCode(""), setError(""))} className={link}>
+                {byRecovery ? w.useEmail : w.useRecovery}
+              </button>
+            </div>
+          )}
+        </form>
       )}
 
       {state === "on" && codes && (
@@ -327,12 +426,14 @@ export function TwoStepSettings() {
           <p className="text-sm text-muted">{w.codesHint}</p>
           <ul dir="ltr" className="grid select-all grid-cols-2 gap-2 font-mono text-sm sm:grid-cols-5">
             {codes.map((c) => (
-              <li key={c} className="rounded-lg bg-card px-2 py-1.5 text-center">{c}</li>
+              <li key={c} className="rounded-lg bg-card px-2 py-1.5 text-center">
+                {c}
+              </li>
             ))}
           </ul>
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={() => copy("codes", codes.join("\n"))} className={ghost}>
-              {copied === "codes" ? w.copied : w.copyAll}
+            <button type="button" onClick={() => void copyCodes()} className={ghost}>
+              {copied ? w.copied : w.copyAll}
             </button>
             <button type="button" onClick={() => setCodes(null)} className={primary}>
               {w.saved}
@@ -341,37 +442,10 @@ export function TwoStepSettings() {
         </div>
       )}
 
-      {state === "on" && !codes && left !== null && <p className="mt-3 text-xs text-muted">{w.left(left)}</p>}
-
-      {state === "on" && !turningOff && !codes && (
-        <div className="mt-5 flex flex-wrap items-center gap-4">
-          <button type="button" onClick={() => (setTurningOff(true), setNote(""))} className={ghost}>
-            {w.turnOff}
-          </button>
+      {state === "on" && !codes && !step && (
+        <div className="mt-3 space-y-1">
+          {left !== null && <p className="text-xs text-muted">{w.left(left)}</p>}
           <p className="text-xs text-muted">{w.lost}</p>
-        </div>
-      )}
-
-      {state === "on" && turningOff && (
-        <div className="mt-5 max-w-md space-y-4">
-          <p className="text-sm font-semibold">{w.offTitle}</p>
-          <input type="password" autoComplete="current-password" aria-label={w.password} placeholder={w.password} value={password} onChange={(e) => setPassword(e.target.value)} className={field} />
-          {byRecovery ? (
-            <RecoveryInput id="two-step-off-code" label={w.recovery} value={code} onChange={setCode} />
-          ) : (
-            <CodeInput id="two-step-off-code" label={w.code} value={code} onChange={setCode} />
-          )}
-          <button type="button" onClick={() => (setByRecovery((v) => !v), setCode(""), setError(""))} className="text-sm font-semibold text-primary underline-offset-4 hover:underline">
-            {byRecovery ? w.useApp : w.useRecovery}
-          </button>
-          <div className="flex flex-wrap gap-3">
-            <button type="button" disabled={busy || !password || (byRecovery ? !recoveryReady(code) : code.length !== 6)} onClick={disable} className={primary}>
-              {w.turnOff}
-            </button>
-            <button type="button" onClick={() => (setTurningOff(false), setByRecovery(false), setCode(""), setPassword(""), setError(""))} className={ghost}>
-              {w.cancel}
-            </button>
-          </div>
         </div>
       )}
 
@@ -380,57 +454,3 @@ export function TwoStepSettings() {
     </section>
   );
 }
-
-/** The sign-in form's code step: a small window over the form. Tells the form how it ended. */
-export function TwoStepCodeStep({ onDone }: { onDone: (r: "ok" | "cancel") => void }) {
-  const { lang } = usePrefs();
-  const w = words[lang];
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [byRecovery, setByRecovery] = useState(false);
-  const ready = byRecovery ? recoveryReady(code) : code.length === 6;
-  useEffect(() => document.getElementById("two-step-signin")?.focus(), [byRecovery]);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ready || busy) return;
-    setBusy(true);
-    const r = await logInCode(code);
-    setBusy(false);
-    if (r === "ok") return onDone("ok");
-    setCode("");
-    setError(r === "wrong" ? w.wrongCode : r === "slow-down" ? w.slow : r === "expired" ? w.expired : w.server);
-    if (r === "expired") setTimeout(() => onDone("cancel"), 2500);
-  };
-
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="two-step-title" className="fixed inset-0 z-50 grid place-items-center bg-black/50 px-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-2xl ring-1 ring-fg/10">
-        <h2 id="two-step-title" className="text-lg font-bold">{w.signInTitle}</h2>
-        <p className="mt-1 text-sm text-muted">{w.signInHint}</p>
-        <div className="mt-5">
-          {byRecovery ? (
-            <RecoveryInput id="two-step-signin" label={w.recovery} value={code} onChange={(v) => (setCode(v), setError(""))} />
-          ) : (
-            <CodeInput id="two-step-signin" label={w.code} value={code} onChange={(v) => (setCode(v), setError(""))} />
-          )}
-        </div>
-        <button type="button" onClick={() => (setByRecovery((v) => !v), setCode(""), setError(""))} className="mt-2 text-sm font-semibold text-primary underline-offset-4 hover:underline">
-          {byRecovery ? w.useApp : w.useRecovery}
-        </button>
-        {error && <p role="alert" className="mt-2 text-sm text-rose-600">{error}</p>}
-        <div className="mt-5 flex gap-3">
-          <button type="submit" disabled={busy || !ready} className={`${primary} flex-1`}>
-            {w.verify}
-          </button>
-          <button type="button" onClick={() => onDone("cancel")} className={ghost}>
-            {w.cancel}
-          </button>
-        </div>
-        <p className="mt-4 text-xs text-muted">{w.lost}</p>
-      </form>
-    </div>
-  );
-}
-

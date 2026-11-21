@@ -62,7 +62,7 @@ export async function startSession(
   req: NextRequest,
   accountId: string,
   opts: { minutes?: number; pendingTotp?: boolean } = {},
-): Promise<void> {
+): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   const minutes = opts.minutes ?? DAYS * 1440;
   await underAccountLock(accountId, async (c) => {
@@ -76,6 +76,8 @@ export async function startSession(
   /* now and then, clear out the sessions that have run out, and those replaced more than a day ago */
   if (Math.random() < 0.05) (await db()).query(`DELETE FROM sessions WHERE expires_at < now() OR replaced_at < now() - interval '1 day'`).catch(() => {});
   res.cookies.set(COOKIE, token, cookieOptions(req, minutes * 60));
+  /* what a code for this session is kept under (server/emailVerify.ts "l:" refs) */
+  return `l:${tokenHash(token)}`;
 }
 
 /* Making a session and ending the account's others happen one sign-in at a time per account, in one transaction.
@@ -186,13 +188,12 @@ export async function sessionSuspension(req: NextRequest): Promise<ReturnType<ty
   return rows[0] ? suspendedReply(rows[0].suspend_reason, rows[0].suspended_at) : null;
 }
 
-/** The account whose password was right and whose session waits for the 2-step code, or null */
-export async function pendingAccount(req: NextRequest): Promise<{ id: string; email: string; name: string; phone: string; secret: string } | null> {
+/** The account whose password was right and whose session waits for the 2-step code, or null. ref: what that
+    session's email codes are kept under (server/emailVerify.ts). */
+export async function pendingAccount(req: NextRequest): Promise<{ id: string; email: string; name: string; phone: string; ref: string } | null> {
   const r = await sessionRow(req);
-  if (!r || !r.a.pending_totp) return null;
-  const { rows } = await r.pool.query(`SELECT totp_secret FROM accounts WHERE id = $1 AND totp_on`, [r.a.id]);
-  if (!rows[0]?.totp_secret) return null;
-  return { id: String(r.a.id), email: r.a.email, name: r.a.name, phone: r.a.phone, secret: rows[0].totp_secret };
+  if (!r || !r.a.pending_totp || !r.a.totp_on) return null;
+  return { id: String(r.a.id), email: r.a.email, name: r.a.name, phone: r.a.phone, ref: `l:${tokenHash(r.token)}` };
 }
 
 /** The code was right: the waiting session becomes a full one (60 days), and the cookie with it */
@@ -361,6 +362,11 @@ export function limitReached(key: string, max: number, minutes: number): boolean
 /** Counts one try for this key, for limitReached */
 export function countTry(key: string, minutes: number): void {
   windowOf(key, minutes, Date.now()).n++;
+}
+
+/** Forgets what was counted for this key */
+export function forgetTries(key: string): void {
+  tries.delete(key);
 }
 
 /* Wrong tries counted per account (or per anything else named by `key`), whatever address they come from: after `max`

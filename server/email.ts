@@ -1,5 +1,5 @@
 import { SITE_HOST } from "@/components/siteAddress";
-import { tooManyFor } from "./auth";
+import { countTry, forgetTries, limitReached } from "./auth";
 import { emailKey } from "./crypto";
 
 /* Dukkan's emails, sent through Resend (https://resend.com). Two settings in the server's environment turn it on:
@@ -135,18 +135,52 @@ export async function sendEmail(e: Email): Promise<void> {
   if (!r.ok) throw new Error(`Resend refused the email (${r.status})`);
 }
 
-/* email-confirmation codes to one address, whoever asks: 3 an hour and 10 a day, so nobody can flood a stranger's mailbox
-   through sign-ups and email changes (and Resend doesn't flag the domain). Not used for password reset codes: those go
-   to an owner's confirmed address, and a cap per address would let anyone who knows it use up the owner's codes; reset
-   keeps its own limit per email or mobile (passwordReset.ts SEND_PER_CONTACT). */
-export const CODES_PER_ADDRESS = { hour: 3, day: 10 };
+/* Code emails to one address, by kind of code. Each kind has its own allowance, so using one kind up (many sign-ins,
+   say) never stops another (a sign-up, an email change). Each is counted twice:
+   - per visitor (the address and the visitor's connection): what one person can ask for. Someone who knows a merchant's
+     password but not the mailbox, pressing "sign in" again and again, uses up only their own allowance, never the
+     owner's;
+   - per address, whoever asks, higher: only so nobody can flood a mailbox from many places (and Resend doesn't flag the
+     domain).
+   Only codes really sent count (noteCodeMail), so asking again while refused never uses the allowance up. Password reset
+   codes are not counted here: they keep their own limits (passwordReset.ts). */
+export type CodeKind = "signup" | "login" | "change" | "twostep" | "change-old";
+export const CODE_LIMITS: Record<CodeKind, { visitorHour: number; hour: number; day: number }> = {
+  /* every sign-in with 2-step on sends one */
+  login: { visitorHour: 8, hour: 20, day: 60 },
+  signup: { visitorHour: 4, hour: 10, day: 20 },
+  change: { visitorHour: 5, hour: 8, day: 20 },
+  twostep: { visitorHour: 5, hour: 8, day: 20 },
+  "change-old": { visitorHour: 5, hour: 8, day: 20 },
+};
 
-/** Counts a code email to this address; true when it is over the limit and must not be sent */
-export function codeMailLimited(to: string): boolean {
+const mailKeys = (to: string, kind: CodeKind, visitor: string) => {
   const key = emailKey(to);
-  const hour = tooManyFor(`code-mail-hour:${key}`, CODES_PER_ADDRESS.hour, 60);
-  const day = tooManyFor(`code-mail-day:${key}`, CODES_PER_ADDRESS.day, 24 * 60);
-  return hour || day;
+  return { mine: `code-mail-v:${kind}:${key}:${visitor}`, hour: `code-mail-h:${kind}:${key}`, day: `code-mail-d:${kind}:${key}` };
+};
+
+/** True when a code email of this kind to this address must not be sent now (counts nothing). visitor: the asking
+    connection (server/auth.ts visitorIp). */
+export function codeMailLimited(to: string, kind: CodeKind, visitor: string): boolean {
+  const k = mailKeys(to, kind, visitor);
+  const l = CODE_LIMITS[kind];
+  return limitReached(k.mine, l.visitorHour, 60) || limitReached(k.hour, l.hour, 60) || limitReached(k.day, l.day, 24 * 60);
+}
+
+/** Starts this address's allowance of one kind again, for everyone: after a new password, the sign-in codes asked for by
+    someone who had the old one no longer stop the owner */
+export function freshCodeMail(to: string, kind: CodeKind): void {
+  const k = mailKeys(to, kind, "");
+  forgetTries(k.hour);
+  forgetTries(k.day);
+}
+
+/** Counts one code email really sent, for codeMailLimited */
+export function noteCodeMail(to: string, kind: CodeKind, visitor: string): void {
+  const k = mailKeys(to, kind, visitor);
+  countTry(k.mine, 60);
+  countTry(k.hour, 60);
+  countTry(k.day, 24 * 60);
 }
 
 /** The same, never throwing: for notices that must not stop what caused them (a staff change, an order). */

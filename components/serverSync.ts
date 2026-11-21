@@ -145,8 +145,16 @@ const renamed = new Map<string, string>();
 const follow = (owner: string | null): string | null => (owner ? renamed.get(owner) ?? owner : null);
 const revsKeyOf = (owner: string) => `dukkan-revs:${owner}`;
 
-/** Moves this browser's waiting changes and saved versions of the account to its new email (the store itself is moved
-    by Settings.tsx). Saves already taken under the old email go on under the new one. */
+/* the other "dukkan-<name>:<email>" keys kept beside the store (forgetAccount.ts has the whole list): the support ticket
+   drafts (ticketDrafts.ts), when this browser first saw the account (TwoStepPrompt.tsx: the 2-step reminder's clock) and
+   the "Use here" message between tabs (oneTab.ts). Left under the old email, nothing would read them again, and the next
+   sign-in would remove them as another account's. */
+const NAMED_BESIDE = ["dukkan-ticket-drafts:", "dukkan-2fa-first-seen:", "dukkan-tab-message:"];
+/* this tab's sends held for Undo, "<key>:<email>", each naming its account inside too (heldSend.tsx keepDraft) */
+const HELD_SENDS = [/^seen-ticket-draft:/, /^seen-bug-draft:/, /^seen-reply-draft-\d+:/];
+
+/** Moves this browser's waiting changes, saved versions, ticket drafts and the rest it keeps for the account to its new
+    email (the store itself is moved by Settings.tsx). Saves already taken under the old email go on under the new one. */
 export function renameAccount(from: string, to: string) {
   if (!from || !to || from === to) return;
   renamed.delete(to);
@@ -154,7 +162,7 @@ export function renameAccount(from: string, to: string) {
   renamed.set(from, to);
   try {
     const ls = window.localStorage;
-    for (const name of [outboxKey, basesKey, revsKeyOf]) {
+    for (const name of [outboxKey, basesKey, revsKeyOf, ...NAMED_BESIDE.map((p) => (owner: string) => p + owner)]) {
       const v = ls.getItem(name(from));
       if (v === null) continue;
       ls.setItem(name(to), v);
@@ -162,6 +170,26 @@ export function renameAccount(from: string, to: string) {
     }
   } catch {
     /* storage blocked: what waits still goes from memory */
+  }
+  try {
+    const ss = window.sessionStorage;
+    const keys = Array.from({ length: ss.length }, (_, i) => ss.key(i)).filter((k): k is string => !!k && k.endsWith(`:${from}`) && HELD_SENDS.some((p) => p.test(k)));
+    for (const k of keys) {
+      const raw = ss.getItem(k);
+      if (raw === null) continue;
+      let v = raw;
+      try {
+        const d = JSON.parse(raw) as Record<string, unknown>;
+        /* it is only ever given back to the account it names */
+        if (d && typeof d === "object" && d.owner === from) v = JSON.stringify({ ...d, owner: to });
+      } catch {
+        /* not ours to read: moved as it is */
+      }
+      ss.setItem(`${k.slice(0, -from.length)}${to}`, v);
+      ss.removeItem(k);
+    }
+  } catch {
+    /* storage blocked: nothing kept to move */
   }
 }
 
