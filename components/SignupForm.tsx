@@ -1,9 +1,11 @@
 "use client";
 
-import { createAccount, logIn, logOut } from "./accounts";
+import { createAccount, logIn, logInCode, logInResend, loginCodeTo, madeProfile, signupCancel, signupCode, signupResend, signupWaiting } from "./accounts";
+import { EmailCodeStep } from "./EmailCodeStep";
+import { useLogOut } from "./LogOut";
 import { demoActive, endDemo } from "./demoSandbox";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
 import { FlagJO } from "./Flag";
 import { Logo } from "./Nav";
@@ -14,9 +16,9 @@ import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required"
 import { ACCOUNT_LIMITS, passwordError } from "./safeAccount";
 import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { loadSetup, saveSetup } from "./setup";
+import { SETUP_STEPS } from "./safeOrder";
 import { resetToStarterDesign } from "./storefront/storage";
 import { SUSPENDED_PATH } from "./suspended";
-import { TwoStepCodeStep } from "./TwoStepSettings";
 import { ForgotPassword } from "./ForgotPassword";
 import { usePageTitle } from "./pageTitle";
 
@@ -27,12 +29,31 @@ type Tab = "create" | "login";
 const words = {
   en: {
     loading: "Loading…",
+    confirmTitle: "Confirm your email",
+    changeDetails: "Change my details",
+    signInCodeTitle: "Enter your sign-in code",
+    backToSignIn: "Back to sign in",
+    /* no time is promised: an hour's cap or a day's cap may be the one that was reached */
+    emailSlow: "Too many codes were sent to this email. Try again later.",
+    sendFailed: "We couldn't send a code to this email. Check it's typed right.",
+    locked: "Too many wrong tries. For your safety, wait an hour and try again.",
+    gone: "That took too long. Please send the form again.",
+    made: "Your account is ready. Sign in with your email and password.",
     resetDone: "Your password was changed.",
     resetSigningIn: "Your password was changed. Signing you in…",
     resetTitle: "Reset password",
   },
   ar: {
     loading: "جارٍ التحميل…",
+    confirmTitle: "أكّد بريدك الإلكتروني",
+    changeDetails: "تعديل بياناتي",
+    signInCodeTitle: "أدخل رمز تسجيل الدخول",
+    backToSignIn: "العودة إلى تسجيل الدخول",
+    emailSlow: "أُرسلت رموز كثيرة إلى هذا البريد. حاول مرة أخرى لاحقًا.",
+    sendFailed: "لم نتمكّن من إرسال رمز إلى هذا البريد. تأكّد من كتابته بشكل صحيح.",
+    locked: "محاولات خاطئة كثيرة. حفاظًا على أمانك، انتظر ساعة ثم حاول مرة أخرى.",
+    gone: "استغرق الأمر وقتًا طويلًا. أرسل النموذج مرة أخرى.",
+    made: "حسابك جاهز. سجّل الدخول ببريدك وكلمة المرور.",
     resetDone: "تم تغيير كلمة المرور.",
     resetSigningIn: "تم تغيير كلمة المرور. جارٍ تسجيل دخولك…",
     resetTitle: "إعادة تعيين كلمة المرور",
@@ -137,19 +158,34 @@ export function SignupForm() {
   const [tab, setTab] = useState<Tab>("create");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
+  /* the guest button signs out an account still signed in here, the same way the account menu does */
+  const out = useLogOut(lang);
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", loginId: "" });
   const [errors, setErrors] = useState<Errors>({});
   /* a message about the whole form, not one field (too many sign-ups from this connection) */
   const [formErr, setFormErr] = useState("");
   /* while the server answers, the button can't be pressed twice */
   const [busy, setBusy] = useState(false);
-  /* signing in to an account with 2-step codes: the code step is open, and tells the sign-in how it ended */
-  const [codeStep, setCodeStep] = useState<((r: "ok" | "cancel") => void) | null>(null);
+  /* the emailed code's page, in place of the form: signing up (the account is made once the code is right), or signing
+     in with 2-step on. It tells the form how it ended. */
+  const [codeStep, setCodeStep] = useState<{ kind: "signup" | "login"; to: string; sent: boolean; locked?: boolean; done: (r: "ok" | "cancel") => void } | null>(null);
+  const askCode = (kind: "signup" | "login", to: string, sent = true, locked = false) =>
+    new Promise<"ok" | "cancel">((done) => setCodeStep({ kind, to, sent, locked, done }));
+  /* the field the cursor goes to once the code page has given the form its place back (it is drawn only then) */
+  const focusAfterCode = useRef("");
+  useEffect(() => {
+    if (codeStep || !focusAfterCode.current) return;
+    document.getElementById(focusAfterCode.current)?.focus();
+    focusAfterCode.current = "";
+  }, [codeStep]);
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
     /* a field's mistake goes away as soon as he edits it */
     if (key in errors) setErrors((x) => ({ ...x, [key]: undefined }));
   };
+
+  /* the form was sent on this page: a waiting sign-up found as the page opens no longer takes its place */
+  const sentForm = useRef(false);
 
   /* Open on the login tab when arriving from the "Log in" button. */
   const [tour, setTour] = useState(false);
@@ -164,6 +200,26 @@ export function SignupForm() {
     /* Making his own account ends the platform tour: otherwise his new store would be saved into the tour's made-up
        perfume store (the tour lives in this tab). The page opens again with his real data. */
     else if (demoActive()) endDemo(window.location.pathname + window.location.search);
+    else {
+      /* A sign-up of this browser still waits for its code (the page was loaded again on the code step): its code page
+         comes back as it was, with no new code sent, instead of an empty form whose new send would use up another of
+         the address's codes. Not when he already pressed the button meanwhile. */
+      let off = false;
+      void signupWaiting().then(async (email) => {
+        if (!email || off || sentForm.current) return;
+        setTab("create");
+        setForm((f) => ({ ...f, email }));
+        setBusy(true);
+        const r = await askCode("signup", email);
+        setCodeStep(null);
+        setBusy(false);
+        /* what was typed is gone with the old page: the account just made, as the server has it, is what setup keeps */
+        if (r === "ok") enter("create", madeProfile() ?? { name: "", email, phone: "" });
+      });
+      return () => {
+        off = true;
+      };
+    }
   }, []);
 
   usePageTitle(`${brandName(lang)} | ${forgot ? w.resetTitle : tab === "create" ? c.tabs.create : c.tabs.login}`);
@@ -186,6 +242,7 @@ export function SignupForm() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy || !ready) return;
+    sentForm.current = true;
     let valid = loginValid;
     if (tab === "create") {
       const found = check();
@@ -203,11 +260,21 @@ export function SignupForm() {
     if (valid && tab === "create" && !tour) {
       setBusy(true);
       setFormErr("");
-      const r = await createAccount({ email, name, phone, password: form.password });
+      let r: Awaited<ReturnType<typeof createAccount>> | "cancel" = await createAccount({ email, name, phone, password: form.password, lang });
+      if (r === "code") {
+        r = await askCode("signup", email);
+        setCodeStep(null);
+      }
       setBusy(false);
-      if (r === "slow-down") {
+      if (r === "cancel") return;
+      if (r === "slow-down" || r === "email-slow-down" || r === "locked") {
         /* not about one field: said under the button, where he is looking */
-        setFormErr(c.errSignupMany);
+        setFormErr(r === "slow-down" ? c.errSignupMany : r === "locked" ? w.locked : w.emailSlow);
+        return;
+      }
+      if (r === "send-failed") {
+        setErrors({ email: w.sendFailed });
+        document.getElementById("s-email")?.focus();
         return;
       }
       if (r !== "ok") {
@@ -220,9 +287,9 @@ export function SignupForm() {
     let goTo = "/onboarding";
     if (valid && tab === "login" && !tour) {
       setBusy(true);
-      let r: Awaited<ReturnType<typeof logIn>> | "cancel" = await logIn(form.loginId, form.password);
+      let r: Awaited<ReturnType<typeof logIn>> | "cancel" = await logIn(form.loginId, form.password, lang);
       if (r === "code") {
-        r = await new Promise<"ok" | "cancel">((done) => setCodeStep(() => done));
+        r = await askCode("login", loginCodeTo().to, loginCodeTo().sent, loginCodeTo().locked);
         setCodeStep(null);
       }
       setBusy(false);
@@ -238,47 +305,51 @@ export function SignupForm() {
       /* his store is ready: the dashboard, or the setup if it is not finished */
       if ((loadSetup()?.done ?? []).filter(Boolean).length >= 6) goTo = "/dashboard";
     }
-    if (valid) {
-      /* Kept only for this browser session, so setup can offer it as the support number. */
-      try {
-        if (tab === "create") {
-          /* A new account starts from the starter template (the default design). Not in the tour: it must never touch real data. */
-          if (!tour) resetToStarterDesign();
-          sessionStorage.setItem("seen-account-phone", phone);
-          /* Never the password, only what the settings page can show. */
-          sessionStorage.setItem("seen-account-profile", JSON.stringify({ name, email, phone }));
-          /* The number he registered with is the starting contact number of his store, until he changes it in setup or the
-             designer. His own name is the account's name only: the store name starts empty in setup, for him to type. */
-          const prev = loadSetup();
-          if (!prev?.phone) {
-            saveSetup({
-              name: prev?.name ?? "",
-              description: prev?.description ?? "",
-              color: prev?.color ?? "#e67726",
-              phone: prev?.phone || phone,
-              slug: prev?.slug ?? "",
-              done: prev?.done ?? Array.from({ length: 6 }, () => false),
-              pickup: prev?.pickup,
-              logo: prev?.logo,
-              product: prev?.product ?? null,
-              shipping: prev?.shipping ?? null,
-              /* a new store takes no way to pay until he turns one on (setup or Delivery options); an older one keeps its choice */
-              pays: prev ? prev.pays : [],
-            });
-          }
-        }
-        else sessionStorage.removeItem("seen-account-phone");
-      } catch {
-        /* storage unavailable: setup just won't offer the registered number */
-      }
-      try {
-        sessionStorage.setItem("seen-signed-in", "1");
-      } catch {
-        /* storage unavailable */
-      }
-      router.push(tour ? "/demo" : goTo);
-    }
+    if (valid) enter(tab, { name, email, phone }, goTo);
   };
+
+  /* Signed up or in (or into the platform tour): what this tab keeps of the account, then on to setup, the dashboard or
+     the tour. `p`: the account's name, email and mobile as kept (the form's, or the server's after a refresh). */
+  function enter(kind: Tab, p: { name: string; email: string; phone: string }, goTo = "/onboarding") {
+    /* Kept only for this browser session, so setup can offer it as the support number. */
+    try {
+      if (kind === "create") {
+        /* A new account starts from the starter template (the default design). Not in the tour: it must never touch real data. */
+        if (!tour) resetToStarterDesign();
+        sessionStorage.setItem("seen-account-phone", p.phone);
+        /* Never the password, only what the settings page can show. */
+        sessionStorage.setItem("seen-account-profile", JSON.stringify({ name: p.name, email: p.email, phone: p.phone }));
+        /* The number he registered with is the starting contact number of his store, until he changes it in setup or the
+           designer. His own name is the account's name only: the store name starts empty in setup, for him to type. */
+        const prev = loadSetup();
+        if (!prev?.phone) {
+          saveSetup({
+            name: prev?.name ?? "",
+            description: prev?.description ?? "",
+            color: prev?.color ?? "#e67726",
+            phone: prev?.phone || p.phone,
+            slug: prev?.slug ?? "",
+            done: prev?.done ?? Array.from({ length: SETUP_STEPS }, () => false),
+            pickup: prev?.pickup,
+            logo: prev?.logo,
+            product: prev?.product ?? null,
+            shipping: prev?.shipping ?? null,
+            /* a new store takes no way to pay until he turns one on (setup or Delivery options); an older one keeps its choice */
+            pays: prev ? prev.pays : [],
+          });
+        }
+      }
+      else sessionStorage.removeItem("seen-account-phone");
+    } catch {
+      /* storage unavailable: setup just won't offer the registered number */
+    }
+    try {
+      sessionStorage.setItem("seen-signed-in", "1");
+    } catch {
+      /* storage unavailable */
+    }
+    router.push(tour ? "/demo" : goTo);
+  }
 
   /* The password was reset by code: back on the sign-in form, signed in with the new one the usual way (so the 2-step
      code is still asked for when it is on, and a suspended store still goes to its page). If that does not work out
@@ -296,9 +367,9 @@ export function SignupForm() {
     if (tour) return back();
     setNotice(w.resetSigningIn);
     setBusy(true);
-    let r: Awaited<ReturnType<typeof logIn>> | "cancel" = await logIn(id, password);
+    let r: Awaited<ReturnType<typeof logIn>> | "cancel" = await logIn(id, password, lang);
     if (r === "code") {
-      r = await new Promise<"ok" | "cancel">((done) => setCodeStep(() => done));
+      r = await askCode("login", loginCodeTo().to, loginCodeTo().sent, loginCodeTo().locked);
       setCodeStep(null);
     }
     setBusy(false);
@@ -337,8 +408,10 @@ export function SignupForm() {
     </Field>
   );
 
+  /* the path shown beside the form is the setup that follows sign-up (Onboarding.tsx): its steps, none done yet */
   const launch = c.side;
-  const done = 2;
+  const steps = content[lang].onboarding.tasks.slice(0, SETUP_STEPS).map((t) => t.title);
+  const done = 0;
 
   return (
     <main className="grid min-h-screen bg-page lg:grid-cols-2">
@@ -358,7 +431,65 @@ export function SignupForm() {
               {lang === "ar" ? "سجّل دخولك أو أنشئ حسابًا لتجربة المنصة." : "Log in or create an account to try the platform."}
             </p>
           )}
-          {forgot ? (
+          {codeStep ? (
+            codeStep.kind === "signup" ? (
+              <EmailCodeStep
+                title={w.confirmTitle}
+                to={codeStep.to}
+                sent={codeStep.sent}
+                backLabel={w.changeDetails}
+                onSubmit={async (code) => {
+                  const r = await signupCode(code);
+                  if (r === "ok") codeStep.done("ok");
+                  /* someone took the email or mobile meanwhile, or the hour ran out: back to the form, which says so */
+                  else if (r === "made") {
+                    /* the account was already made with this code (another tab): it signs in the usual way */
+                    codeStep.done("cancel");
+                    setTab("login");
+                    setErrors({});
+                    setForm((f) => ({ ...f, loginId: f.email, password: "" }));
+                    setNotice(w.made);
+                    focusAfterCode.current = "s-password";
+                  } else if (r === "taken" || r === "taken-phone" || r === "gone") {
+                    codeStep.done("cancel");
+                    if (r === "gone") setFormErr(w.gone);
+                    else {
+                      const field = r === "taken-phone" ? "phone" : "email";
+                      setErrors({ [field]: r === "taken-phone" ? c.errPhoneTaken : c.errTaken });
+                      focusAfterCode.current = `s-${field}`;
+                    }
+                  }
+                  return r;
+                }}
+                onResend={() => signupResend(lang)}
+                onBack={() => {
+                  void signupCancel();
+                  /* back on the form, with what he typed: the cursor goes to its first field, so Enter sends it again */
+                  focusAfterCode.current = "s-name";
+                  codeStep.done("cancel");
+                }}
+              />
+            ) : (
+              <EmailCodeStep
+                title={w.signInCodeTitle}
+                to={codeStep.to}
+                sent={codeStep.sent}
+                locked={codeStep.locked}
+                recovery
+                backLabel={w.backToSignIn}
+                onSubmit={async (code) => {
+                  const r = await logInCode(code);
+                  if (r === "ok") codeStep.done("ok");
+                  return r;
+                }}
+                onResend={() => logInResend(lang)}
+                onBack={() => {
+                  focusAfterCode.current = "s-loginId";
+                  codeStep.done("cancel");
+                }}
+              />
+            )
+          ) : forgot ? (
             <ForgotPassword
               initial={form.loginId}
               onBack={() => {
@@ -466,7 +597,6 @@ export function SignupForm() {
             {formErr && <p role="alert" className="text-center text-sm text-rose-600 dark:text-rose-400">{formErr}</p>}
 
           </form>
-          {codeStep && <TwoStepCodeStep onDone={codeStep} />}
 
 
           {/* Prototype shortcut: go in without creating an account (also for the platform tour) */}
@@ -477,20 +607,22 @@ export function SignupForm() {
           </div>
           <button
             type="button"
-            onClick={() => {
-              try {
-                void logOut();
-                sessionStorage.removeItem("seen-account-phone");
-                sessionStorage.setItem("seen-signed-in", "1");
-              } catch {
-                /* ignore */
-              }
-              router.push(tour ? "/demo" : "/onboarding");
-            }}
+            onClick={() =>
+              out.start(() => {
+                try {
+                  sessionStorage.removeItem("seen-account-phone");
+                  sessionStorage.setItem("seen-signed-in", "1");
+                } catch {
+                  /* ignore */
+                }
+                router.push(tour ? "/demo" : "/onboarding");
+              })
+            }
             className="mt-6 h-12 w-full rounded-xl border border-fg/20 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-soft"
           >
             {c.guest}
           </button>
+          {out.dialog}
 
           {tab === "create" && (
             <p className="mt-6 text-center text-xs leading-relaxed text-muted">
@@ -514,16 +646,16 @@ export function SignupForm() {
           <div className="flex items-center justify-between">
             <p className="font-bold">{launch.panelTitle}</p>
             <span className="rounded-full bg-primary/15 px-3 py-1 text-xs font-bold text-deep dark:text-primary">
-              {done}/{launch.steps.length}
+              {done}/{steps.length}
             </span>
           </div>
           <div className="mt-4 flex gap-1.5" aria-hidden>
-            {launch.steps.map((s, i) => (
+            {steps.map((s, i) => (
               <span key={s} className={`h-1.5 flex-1 rounded-full ${i < done ? "bg-primary" : "bg-fg/10"}`} />
             ))}
           </div>
           <ul className="mt-5 space-y-3">
-            {launch.steps.map((s, i) => (
+            {steps.map((s, i) => (
               <li key={s} className="flex items-center gap-3 text-sm">
                 <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] ${i < done ? "bg-primary text-white" : "border border-fg/25 text-muted"}`}>
                   {i < done ? "✓" : i + 1}

@@ -14,6 +14,8 @@ export type ConfirmOptions = { title: string; body?: string; confirm?: string; c
 export type TextOptions = {
   title: string; body?: string; label: string; initial?: string | null; placeholder?: string;
   optional?: boolean; multiline?: boolean; maxLength?: number; confirm?: string; cancel?: string;
+  /* secret: a password (hidden as it is typed, offered by the browser's password manager); danger: as askConfirm's */
+  secret?: boolean; danger?: boolean;
 };
 export type TellOptions = { title: string; body?: string; ok?: string };
 
@@ -258,12 +260,13 @@ function TextDialog({ a }: { a: Extract<Ask, { kind: "text" }> }) {
       title={o.title}
       body={o.body}
       wide={o.multiline}
+      tone={o.danger ? "danger" : "normal"}
       onClose={() => answer(null)}
       onSubmit={submit}
       footer={
         <>
           <Btn type="button" kind="ghost" onClick={() => answer(null)}>{o.cancel ?? t("Cancel", "إلغاء")}</Btn>
-          <Btn type="submit">{o.confirm ?? t("Save", "حفظ")}</Btn>
+          <Btn type="submit" kind={o.danger ? "danger" : "primary"}>{o.confirm ?? t("Save", "حفظ")}</Btn>
         </>
       }
     >
@@ -282,7 +285,14 @@ function TextDialog({ a }: { a: Extract<Ask, { kind: "text" }> }) {
           onKeyDown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && (e.preventDefault(), submit())}
         />
       ) : (
-        <input {...props} type="text" dir="auto" className={field} onChange={(e) => (setV(e.target.value), setErr(""))} />
+        <input
+          {...props}
+          type={o.secret ? "password" : "text"}
+          dir={o.secret ? "ltr" : "auto"}
+          autoComplete={o.secret ? "current-password" : undefined}
+          className={field}
+          onChange={(e) => (setV(e.target.value), setErr(""))}
+        />
       )}
       <div className="mt-1 flex justify-between gap-3 text-xs">
         <span id={errId} role={err ? "alert" : undefined} className="text-red-600">{err}</span>

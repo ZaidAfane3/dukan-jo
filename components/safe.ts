@@ -24,10 +24,14 @@ export async function sniff(file: Blob): Promise<FileKind | null> {
   if (at(0, "GIF87a") || at(0, "GIF89a")) return "gif";
   if (at(0, "RIFF") && at(8, "WEBP")) return "webp";
   if (at(0, "%PDF-")) return "pdf";
-  if (at(4, "ftyp")) return "mp4";
+  /* an iPhone's HEIC (or an AVIF) photo starts like an MP4: its brand says it is a still picture, which no box takes */
+  if (at(4, "ftyp")) return STILL_BRAND.test(String.fromCharCode(...Array.from(b.subarray(8, 12)))) ? null : "mp4";
   if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "webm";
   return null;
 }
+
+/** The brands of an HEIC or AVIF photo, which start like an MP4 video ("ftyp" at byte 4) */
+export const STILL_BRAND = /^(heic|heix|hevc|hevx|heim|heis|mif1|msf1|avif|avis)$/;
 
 export type UploadRule = { kinds: FileKind[]; max: number; maxByKind?: Partial<Record<FileKind, number>> };
 
@@ -189,7 +193,7 @@ export function checkImageBytes(b: Uint8Array, rule: ImageRule): ImageCheck {
   else if (at(0, "GIF87a") || at(0, "GIF89a")) kind = "gif";
   else if (at(0, "RIFF") && at(8, "WEBP")) kind = "webp";
   else if (at(0, "%PDF-")) kind = "pdf";
-  else if (at(4, "ftyp")) kind = "mp4";
+  else if (at(4, "ftyp")) kind = STILL_BRAND.test(String.fromCharCode(...Array.from(head.subarray(8, 12)))) ? null : "mp4";
   else if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) kind = "webm";
   else if (rule.svg && looksLikeSvg(b)) kind = "svg";
   if (kind === "svg") return b.length > SVG_MAX ? { problem: "size" } : { kind, animated: false };
@@ -244,6 +248,8 @@ export function uploadProblemFor(p: UploadProblem, rule: ImageRule, lang: "en" |
   if (p === "size") {
     const extra = Object.entries(rule.maxByKind ?? {}).filter(([, v]) => v !== rule.max) as [FileKind, number][];
     const more = extra.map(([k, v]) => (lang === "ar" ? `${kindName[k]} حتى ${mb(v)} ميغابايت` : `${kindName[k]} max ${mb(v)} MB`));
+    /* an SVG has its own, much smaller limit (SVG_MAX): say it, or a 300 KB SVG would read "max 10 MB" */
+    if (rule.svg) more.push(lang === "ar" ? `SVG حتى ${mb(SVG_MAX)} ميغابايت` : `SVG max ${mb(SVG_MAX)} MB`);
     return lang === "ar"
       ? `الملف كبير جدًا (الحد الأقصى ${mb(rule.max)} ميغابايت${more.length ? `، و${more.join("، و")}` : ""}).`
       : `File too large (max ${mb(rule.max)} MB${more.length ? `; ${more.join(", ")}` : ""}).`;

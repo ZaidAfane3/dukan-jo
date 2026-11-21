@@ -1,8 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules";
-import { answer, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
-import { emailKey, seal } from "@/server/crypto";
+import { answer, guarded, hashPassword, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
+import { emailKey, plainText, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, DEV_EMAIL } from "@/server/staff";
 
@@ -28,9 +28,11 @@ export const GET = guarded(async () => answer({ open: !!setupKey() && (await noS
 /** Creates the first owner. Answers: "ok", "closed" (staff exist or no setup key on the server), "wrong-key", "invalid", "weak". */
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
-  if (tooMany(req, "diwan-setup", 5, 15)) return answer({ result: "slow-down" }, 429);
+  if (tooMany(req, "diwan-setup", 5, 15) || tooManyFor("diwan-setup:all", 30, 60)) return answer({ result: "slow-down" }, 429);
   const want = setupKey();
   if (!want) return answer({ result: "closed" }, 403);
+  /* Diwan has staff already: closed, whatever key was sent, so the key can't be checked by guessing once setup is done */
+  if (!(await noStaff())) return answer({ result: "closed" }, 403);
   const body = await readJson(req, 2_000);
   const key = typeof body?.key === "string" ? body.key : "";
   if (!timingSafeEqual(sha(key), sha(want))) {
@@ -55,7 +57,7 @@ export const POST = guarded(async (req: NextRequest) => {
       await c.query("ROLLBACK");
       return answer({ result: "closed" }, 409);
     }
-    const r = await c.query(`INSERT INTO staff (email, email_hash, name, role, password_hash) VALUES ($1, $2, $3, 'owner', $4) RETURNING id`, [seal(who.email), emailKey(who.email), who.name, hash]);
+    const r = await c.query(`INSERT INTO staff (email, email_hash, name, role, password_hash) VALUES ($1, $2, $3, 'owner', $4) RETURNING id`, [seal(who.email), emailKey(who.email), plainText(who.name), hash]); /* plain text: see app/api/diwan/staff POST */
     id = String(r.rows[0].id);
     await c.query("COMMIT");
   } catch (e) {

@@ -23,10 +23,15 @@ const SEALED: { table: string; key: string[]; cols: string[] }[] = [
   { table: "impersonations", key: ["id"], cols: ["reason", "ip"] },
 ];
 
+/** What this file seals, as text: db() runs the start-up setup again whenever it changes (server/db.ts SETUP_KEY) */
+export const ENCRYPT_PLAN = JSON.stringify([SEALED, PRIVATE_PARAMS]);
+
 export async function encryptOldRows(pool: Pool): Promise<void> {
   const c = await pool.connect();
   try {
     await c.query("BEGIN");
+    /* an older database can have many rows to seal: the pool's 30 s query limit (server/db.ts) is lifted for this run */
+    await c.query("SET LOCAL statement_timeout = 0");
     await c.query("SELECT pg_advisory_xact_lock(71001)");
 
     /* the size limit counts what the merchant saved, not the longer encrypted text */

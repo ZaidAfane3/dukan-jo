@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { STAFF_2FA_REQUIRED, staffPasswordProblem } from "@/components/diwan/staffRules";
-import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, signInTries, tooMany, tooManyFor } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, currentStaff, useTotpCode, verifyStaffSession } from "@/server/staff";
 
@@ -16,7 +16,7 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!s) return answer({ result: "signed-out" }, 401);
   if (s.verified) return answer({ result: "ok" });
   /* per staff member and per visitor: a few tries, then wait */
-  if (tooMany(req, `diwan-totp-${s.id}`, 6, 15)) return answer({ result: "slow-down" }, 429);
+  if (tooMany(req, "diwan-totp", 20, 15) || tooManyFor(`diwan-totp-tries:${s.id}`, 12, 15)) return answer({ result: "slow-down" }, 429);
   const body = await readJson(req, 2_000);
   const code = typeof body?.code === "string" ? body.code : "";
 
@@ -37,11 +37,18 @@ export const POST = guarded(async (req: NextRequest) => {
     newHash = await hashPassword(pw as string);
   }
 
+  /* wrong codes, as wrong passwords at the first step (server/auth.ts signInTries): six from one address and that address
+     waits; from everywhere together they only make each try wait longer. The limit above counts every try. */
+  const gate = noCode ? null : signInTries(req, `diwan-totp:${s.id}`, 6, 15);
+  if (gate?.blocked()) return answer({ result: "slow-down" }, 429);
+  gate?.failed();
+  await gate?.slowDown();
   /* a code works once: the same one again, even inside its 90 seconds, counts as wrong */
   if (!noCode && !(await useTotpCode("staff", s.id, row.totp_secret, code))) {
     await audit(req, s.id, "staff.code_failed", { type: "staff", id: s.id });
     return answer({ result: "wrong" }, 401);
   }
+  gate?.passed();
 
   await pool.query(
     `UPDATE staff SET totp_on = (totp_on OR NOT $3::boolean), last_login_at = now(),

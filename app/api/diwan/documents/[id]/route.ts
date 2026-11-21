@@ -21,7 +21,7 @@ export const POST = staffRoute("documents", async (req: NextRequest, me, { param
   if (status === "rejected" && !note.trim()) return answer({ result: "note-needed" }, 400);
 
   const pool = await db();
-  const before = await pool.query(`SELECT id, account_id, name, status, note, removed_at FROM documents WHERE public_id = $1`, [publicId]);
+  const before = await pool.query(`SELECT id, account_id, name, status, note, removed_at FROM documents WHERE public_id = $1 AND NOT draft`, [publicId]);
   const b = before.rows[0];
   if (!b) return answer({ result: "missing" }, 404);
   if (b.removed_at) return answer({ result: "removed" }, 409);

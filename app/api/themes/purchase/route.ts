@@ -5,6 +5,7 @@ import { answer, currentAccount, guarded, readJson, sameOrigin, tooMany } from "
 import { livePrice } from "@/server/catalog";
 import { db } from "@/server/db";
 import { readSettings } from "@/server/settings";
+import { logMerchant } from "@/server/merchantLog";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
    The way to pay must be one the theme checkout offers and Diwan has on (payment_methods). One record per shop and theme:
    buying it again changes nothing.
    Prototype: the checkout takes no money yet, so this is the record of what was "bought" and at what price.
+   A theme that costs nothing needs no way to pay (none is kept for it).
    Answers "ok", "invalid" (not a theme in the store), "method-off" (that way to pay is not open). */
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
@@ -24,13 +26,14 @@ export const POST = guarded(async (req: NextRequest) => {
   const themeId = body?.themeId;
   const listed = await livePrice(themeId);
   if (listed === null) return answer({ result: "invalid" }, 400);
+  const price = (FREE_THEME_IDS as readonly unknown[]).includes(themeId) ? 0 : listed;
   const s = await readSettings(["payment_methods"] as const);
   const method = THEME_PAYS.find((m) => m === body?.method) as ThemePay | undefined;
-  if (!method || !s.payment_methods[method].on) return answer({ result: "method-off" }, 400);
-  const price = (FREE_THEME_IDS as readonly unknown[]).includes(themeId) ? 0 : listed;
-  await (await db()).query(
+  if (price > 0 && (!method || !s.payment_methods[method].on)) return answer({ result: "method-off" }, 400);
+  const bought = await (await db()).query(
     `INSERT INTO theme_purchases (account_id, theme_id, price, method) VALUES ($1, $2, $3, $4) ON CONFLICT (account_id, theme_id) DO NOTHING`,
-    [a.id, themeId, price, method],
+    [a.id, themeId, price, price > 0 ? method : null],
   );
+  if (bought.rowCount) logMerchant(a.id, "theme.bought", { theme: String(themeId), price });
   return answer({ result: "ok" });
 });

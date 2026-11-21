@@ -4,6 +4,8 @@ import { cleanSetup } from "@/components/safeAccount";
 import { isTestOrder, saleState } from "@/components/storeNumbers";
 import { lookupKeys, NAME_KEYS_VERSION, nameKeys, nameSearchKeys, plainText, seal } from "./crypto";
 import { db } from "./db";
+import { logMerchant, type MerchantAction, type MerchantMeta } from "./merchantLog";
+import { SETUP_STEPS } from "@/components/safeOrder";
 
 /* The shops table: one row per merchant account, worked out on the server from what the merchant's pages sync to
    store_data. Diwan reads only this row (names, counts and totals), never the products, orders or customers
@@ -95,12 +97,25 @@ export function countShop(data: Map<string, string>): Counts {
     ship_name and pickup. */
 export const SHOP_COUNTS_VERSION = 1;
 
-/** Works the shops row out again from the account's saved data, and saves it. */
-export async function syncShop(accountId: string | number, q?: Q): Promise<void> {
+/** Works the shops row out again from the account's saved data, and saves it. `fresh`: what a save just wrote (the
+    values, plain) and removed, so those keys are not read and opened again (the products and orders can be megabytes). */
+export async function syncShop(
+  accountId: string | number,
+  q?: Q,
+  fresh?: { set: Map<string, string>; removed: Set<string> },
+  /* the merchant's own save: what changed goes to the merchant log (not a recount or Diwan opening the store) */
+  opts?: { log?: boolean },
+): Promise<void> {
   const c: Q = q ?? (await db());
+  const was = opts?.log
+    ? ((await c.query(`SELECT name, slug, setup_done, published, paused, ship_mode, theme_id, product_count, order_count FROM shops WHERE account_id = $1`, [accountId])).rows[0] as ShopWas | undefined)
+    : undefined;
+  const known = (k: string) => !!fresh && (fresh.set.has(k) || fresh.removed.has(k));
+  const ask = Array.from(SHOP_KEYS).filter((k) => !known(k));
   /* the values come back opened by db() */
-  const { rows } = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [accountId, Array.from(SHOP_KEYS)]);
+  const { rows } = ask.length ? await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [accountId, ask]) : { rows: [] };
   const data = new Map<string, string>(rows.map((r: { key: string; value: string }) => [r.key, r.value]));
+  if (fresh) for (const [k, v] of fresh.set) if (SHOP_KEYS.has(k)) data.set(k, v);
   let setup = null;
   try {
     setup = data.has("seen-setup") ? cleanSetup(JSON.parse(data.get("seen-setup")!)) : null;
@@ -153,13 +168,50 @@ export async function syncShop(accountId: string | number, q?: Q): Promise<void>
       first_product_at = LEAST(shops.first_product_at, $17::timestamptz, CASE WHEN shops.product_count = 0 AND EXCLUDED.product_count > 0 THEN now() END),
       first_order_at = LEAST(shops.first_order_at, $15::timestamptz, CASE WHEN shops.order_count = 0 AND EXCLUDED.order_count > 0 THEN now() END),
       updated_at = now()`;
+  let slugKept = values[2] as string | null;
   try {
     await c.query(sql, values);
   } catch (e) {
     /* the link belongs to another shop (saved before links were checked, or two saves at once): kept without it */
     if ((e as { code?: string }).code !== "23505") throw e;
     await c.query(sql, [...values.slice(0, 2), null, ...values.slice(3)]);
+    slugKept = null;
   }
+  if (was)
+    logShopChanges(accountId, was, {
+      name: values[1] as string,
+      slug: slugKept,
+      done: setup ? setup.done.slice(0, SETUP_STEPS).map((d) => d === true) : [],
+      setup_done: values[5] as number,
+      published: values[6] as boolean,
+      paused: values[7] as boolean,
+      ship_mode: values[8] as string,
+      theme_id: (values[15] as string | null) ?? null,
+      product_count: Number(values[11]),
+      order_count: Number(values[12]),
+    });
+}
+
+type ShopWas = { name: string; slug: string | null; setup_done: number; published: boolean; paused: boolean; ship_mode: string; theme_id: string | null; product_count: number; order_count: number };
+
+/* what a merchant's save changed in his store, as merchant log lines (server/merchantLog.ts) */
+function logShopChanges(id: string | number, was: ShopWas, now: Omit<ShopWas, "setup_done"> & { setup_done: number; done: boolean[] }) {
+  const log = (a: MerchantAction, meta?: MerchantMeta) => logMerchant(id, a, meta);
+  if ((was.name ?? "") !== now.name && now.name) log("store.name", { from: was.name || null, to: now.name });
+  if ((was.slug ?? "") !== (now.slug ?? "") && now.slug) log("store.link", { from: was.slug || null, to: now.slug });
+  if (now.setup_done > Number(was.setup_done ?? 0)) {
+    /* which steps: the saved setup says which are done; the row only kept how many */
+    if (now.setup_done >= SETUP_STEPS) log("store.setup-done");
+    else log("store.setup-step", { done: now.setup_done, of: SETUP_STEPS, steps: now.done.map((d, i) => (d ? i + 1 : 0)).filter(Boolean).join(",") });
+  }
+  if (!was.published && now.published) log("store.live");
+  if (was.published && !now.published) log("store.offline");
+  if (!was.paused && now.paused) log("store.paused");
+  if (was.paused && !now.paused) log("store.resumed");
+  if ((was.ship_mode ?? "") !== now.ship_mode && now.ship_mode) log("store.delivery", { from: was.ship_mode || null, to: now.ship_mode });
+  if ((was.theme_id ?? null) !== now.theme_id && now.theme_id) log("store.theme", { from: was.theme_id, to: now.theme_id });
+  if (!Number(was.product_count) && now.product_count > 0) log("store.first-product");
+  if (!Number(was.order_count) && now.order_count > 0) log("store.first-order");
 }
 
 /** True when another shop already uses this store link (case does not matter) */
@@ -171,13 +223,28 @@ export async function slugTaken(slug: string, accountId: string | number | null)
   return rows.length > 0;
 }
 
-/* at most once a minute per server: accounts made before the shops table (or by hand) get their row. Dukkan has no plans
-   and no free trial, so nothing about a subscription is made here (the old plans and subscriptions tables are unused). */
-let lastPrepared = 0;
-/** Gets the shops table ready for Diwan: a row for every account that has none */
-export async function prepareShops(): Promise<void> {
-  if (Date.now() - lastPrepared < 60_000) return;
-  lastPrepared = Date.now();
+/* One-time data fixes: accounts made before the shops table (or by hand) get their row (sign-up makes it for every new
+   one), older accounts get their name's fingerprints, and rows counted by an older rule are counted again. They run once
+   when the server starts (instrumentation.ts), not inside staff requests: Diwan's pages still call prepareShops, which
+   costs nothing once they are done, and runs them (once, shared) only when the start-up run has not finished or failed
+   (the database was not reachable yet). Dukkan has no plans and no free trial, so nothing about a subscription is made
+   here (the old plans and subscriptions tables are unused). */
+/* kept on the process, not this module: the start-up code and the routes are bundled apart, each with its own copy */
+const prep = ((globalThis as { __dukkanShopsPrep?: { done: boolean; running: Promise<void> | null } }).__dukkanShopsPrep ??= { done: false, running: null });
+/** Gets the shops table ready for Diwan (see above) */
+export function prepareShops(): Promise<void> {
+  if (prep.done) return Promise.resolve();
+  prep.running ??= (async () => {
+    while (await prepareBatch());
+    prep.done = true;
+  })().finally(() => {
+    prep.running = null;
+  });
+  return prep.running;
+}
+
+/* one round of the fixes; true when there may be more to do */
+async function prepareBatch(): Promise<boolean> {
   const pool = await db();
   const { rows } = await pool.query(`SELECT a.id, a.created_at FROM accounts a WHERE NOT EXISTS (SELECT 1 FROM shops s WHERE s.account_id = a.id) LIMIT 500`);
   for (const r of rows) {
@@ -192,7 +259,7 @@ export async function prepareShops(): Promise<void> {
   /* rows counted by an older rule (SHOP_COUNTS_VERSION): counted again, 200 at a time */
   const stale = await pool.query(`SELECT account_id FROM shops WHERE counts_v < $1 LIMIT 200`, [SHOP_COUNTS_VERSION]);
   for (const r of stale.rows) await syncShop(r.account_id, pool).catch((e) => console.error("[shops] recount", r.account_id, e));
-  if (rows.length === 500 || named.rows.length === 500 || stale.rows.length === 200) lastPrepared = 0;
+  return rows.length === 500 || named.rows.length === 500 || stale.rows.length === 200;
 }
 
 /** Notes that the merchant was here, at most once every 5 minutes */
@@ -228,6 +295,15 @@ export const STORE_ORDERS_SQL = (s = "s") => `(SELECT count(*) FILTER (WHERE o.p
     store page's (STORE_ORDERS_SQL, joined as `so`) together */
 export const ORDERS_SQL = `(s.order_count + so.n)`;
 export const SALES_SQL = `(s.total_sales + so.sales)::numeric(14, 3)`;
+/** The same apart, as Diwan shows them (two figures, each labelled): the orders and sales that came through the store's
+    page, counted by the server from store_orders, and the ones the merchant added himself (his saved orders, by hand or
+    from his own preview: countShop), which the server cannot check. Platform figures go by the store page's only. */
+export const STORE_PAGE_SQL = `so.n AS store_orders, so.sales::numeric(14, 3) AS store_sales, s.order_count AS hand_orders, s.total_sales AS hand_sales`;
+
+/** A shop that delivers with Dukkan Ship: it chose it, or it is live (published) with no delivery choice saved, a store
+    from before one was asked for, which delivers with Dukkan Ship by default (safeOrder checkoutShipMode). Diwan's
+    Dukkan Ship list and count go by this, and the store page says "default, not chosen" for the second. */
+export const SHIP_SQL = (s = "s") => `(${s}.ship_mode = 'seen' OR (${s}.ship_mode = '' AND ${s}.published))`;
 
 /* ---------------- the shop list (Diwan's Shops page and its CSV) ---------------- */
 
@@ -236,8 +312,9 @@ const SORTS: Record<string, string> = {
   seen: "s.last_seen_at DESC NULLS LAST",
   name: "lower(s.name) ASC, s.created_at DESC",
   products: "s.product_count DESC",
-  orders: `${ORDERS_SQL} DESC`,
-  sales: `${SALES_SQL} DESC`,
+  /* by what came through the store page (STORE_PAGE_SQL), then what the merchant added */
+  orders: `so.n DESC, s.order_count DESC`,
+  sales: `so.sales DESC, s.total_sales DESC`,
 };
 export const SHOP_SORTS = Object.keys(SORTS);
 export const SHOP_STATUSES = ["open", "paused", "suspended"] as const;
@@ -268,12 +345,12 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   if (pub === "yes") where.push(`s.published`);
   else if (pub === "no") where.push(`NOT s.published`);
   const ship = p.get("ship");
-  if (ship === "yes") where.push(`s.ship_mode = 'seen'`);
-  else if (ship === "no") where.push(`s.ship_mode <> 'seen'`);
+  if (ship === "yes") where.push(SHIP_SQL("s"));
+  else if (ship === "no") where.push(`NOT ${SHIP_SQL("s")}`);
   const sql = `FROM shops s JOIN accounts a ON a.id = s.account_id LEFT JOIN LATERAL ${STORE_ORDERS_SQL("s")} so ON true ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
   return { sql, params, order: SORTS[p.get("sort") ?? ""] ?? SORTS.newest };
 }
 
 export const SHOP_LIST_COLUMNS = `s.account_id AS id, s.name, s.slug, a.name AS owner, a.email, a.phone,
-  (${STATUS_SQL}) AS status, s.setup_done, s.published, s.paused, s.ship_mode, s.product_count, ${ORDERS_SQL} AS order_count,
-  ${SALES_SQL} AS total_sales, s.last_seen_at, s.created_at`;
+  (${STATUS_SQL}) AS status, s.setup_done, s.published, s.paused, s.ship_mode, s.product_count, ${STORE_PAGE_SQL},
+  s.last_seen_at, s.created_at`;

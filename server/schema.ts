@@ -44,6 +44,8 @@ export const DIWAN_SCHEMA = `
      once (server/staff.ts useTotpCode) */
   ALTER TABLE staff ADD COLUMN IF NOT EXISTS totp_last_step BIGINT;
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_last_step BIGINT;
+  /* the SHA-256 of each unused recovery code (server/recovery.ts): typed instead of the 6-digit code when the phone is lost */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_recovery TEXT[] NOT NULL DEFAULT '{}';
 
   CREATE TABLE IF NOT EXISTS audit_log (
     id          BIGSERIAL PRIMARY KEY,
@@ -58,6 +60,8 @@ export const DIWAN_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS audit_log_target ON audit_log (target_type, target_id, at DESC);
   CREATE INDEX IF NOT EXISTS audit_log_staff ON audit_log (staff_id, at DESC);
+  /* the activity page's list of actions to filter by (one step through this index per action, not the whole log) */
+  CREATE INDEX IF NOT EXISTS audit_log_action ON audit_log (action);
   CREATE OR REPLACE FUNCTION audit_log_frozen() RETURNS trigger AS $f$ BEGIN RAISE EXCEPTION 'audit_log is append-only'; END $f$ LANGUAGE plpgsql;
   DROP TRIGGER IF EXISTS audit_log_frozen ON audit_log;
   CREATE TRIGGER audit_log_frozen BEFORE UPDATE OR DELETE ON audit_log FOR EACH ROW EXECUTE FUNCTION audit_log_frozen();
@@ -92,6 +96,9 @@ export const DIWAN_SCHEMA = `
   );
   /* a store link belongs to one shop only */
   CREATE UNIQUE INDEX IF NOT EXISTS shops_slug ON shops (lower(slug)) WHERE slug IS NOT NULL AND slug <> '';
+  /* finding a store by its link (every store page, visit, coupon and order asks lower(slug) = $1): the unique index above
+     only covers non-empty links, so Postgres can't use it for a lookup by a parameter and read the whole table */
+  CREATE INDEX IF NOT EXISTS shops_slug_find ON shops (lower(slug));
 
   /* ---------- plans, subscriptions, payments ----------
      The plans and subscriptions tables are unused since 2026-11-16: Dukkan has no plans and no free trial, so nothing
@@ -198,6 +205,7 @@ export const DIWAN_SCHEMA = `
   );
   /* a ticket's pictures are found by their ticket (the chat and the Bugs and ideas board), without reading the table */
   CREATE INDEX IF NOT EXISTS ticket_pictures_ticket ON ticket_pictures (ticket_id, id);
+  CREATE INDEX IF NOT EXISTS ticket_pictures_message ON ticket_pictures (message_id) WHERE message_id IS NOT NULL;
 
   /* ---------- deleted orders: the number and the reason only, never the order ---------- */
   CREATE TABLE IF NOT EXISTS order_deletions (
@@ -271,6 +279,8 @@ export const DIWAN_SCHEMA = `
     new_visit  BOOLEAN NOT NULL
   );
   CREATE INDEX IF NOT EXISTS store_visits_shop_at ON store_visits (account_id, at);
+  /* each saved view asks whether this visitor opened anything in the last 30 minutes (server/storeVisits.ts) */
+  CREATE INDEX IF NOT EXISTS store_visits_visitor ON store_visits (account_id, visitor, at);
   CREATE TABLE IF NOT EXISTS store_visit_days (
     account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
     day        DATE NOT NULL,
@@ -314,6 +324,7 @@ export const DIWAN_SCHEMA = `
   );
   -- the way it was paid (card or cliq), for the payment numbers in Diwan; purchases from before have none
   ALTER TABLE theme_purchases ADD COLUMN IF NOT EXISTS method TEXT;
+  CREATE INDEX IF NOT EXISTS theme_purchases_theme ON theme_purchases (theme_id);
 
   /* ---------- papers staff check (courier proof, commercial registration) ---------- */
   CREATE TABLE IF NOT EXISTS documents (
@@ -364,6 +375,9 @@ export const DIWAN_SCHEMA = `
      the row stays as a record for staff: a proof staff were checking, or already approved, doesn't vanish from Diwan
      without a trace. The merchant's own pages and limits never count it again. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;
+  /* A courier proof sent while the merchant is still filling in his delivery choice (setup or the Delivery page) is a
+     draft: Diwan doesn't see it until he saves that choice with his own courier (app/api/store PUT). */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS draft BOOLEAN NOT NULL DEFAULT false;
 
   /* ---------- pictures and videos of the stores (product photos, logos, designs, page backgrounds) ---------- */
   /* One row per file a merchant's store shows, served to anyone at /media/<id> (server/media.ts). The id is random and
@@ -408,6 +422,10 @@ export const DIWAN_SCHEMA = `
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS notifications_account ON notifications (account_id, created_at DESC);
+  /* an announcement's bell line, and its reads, are found by the announcement (Diwan's lists count them per row) */
+  CREATE INDEX IF NOT EXISTS notifications_announcement ON notifications (announcement_id) WHERE announcement_id IS NOT NULL;
+  /* "has the merchant an unread reply on this ticket" (the tickets list asks once per ticket) */
+  CREATE INDEX IF NOT EXISTS notifications_account_kind ON notifications (account_id, kind);
   CREATE TABLE IF NOT EXISTS notification_reads (
     notification_id BIGINT NOT NULL REFERENCES notifications (id) ON DELETE CASCADE,
     account_id      BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -494,13 +512,24 @@ export const DIWAN_SCHEMA = `
   /* agent A: a staff member given a temporary password by an owner picks their own at the first sign-in */
   ALTER TABLE staff ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
 
-  /* agent B: merchants' optional 2-step codes. totp_secret is kept while it is being set up (totp_on false) and once on.
+  /* the language each merchant and staff member uses Dukkan in (server/lang.ts), saved when they sign in or switch it, so
+     the emails sent while they are away come in that language alone. NULL until then: those emails come in both. */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS lang TEXT CHECK (lang IN ('ar', 'en'));
+  ALTER TABLE staff ADD COLUMN IF NOT EXISTS lang TEXT CHECK (lang IN ('ar', 'en'));
+
+  /* agent B: merchants' optional 2-step sign-in (totp_on). Since 2026-11-21 its codes come by email (server/emailVerify.ts,
+     two_step_method below); totp_secret was the authenticator app's secret before that, is no longer written for
+     merchants, and is cleared whenever 2-step is turned on or off (staff still use theirs for Diwan).
      pending_totp: the password was right, the session waits for the code (counts as signed out until then). */
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_secret TEXT;
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_on BOOLEAN NOT NULL DEFAULT false;
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pending_totp BOOLEAN NOT NULL DEFAULT false;
+  -- one device at a time (server/auth.ts onlyThisSession): when a newer sign-in took this session's place
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS replaced_at TIMESTAMPTZ;
   /* agent B: Diwan's shop list sorts and filters on these */
   CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at DESC);
+  /* "new stores" audiences count the accounts made since an announcement, pop-up or page went out (server/announce.ts) */
+  CREATE INDEX IF NOT EXISTS accounts_created ON accounts (created_at);
   CREATE INDEX IF NOT EXISTS subscriptions_account ON subscriptions (account_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS impersonations_account ON impersonations (account_id, started_at DESC);
 
@@ -567,6 +596,8 @@ export const DIWAN_SCHEMA = `
       ALTER TABLE staff ADD CONSTRAINT staff_role_check CHECK (role IN ('owner', 'support', 'developer'));
     END IF;
   END $$;
+  -- Diwan has no roles any more (2026-11-19): every staff member is an owner
+  UPDATE staff SET role = 'owner' WHERE role <> 'owner';
 
   CREATE TABLE IF NOT EXISTS dukkan_pages (
     id           BIGSERIAL PRIMARY KEY,
@@ -743,4 +774,148 @@ export const DIWAN_SCHEMA = `
      a company or person the merchant works with, made safe like the store's name) and whether customers may pick up */
   ALTER TABLE shops ADD COLUMN IF NOT EXISTS ship_name TEXT NOT NULL DEFAULT '';
   ALTER TABLE shops ADD COLUMN IF NOT EXISTS pickup BOOLEAN NOT NULL DEFAULT false;
+
+  /* ---------- store orders Dukkan Ship delivers (Diwan > Dukkan Ship > Orders) ----------
+     ship_by: who takes the order to the customer, as it was when the order was placed (server/storeOrders.ts):
+     'dukkan' (the store delivers with Dukkan Ship), 'own' (the merchant's own courier) or 'pickup' (the customer
+     collects it). Orders placed before this column get it once from what their store uses now (ship_by is null only
+     until then). ship_state: Dukkan's delivery of a 'dukkan' order, set by staff: 'waiting', 'delivered' or 'failed'
+     (not delivered, with ship_note saying why, sealed); ship_at and ship_staff: when and by whom. */
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_by TEXT CHECK (ship_by IN ('dukkan', 'own', 'pickup', 'none'));
+  /* 'none': nothing in the order is delivered (codes, services). A database made before 'none' was allowed gets it once */
+  DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'store_orders_ship_by_check' AND pg_get_constraintdef(oid) NOT LIKE '%none%') THEN
+      ALTER TABLE store_orders DROP CONSTRAINT store_orders_ship_by_check;
+      ALTER TABLE store_orders ADD CONSTRAINT store_orders_ship_by_check CHECK (ship_by IN ('dukkan', 'own', 'pickup', 'none'));
+    END IF;
+  END $$;
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_state TEXT NOT NULL DEFAULT 'waiting' CHECK (ship_state IN ('waiting', 'delivered', 'failed'));
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_note TEXT;
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_at TIMESTAMPTZ;
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_staff BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+  UPDATE store_orders o
+     SET ship_by = CASE WHEN o.fulfil = 'pickup' THEN 'pickup' WHEN COALESCE(s.ship_mode, '') = 'own' THEN 'own' ELSE 'dukkan' END,
+         /* an order its store already marked delivered was delivered: it never comes back as one to deliver */
+         ship_state = CASE WHEN o.status = 'delivered' THEN 'delivered' ELSE o.ship_state END
+    FROM shops s
+   WHERE o.ship_by IS NULL AND s.account_id = o.account_id;
+  CREATE INDEX IF NOT EXISTS store_orders_dukkan_ship ON store_orders (id DESC) WHERE ship_by = 'dukkan';
+
+  /* ---------- announcements and pop-ups that were ended early ----------
+     "End now" in Diwan keeps the row (it moves to the "Past" list) and says here when and by whom. Null: it ran to its
+     own end, is still on, or was ended before these columns. "Start again" clears them. */
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+  ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+
+  /* ---------- store files: the platform's own, the way their bytes are kept, and files taken down ----------
+     A file with no account (account_id NULL) is the platform's: a picture of a theme store design or of the starter
+     design (server/media.ts adoptPlatformMedia). Staff upload those while signed in as some merchant, so the ones saved
+     before this change are handed to the platform here (every start: it only moves what is still under an account).
+     Bytes are kept uncompressed (STORAGE EXTERNAL; pictures and videos are already compressed), so a piece of a file
+     (a video's Range, a piece of a stream) is read without reading the whole file first. Applies to files kept from
+     now on. media_blocked: the bytes of files Diwan took down, which can't be kept again. */
+  ALTER TABLE media ALTER COLUMN account_id DROP NOT NULL;
+  ALTER TABLE media ALTER COLUMN data SET STORAGE EXTERNAL;
+  UPDATE media SET account_id = NULL
+   WHERE account_id IS NOT NULL AND id IN (
+     SELECT (regexp_matches(x.v, '/media/([A-Za-z0-9_-]{24})', 'g'))[1]
+       FROM (SELECT design::text AS v FROM catalog_themes WHERE design::text LIKE '%/media/%'
+             UNION ALL SELECT value::text FROM platform_settings WHERE value::text LIKE '%/media/%') x);
+  CREATE TABLE IF NOT EXISTS media_blocked (
+    sha256     TEXT PRIMARY KEY,
+    media_id   TEXT NOT NULL,
+    staff_id   BIGINT REFERENCES staff (id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  /* ---------- a merchant's email, confirmed by a code (server/emailVerify.ts) ----------
+     email_verified: the account proved it gets the email it signs in with. Every account made before this column counts
+     as confirmed (DEFAULT true), so nobody already using Dukkan is held back; a sign-up writes false while Dukkan can
+     send email (server/email.ts emailOn), and so does a change of the email. While it is false and email is on, the
+     store can't go live (app/api/store PUT "not-ready" with "email").
+     email_verifications: the codes sent for it, apart from password_resets so a code for one can never work for the
+     other. Kept only as an HMAC (crypto.ts blind) of the account, the address it went to and the code; 10 minutes, 5
+     tries, once. email_hash: the address the code went to (crypto.ts emailKey), so a code sent before the email changed
+     confirms nothing. */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT true;
+  CREATE TABLE IF NOT EXISTS email_verifications (
+    id          BIGSERIAL PRIMARY KEY,
+    account_id  BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    email_hash  TEXT NOT NULL,
+    code_hash   TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at  TIMESTAMPTZ NOT NULL,
+    attempts    SMALLINT NOT NULL DEFAULT 0,
+    used_at     TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS email_verifications_account ON email_verifications (account_id, id DESC);
+
+  /* ---------- email codes: sign-up, 2-step sign-in, a new email (server/emailVerify.ts) ----------
+     Since 2026-11-21 an account exists only once its email was confirmed at sign-up, so every account counts as
+     confirmed (email_verified stays, always true; email_verifications above is no longer written).
+     email_codes: every code sent by email. ref: what it is for ("s:" a sign-up waiting, "l:" a session waiting for its
+     2-step code, "c:" an account's new email, "t:" turning 2-step on or off). Kept only as an HMAC (crypto.ts blind).
+     new_email: for "c:", the address the account moves to (sealed). confirmed_at: the code was right (a second tab
+     sending the same code at once is answered "ok" too). cancelled_at: the email change was given up.
+     signup_pending: a sign-up whose email code isn't typed yet. Nothing in accounts until it is, so an address
+     nobody confirmed holds nothing. Its browser holds the token (cookie dukkan-signup). Kept an hour.
+     two_step_method: how a merchant with 2-step on (totp_on) gets the code: 'email' (WhatsApp later). The authenticator
+     app is gone: accounts that used it get their codes by email. */
+  UPDATE accounts SET email_verified = true WHERE NOT email_verified;
+  CREATE TABLE IF NOT EXISTS email_codes (
+    id           BIGSERIAL PRIMARY KEY,
+    ref          TEXT NOT NULL,
+    purpose      TEXT NOT NULL,
+    email_hash   TEXT NOT NULL,
+    new_email    TEXT,
+    code_hash    TEXT NOT NULL,
+    attempts     SMALLINT NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ NOT NULL,
+    used_at      TIMESTAMPTZ,
+    confirmed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS email_codes_ref ON email_codes (ref, id DESC);
+  CREATE TABLE IF NOT EXISTS signup_pending (
+    id            BIGSERIAL PRIMARY KEY,
+    token_hash    TEXT NOT NULL UNIQUE,
+    email         TEXT NOT NULL,
+    email_hash    TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    phone         TEXT NOT NULL,
+    phone_hash    TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    name_keys     TEXT[],
+    name_keys_v   SMALLINT NOT NULL DEFAULT 0,
+    account_id    BIGINT REFERENCES accounts (id) ON DELETE CASCADE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at    TIMESTAMPTZ NOT NULL
+  );
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS two_step_method TEXT;
+  /* accounts that used an authenticator app get their codes by email from now on. Their app's secret is kept, so the
+     app's codes keep signing them in too (app/api/auth/totp): nobody loses their way in, even while email is down. It
+     goes when 2-step is turned off or on again. */
+  UPDATE accounts SET two_step_method = 'email' WHERE totp_on AND two_step_method IS NULL;
+
+  /* ---------- the merchant log: what each merchant did with his account and store (server/merchantLog.ts) ----------
+     Diwan's "Merchant log" and each store's page read it. Only what happened, never his products, orders or customers:
+     signing up and in, his password, email, mobile and 2-step, his setup steps, going live, his store's name, link,
+     theme and delivery. meta: the line's details (from / to), sealed. Lines are never changed (a trigger refuses it);
+     they go with the account. */
+  CREATE TABLE IF NOT EXISTS merchant_log (
+    id         BIGSERIAL PRIMARY KEY,
+    at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    action     TEXT NOT NULL,
+    meta       TEXT
+  );
+  CREATE INDEX IF NOT EXISTS merchant_log_account ON merchant_log (account_id, id DESC);
+  CREATE INDEX IF NOT EXISTS merchant_log_action ON merchant_log (action);
+  CREATE INDEX IF NOT EXISTS merchant_log_at ON merchant_log (at);
+  CREATE OR REPLACE FUNCTION merchant_log_frozen() RETURNS trigger AS $f$ BEGIN RAISE EXCEPTION 'merchant_log is append-only'; END $f$ LANGUAGE plpgsql;
+  DROP TRIGGER IF EXISTS merchant_log_frozen ON merchant_log;
+  CREATE TRIGGER merchant_log_frozen BEFORE UPDATE ON merchant_log FOR EACH ROW EXECUTE FUNCTION merchant_log_frozen();
 `;

@@ -106,7 +106,8 @@ let templateAsked: Promise<void> | null = null;
 export function refreshTemplate(force = false): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
   if (templateAsked && !force) return templateAsked;
-  return (templateAsked = fetch("/api/platform/template", { cache: "no-store" })
+  /* the browser may answer from its own copy of under 30 s (the route says how long); a forced ask never does */
+  return (templateAsked = fetch("/api/platform/template", { cache: force ? "no-store" : "default" })
     .then((r) => (r.ok ? r.json() : null))
     .then((j: { template?: unknown } | null) => {
       if (!j || !("template" in j)) return;

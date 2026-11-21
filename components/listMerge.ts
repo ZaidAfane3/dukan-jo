@@ -26,6 +26,11 @@ export const LIST_KEYS = new Set([
   "seen-subscribers",
 ]);
 
+/** Keys that are not lists but carry a version too (the setup, the design, the pause, the themes): a change of one left
+    waiting in the browser's outbox names the version it was made from when it is sent later, and the server does not
+    keep it when another device saved the key since (app/api/store "stale"; the browser then takes the server's copy) */
+export const VERSION_KEYS = new Set(["seen-setup", "seen-storefront", "seen-maintenance", "seen-themes"]);
+
 /* lists whose deleted items go to a bin first (a "deletedAt" date), from which they can be put back */
 const BIN_KEYS = new Set(["seen-products"]);
 

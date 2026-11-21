@@ -71,8 +71,20 @@ type OrdersCopy = {
   whatsapp: string;
   waText: string;
   waTextNoStore: string;
+  /* an order Dukkan Ship delivers: where its delivery is (Dukkan's staff mark it) */
+  shipTitle: string;
+  shipStates: { waiting: string; delivered: string; failed: string };
+  shipWhy: string;
   /* a status change of such an order did not reach the server */
   statusFailed: string;
+  /* the order changed meanwhile (another tab or device): it was loaded again */
+  statusChanged: string;
+  /* bringing an order back out of cancelled or refunded: a product no longer has enough stock for it ({items}) */
+  noStock: string;
+  /* a cancel gave the stock back, but some pieces had no size left to go back to ({items}) */
+  notBack: string;
+  /* "+ New order" waits for the store's orders, so its number follows theirs */
+  newOrderWait: string;
   /* the orders from his public store come a page at a time */
   storeShown: string;
   loadMore: string;
@@ -165,7 +177,14 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     whatsapp: "WhatsApp",
     waText: "Hello, about your order #{n} from {store}",
     waTextNoStore: "Hello, about your order #{n}",
+    shipTitle: "Dukkan Ship delivery",
+    shipStates: { waiting: "Waiting for Dukkan Ship to deliver it", delivered: "Delivered by Dukkan Ship", failed: "Dukkan Ship couldn't deliver it" },
+    shipWhy: "Why",
     statusFailed: "The status couldn't be saved. Check your connection and try again.",
+    statusChanged: "This order was changed elsewhere in the meantime. It now shows its latest status: change it again if you need to.",
+    noStock: "There is not enough stock left to bring this order back: {items}. Add stock on the Products page, then try again.",
+    notBack: "The order is cancelled, but some pieces could not go back to stock because their size no longer exists: {items}. Update the stock on the Products page.",
+    newOrderWait: "Wait until your store's orders have loaded.",
     storeShown: "Showing {n} of {total} orders from your store page",
     loadMore: "Load more",
     loadingMore: "Loading…",
@@ -254,7 +273,14 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     whatsapp: "واتساب",
     waText: "مرحبًا، بخصوص طلبك رقم {n} من {store}",
     waTextNoStore: "مرحبًا، بخصوص طلبك رقم {n}",
+    shipTitle: "التوصيل عبر شحن دكّان",
+    shipStates: { waiting: "بانتظار أن يوصله شحن دكّان", delivered: "سلّمه شحن دكّان", failed: "تعذّر على شحن دكّان تسليمه" },
+    shipWhy: "السبب",
     statusFailed: "تعذّر حفظ الحالة. تأكد من اتصالك وحاول مرة أخرى.",
+    statusChanged: "تغيّر هذا الطلب من مكان آخر في هذه الأثناء. تظهر الآن آخر حالة له: غيّرها مرة أخرى إن احتجت.",
+    noStock: "لا يكفي المخزون المتبقي لإعادة هذا الطلب: {items}. أضف مخزونًا من صفحة المنتجات ثم حاول مرة أخرى.",
+    notBack: "أُلغي الطلب، لكن بعض القطع لم تعد إلى المخزون لأن مقاسها لم يعد موجودًا: {items}. عدّل المخزون من صفحة المنتجات.",
+    newOrderWait: "انتظر حتى يكتمل تحميل طلبات متجرك.",
     storeShown: "يظهر {n} من {total} طلبًا من صفحة متجرك",
     loadMore: "عرض المزيد",
     loadingMore: "جارٍ التحميل…",
@@ -435,7 +461,7 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
     opacity: "Opacity",
     stampPos: "Stamp position",
     drop: "Drag the image here and drop it",
-    dropHint: "PNG or JPG. The image is only used for this preview and is not uploaded.",
+    dropHint: "PNG, JPG or WebP, up to 3 MB. The image is only used for this preview: it is not uploaded or saved.",
     choose: "Choose image",
     remove: "Remove",
     save: "Save",
@@ -507,7 +533,7 @@ export const invoiceCopy: Record<Lang, InvoiceCopy> = {
     opacity: "الشفافية",
     stampPos: "موضع الختم",
     drop: "اسحب الصورة وأفلتها هنا",
-    dropHint: "PNG أو JPG. تُستخدم الصورة للمعاينة فقط ولا يتم رفعها.",
+    dropHint: "PNG أو JPG أو WebP حتى 3 ميغابايت. تُستخدم الصورة للمعاينة فقط: لا تُرفع ولا تُحفظ.",
     choose: "اختيار صورة",
     remove: "إزالة",
     save: "حفظ",

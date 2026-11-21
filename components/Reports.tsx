@@ -1,7 +1,6 @@
 "use client";
 
 import { demoActive } from "./demoSandbox";
-import { animate } from "framer-motion";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { brandName, content, type Content, type ReportWidget, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
@@ -31,6 +30,11 @@ import {
 } from "./storeNumbers";
 import { useStoreOrders } from "./useStoreOrders";
 import { usePageTitle } from "./pageTitle";
+import { AnimatedNumber, Money, mulberry32, pctDecimals, RefreshButton } from "./reportBits";
+
+/* the small pieces the home page and Abandoned carts share with Reports live in reportBits.tsx, so those pages load
+   without the rest of this file */
+export { AnimatedNumber, Money, mulberry32, pctDecimals, RefreshButton };
 
 /* ====================================================================
    Data. A brand-new store has no sales, so every figure starts at zero.
@@ -42,18 +46,6 @@ type Figures = { sales: number; discounts: number; cogs: number; shipping: numbe
 
 const ZERO: Figures = { sales: 0, discounts: 0, cogs: 0, shipping: 0, taxes: 0, fees: 0 };
 const RANGE_SCALE = [1, 3.6, 2.4];
-
-/** Small seeded random generator, so a given seed always gives the same numbers. */
-export function mulberry32(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 /** Amounts with fils (two decimals), so sample figures never look round */
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -130,38 +122,8 @@ function MoreButton({ open, onClick, lang }: { open: boolean; onClick: () => voi
 
 const SHORT_LIST = 4;
 
-/** Decimals for a percentage: one when it has a tenth, none when it is whole (0%, 25%, never 0.0% or 25.0%) */
-export const pctDecimals = (v: number) => (Number.isInteger(Math.round(v * 10) / 10) ? 0 : 1);
 /** A percentage as text, one decimal at most and no trailing .0 */
 const pctText = (v: number) => `${Math.round(v * 10) / 10}%`;
-
-export function AnimatedNumber({ value, decimals = 0 }: { value: number; decimals?: number }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const prev = useRef(0);
-  const show = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  useEffect(() => {
-    const controls = animate(prev.current, value, {
-      duration: 0.8,
-      ease: "easeOut",
-      onUpdate: (v) => {
-        if (ref.current) ref.current.textContent = show(v);
-      },
-    });
-    prev.current = value;
-    return () => controls.stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, decimals]);
-  return <span ref={ref}>{show(0)}</span>;
-}
-
-export function Money({ value, currency }: { value: number; currency: string }) {
-  return (
-    <span dir="ltr" className="inline-flex items-baseline gap-1.5">
-      <AnimatedNumber value={value} decimals={2} />
-      <small className="text-[0.45em] font-bold opacity-70">{currency}</small>
-    </span>
-  );
-}
 
 /* null: there is nothing earlier to compare with (a real store's first sales), so no percentage is made up */
 function Delta({ value }: { value: number | null }) {
@@ -227,25 +189,6 @@ function HelpTip({ id, info }: { id?: HelpKey; info?: HelpInfo }) {
         )}
       </span>
     </span>
-  );
-}
-
-/** Refresh icon: spins while the widget reloads. */
-export function RefreshButton({ busy, onClick, label }: { busy: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      aria-label={label}
-      title={label}
-      className="grid h-8 w-8 place-items-center rounded-full text-primary transition hover:bg-primary/10 disabled:cursor-progress"
-    >
-      <svg viewBox="0 0 24 24" className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12A9 9 0 0 1 18.5 5.8L21 8" />
-        <path d="M21 3v5h-5M3 21v-5h5" />
-      </svg>
-    </button>
   );
 }
 

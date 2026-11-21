@@ -83,8 +83,8 @@ export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={chart} alt={w.chart} className="h-20 w-28 rounded-lg bg-white object-contain ring-1 ring-fg/10" />
-              <button type="button" onClick={() => chartInput.current?.click()} className="text-sm font-semibold text-primary hover:underline">{w.chartChange}</button>
-              <button type="button" onClick={() => onChart("")} className="text-sm font-semibold text-rose-600 hover:underline">{w.chartRemove}</button>
+              <button type="button" onClick={() => chartInput.current?.click()} disabled={chartBusy} className="text-sm font-semibold text-primary hover:underline disabled:opacity-60">{w.chartChange}</button>
+              <button type="button" onClick={() => onChart("")} disabled={chartBusy} className="text-sm font-semibold text-rose-600 hover:underline disabled:opacity-60">{w.chartRemove}</button>
             </>
           ) : (
             <button type="button" onClick={() => chartInput.current?.click()} disabled={chartBusy} className="inline-flex h-10 items-center gap-2 rounded-xl border-2 border-dashed border-fg/20 px-4 text-sm font-semibold text-muted transition hover:border-primary hover:text-primary disabled:opacity-60">

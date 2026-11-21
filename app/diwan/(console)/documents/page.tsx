@@ -65,8 +65,6 @@ export default function DocumentsPage() {
     ({ waiting: t("Waiting", "بانتظار المراجعة"), approved: t("Approved", "مقبول"), rejected: t("Rejected", "مرفوض"), removed: t("Removed", "محذوفة"), all: t("All", "الكل") })[x];
   const kindName = (k: Kind) =>
     ({ courier_proof: t("Proof of delivery", "إثبات التوصيل"), commercial_registration: t("Commercial registration", "السجل التجاري"), other: t("Other document", "مستند آخر") })[k];
-  const count = (x: (typeof FILTERS)[number], c: Data["counts"] | undefined) =>
-    !c ? null : x === "all" ? Object.values(c).reduce((a, b) => a + (b ?? 0), 0) : c[x] ?? 0;
 
   return (
     <div>
@@ -86,7 +84,6 @@ export default function DocumentsPage() {
             className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${status === x ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
           >
             {statusName(x)}
-            {count(x, s.data?.counts) !== null && <span className="ms-1.5 tabular-nums opacity-75">{count(x, s.data?.counts)}</span>}
           </button>
         ))}
       </div>

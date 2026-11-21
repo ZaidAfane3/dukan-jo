@@ -43,3 +43,21 @@ export const GET = guarded(async (req: NextRequest) => {
     deletions: rows.map((r) => ({ orderId: Number(r.order_id), orderNo: r.order_no, reason: r.reason, by: r.deleted_by, deletedAt: r.deleted_at })),
   });
 });
+
+/** Takes back the record of a deletion the merchant undid (the order is back in his list): DELETE ?orderId=<id>. Only
+    the signed-in account's own record, and only one made in the last 5 minutes (the page offers the undo for 30
+    seconds): an older record stays, since it is what Dukkan keeps "in case anything goes wrong". Answers "ok" with how
+    many went (0 when there was none, or it was too old), "invalid", "none" (signed out). */
+export const DELETE = guarded(async (req: NextRequest) => {
+  if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
+  if (tooMany(req, "order-deletions", 300, 60)) return answer({ result: "slow-down" }, 429);
+  const a = await currentAccount(req);
+  if (!a) return answer({ result: "none" }, 401);
+  const orderId = Number(req.nextUrl.searchParams.get("orderId"));
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) return answer({ result: "invalid" }, 400);
+  const { rowCount } = await (await db()).query(
+    `DELETE FROM order_deletions WHERE account_id = $1 AND order_id = $2 AND deleted_at > now() - interval '5 minutes'`,
+    [a.id, orderId],
+  );
+  return answer({ result: "ok", removed: rowCount ?? 0 });
+});

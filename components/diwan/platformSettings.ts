@@ -102,7 +102,7 @@ export const SETTING_DEFAULTS: PlatformSettings = {
   store_legal_templates: LEGAL_DEFAULTS,
   /* the email the website gave before; no phone or WhatsApp until staff write a real one (the old +962 6 000 0000 was a placeholder) */
   support_contact: { phone: "", whatsapp: "", email: "hello@dukkan.store" },
-  support_reply_hours: 24,
+  support_reply_hours: 2,
 };
 
 export const LIMITS = {

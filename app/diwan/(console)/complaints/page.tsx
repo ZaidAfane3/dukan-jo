@@ -58,8 +58,6 @@ export default function ComplaintsPage() {
 
   const statusName = (x: (typeof FILTERS)[number]) =>
     ({ open: t("To do", "للمتابعة"), new: t("New", "جديد"), checking: t("Checking", "قيد التحقق"), closed: t("Closed", "مغلق"), all: t("All", "الكل") })[x];
-  const count = (x: (typeof FILTERS)[number], c: Data["counts"] | undefined) =>
-    !c ? null : x === "open" ? (c.new ?? 0) + (c.checking ?? 0) : x === "all" ? Object.values(c).reduce((a, b) => a + (b ?? 0), 0) : c[x] ?? 0;
 
   return (
     <div>
@@ -80,7 +78,6 @@ export default function ComplaintsPage() {
             className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${status === x ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
           >
             {statusName(x)}
-            {count(x, s.data?.counts) !== null && <span className="ms-1.5 tabular-nums opacity-75">{count(x, s.data?.counts)}</span>}
           </button>
         ))}
       </div>

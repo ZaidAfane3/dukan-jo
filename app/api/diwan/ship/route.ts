@@ -1,14 +1,14 @@
 import { cleanSetting, SETTING_DEFAULTS, type DukkanShip } from "@/components/diwan/platformSettings";
 import { answer } from "@/server/auth";
 import { db } from "@/server/db";
-import { prepareShops } from "@/server/shops";
+import { prepareShops, SHIP_SQL } from "@/server/shops";
 import { can, staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
 /* Diwan > Dukkan Ship: the setting as saved (platform_settings 'dukkan_ship', the same row Platform settings used to
    edit; it is still saved with PUT /api/diwan/settings, which checks it and writes the activity log), how many stores
-   deliver with it (shops.ship_mode = 'seen', a count only), how many of them pick up from each city on the list now and
+   deliver with it (shops SHIP_SQL: chosen, or live with no choice saved; a count only), how many of them pick up from each city on the list now and
    from cities taken off it since (their saved pickup city is kept as the merchant saved it, in English or Arabic; the
    merchant is told to choose another one), and the last price changes from the activity log. */
 export const GET = staffRoute("settings", async (req, me) => {
@@ -22,7 +22,7 @@ export const GET = staffRoute("settings", async (req, me) => {
   await prepareShops();
   const [row, count, log, byCity] = await Promise.all([
     pool.query(`SELECT p.value, p.updated_at, s.name AS by FROM platform_settings p LEFT JOIN staff s ON s.id = p.updated_by WHERE p.key = 'dukkan_ship'`),
-    pool.query(`SELECT count(*)::int AS n FROM shops WHERE ship_mode = 'seen'`),
+    pool.query(`SELECT count(*)::int AS n FROM shops s WHERE ${SHIP_SQL("s")}`),
     priceChanges(pool, null),
     pool.query(`SELECT pickup_city AS city, count(*)::int AS n FROM shops WHERE ship_mode = 'seen' GROUP BY pickup_city`),
   ]);

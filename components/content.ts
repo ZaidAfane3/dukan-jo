@@ -67,7 +67,7 @@ export type Content = {
     errTooMany: string;
     errSignupMany: string;
     terms: { before: string; terms: string; and: string; privacy: string };
-    side: { kicker: string; heading: string; panelTitle: string; steps: string[]; caption: string };
+    side: { kicker: string; heading: string; panelTitle: string; caption: string };
   };
   onboarding: {
     nav: string[];
@@ -159,6 +159,10 @@ export type Content = {
       proofSending: string;
       proofFailed: string;
       proofFull: string;
+      /* a 429 from the documents route: too many files sent in a short time */
+      proofSlow: string;
+      /* a 503 "storage-full": Dukkan has no room for new files for now */
+      proofBusy: string;
       proofWaiting: string;
       proofApproved: string;
       proofRejected: string;
@@ -382,6 +386,13 @@ export type Content = {
       supportViewed: string;
       /* a customer placed an order on the public store (a test order: nothing was paid) */
       orderPlaced: string;
+      /* Dukkan Ship delivered one of his orders, or could not ({note}: why, with its separator) */
+      shipDelivered: string;
+      shipFailed: string;
+      /* Dukkan Ship no longer picks up from his pickup city ({city}) */
+      shipCityGone: string;
+      /* Dukkan switched off the last way to pay his store had on */
+      payOff: string;
       statusWords: Record<string, string>;
       sep: string;
       announcement: string;
@@ -410,6 +421,8 @@ export type Content = {
     addPicture: string;
     removePicture: string;
     picturesFull: string;
+    /* pictures still being read when Send is pressed: it waits for them */
+    picturesLoading: string;
     picturesCount: string;
     send: string;
     cancel: string;
@@ -433,6 +446,8 @@ export type Content = {
       saveFailed: string;
       tooMany: string;
       picturesBad: string;
+      /* the account sent as many ticket pictures as it may in 30 days (server/tickets.ts pictureRoom) */
+      picturesRoom: string;
       you: string;
       dukkan: string;
       where: string;
@@ -529,8 +544,8 @@ export const content: Record<Lang, Content> = {
       forgot: "Forgot your password?",
       or: "or",
       guest: "Continue without an account",
-      errTaken: "This email already has an account. Log in instead.",
-      errPhoneTaken: "This mobile number already has an account. Log in instead.",
+      errTaken: "This email is already in use.",
+      errPhoneTaken: "This mobile number is already in use.",
       errServer: "We couldn't reach Dukkan right now. Check your connection and try again.",
       errWrongPassword: "The email, number or password is not right. Try again.",
       errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
@@ -545,7 +560,6 @@ export const content: Record<Lang, Content> = {
         kicker: "Getting started is the easy part",
         heading: "We'll guide you from signup to your first sale",
         panelTitle: "Your launch path",
-        steps: ["Create your store", "Add your products", "Turn on payments", "Set up shipping", "Share your store link"],
         caption: "Set up in minutes, not days.",
       },
     },
@@ -637,15 +651,17 @@ export const content: Record<Lang, Content> = {
         proofLabel: "Proof for this partner",
         proofHint: "Add any documents that show who they are, such as a commercial registration, ID, a contract or delivery receipts.",
         proofAdd: "Upload your documents",
-        proofLimit: "Up to 5 files, 5 MB each. Images or PDF.",
+        proofLimit: "Up to 5 files, 5 MB each. PNG, JPG, WebP or PDF.",
         proofTooBig: "That file is larger than 5 MB.",
-        proofType: "Only images or PDF files are allowed.",
+        proofType: "Only PNG, JPG, WebP or PDF files are allowed (not HEIC or GIF). Take a screenshot of it, or save it as JPG.",
         proofMax: "You can add up to 5 files.",
         localNote: "In this prototype your files stay on your device and are not uploaded.",
         serverNote: "Your files are sent to the Dukkan team to check. Only the team can see them.",
         proofSending: "Uploading…",
         proofFailed: "That file could not be uploaded. Check your connection and try again.",
         proofFull: "Your account has no room for more files. Remove one first.",
+        proofSlow: "Too many tries in a short time. Wait a few minutes, then add the file again.",
+        proofBusy: "Dukkan can't take new files right now. Try again later.",
         proofWaiting: "Waiting for the team to check",
         proofApproved: "Approved",
         proofRejected: "Not accepted",
@@ -968,6 +984,10 @@ export const content: Record<Lang, Content> = {
         methods: { bank: "bank transfer", cliq: "CliQ", cash: "cash", card: "card" },
         supportViewed: "Dukkan support opened your store to help you",
         orderPlaced: "New test order #{number} from {name}: {total} JOD, not paid",
+        shipDelivered: "Dukkan Ship delivered order #{number}",
+        shipFailed: "Dukkan Ship couldn't deliver order #{number}{note}",
+        shipCityGone: "Dukkan Ship no longer picks up from {city}. Choose another pickup city on Delivery options so your orders can be collected.",
+        payOff: "Dukkan switched off a way to pay your store used, so customers can't complete an order now. Turn on another way to pay.",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
@@ -995,6 +1015,7 @@ export const content: Record<Lang, Content> = {
       addPicture: "Add a picture",
       removePicture: "Remove this picture",
       picturesFull: "You can add up to 5 pictures.",
+      picturesLoading: "Pictures are still loading. Send again in a moment.",
       picturesCount: "pictures",
       send: "Create ticket",
       cancel: "Cancel",
@@ -1017,6 +1038,7 @@ export const content: Record<Lang, Content> = {
         saveFailed: "It could not be saved. Check your connection and try again.",
         tooMany: "You have sent a lot in a short time. Please try again in a little while.",
         picturesBad: "One of the pictures could not be sent. Remove it and try again.",
+        picturesRoom: "You've sent a lot of pictures to support this month. Send this without pictures, or with fewer.",
         you: "You",
         dukkan: "Dukkan support",
         where: "Where",
@@ -1112,9 +1134,9 @@ export const content: Record<Lang, Content> = {
       forgot: "نسيت كلمة المرور؟",
       or: "أو",
       guest: "المتابعة بدون حساب",
-      errTaken: "يوجد حساب بهذا البريد. سجّل الدخول بدلًا من ذلك.",
-      errPhoneTaken: "يوجد حساب بهذا الرقم. سجّل الدخول بدلًا من ذلك.",
-      errServer: "تعذّر الاتصال بدكان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
+      errTaken: "هذا البريد مستخدم بالفعل.",
+      errPhoneTaken: "رقم الجوال هذا مستخدم بالفعل.",
+      errServer: "تعذّر الاتصال بدكّان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
       errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
       errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
       errSignupMany: "أُنشئت حسابات كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
@@ -1128,7 +1150,6 @@ export const content: Record<Lang, Content> = {
         kicker: "البداية أسهل مما تتخيل",
         heading: "نرافقك من التسجيل حتى أول عملية بيع",
         panelTitle: "رحلة إطلاق متجرك",
-        steps: ["أنشئ متجرك", "أضف منتجاتك", "فعّل المدفوعات", "اضبط الشحن", "شارك رابط متجرك"],
         caption: "جاهز خلال دقائق لا أيام.",
       },
     },
@@ -1220,15 +1241,17 @@ export const content: Record<Lang, Content> = {
         proofLabel: "إثباتات هذه الجهة",
         proofHint: "أضف أي مستندات تثبت هويتهم، مثل السجل التجاري أو الهوية أو عقد التعاون أو إيصالات التسليم.",
         proofAdd: "ارفع مستنداتك",
-        proofLimit: "حتى 5 ملفات، 5 ميغابايت لكل ملف، صور أو PDF.",
+        proofLimit: "حتى 5 ملفات، 5 ميغابايت لكل ملف، بصيغة PNG أو JPG أو WebP أو PDF.",
         proofTooBig: "حجم الملف أكبر من 5 ميغابايت.",
-        proofType: "يُسمح بالصور وملفات PDF فقط.",
+        proofType: "يُسمح بملفات PNG وJPG وWebP وPDF فقط (لا HEIC ولا GIF). التقط صورة شاشة له أو احفظه بصيغة JPG.",
         proofMax: "يمكنك إضافة 5 ملفات كحد أقصى.",
         localNote: "في هذا النموذج الأولي تبقى ملفاتك على جهازك ولا تُرفع.",
         serverNote: "تُرسَل ملفاتك إلى فريق دكان لمراجعتها، ولا يراها أحد غيرهم.",
         proofSending: "جارٍ الرفع…",
         proofFailed: "تعذّر رفع الملف. تأكد من اتصالك بالإنترنت وحاول مرة أخرى.",
         proofFull: "لا توجد مساحة لملفات أخرى في حسابك. احذف ملفًا أولًا.",
+        proofSlow: "محاولات كثيرة في وقت قصير. انتظر بضع دقائق ثم أضف الملف مرة أخرى.",
+        proofBusy: "لا تستطيع دكّان استقبال ملفات جديدة الآن. حاول لاحقًا.",
         proofWaiting: "بانتظار مراجعة الفريق",
         proofApproved: "مقبول",
         proofRejected: "غير مقبول",
@@ -1549,6 +1572,10 @@ export const content: Record<Lang, Content> = {
         methods: { bank: "تحويل بنكي", cliq: "كليك", cash: "نقدًا", card: "بطاقة" },
         supportViewed: "فتح فريق دعم دكّان متجرك لمساعدتك",
         orderPlaced: "طلب تجريبي جديد رقم {number} من {name}: {total} د.أ، غير مدفوع",
+        shipDelivered: "سلّم شحن دكّان الطلب رقم {number}",
+        shipFailed: "تعذّر على شحن دكّان تسليم الطلب رقم {number}{note}",
+        shipCityGone: "لم يعد شحن دكان يستلم الطلبات من {city}. اختر مدينة استلام أخرى في خيارات التوصيل ليتمكّن من استلام طلباتك.",
+        payOff: "أوقف دكّان طريقة دفع كان متجرك يستخدمها، لذلك لا يستطيع العملاء إتمام الطلب الآن. فعّل طريقة دفع أخرى.",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
         announcement: "من دكّان",
@@ -1576,6 +1603,7 @@ export const content: Record<Lang, Content> = {
       addPicture: "أضف صورة",
       removePicture: "احذف هذه الصورة",
       picturesFull: "يمكنك إضافة 5 صور كحد أقصى.",
+      picturesLoading: "ما زالت الصور قيد التحميل. أرسل مرة أخرى بعد لحظة.",
       picturesCount: "صور",
       send: "إنشاء التذكرة",
       cancel: "إلغاء",
@@ -1598,6 +1626,7 @@ export const content: Record<Lang, Content> = {
         saveFailed: "تعذّر الحفظ. تحقق من الاتصال وحاول مرة أخرى.",
         tooMany: "أرسلت كثيرًا في وقت قصير. حاول مرة أخرى بعد قليل.",
         picturesBad: "تعذّر إرسال إحدى الصور. احذفها وحاول مرة أخرى.",
+        picturesRoom: "أرسلت صورًا كثيرة إلى الدعم هذا الشهر. أرسل رسالتك دون صور أو بصور أقل.",
         you: "أنت",
         dukkan: "دعم دكّان",
         where: "المكان",

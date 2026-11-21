@@ -8,6 +8,7 @@ import { askConfirm, Dialog } from "@/components/diwan/dialogs";
 import { PayLogo } from "@/components/diwan/shopBits";
 import { Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { SettingsSkeleton } from "@/components/diwan/skeletons";
+import MediaTakedown from "@/components/diwan/MediaTakedown";
 
 /* Platform settings (owners): the ways to pay, how merchants reach Dukkan support, the legal pages new stores start with (locked: see LegalTemplates) and the
    starter template (edited in the store designer). Each setting has its own form and its own Save, checked again by the
@@ -46,6 +47,8 @@ export default function SettingsPage() {
             <div className="xl:col-span-2">
               <LegalTemplates e={d.settings.store_legal_templates} legal={d.legal} />
             </div>
+            {/* one store file taken down for good (an ID card uploaded by mistake): components/diwan/MediaTakedown.tsx */}
+            <MediaTakedown />
           </div>
         )}
       </Loaded>
@@ -56,19 +59,36 @@ export default function SettingsPage() {
 /* ---------------- one setting's card ---------------- */
 
 function useSaver<K extends SettingKey>(key: K, e: Entry<K>) {
+  const t = useT();
   const [value, setValue] = useState<PlatformSettings[K]>(e.value);
   const [info, setInfo] = useState({ updatedAt: e.updatedAt, by: e.by });
-  const [state, setState] = useState<"idle" | "busy" | "saved" | "bad">("idle");
+  const [state, setState] = useState<"idle" | "busy" | "saved" | "bad" | "all-off">("idle");
   useEffect(() => setValue(e.value), [e.value]);
-  const save = async (v: PlatformSettings[K] = value) => {
+  const save = async (v: PlatformSettings[K] = value, confirm = false) => {
     setState("busy");
-    const r = await send("/api/diwan/settings", "PUT", { key, value: v });
+    const r = await send("/api/diwan/settings", "PUT", { key, value: v, ...(confirm ? { confirm: true } : {}) });
+    /* the ways to pay: a change that leaves published stores with no way to pay is asked about first, with how many */
+    if (r.status === 409 && r.data?.result === "confirm" && typeof r.data.stores === "number") {
+      setState("idle");
+      const n = r.data.stores as number;
+      const yes = await askConfirm({
+        title: t("Leave stores with no way to pay?", "ترك متاجر بلا طريقة دفع؟"),
+        body: t(
+          `${n === 1 ? "1 published store" : `${n} published stores`} would have no way to pay left, so customers couldn't complete an order there. Their merchants will be told in their notifications.`,
+          `${n === 1 ? "سيبقى متجر منشور واحد" : n === 2 ? "سيبقى متجران منشوران" : `سيبقى ${n} متاجر منشورة`} بلا طريقة دفع، فلن يستطيع العملاء إتمام أي طلب. سيُبلَّغ التجار في إشعاراتهم.`,
+        ),
+        confirm: t("Save anyway", "احفظ على أي حال"),
+        danger: true,
+      });
+      if (yes) return save(v, true);
+      return;
+    }
     if (r.ok) {
       setValue(r.data.value);
       setInfo({ updatedAt: new Date().toISOString(), by: null });
       setState("saved");
       setTimeout(() => setState((x) => (x === "saved" ? "idle" : x)), 2500);
-    } else setState("bad");
+    } else setState(r.status === 400 && r.data?.result === "all-off" ? "all-off" : "bad");
   };
   return { value, setValue, save, state, info };
 }
@@ -87,6 +107,7 @@ function Section({ title, sub, info, state, onSave, children }: {
         <Btn onClick={onSave} disabled={state === "busy"}>{state === "busy" ? t("Saving…", "جارٍ الحفظ…") : t("Save", "حفظ")}</Btn>
         {state === "saved" && <span className="text-sm text-emerald-600">{t("Saved", "تم الحفظ")}</span>}
         {state === "bad" && <span className="text-sm text-red-600">{t("Not saved: check the values.", "لم يُحفظ: تحقق من القيم.")}</span>}
+        {state === "all-off" && <span role="alert" className="text-sm text-red-600">{t("Not saved: keep at least one way to pay on.", "لم يُحفظ: أبقِ طريقة دفع واحدة على الأقل مفعّلة.")}</span>}
         <span className="ms-auto text-xs text-muted">
           {info.updatedAt ? t(`Changed ${f.dateTime(info.updatedAt)}${info.by ? ` by ${info.by}` : ""}`, `عُدّل ${f.dateTime(info.updatedAt)}${info.by ? ` بواسطة ${info.by}` : ""}`) : t("Never changed: the starting value", "لم يُعدّل: القيمة الأولى")}
         </span>
@@ -236,6 +257,7 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
           );
         })}
       </div>
+      {/* all three off is refused by the server (and by Save): said before saving */}
       {(storeOff || themesOff) && (
         <p role="alert" className="rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 ring-1 ring-amber-500/30 dark:text-amber-200">
           {storeOff && themesOff

@@ -4,7 +4,7 @@ import type { Perm } from "./perms";
    its permission (the API routes check it again). Overview stands alone at the top; the rest is in sections that fold
    (components/diwan/Shell.tsx), so the menu stays short: the section of the page you are on opens by itself, and no more
    than two are open at once. */
-export type NavGroup = "stores" | "support" | "merchants" | "themes" | "admin";
+export type NavGroup = "stores" | "support" | "merchants" | "themes" | "admin" | "logs";
 export type NavItem = { href: string; en: string; ar: string; perm: Perm; group: NavGroup | null };
 
 export const DIWAN_NAV: NavItem[] = [
@@ -26,7 +26,9 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan/marketplace", en: "Developers", ar: "المطورون", perm: "marketplace", group: "themes" },
   { href: "/diwan/staff", en: "Staff", ar: "الفريق", perm: "staff", group: "admin" },
   { href: "/diwan/settings", en: "Platform settings", ar: "إعدادات المنصة", perm: "settings", group: "admin" },
-  { href: "/diwan/activity", en: "Activity log", ar: "سجل النشاط", perm: "audit.read", group: "admin" },
+  /* the two logs: what Diwan's team did, and what merchants did with their accounts and stores */
+  { href: "/diwan/activity", en: "Staff log", ar: "سجل الفريق", perm: "audit.read", group: "logs" },
+  { href: "/diwan/merchant-log", en: "Merchant log", ar: "سجل التجار", perm: "shops.read", group: "logs" },
 ];
 
 export const NAV_GROUPS: Record<NavGroup, { en: string; ar: string }> = {
@@ -35,6 +37,7 @@ export const NAV_GROUPS: Record<NavGroup, { en: string; ar: string }> = {
   merchants: { en: "Marketing", ar: "التسويق" },
   themes: { en: "Theme store", ar: "متجر الثيمات" },
   admin: { en: "Admin", ar: "الإدارة" },
+  logs: { en: "Logs", ar: "السجلات" },
 };
 
 /** Pages for Dukkan's staff, not for a merchant: Diwan itself, the starter template designer (/design?template=1) and a

@@ -4,11 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { brandName, content, dateLocale } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
-import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./Reports";
+import { AnimatedNumber, Money, RefreshButton, mulberry32 } from "./reportBits";
 import { demoActive } from "./demoSandbox";
 import { ordersCopy, type StatusKey } from "./ordersContent";
 import { loadSetup } from "./setup";
-import { SellNeeds, sellWords, storeLiveNow, useSellReady } from "./ReadyToSell";
+import { shipServes, usePublicSettings } from "./platformPublic";
+import { liveMissing, SellNeeds, sellWords, ShipDefaultNote, storeLiveNow, useSellReady } from "./ReadyToSell";
 import { cleanOrder, money, parseList, typedMoney } from "./records";
 import { Skeleton } from "./Skeleton";
 import { latestOrders, ordersReport, rangeSpan, salesFigures, salesSeries } from "./storeNumbers";
@@ -18,6 +19,8 @@ import { ThemeAccessNotice } from "./ThemeAccessNotice";
 import { useStoreVisits } from "./storeVisits";
 import { dropUndos, offerUndo } from "./undo";
 import { storeIsLive } from "./storefront/storage";
+import { loadMaintenance, MAINTENANCE_KEY } from "./maintenance";
+import { STORE_STATUS_EVENT } from "./StoreStatus";
 import { onServer } from "./merchantApi";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { ShareMenu } from "./ShareMenu";
@@ -163,6 +166,14 @@ export function Dashboard() {
      and whether customers can see it now (its design saved, not under maintenance) */
   const sell = useSellReady();
   const [liveNow, setLiveNow] = useState(false);
+  /* the store is published but paused (under maintenance): said at the top, so he never forgets it is closed */
+  const [paused, setPaused] = useState(false);
+  /* his Dukkan Ship pickup city as saved ("" when he does not use Dukkan Ship): a city Diwan took off the list is said here
+     too, not only on Delivery options (the bell tells him once) */
+  const [shipCity, setShipCity] = useState("");
+  const platform = usePublicSettings();
+  /* live with no delivery choice saved: it delivers with Dukkan Ship by default (ReadyToSell shipsByDefault) */
+  const shipDefault = liveNow && sell.read && sell.shipDefault;
   const [goal, setGoal] = useState(0);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -183,6 +194,7 @@ export function Dashboard() {
   useEffect(() => {
     const s = loadSetup();
     setNoShipping(!s?.shipping);
+    setShipCity(s?.shipping?.mode === "seen" ? s.shipping.city : "");
     setLiveNow(storeLiveNow());
     if (s) {
       setName(s.name);
@@ -210,6 +222,22 @@ export function Dashboard() {
       setGoal(readGoal());
       setNow(new Date());
     }
+  }, []);
+
+  /* paused or opened from the profile menu (or in another tab): the home page follows */
+  useEffect(() => {
+    const read = () => {
+      setPaused(storeIsLive() && loadMaintenance().on);
+      setLiveNow(storeLiveNow());
+    };
+    read();
+    const onStorage = (e: StorageEvent) => (e.key === null || e.key.endsWith(MAINTENANCE_KEY)) && read();
+    window.addEventListener(STORE_STATUS_EVENT, read);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(STORE_STATUS_EVENT, read);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   /* The tour draws a fresh set of sample numbers; a real store reads its orders (and its visitors) again */
@@ -331,6 +359,19 @@ export function Dashboard() {
           </div>
         </div>
 
+        {/* The store is paused: customers see the maintenance page until he opens it again from the account menu */}
+        {!tour && paused && (
+          <p role="status" className="flex items-start gap-2.5 rounded-xl bg-amber-500/15 px-4 py-3 text-sm font-medium text-amber-900 dark:text-amber-200">
+            <span aria-hidden className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500" />
+            <span>
+              <span className="font-bold">{lang === "ar" ? "متجرك متوقف (قيد الصيانة)." : "Your store is paused (under maintenance)."}</span>{" "}
+              {lang === "ar"
+                ? "يرى العملاء صفحة الصيانة ولا يستطيعون الطلب. لفتحه مجددًا استخدم مفتاح «المتجر قيد الصيانة» في قائمة الحساب أعلى الصفحة."
+                : "Customers see a maintenance page and can't order. To open it again, use the \"Store under maintenance\" switch in the account menu at the top of the page."}
+            </span>
+          </p>
+        )}
+
         {/* Setup progress, until every task is done. The tour shows a store that is already running, so it has none. */}
         {!tour && setupRead && doneCount < TOTAL_TASKS && (
           <section className={`${card} flex flex-wrap items-center justify-between gap-4`}>
@@ -353,11 +394,23 @@ export function Dashboard() {
         {/* Not ready to sell: what is missing before the store can go live (the setup's own checklist), each a link to fix
             it on Delivery options. A store already live stays live (it is never taken offline for it): the same list
             then warns that customers can't complete an order, once Diwan's settings are in (a change there can cause it) */}
-        {!tour && setupRead && sell.read && !sell.ok && (!liveNow || sell.checked) && (
-          <SellNeeds lang={lang} missing={sell.missing} title={liveNow ? sellWords[lang].liveNotReady : undefined} />
+        {!tour && setupRead && sell.read && liveMissing(sell.missing, shipDefault).length > 0 && (!liveNow || sell.checked) && (
+          <SellNeeds lang={lang} missing={liveMissing(sell.missing, shipDefault)} title={liveNow ? sellWords[lang].liveNotReady : undefined} />
         )}
-        {/* ready to sell with pickup only: delivery is not offered until he chooses how he delivers */}
-        {!tour && setupRead && sell.ok && noShipping && (
+        {/* a live store that never chose how it delivers delivers with Dukkan Ship by default (pickup on or off): it says so
+            and asks him to choose, instead of "customers can't complete an order" */}
+        {!tour && setupRead && shipDefault && sell.checked && <ShipDefaultNote lang={lang} />}
+        {/* Dukkan Ship no longer picks up from his saved city: he chooses another on Delivery options */}
+        {!tour && setupRead && sell.checked && !shipServes(platform, shipCity) && (
+          <p role="alert" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">
+            {content[lang].onboarding.shipping.cityGone.split("{city}")[0]}
+            <bdi>{shipCity}</bdi>
+            {content[lang].onboarding.shipping.cityGone.split("{city}")[1] ?? ""}{" "}
+            <a href="/delivery" className="font-bold underline underline-offset-2">{lang === "ar" ? "خيارات التوصيل" : "Delivery options"}</a>
+          </p>
+        )}
+        {/* not live yet, ready to sell with pickup only: delivery is not offered until he chooses how he delivers */}
+        {!tour && setupRead && sell.ok && noShipping && !shipDefault && (
           <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">
             {lang === "ar" ? "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل." : "Customers can't order delivery until you choose how you deliver."}{" "}
             <a href="/delivery" className="font-bold underline underline-offset-2">{lang === "ar" ? "خيارات التوصيل" : "Delivery options"}</a>

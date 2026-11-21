@@ -1,10 +1,11 @@
-import { isRole } from "@/components/diwan/perms";
 import type { NextRequest } from "next/server";
 import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, hashPassword, readJson } from "@/server/auth";
-import { emailKey, seal } from "@/server/crypto";
+import { emailKey, plainText, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
+import { tellOtherStaff } from "@/server/staffNotice";
+import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
@@ -25,30 +26,32 @@ export const GET = staffRoute("staff", async (_req, me) => {
 });
 
 /** Adds a staff member with a temporary password the owner gives them; they choose their own at the first sign-in,
-    and set up their 2-step code then too. Answers: "ok", "taken", "invalid", "weak", "role-later". */
+    and set up their 2-step code then too. Every staff member is an owner (Diwan has no roles), so adding one needs the
+    acting member's own password with it ({ myPassword }, server/staffConfirm.ts passwordAgain).
+    Answers: "ok", "taken", "invalid", "weak", "password" (403), "slow-down" (429). */
 export const POST = staffRoute("staff", async (req: NextRequest, me) => {
   const body = await readJson(req, 2_000);
   const who = cleanStaff({ name: body?.name, email: body?.email });
-  const role = isRole(body?.role) ? body.role : null;
-  if (!who || !role) return answer({ result: "invalid" }, 400);
-  /* TODO(roles): allow support/developer again. For now everyone added is an owner, while the other roles' pages and
-     limits are being reworked; the staff page shows them greyed out as coming later. Staff who already have one of
-     them keep it and keep working (perms.ts still knows every role). */
-  if (role !== "owner") return answer({ result: "role-later" }, 400);
+  if (!who) return answer({ result: "invalid" }, 400);
   const problem = staffPasswordProblem(body?.password);
   if (problem) return answer({ result: "weak", problem }, 400);
+  const refused = await passwordAgain(req, me, body?.myPassword, "staff.add");
+  if (refused) return refused;
   const hash = await hashPassword(body!.password as string);
   let id: string;
   try {
     const { rows } = await (await db()).query(
-      `INSERT INTO staff (email, email_hash, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, true) RETURNING id`,
-      [seal(who.email), emailKey(who.email), who.name, role, hash],
+      `INSERT INTO staff (email, email_hash, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, 'owner', $4, true) RETURNING id`,
+      /* the name is kept as plain text: one that only looks encrypted is sealed, so it is never opened as someone's data */
+      [seal(who.email), emailKey(who.email), plainText(who.name), hash],
     );
     id = String(rows[0].id);
   } catch (e) {
     if ((e as { code?: string }).code === "23505") return answer({ result: "taken" }, 409);
     throw e;
   }
-  await audit(req, me.id, "staff.add", { type: "staff", id }, null, { email: who.email, name: who.name, role });
+  await audit(req, me.id, "staff.add", { type: "staff", id }, null, { email: who.email, name: who.name });
+  /* the other owners hear of it by email (never the temporary password) */
+  tellOtherStaff(me, "added", who);
   return answer({ result: "ok", id });
 });

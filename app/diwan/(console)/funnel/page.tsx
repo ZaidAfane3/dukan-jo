@@ -44,7 +44,7 @@ export default function FunnelPage() {
             { n: d.setup, label: t("Finished setup (6/6)", "أكمل الإعداد (6/6)") },
             { n: d.product, label: t("Added a product", "أضاف منتجًا") },
             { n: d.published, label: t("Published the store", "نشر المتجر") },
-            { n: d.ordered, label: t("Got a first order", "حصل على أول طلب") },
+            { n: d.ordered, label: t("Got a first order through its store page", "حصل على أول طلب عبر صفحة المتجر") },
           ];
           if (!d.signed_up) return <p className={`${card} text-sm text-muted`}>{t("No stores signed up in this period.", "لم يسجّل أي متجر في هذه الفترة.")}</p>;
           /* the steps side by side, in reading order (right to left in Arabic, by the page's direction): five small cards in

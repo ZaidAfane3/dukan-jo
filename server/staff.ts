@@ -1,7 +1,8 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { answer, guarded, sameOrigin } from "./auth";
+import { answer, guarded, sameOrigin, secureCookies, tooManyFor, visitorIp } from "./auth";
 import { db } from "./db";
+import { cookieLang } from "./lang";
 
 /* Diwan's staff: their sign-in, roles, 2-step codes and the activity log. Staff accounts are separate from merchant
    accounts: their own table, their own cookie (dukkan-diwan, SameSite=Strict), 12 hours at most and 60 minutes idle.
@@ -15,8 +16,7 @@ export const STAFF_COOKIE = "dukkan-diwan";
 const HOURS = 12;
 const IDLE_MIN = 60;
 const tokenHash = (t: string) => createHash("sha256").update(t).digest("hex");
-export const ipOf = (req: NextRequest) => req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
-const isHttps = (req: NextRequest) => (req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(":", "")) === "https";
+export const ipOf = (req: NextRequest) => visitorIp(req);
 
 /* ---------------- sessions ---------------- */
 
@@ -36,15 +36,18 @@ export async function startStaffSession(res: NextResponse, req: NextRequest, sta
     [tokenHash(token), staffId, ipOf(req), verified, HOURS, passwordHash],
   );
   if (!r.rowCount) return false;
+  /* the language the sign-in page is in, for the staff emails (server/lang.ts) */
+  const lang = cookieLang(req);
+  if (lang) await pool.query(`UPDATE staff SET lang = $2 WHERE id = $1 AND lang IS DISTINCT FROM $2`, [staffId, lang]);
   if (Math.random() < 0.1) pool.query(`DELETE FROM staff_sessions WHERE expires_at < now()`).catch(() => {});
-  res.cookies.set(STAFF_COOKIE, token, { httpOnly: true, sameSite: "strict", secure: isHttps(req), path: "/", maxAge: HOURS * 3600 });
+  res.cookies.set(STAFF_COOKIE, token, { httpOnly: true, sameSite: "strict", secure: secureCookies(req), path: "/", maxAge: HOURS * 3600 });
   return true;
 }
 
 export async function endStaffSession(res: NextResponse, req: NextRequest): Promise<void> {
   const token = req.cookies.get(STAFF_COOKIE)?.value;
   if (token) await (await db()).query(`DELETE FROM staff_sessions WHERE token_hash = $1`, [tokenHash(token)]);
-  res.cookies.set(STAFF_COOKIE, "", { httpOnly: true, sameSite: "strict", secure: isHttps(req), path: "/", maxAge: 0 });
+  res.cookies.set(STAFF_COOKIE, "", { httpOnly: true, sameSite: "strict", secure: secureCookies(req), path: "/", maxAge: 0 });
 }
 
 /** Marks the current session as past the 2-step code */
@@ -57,23 +60,27 @@ export async function verifyStaffSession(req: NextRequest): Promise<void> {
 export async function staffFromToken(token: string | undefined): Promise<(Staff & { verified: boolean }) | null> {
   if (!token || token.length > 100) return LOCAL_DEV ? devOwner() : null;
   const pool = await db();
+  /* read first; the last use is written only when it is more than a minute old, so a console page's many requests
+     don't each rewrite the session row */
   const { rows } = await pool.query(
-    `UPDATE staff_sessions ss SET last_used_at = now()
-       FROM staff s
-      WHERE ss.token_hash = $1 AND s.id = ss.staff_id AND s.active
-        AND ss.expires_at > now() AND ss.last_used_at > now() - make_interval(mins => $2)
-  RETURNING s.id, s.email, s.name, s.role, s.totp_on, ss.verified`,
+    `SELECT s.id, s.email, s.name, s.role, s.totp_on, ss.verified, ss.last_used_at < now() - interval '1 minute' AS stale
+       FROM staff_sessions ss JOIN staff s ON s.id = ss.staff_id
+      WHERE ss.token_hash = $1 AND s.active
+        AND ss.expires_at > now() AND ss.last_used_at > now() - make_interval(mins => $2)`,
     [tokenHash(token), IDLE_MIN],
   );
+  if (rows[0]?.stale) await pool.query(`UPDATE staff_sessions SET last_used_at = now() WHERE token_hash = $1`, [tokenHash(token)]);
   const s = rows[0];
   /* locally, a sign-in left halfway (no code given yet) doesn't stop the dev owner either */
   if (!s || (LOCAL_DEV && !s.verified)) return LOCAL_DEV ? devOwner() : null;
-  return { id: String(s.id), email: s.email, name: s.name, role: s.role, totpOn: s.totp_on, verified: s.verified };
+  /* no roles any more (components/diwan/perms.ts): everyone is an owner, whatever an old row still says */
+  return { id: String(s.id), email: s.email, name: s.name, role: "owner" as Role, totpOn: s.totp_on, verified: s.verified };
 }
 
 /* ---------------- local development: no sign-in ---------------- */
 
-/* On the local dev server only (`next dev`, NODE_ENV=development), Diwan opens without signing in, as an owner called
+/* On the local dev server only (`next dev`, NODE_ENV=development; `npm run dev` serves it on 127.0.0.1 only, so nobody
+   else on the network can reach it), Diwan opens without signing in, as an owner called
    "Local dev". The live server runs the production build (NODE_ENV=production), where this is always off. To try the
    real sign-in locally anyway, start the dev server with DIWAN_DEV_LOGIN=off. Someone who did sign in stays themselves. */
 const LOCAL_DEV = process.env.NODE_ENV === "development" && process.env.DIWAN_DEV_LOGIN !== "off";
@@ -113,6 +120,8 @@ export function staffRoute(perm: Perm | null, fn: (req: NextRequest, staff: Staf
       const s = await currentStaff(r);
       if (!s || !s.verified) return answer({ result: "signed-out" }, 401);
       if (perm && !can(s, perm)) return answer({ result: "not-allowed" }, 403);
+      /* a ceiling per staff member for every console route, far above what the pages ask for */
+      if (tooManyFor(`diwan:${s.id}`, 900, 10)) return answer({ result: "slow-down" }, 429);
       return fn(r, s, { params: (await ctx?.params) ?? {} });
     })(req);
 }

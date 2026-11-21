@@ -26,6 +26,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     /* per visitor: a person opens far fewer pages than this */
     if (tooMany(req, "store-visit", 120, 10)) return done();
     const slug = String(p.slug ?? "").toLowerCase().slice(0, 64);
+    /* not a store link at all: nothing to count, and no key kept for it */
+    if (!/^[a-z0-9-]{1,40}$/.test(slug)) return done();
     /* per store, from every visitor together */
     if (tooManyFor(`store-visit-shop:${slug}`, 6000, 10)) return done();
     const body = await readJson(req, MAX_BODY);

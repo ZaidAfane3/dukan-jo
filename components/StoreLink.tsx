@@ -14,6 +14,7 @@ import { ShareMenu } from "./ShareMenu";
 import { dropUndos, offerUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
+import { Skeleton } from "./Skeleton";
 
 /* the undo note at the bottom (UndoToast.tsx) */
 const undoLink: Record<Lang, (s: string) => string> = { en: (s) => `Store link changed to ${s}`, ar: (s) => `تغيّر رابط المتجر إلى ${s}` };
@@ -185,7 +186,10 @@ export function StoreLink() {
 
           {/* a link taken before it became a page of the platform (safe.ts PAGES_ADDED_LATER): kept, but it can't be reached */}
           {ready && slug && !editing && isPlatformPage(slug) && <p className="mt-4 rounded-xl bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-700 dark:text-amber-300">{c.pageNow}</p>}
-          {!ready ? null : !slug ? (
+          {!ready ? (
+            /* the link is read from this browser in a moment: its row's shape meanwhile, not a blank card */
+            <Skeleton className="mt-5 h-12 w-full rounded-xl" />
+          ) : !slug ? (
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-soft px-5 py-5">
               <p className="text-sm text-muted">{c.noSlug}</p>
               <a href="/onboarding" className="rounded-lg border border-primary/60 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">{c.setup}</a>

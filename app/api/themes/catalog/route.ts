@@ -17,5 +17,9 @@ export const GET = guarded(async (req: NextRequest) => {
   const staff = await currentStaff(req);
   if (!staff?.verified && !(await currentAccount(req))) return answer({ result: "none" }, 401);
   const themes = await readListings(`WHERE status = 'live' OR (status = 'hidden' AND released_at IS NOT NULL)`, [], true);
-  return answer({ themes });
+  /* only for whoever asked (it needs a sign-in), so never in a shared cache; his browser may keep it a minute, so the theme
+     store and My themes don't fetch every design again on each visit */
+  const r = answer({ themes });
+  r.headers.set("Cache-Control", "private, max-age=60");
+  return r;
 });

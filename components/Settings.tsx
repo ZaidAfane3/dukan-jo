@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { brandName, content } from "./content";
 import { inLang } from "./safeOrder";
 import { DashboardBar } from "./DashboardBar";
@@ -13,8 +13,10 @@ import { ACCOUNT_LIMITS, cleanProfile, DOB_MIN, dobError, passwordError, type Pr
 import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { accountData, replaceAccountData, signedInAs, signInAs } from "./demoSandbox";
 import { merchantCall, onServer } from "./merchantApi";
-import { flushSaves } from "./serverSync";
+import { flushSaves, pauseSaves, renameAccount } from "./serverSync";
 import { TwoStepSettings } from "./TwoStepSettings";
+import { EmailCodeStep } from "./EmailCodeStep";
+import type { CodeAnswer } from "./accounts";
 import { dropUndos, offerUndo, sameJson } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
@@ -30,28 +32,69 @@ const live = {
     saved: "Settings saved.",
     savedPassword: "Settings saved. Your password was changed and your other devices were signed out.",
     note: "Changing your password signs you out on your other devices.",
-    takenEmail: "Another account already uses this email.",
-    takenPhone: "Another account already uses this number.",
+    takenEmail: "This email is already in use.",
+    takenPhone: "This mobile number is already in use.",
     wrongCurrent: "This isn't your current password.",
     needCurrent: "Enter your current password to change your email or mobile number.",
     noteIdentity: "Changing your email or mobile number needs your current password.",
     slow: "Too many tries. Wait a few minutes and try again.",
     failed: "Couldn't save. Check your connection and try again.",
     saving: "Saving…",
+    emailWaiting: "Saved. Your new email takes effect once you type the code we sent to it.",
+    emailNotSent: "Saved, but we couldn't send a code to your new email yet. Send a new code below.",
+    oldWaiting: "Saved. To change your email, first type the code we sent to your current email.",
+    oldNotSent: "Saved, but we couldn't send a code to your current email yet. Send a new code below.",
+    emailSlow: "Saved, but we can't send the code to change your email right now: too many codes were asked for. Wait a few minutes, then change it again.",
+    emailLocked: "Saved, but your email can't be changed for now: too many wrong codes were typed. Wait an hour, then change it again.",
+    pwAlso: "Your password was changed too, and your other devices were signed out.",
+    pwChangedOnly: "Your password was changed (your other devices were signed out), but your other details weren't saved.",
+    confirmNew: "Confirm your new email",
+    approveOld: "Approve the change from your current email",
+    approveWhy: (e: string) => `2-step sign-in is on, so the change to ${e} is approved from your current email first. Then we send a code to the new one.`,
+    approved: "Approved. Now type the code we sent to your new email.",
+    keepOld: "Keep my current email",
+    takenNow: "This email now belongs to another account. Choose another email.",
+    gone: "This email change is no longer waiting. Type the new email again to start over.",
+    emailChanged: (e: string) => `Your email is now ${e}.`,
+    stillOld: (e: string) => `Until then you keep signing in with ${e}.`,
   },
   ar: {
     saved: "تم حفظ الإعدادات.",
     savedPassword: "تم حفظ الإعدادات. تغيّرت كلمة المرور وتم تسجيل خروجك من أجهزتك الأخرى.",
     note: "تغيير كلمة المرور يسجّل خروجك من أجهزتك الأخرى.",
-    takenEmail: "هذا البريد مستخدم في حساب آخر.",
-    takenPhone: "هذا الرقم مستخدم في حساب آخر.",
+    takenEmail: "هذا البريد مستخدم بالفعل.",
+    takenPhone: "رقم الجوال هذا مستخدم بالفعل.",
     wrongCurrent: "هذه ليست كلمة المرور الحالية.",
     needCurrent: "أدخل كلمة المرور الحالية لتغيير بريدك أو رقم جوالك.",
     noteIdentity: "تغيير البريد أو رقم الجوال يحتاج إلى كلمة المرور الحالية.",
     slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مجددًا.",
     failed: "تعذّر الحفظ. تحقق من اتصالك وحاول مجددًا.",
     saving: "جارٍ الحفظ…",
+    emailWaiting: "تم الحفظ. يُعتمد بريدك الجديد بعد كتابة الرمز الذي أرسلناه إليه.",
+    emailNotSent: "تم الحفظ، لكن لم نتمكّن من إرسال رمز إلى بريدك الجديد بعد. أرسل رمزًا جديدًا أدناه.",
+    oldWaiting: "تم الحفظ. لتغيير بريدك، اكتب أولًا الرمز الذي أرسلناه إلى بريدك الحالي.",
+    oldNotSent: "تم الحفظ، لكن لم نتمكّن من إرسال رمز إلى بريدك الحالي بعد. أرسل رمزًا جديدًا أدناه.",
+    emailSlow: "تم الحفظ، لكن لا يمكننا الآن إرسال رمز تغيير البريد: طُلبت رموز كثيرة. انتظر بضع دقائق ثم غيّره مجددًا.",
+    emailLocked: "تم الحفظ، لكن لا يمكن تغيير بريدك حاليًا: كُتبت رموز خاطئة كثيرة. انتظر ساعة ثم غيّره مجددًا.",
+    pwAlso: "وتغيّرت كلمة المرور أيضًا، وسُجّل خروجك من أجهزتك الأخرى.",
+    pwChangedOnly: "تغيّرت كلمة المرور (وسُجّل خروجك من أجهزتك الأخرى)، لكن لم تُحفظ بياناتك الأخرى.",
+    confirmNew: "أكّد بريدك الجديد",
+    approveOld: "وافق على التغيير من بريدك الحالي",
+    approveWhy: (e: string) => `التحقق بخطوتين مفعّل، لذا تجب الموافقة على التغيير إلى ${e} من بريدك الحالي أولًا، ثم نرسل رمزًا إلى البريد الجديد.`,
+    approved: "تمت الموافقة. اكتب الآن الرمز الذي أرسلناه إلى بريدك الجديد.",
+    keepOld: "الإبقاء على بريدي الحالي",
+    takenNow: "أصبح هذا البريد مستخدمًا في حساب آخر. اختر بريدًا آخر.",
+    gone: "لم يعد تغيير البريد هذا قائمًا. اكتب البريد الجديد مرة أخرى لتبدأ من جديد.",
+    emailChanged: (e: string) => `أصبح بريدك الآن ${e}.`,
+    stillOld: (e: string) => `حتى ذلك الحين تستمر في تسجيل الدخول بـ ${e}.`,
   },
+};
+
+/* a code answer from /api/account/email, as the code page reads it */
+const asCode = (r: { status: number; data: Record<string, unknown> } | null): CodeAnswer => {
+  const x = r?.data.result;
+  if (r?.status === 200 && x === "ok") return "ok";
+  return x === "wrong" || x === "expired" || x === "too-many" || x === "locked" || x === "slow-down" || x === "send-failed" || x === "taken" ? x : x === "none-pending" ? "gone" : "error";
 };
 
 function keepProfile(clean: Profile) {
@@ -64,19 +107,23 @@ function keepProfile(clean: Profile) {
 }
 
 /* The browser keeps a signed-in account's store under its email (demoSandbox.ts): a new email moves it there, so the
-   pages keep finding it. The server keeps the store under the account itself, so nothing changes there. */
-async function moveStoreTo(email: string) {
-  await flushSaves();
+   pages keep finding it, with the changes still waiting to go and the saved versions of its lists (serverSync.ts
+   renameAccount). The server keeps the store under the account itself, so nothing changes there. */
+function moveStoreTo(from: string, email: string) {
   const data = accountData();
   replaceAccountData({});
   signInAs(email);
   replaceAccountData(data);
+  renameAccount(from, email);
 }
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
 const field =
   "h-12 w-full rounded-xl border border-fg/15 bg-card px-4 text-sm outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/25";
 /* a field with a mistake in it */
 const bad = "!border-rose-500 focus:!ring-rose-500/25";
+
+/* a new email waiting for its code (see emailWait in Settings) */
+type EmailWait = { step: "old" | "new"; email: string; to: string; sent: boolean };
 
 const EMPTY: Profile = { name: "", email: "", phone: "", dob: "", gender: "", city: "" };
 
@@ -127,6 +174,17 @@ export function Settings() {
   /* signed in (not the tour): the profile is Dukkan's, saved on the server */
   const [server, setServer] = useState(false);
   const [saving, setSaving] = useState(false);
+  /* a new email waiting for its code (the account keeps its email until it is typed: app/api/account/email). step "old":
+     2-step sign-in is on, and the current email (`to`) approves the change first; "new": the code went to the new email. */
+  const [emailWait, setEmailWait] = useState<EmailWait | null>(null);
+  /* the note at the bottom: a new note ends the one before it, timer and all (an older timer never cuts a newer note short) */
+  const toastTimer = useRef(0);
+  const flash = (text: string, ms = 3000) => {
+    window.clearTimeout(toastTimer.current);
+    setToast(text);
+    toastTimer.current = window.setTimeout(() => setToast(""), ms);
+  };
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
   const l = live[lang];
   /* The profile as last loaded or saved, to know if there are unsaved changes */
   const [kept, setKept] = useState(JSON.stringify(EMPTY));
@@ -147,6 +205,13 @@ export function Settings() {
     setServer(true);
     /* the profile as the server has it (another device may have changed it) */
     let alive = true;
+    /* a new email asked for before (here or on another device), still waiting for its code */
+    void merchantCall("/api/account/email", "GET").then((r) => {
+      if (!alive || r?.status !== 200 || typeof r.data.pending !== "string") return;
+      const step = r.data.step === "old" ? "old" : "new";
+      /* live false: its code could not be sent, or ran out: the box says so and "Send a new code" works at once */
+      setEmailWait({ step, email: r.data.pending, to: typeof r.data.to === "string" ? r.data.to : r.data.pending, sent: r.data.live !== false });
+    });
     void merchantCall("/api/account", "GET").then((r) => {
       if (!alive || r?.status !== 200 || !r.data.profile) return;
       const fresh = cleanProfile(r.data.profile);
@@ -219,13 +284,13 @@ export function Settings() {
       return true;
     };
     if (showErrors(e)) return;
-    const flash = (text: string, ms = 3000) => {
-      setToast(text);
-      window.setTimeout(() => setToast(""), ms);
-    };
-
     /* the profile as kept before this save, for its Undo */
     const wasKept = loadProfile();
+    let waiting: EmailWait | null = null;
+    /* a new email whose code could not be asked for now (too many codes, or too many wrong ones): nothing waits */
+    let refused: "slow-down" | "locked" | null = null;
+    /* the password was changed in this save: said even when something after it is refused */
+    let pwChanged = false;
     /* what is kept: the name cleaned, the email in lower case and the mobile as +9627XXXXXXXX */
     let clean: Profile = { ...cleanProfile(p), name: cleanLine(p.name, ACCOUNT_LIMITS.name), email: emailOf(p.email), phone: savedMobile(p.phone) };
 
@@ -233,7 +298,25 @@ export function Settings() {
        changes nothing; then the profile. */
     if (server) {
       setSaving(true);
+      /* a refusal after the password was changed says the password did change (the fields are empty by then) */
+      const stop = (found: Record<string, string>) => {
+        showErrors(found);
+        if (pwChanged) flash(l.pwChangedOnly, 8000);
+      };
+      const stopNote = (text: string) => flash(pwChanged ? `${l.pwChangedOnly} ${text}` : text, pwChanged ? 9000 : 5000);
       try {
+        /* a new password with a new email or mobile: those are checked first (the password, and that no other account has
+           them), so a refused email never leaves the password changed behind it */
+        if (changing && identity) {
+          const c = await merchantCall("/api/account", "PUT", { ...clean, password: current, check: true, lang });
+          if (c?.data.result === "password-needed") return void showErrors({ current: l.needCurrent });
+          if (c?.data.result === "wrong-password") return void showErrors({ current: l.wrongCurrent });
+          if (c?.data.result === "taken") return void showErrors({ email: l.takenEmail });
+          if (c?.data.result === "taken-phone") return void showErrors({ phone: l.takenPhone });
+          if (c?.data.result === "invalid") return void showErrors({ name: s.errors.name });
+          if (c?.status === 429) return flash(l.slow, 5000);
+          if (c?.status !== 200) return flash(l.failed, 5000);
+        }
         if (changing) {
           const r = await merchantCall("/api/account/password", "POST", { current, next });
           if (r?.data.result === "wrong") return void showErrors({ current: l.wrongCurrent });
@@ -241,22 +324,41 @@ export function Settings() {
           if (r?.status === 429) return flash(l.slow, 5000);
           if (r?.status !== 200) return flash(l.failed, 5000);
           /* changed: the fields are emptied now, so a problem with the profile below never sends it again */
+          pwChanged = true;
           setCurrent("");
           setNext("");
           setConfirm("");
         }
         const before = signedInAs();
-        /* the password as it is now: the new one when it was just changed above */
-        const r = await merchantCall("/api/account", "PUT", identity ? { ...clean, password: changing ? next : current } : clean);
-        if (r?.data.result === "password-needed") return void showErrors({ current: l.needCurrent });
-        if (r?.data.result === "wrong-password") return void showErrors({ current: l.wrongCurrent });
-        if (r?.data.result === "taken") return void showErrors({ email: l.takenEmail });
-        if (r?.data.result === "taken-phone") return void showErrors({ phone: l.takenPhone });
-        if (r?.data.result === "invalid") return void showErrors({ name: s.errors.name });
-        if (r?.status === 429) return flash(l.slow, 5000);
-        if (r?.status !== 200 || !r.data.profile) return flash(l.failed, 5000);
-        clean = cleanProfile(r.data.profile);
-        if (before && clean.email !== before) await moveStoreTo(clean.email);
+        /* a new email: the changes waiting go first, under the email the server still has, and nothing more is sent
+           until this browser follows the change (a save naming the old email would be refused as another account's) */
+        const renaming = !!before && clean.email !== before;
+        if (renaming) await flushSaves();
+        const resume = renaming ? pauseSaves() : () => {};
+        try {
+          /* the password as it is now: the new one when it was just changed above */
+          const r = await merchantCall("/api/account", "PUT", { ...(identity ? { ...clean, password: changing ? next : current } : clean), lang });
+          if (r?.data.result === "password-needed") return void stop({ current: l.needCurrent });
+          if (r?.data.result === "wrong-password") return void stop({ current: l.wrongCurrent });
+          if (r?.data.result === "taken") return void stop({ email: l.takenEmail });
+          if (r?.data.result === "taken-phone") return void stop({ phone: l.takenPhone });
+          if (r?.data.result === "invalid") return void stop({ name: s.errors.name });
+          if (r?.status === 429) return stopNote(l.slow);
+          if (r?.status !== 200 || !r.data.profile) return stopNote(l.failed);
+          clean = cleanProfile(r.data.profile);
+          if (before && clean.email !== before) moveStoreTo(before, clean.email);
+          /* a new email waits for its code: the account (and these fields) keep the old one until then. The box asking
+             for the code opens only when a code really waits (or can be sent again from it); a refused send says why. */
+          const change = r.data.emailChange as { step?: unknown; email?: unknown; to?: unknown; sent?: unknown; waiting?: unknown } | undefined;
+          if (change && typeof change.email === "string") {
+            if (change.waiting === true) {
+              const step = change.step === "old" ? "old" : "new";
+              waiting = { step, email: change.email, to: step === "old" && typeof change.to === "string" ? change.to : change.email, sent: change.sent === "sent" };
+            } else refused = change.sent === "locked" ? "locked" : "slow-down";
+          }
+        } finally {
+          resume();
+        }
       } finally {
         setSaving(false);
       }
@@ -268,6 +370,16 @@ export function Settings() {
     setCurrent("");
     setNext("");
     setConfirm("");
+    /* a new password in the same save is said too */
+    const withPw = (text: string) => (changing ? `${text} ${l.pwAlso}` : text);
+    if (waiting) {
+      const w = waiting;
+      setEmailWait(w);
+      flash(withPw(w.step === "old" ? (w.sent ? l.oldWaiting : l.oldNotSent) : w.sent ? l.emailWaiting : l.emailNotSent), changing ? 9000 : 6000);
+      setTimeout(() => document.getElementById("email-change")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+      return;
+    }
+    if (refused) return flash(withPw(refused === "locked" ? l.emailLocked : l.emailSlow), 9000);
     flash(server ? (changing ? l.savedPassword : l.saved) : s.saved, server && changing ? 5000 : 3000);
     /* An Undo puts the details kept before back, the same way (the server first, for a signed-in account), unless they
        changed since. Not after a new password, email or mobile: those need the password again and sign other devices
@@ -296,6 +408,64 @@ export function Settings() {
         return true;
       },
     });
+  };
+
+  /* the box closes by itself when what it waits for is gone: the email was taken by another account meanwhile (the field
+     says so, the box's "Send a new code" could never work), or nothing waits any more */
+  const endWait = (a: CodeAnswer): boolean => {
+    if (a !== "taken" && a !== "gone") return false;
+    setEmailWait(null);
+    if (a === "gone") flash(l.gone, 6000);
+    else {
+      setErrors((x) => ({ ...x, email: l.takenNow }));
+      const el = document.getElementById("set-email");
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
+    }
+    return true;
+  };
+
+  /* 2-step on: the code sent to the current email (or a recovery code) approves the change; the code to the new email
+     comes next, in the same place */
+  const approveOldEmail = async (code: string): Promise<CodeAnswer> => {
+    const r = await merchantCall("/api/account/email", "POST", { oldCode: code, lang });
+    const a = asCode(r);
+    /* closed: nothing more for the box to say */
+    if (endWait(a)) return "ok";
+    if (a !== "ok" || typeof r?.data.email !== "string") return a;
+    const email = r.data.email;
+    if (r.data.waiting === true) {
+      setEmailWait({ step: "new", email, to: email, sent: r.data.sent === "sent" });
+      flash(r.data.sent === "sent" ? l.approved : l.emailNotSent, 6000);
+    } else {
+      setEmailWait(null);
+      flash(r.data.sent === "locked" ? l.emailLocked : l.emailSlow, 9000);
+    }
+    return "ok";
+  };
+
+  /* the code for the new email: the account moves to it, and so does this browser's copy of the store */
+  const confirmNewEmail = async (code: string): Promise<CodeAnswer> => {
+    const before = signedInAs();
+    if (before) await flushSaves();
+    const resume = before ? pauseSaves() : () => {};
+    try {
+      const r = await merchantCall("/api/account/email", "POST", { code, lang });
+      const a = asCode(r);
+      if (endWait(a)) return "ok";
+      if (a !== "ok" || typeof r?.data.email !== "string") return a;
+      const email = r.data.email;
+      if (before && before !== email) moveStoreTo(before, email);
+      const fresh = { ...loadProfile(), email };
+      keepProfile(fresh);
+      setP((cur) => ({ ...cur, email }));
+      setKept((k) => JSON.stringify({ ...(JSON.parse(k) as Profile), email }));
+      setEmailWait(null);
+      flash(l.emailChanged(email), 5000);
+      return "ok";
+    } finally {
+      resume();
+    }
   };
 
   return (
@@ -373,6 +543,36 @@ export function Settings() {
           </div>
         </section>
 
+        {/* a new email waiting for its code: first the current email's approval when 2-step sign-in is on */}
+        {emailWait && (
+          <section id="email-change" className={`${card} scroll-mt-24`}>
+            <EmailCodeStep
+              /* each step is a box of its own: its code, notes and wait start afresh */
+              key={`${emailWait.step}:${emailWait.email}`}
+              compact
+              title={emailWait.step === "old" ? l.approveOld : l.confirmNew}
+              to={emailWait.to}
+              sent={emailWait.sent}
+              recovery={emailWait.step === "old"}
+              backLabel={l.keepOld}
+              onSubmit={emailWait.step === "old" ? approveOldEmail : confirmNewEmail}
+              onResend={async () => {
+                const a = asCode(await merchantCall("/api/account/email", "POST", { resend: true, lang }));
+                return endWait(a) ? "ok" : a;
+              }}
+              onBack={() => {
+                void merchantCall("/api/account/email", "POST", { cancel: true });
+                setEmailWait(null);
+              }}
+            />
+            {emailWait.step === "old" && <p className="mt-4 text-xs text-muted">{l.approveWhy(emailWait.email)}</p>}
+            {(() => {
+              const now = (JSON.parse(kept) as Profile).email;
+              return now ? <p className={`${emailWait.step === "old" ? "mt-1" : "mt-4"} text-xs text-muted`}>{l.stillOld(now)}</p> : null;
+            })()}
+          </section>
+        )}
+
         {/* Password */}
         <section className={card}>
           <h2 className="text-xl font-bold">{s.password.title}</h2>
@@ -391,7 +591,7 @@ export function Settings() {
             <p className="text-xs text-muted">{server ? `${l.note} ${l.noteIdentity}` : s.password.note}</p>
           </div>
         </section>
-        <TwoStepSettings />
+        <TwoStepSettings email={(JSON.parse(kept) as Profile).email || undefined} />
       </main>
 
       {toast && (

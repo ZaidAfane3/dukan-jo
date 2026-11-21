@@ -1,6 +1,5 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -17,7 +16,7 @@ import { loadSetup } from "./setup";
 
 /* Right after signing up or in (accounts.ts marks the tab with TWO_STEP_ASK; signing in with a 2-step code does not), a
    full page over the dashboard asks to turn 2-step sign-in on. Its button opens TwoStepSettings on
-   /settings#two-step-start, which starts the setup at once. "Not now" (or Esc) hides it for this sign-in only: it is
+   /settings#two-step-start, which opens the setup at once (the password is all it asks). "Not now" (or Esc) hides it for this sign-in only: it is
    back on the next sign-in, until the code is on.
 
    When it shows. It never lands on top of something the merchant has started:
@@ -43,26 +42,26 @@ import { loadSetup } from "./setup";
 
 const words = {
   en: {
-    title: "Protect your account with two-step sign-in",
-    why: "When you sign in, we'll also ask for a 6-digit code from an app on your phone. Someone who learns your password still can't get in without it.",
-    stepsTitle: "It takes about two minutes:",
+    title: "Protect your account with 2-step sign-in",
+    why: "Every time you sign in, we'll also email you a 6-digit code. Someone who learns your password still can't get in without it.",
+    stepsTitle: "It takes less than a minute:",
     steps: [
-      "Install an authenticator app on your phone, such as Google Authenticator or Microsoft Authenticator.",
-      "Add Dukkan to the app with the key we give you.",
-      "Type the 6-digit code the app shows, and you're done.",
+      "Choose how to get the code: by email (WhatsApp is coming soon).",
+      "Type your password to turn it on, and you're done.",
+      "From then on, each sign-in also asks for a 6-digit code we email you.",
     ],
-    yes: "Turn on two-step sign-in",
+    yes: "Turn on 2-step sign-in",
     later: "Not now",
     remind: "We'll remind you the next time you sign in.",
   },
   ar: {
     title: "احمِ حسابك بالتحقق بخطوتين",
-    why: "عند تسجيل الدخول سنطلب منك أيضًا رمزًا من 6 أرقام يظهر في تطبيق على هاتفك. فمن يعرف كلمة مرورك لن يستطيع الدخول بدونه.",
-    stepsTitle: "يستغرق الأمر دقيقتين تقريبًا:",
+    why: "في كل مرة تسجّل فيها الدخول سنرسل إلى بريدك أيضًا رمزًا من 6 أرقام. فمن يعرف كلمة مرورك لن يستطيع الدخول بدونه.",
+    stepsTitle: "يستغرق الأمر أقل من دقيقة:",
     steps: [
-      "ثبّت تطبيق مصادقة على هاتفك، مثل Google Authenticator أو Microsoft Authenticator.",
-      "أضف دكّان إلى التطبيق بالمفتاح الذي نعطيك إياه.",
-      "اكتب الرمز المكوّن من 6 أرقام الذي يظهره التطبيق، وانتهى.",
+      "اختر طريقة استلام الرمز: عبر البريد الإلكتروني (واتساب قريبًا).",
+      "اكتب كلمة المرور لتفعيله، وانتهى.",
+      "بعدها يطلب كل تسجيل دخول أيضًا رمزًا من 6 أرقام نرسله إلى بريدك.",
     ],
     yes: "فعّل التحقق بخطوتين",
     later: "ليس الآن",
@@ -147,17 +146,26 @@ function Mark({ lang }: { lang: "en" | "ar" }) {
   );
 }
 
-const ease = [0.2, 0.65, 0.3, 0.9] as const;
+/* how long the page takes to fade away once closed (globals.css .two-step-out); it is drawn until then */
+const OUT_MS = 160;
 
 export function TwoStepPrompt() {
   const { lang } = usePrefs();
   const w = words[lang];
-  const reduce = useReducedMotion();
   /* drawn into the page only on a page that may ask (so the portal is not there on every page) */
   const [ready, setReady] = useState(false);
   const [show, setShow] = useState(false);
   /* the server is being asked whether the code is on: the loading look covers the page until the answer (or LATE) */
   const [waiting, setWaiting] = useState(false);
+  /* drawn: shown, or fading away after it closed (CSS in globals.css: .two-step-in / .two-step-rise / .two-step-out) */
+  const [drawn, setDrawn] = useState(false);
+  if (show && !drawn) setDrawn(true);
+  const leaving = drawn && !show;
+  useEffect(() => {
+    if (!leaving) return;
+    const t = window.setTimeout(() => setDrawn(false), OUT_MS);
+    return () => window.clearTimeout(t);
+  }, [leaving]);
   const box = useRef<HTMLDivElement>(null);
   const yes = useRef<HTMLAnchorElement>(null);
   /* whether this one holds the tab's pop-up place (read when the page goes away, after the state may have moved on) */
@@ -304,7 +312,6 @@ export function TwoStepPrompt() {
   }, [show]);
 
   if (!ready) return null;
-  const move = { duration: reduce ? 0 : 0.3, ease };
   return createPortal(
     <>
     {/* the answer is not in yet: the page's loading look over it (the dashboard's, as the page itself shows it first) */}
@@ -313,10 +320,8 @@ export function TwoStepPrompt() {
         <DashSkeleton variant={pathname === "/dashboard" ? "home" : "form"} />
       </div>
     )}
-    <AnimatePresence>
-      {show && (
-        <motion.div
-          key="two-step"
+    {drawn && (
+        <div
           ref={box}
           data-two-step-prompt
           data-dukkan-popup
@@ -324,11 +329,7 @@ export function TwoStepPrompt() {
           aria-modal="true"
           aria-labelledby="two-step-prompt-title"
           aria-describedby="two-step-prompt-why"
-          className="dash fixed inset-0 z-[110] flex flex-col overflow-y-auto bg-page text-fg"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: reduce ? 0 : 0.2, ease }}
+          className={`dash fixed inset-0 z-[110] flex flex-col overflow-y-auto bg-page text-fg ${leaving ? "two-step-out" : "two-step-in"}`}
         >
           <header className="flex items-center justify-between px-6 py-6 sm:px-10">
             <Mark lang={lang} />
@@ -338,12 +339,9 @@ export function TwoStepPrompt() {
             </div>
           </header>
 
-          <motion.main
+          <main
             data-lang-fade
-            className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 pb-16 pt-4 sm:px-0"
-            initial={reduce ? false : { opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...move, delay: reduce ? 0 : 0.05 }}
+            className="two-step-rise mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 pb-16 pt-4 sm:px-0"
           >
             <h1 id="two-step-prompt-title" className="text-3xl font-extrabold leading-tight tracking-tight">
               {w.title}
@@ -380,10 +378,9 @@ export function TwoStepPrompt() {
               {w.later}
             </button>
             <p className="mt-3 text-center text-xs text-muted">{w.remind}</p>
-          </motion.main>
-        </motion.div>
+          </main>
+        </div>
       )}
-    </AnimatePresence>
     </>,
     document.body,
   );

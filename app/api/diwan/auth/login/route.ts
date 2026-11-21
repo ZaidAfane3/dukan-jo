@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { emailOf } from "@/components/safe";
-import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, signInTries, tooMany } from "@/server/auth";
 import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { STAFF_2FA_REQUIRED } from "@/components/diwan/staffRules";
@@ -31,11 +31,19 @@ export const POST = guarded(async (req: NextRequest) => {
     [emailKey(email)],
   );
   const s = rows[0];
+  /* as a merchant's sign-in (server/auth.ts signInTries): five wrong passwords on this email from one address and that
+     address waits 15 minutes; wrong ones from everywhere together only make each try wait longer, so nobody can keep a
+     staff member out. Counted by the email typed, so an email that is not staff waits the same way. */
+  const gate = signInTries(req, `diwan-login:${emailKey(email)}`, 5, 15);
+  if (gate.blocked()) return answer({ result: "slow-down" }, 429);
+  gate.failed();
+  await gate.slowDown();
   const ok = await checkPassword(password, s?.password_hash ?? (await dummyHash()));
   if (!s || !s.active || !ok) {
     await audit(req, s ? String(s.id) : null, "staff.login_failed", s ? { type: "staff", id: s.id } : undefined, null, s ? (s.active ? undefined : { inactive: true }) : undefined);
     return answer({ result: "wrong" }, 401);
   }
+  gate.passed();
 
   const id = String(s.id);
   /* the password was replaced or the account turned off while it was being checked: as a wrong password */

@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
    Answers:
    - "ok" (200) with { token }: the reset token for step 3, good once within 15 minutes;
    - "wrong" (401): not the code (5 tries per code, counted here);
-   - "too-many" (429): this code had its 5 tries and is dead: ask for a new one;
-   - "expired" (410): no live code for this email or mobile (more than 10 minutes old, already used, replaced by a newer
-     one, or never asked for);
+   - "too-many" (429): this code had its 5 tries, or the account had 10 tries in the last hour across its codes
+     (server/passwordReset.ts ACCOUNT_CODE_TRIES): wait, or ask for a new one;
+   - "expired" (410): no live code for this email or mobile (more than 10 minutes old, already used, or never asked for;
+     asking for a new code leaves the older ones good);
    - "slow-down" (429): too many checks from this address (30 in 15 minutes);
    - "invalid" (400).
    An email or mobile without an account answers like one with an account (its code just never matches). */

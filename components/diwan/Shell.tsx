@@ -7,7 +7,7 @@ import { usePageTitle } from "../pageTitle";
 import { LangSwitch, ThemeToggle } from "../Prefs";
 import { DiwanMark, GROUP_ICON, Icon, iconForPath } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS, type NavGroup } from "./nav";
-import { can, roleName as roleWords, type Role } from "./perms";
+import { can, type Role } from "./perms";
 import { send, StaffContext, useT } from "./ui";
 
 export type ShellStaff = { name: string; email: string; role: Role };
@@ -37,8 +37,6 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
   const [open, setOpen] = useState(false);
   const items = DIWAN_NAV.filter((i) => can(staff, i.perm));
   const active = (href: string) => (href === "/diwan" ? path === "/diwan" : path === href || path.startsWith(href + "/"));
-  const rw = roleWords(staff.role);
-  const roleName = t(rw.en, rw.ar);
   /* the phone menu closes with Escape, and on any page change */
   useEffect(() => {
     if (!open) return;
@@ -162,9 +160,9 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
                 >
                   <Icon name={GROUP_ICON[g]} className={`h-[18px] w-[18px] shrink-0 ${g === here ? "text-primary" : "text-fg/45"}`} strokeWidth={1.7} />
                   <span className="flex-1 truncate">{t(NAV_GROUPS[g].en, NAV_GROUPS[g].ar)}</span>
-                  {/* closed: how many pages are inside, and an orange dot when the page you are on is one of them */}
+                  {/* closed: an orange dot when the page you are on is one of them. No number beside it: a count of the
+                      pages inside read like work waiting (Diwan shows no numbers beside tabs) */}
                   {!openG && g === here && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                  {!openG && <span className="text-[11px] font-medium tabular-nums text-muted">{list.length}</span>}
                   <svg viewBox="0 0 24 24" className={`h-4 w-4 shrink-0 text-fg/40 transition-transform duration-200 ${openG ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="m6 9 6 6 6-6" />
                   </svg>
@@ -211,7 +209,7 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
               <ThemeToggle />
               <span className="hidden border-s border-fg/10 ps-3 text-start text-xs leading-tight md:block">
                 <span className="block font-semibold">{staff.name}</span>
-                <span className="text-muted">{roleName}</span>
+                <span dir="ltr" className="text-muted">{staff.email}</span>
               </span>
               <button onClick={signOut} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-fg/70 transition-colors hover:bg-fg/[0.05] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                 {t("Sign out", "خروج")}
@@ -259,7 +257,7 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
                 {/* on a phone the top bar has no room for who is signed in */}
                 <div className="border-b border-fg/10 px-7 py-3 text-xs md:hidden">
                   <p className="font-semibold">{staff.name}</p>
-                  <p className="text-muted">{roleName}</p>
+                  <p dir="ltr" className="text-muted rtl:text-end">{staff.email}</p>
                 </div>
                 {nav(false)}
               </aside>

@@ -13,14 +13,15 @@ import type { Lang } from "./content";
 export type UndoOffer = {
   /** what was done, in his language ("3 products moved to Deleted products") */
   label: (lang: Lang) => string;
-  /** puts things back; false when it can't, because what it would put back changed since */
-  undo: () => boolean | void | Promise<boolean | void>;
+  /** puts things back; false when it can't, because what it would put back changed since; "offline" when it could not
+      reach the server (nothing changed, and it can be tried again) */
+  undo: () => boolean | void | "offline" | Promise<boolean | void | "offline">;
   /** the page that made it, to drop its undos when that page closes */
   scope: string;
 };
 
 type Entry = UndoOffer & { id: number; at: number };
-export type UndoNote = { id: number; kind: "undone" | "changed" };
+export type UndoNote = { id: number; kind: "undone" | "changed" | "offline" };
 type State = { toast: Entry | null; note: UndoNote | null };
 
 /** how long the toast shows (the ring fills up in this time) */
@@ -61,16 +62,19 @@ export async function runUndo(id?: number): Promise<boolean> {
   if (!e) return false;
   running = true;
   stack = stack.filter((x) => x.id !== e.id);
-  let ok = false;
+  let out: boolean | void | "offline" = false;
   try {
-    ok = (await e.undo()) !== false;
+    out = await e.undo();
   } catch {
-    ok = false;
+    out = false;
   } finally {
     running = false;
   }
-  /* a change it could not undo can't be undone later either */
-  emit({ toast: null, note: { id: ++seq, kind: ok ? "undone" : "changed" } });
+  const ok = out !== false && out !== "offline";
+  /* the server could not be reached: nothing changed, so it is said so and Ctrl+Z can try it again. A change it could
+     not undo for any other reason (it changed since) can't be undone later either. */
+  if (out === "offline") stack = [...stack, e].slice(-UNDO_KEEP);
+  emit({ toast: null, note: { id: ++seq, kind: ok ? "undone" : out === "offline" ? "offline" : "changed" } });
   return ok;
 }
 

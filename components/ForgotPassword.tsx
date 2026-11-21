@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { content } from "./content";
 import { jordanMobile, savedMobile } from "./phone";
 import { usePrefs } from "./Prefs";
@@ -8,6 +8,7 @@ import { emailOf, passwordProblem } from "./safe";
 import { passwordError } from "./safeAccount";
 import { supportLinks, usePublicSettings } from "./platformPublic";
 import { CodeInput } from "./TwoStepSettings";
+import { secondsText } from "./EmailCodeStep";
 
 /* A forgotten password, on the sign-in page (SignupForm.tsx): the merchant types the email or mobile of his account, gets
    a 6-digit code there, types it, then picks a new password (app/api/auth/reset/...). When it is done the sign-in form
@@ -27,13 +28,15 @@ const words = {
     send: "Send code",
     sending: "Sending…",
     sent: "If this email or number has an account, we sent a code.",
+    sentEmail: "If this number has an account, we sent a code to that account's email.",
     codeTitle: "Enter the code",
-    codeIntro: "Enter the 6-digit code we sent to",
+    codeIntro: "If this email has an account, enter the 6-digit code we sent to",
+    codeIntroPhone: "If this number has an account, enter the 6-digit code we sent to that account's email. You typed",
     codeLabel: "6-digit code",
     codeNote: "The code works for 10 minutes.",
     verify: "Continue",
     resend: "Send a new code",
-    resendIn: (s: number) => `Send a new code in ${s} s`,
+    resendIn: (s: number) => `Send a new code in ${secondsText(s, "en")}`,
     other: "Use another email or number",
     wrongCode: "That code isn't right. Check it and try again.",
     expired: "This code has expired. Ask for a new one.",
@@ -50,6 +53,9 @@ const words = {
     save: "Change password",
     saving: "Saving…",
     tokenExpired: "This took too long. Ask for a new code.",
+    /* the answer to the last try was lost on the way, so it may have worked */
+    maybeSet: "We couldn't confirm your last try, and your new password may already be saved. Go back to log in and try it; if it doesn't work, ask for a new code.",
+    noAnswer: "No answer from Dukkan. Check your connection and try again: the code you typed is kept.",
     back: "Back to log in",
     fallback: "Can't get a code? Contact support",
     call: "Call",
@@ -65,13 +71,15 @@ const words = {
     send: "أرسل الرمز",
     sending: "جارٍ الإرسال…",
     sent: "إذا كان لهذا البريد أو الرقم حساب، فقد أرسلنا إليه رمزًا.",
+    sentEmail: "إذا كان لهذا الرقم حساب، فقد أرسلنا رمزًا إلى البريد الإلكتروني لذلك الحساب.",
     codeTitle: "أدخل الرمز",
-    codeIntro: "أدخل الرمز المكوّن من 6 أرقام الذي أرسلناه إلى",
+    codeIntro: "إذا كان لهذا البريد حساب، فأدخل الرمز المكوّن من 6 أرقام الذي أرسلناه إلى",
+    codeIntroPhone: "إذا كان لهذا الرقم حساب، فأدخل الرمز المكوّن من 6 أرقام الذي أرسلناه إلى البريد الإلكتروني لذلك الحساب. الرقم الذي أدخلته",
     codeLabel: "رمز من 6 أرقام",
     codeNote: "الرمز صالح لمدة 10 دقائق.",
     verify: "متابعة",
-    resend: "أرسل رمزًا جديدًا",
-    resendIn: (s: number) => `أرسل رمزًا جديدًا بعد ${s} ث`,
+    resend: "إرسال رمز جديد",
+    resendIn: (s: number) => `إرسال رمز جديد بعد ${secondsText(s, "ar")}`,
     other: "استخدم بريدًا أو رقمًا آخر",
     wrongCode: "الرمز غير صحيح. تحقّق منه وحاول مرة أخرى.",
     expired: "انتهت صلاحية هذا الرمز. اطلب رمزًا جديدًا.",
@@ -88,6 +96,8 @@ const words = {
     save: "غيّر كلمة المرور",
     saving: "جارٍ الحفظ…",
     tokenExpired: "استغرق الأمر وقتًا طويلًا. اطلب رمزًا جديدًا.",
+    maybeSet: "لم نتمكن من تأكيد محاولتك الأخيرة، وقد تكون كلمة المرور الجديدة محفوظة بالفعل. عد إلى تسجيل الدخول وجرّبها، وإن لم تنجح فاطلب رمزًا جديدًا.",
+    noAnswer: "لا يوجد رد من دكّان. تحقق من اتصالك وحاول مجددًا: الرمز الذي كتبته محفوظ.",
     back: "العودة إلى تسجيل الدخول",
     fallback: "لم يصلك الرمز؟ تواصل مع الدعم",
     call: "اتصال",
@@ -131,13 +141,13 @@ export function maskedContact(typed: string): string {
   return `${user.slice(0, user.length > 2 ? 2 : 1)}•••@${domain}`;
 }
 
-type Reply = { status: number; result: string; token?: string };
+type Reply = { status: number; result: string; token?: string; via?: string };
 
 async function post(path: string, body: unknown): Promise<Reply | null> {
   try {
     const r = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const j = ((await r.json().catch(() => ({}))) ?? {}) as { result?: string; token?: string };
-    return { status: r.status, result: j.result ?? "", token: j.token };
+    const j = ((await r.json().catch(() => ({}))) ?? {}) as { result?: string; token?: string; via?: string };
+    return { status: r.status, result: j.result ?? "", token: j.token, via: j.via };
   } catch {
     return null;
   }
@@ -163,6 +173,8 @@ export function ForgotPassword({
   const [contact, setContact] = useState(initial.trim());
   /* the email or mobile the code was sent to, as typed (the next steps name it) */
   const [sentTo, setSentTo] = useState("");
+  /* the code went to the account's email although a mobile was typed (no SMS service yet) */
+  const [viaEmail, setViaEmail] = useState(false);
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
   const [password, setPassword] = useState("");
@@ -175,6 +187,9 @@ export function ForgotPassword({
   /* resetting by code can't be done here (no sender in production): support is the way */
   const [noSender, setNoSender] = useState(false);
   const [busy, setBusy] = useState(false);
+  /* the answer to a try of the new password never came: the server may have kept it, so a later "expired" (its token
+     already used) does not mean it failed */
+  const lostAnswer = useRef(false);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
@@ -203,7 +218,8 @@ export function ForgotPassword({
     setBusy(false);
     if (r?.result === "sent") {
       setNoSender(false);
-      setNote(w.sent);
+      setNote(r.via === "email" ? w.sentEmail : w.sent);
+      setViaEmail(r.via === "email");
       setResendAt(Date.now() + RESEND_SECONDS * 1000);
       setNow(Date.now());
       return true;
@@ -246,6 +262,12 @@ export function ForgotPassword({
       setStep("password");
       return;
     }
+    /* no answer (the connection dropped): the code he typed stays, to send again as it is */
+    if (!r) {
+      setError(w.noAnswer);
+      document.getElementById("fp-code")?.focus();
+      return;
+    }
     setCode("");
     /* a dead code: a new one can be asked for at once */
     if (r?.result === "expired" || r?.result === "too-many") setResendAt(0);
@@ -274,6 +296,12 @@ export function ForgotPassword({
     const r = await post("/api/auth/reset/set", { token, password });
     setBusy(false);
     if (r?.result === "ok") return onDone(sentTo, password);
+    if (!r) lostAnswer.current = true;
+    /* the token was used by a try whose answer was lost: the password was most likely changed then */
+    if (r?.result === "expired" && lostAnswer.current) {
+      setError(w.maybeSet);
+      return;
+    }
     if (r?.result === "expired") {
       /* back to the code step, where a new code can be asked for at once */
       setToken("");
@@ -335,7 +363,7 @@ export function ForgotPassword({
       {step === "code" && (
         <form method="post" action="#" onSubmit={submitCode} noValidate className="mt-6 space-y-5">
           <p className="text-sm leading-relaxed text-muted">
-            {w.codeIntro}{" "}
+            {viaEmail && jordanMobile(sentTo) ? w.codeIntroPhone : w.codeIntro}{" "}
             <bdi dir="ltr" className="font-semibold text-fg">{maskedContact(sentTo)}</bdi>
           </p>
           {note && <p role="status" className="rounded-xl bg-soft px-4 py-3 text-sm">{note}</p>}
@@ -363,7 +391,9 @@ export function ForgotPassword({
             </button>
             <button
               type="button"
+              disabled={busy}
               onClick={() => {
+                if (busy) return;
                 setStep("contact");
                 setError("");
                 setNote("");
@@ -439,7 +469,8 @@ export function ForgotPassword({
         </form>
       )}
 
-      <button type="button" onClick={onBack} className={`${linkBtn} mt-6`}>
+      {/* not while a request is on its way: its answer would land on a screen that has moved on */}
+      <button type="button" onClick={() => !busy && onBack()} disabled={busy} className={`${linkBtn} mt-6`}>
         {w.back}
       </button>
 

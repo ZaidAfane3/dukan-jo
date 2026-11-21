@@ -118,6 +118,19 @@ let account: string | null = null;
 let accountsOn = false;
 const shared = (k: string) => PASS.has(k) || k.startsWith("dukkan-") || k.startsWith("saad-");
 
+/* The account was signed out in another tab of this browser, which forgot it here (forgetAccount.ts), while this tab
+   still goes by it until it has left. Its pages keep nothing more of the account's own data meanwhile (a list saved
+   again as a page closes, a save's answer): it would write the account back into this browser, and a page reading the
+   emptied copy would put that empty copy in the outbox, sent over the server's store at the next sign-in. Its unsent
+   ticket words (dukkan- keys) are still kept. A sign-in (signInAs) ends it. */
+let frozen = false;
+/** This tab writes nothing more of the signed-in account's own data, and sends none of it (see `frozen`) */
+export function freezeAccount() {
+  frozen = true;
+}
+/** True once freezeAccount was called and no account signed in or out since */
+export const accountFrozen = () => frozen;
+
 /** Called before any page reads its data, like the tour. The tour, when it runs, takes over instead. */
 export function installAccounts() {
   if (accountsOn || !proto || !orig || demoActive()) return;
@@ -138,6 +151,7 @@ export function installAccounts() {
      copy than the server's, would otherwise put that copy over the newer one) */
   proto.setItem = function (this: Storage, k: string, v: string) {
     const mine = own(this, k);
+    if (mine && frozen) return;
     const same = mine && o.get.call(this, scoped(this, k)) === String(v);
     try {
       o.set.call(this, scoped(this, k), v);
@@ -150,6 +164,7 @@ export function installAccounts() {
   };
   proto.removeItem = function (this: Storage, k: string) {
     const mine = own(this, k);
+    if (mine && frozen) return;
     const had = mine && o.get.call(this, scoped(this, k)) !== null;
     o.remove.call(this, scoped(this, k));
     if (had) queueSave(k, null);
@@ -177,7 +192,7 @@ export function accountData(): Record<string, string> {
     pictures were moved into files, see serverSync.ts). Only while the browser still holds `expected`: a newer change the
     page made since is kept, and is sent with its own save. True when the browser holds `value` now. */
 export function replaceAccountValue(key: string, value: string, expected: string): boolean {
-  if (!account || !orig) return false;
+  if (!account || !orig || frozen) return false;
   const k = `acct:${account}:${key}`;
   try {
     const ls = window.localStorage;
@@ -196,7 +211,7 @@ export function replaceAccountValue(key: string, value: string, expected: string
     when the server has none (`value` null: the browser's copy is removed). Only while the browser still holds
     `expected` (null: none, a removal the server did not keep). True when the browser holds `value` now. */
 export function restoreAccountValue(key: string, value: string | null, expected: string | null): boolean {
-  if (!account || !orig) return false;
+  if (!account || !orig || frozen) return false;
   const k = `acct:${account}:${key}`;
   try {
     const ls = window.localStorage;
@@ -224,7 +239,7 @@ export function accountValue(key: string): string | null {
 
 /** Puts the account's data from the server into this browser, in place of what was there (nothing is sent back) */
 export function replaceAccountData(data: Record<string, string>) {
-  if (!account || !orig) return;
+  if (!account || !orig || frozen) return;
   const prefix = `acct:${account}:`;
   try {
     const ls = window.localStorage;
@@ -235,9 +250,64 @@ export function replaceAccountData(data: Record<string, string>) {
   }
 }
 
+/* ---------------- the browser's own storage, as it is ----------------
+   For forgetting an account (forgetAccount.ts): the keys and values really kept in this browser, never the tour's copy,
+   and never through installAccounts (removing a key there would be sent to the server as the merchant deleting it). */
+type Area = "local" | "session";
+const areaOf = (a: Area): Storage | null => {
+  try {
+    return a === "local" ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null;
+  }
+};
+
+/** Every key this browser really keeps in localStorage or sessionStorage */
+export function storedKeys(a: Area): string[] {
+  const s = areaOf(a);
+  if (!s || !orig) return [];
+  try {
+    /* the real count: in the tour `length` is the real one too (only the methods are the tour's) */
+    return Array.from({ length: s.length }, (_, i) => orig.key.call(s, i)).filter((k): k is string => k !== null);
+  } catch {
+    return [];
+  }
+}
+
+/** One key as this browser really keeps it (null when it has none) */
+export function storedValue(a: Area, k: string): string | null {
+  const s = areaOf(a);
+  try {
+    return s && orig ? orig.get.call(s, k) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Removes one key from this browser without sending anything */
+export function unstore(a: Area, k: string) {
+  const s = areaOf(a);
+  try {
+    if (s && orig) orig.remove.call(s, k);
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/** Writes one key in this browser without sending anything */
+export function restore(a: Area, k: string, v: string) {
+  const s = areaOf(a);
+  try {
+    if (s && orig) orig.set.call(s, k, v);
+  } catch {
+    /* storage full or blocked */
+  }
+}
+
 /** Signs in to an account (its store is used from now on), or out (null) */
 export function signInAs(email: string | null) {
   account = email;
+  frozen = false;
   try {
     if (email) orig?.set.call(window.localStorage, ACCOUNT, email);
     else orig?.remove.call(window.localStorage, ACCOUNT);

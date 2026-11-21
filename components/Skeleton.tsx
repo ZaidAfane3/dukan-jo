@@ -77,9 +77,10 @@ export function SkeletonOverlay() {
 
   useEffect(() => {
     let cancelled = false;
-    const minimum = new Promise((r) => setTimeout(r, 700));
+    /* only as long as the fonts take (no fixed wait when they are already in), and never more than 1.2 s on a slow line */
     const fonts = document.fonts?.ready ?? Promise.resolve();
-    Promise.all([minimum, fonts]).then(() => {
+    const longest = new Promise((r) => setTimeout(r, 1200));
+    Promise.race([fonts, longest]).then(() => {
       if (!cancelled) setVisible(false);
     });
     return () => {

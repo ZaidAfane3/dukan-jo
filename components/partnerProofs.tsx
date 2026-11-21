@@ -32,9 +32,14 @@ export type ProofFile = { id: string; name: string; size: string; url: string | 
 type Words = (typeof content)["en"]["onboarding"]["shipping"];
 type ServerDoc = { id: string; kind: string; name: string; status: ProofStatus; note: string; mime: string | null; bytes: number; hasFile: boolean };
 
+/* A file's size in the units its limit is said in: "5 MB" is 5,000,000 bytes (components/safe.ts MB), so a 4.9 MB
+   file never shows as "4.7 MB" next to a limit it nearly reaches, nor a refused one as "4.8 MB" */
 export function formatSize(bytes: number): string {
-  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1000))} KB`;
 }
+
+/* the type a proof's bytes really are (the server reads them again) */
+const PROOF_MIME: Record<string, string> = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", pdf: "application/pdf" };
 
 /* a document from the server as a row of the list (its picture comes from the merchant's own file route) */
 const fromServer = (d: ServerDoc): ProofFile => ({
@@ -65,6 +70,9 @@ function refusal(status: number, result: unknown, s: Words): string {
   if (result === "too-big" && status === 409) return s.proofFull;
   if (status === 413) return s.proofTooBig;
   if (result === "invalid") return s.proofType;
+  /* too many tries is not a connection problem: saying "check your connection" would send the merchant the wrong way */
+  if (status === 429) return s.proofSlow;
+  if (result === "storage-full") return s.proofBusy;
   return s.proofFailed;
 }
 
@@ -140,11 +148,12 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
           message = uploadProblemText.broken[lang];
           continue;
         }
-        const r = await merchantCall("/api/documents", "POST", { kind: "courier_proof", data, type: file.type, name: file.name, partner: partner.name, partnerKind: partner.kind });
+        /* the type its bytes are, not the one its name gives (a PNG named .jpg is still a good PNG) */
+        const r = await merchantCall("/api/documents", "POST", { kind: "courier_proof", data, type: PROOF_MIME[check.kind] ?? "", name: file.name, partner: partner.name, partnerKind: partner.kind });
         if (!r || r.status !== 200 || !r.data.document) {
           message = r ? refusal(r.status, r.data.result, s) : s.proofFailed;
-          /* a full list won't change on the next file */
-          if (r && r.data.result === "too-many") break;
+          /* a full list, too many tries or a full Dukkan won't change on the next file */
+          if (r && (r.data.result === "too-many" || r.status === 429 || r.status === 503)) break;
           continue;
         }
         const one = fromServer(r.data.document as ServerDoc);

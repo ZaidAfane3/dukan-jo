@@ -24,7 +24,7 @@ export const GET = staffRoute("shops.read", async () => {
     pool.query(`
       SELECT (SELECT count(*) FROM tickets WHERE status NOT IN ('resolved', 'closed'))::int AS tickets,
              (SELECT count(*) FROM store_reports WHERE status = 'new')::int AS reports,
-             (SELECT count(*) FROM documents WHERE status = 'waiting' AND removed_at IS NULL)::int AS documents`),
+             (SELECT count(*) FROM documents WHERE status = 'waiting' AND removed_at IS NULL AND NOT draft)::int AS documents`),
     pool.query(`
       SELECT s.account_id AS id, s.name, s.slug, a.name AS owner, s.created_at, s.setup_done, (${STATUS_SQL}) AS status
         FROM shops s JOIN accounts a ON a.id = s.account_id

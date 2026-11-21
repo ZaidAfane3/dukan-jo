@@ -20,6 +20,11 @@ const words = {
     /* the undo note at the bottom (UndoToast.tsx) */
     undoPaused: "Store put under maintenance",
     undoOpened: "Store opened",
+    /* asked before pausing: one click must not close the store to customers */
+    askTitle: "Put your store under maintenance?",
+    askBody: "Customers will see a maintenance page and can't order until you open the store again.",
+    askYes: "Pause store",
+    askNo: "Cancel",
   },
   ar: {
     open: "المتجر مفتوح",
@@ -31,13 +36,19 @@ const words = {
     failed: "تعذّر الحفظ. حاول مرة أخرى.",
     undoPaused: "وُضع المتجر قيد الصيانة",
     undoOpened: "فُتح المتجر",
+    askTitle: "هل تريد وضع متجرك قيد الصيانة؟",
+    askBody: "سيرى العملاء صفحة الصيانة ولن يستطيعوا الطلب حتى تفتح المتجر مجددًا.",
+    askYes: "إيقاف المتجر",
+    askNo: "إلغاء",
   },
 };
 
 /* The switch's save still on its way: the menu can close and open again meanwhile, and must not take a second click */
 let inFlight: Promise<boolean> | null = null;
-/* the switches shown (the menu may be open while an undo runs): they read the state again */
-const SHOWN = "dukkan-store-status";
+/** Fired on window when the store was paused or opened here (the switches shown and the dashboard home read it again;
+    the menu may be open while an undo runs) */
+export const STORE_STATUS_EVENT = "dukkan-store-status";
+const SHOWN = STORE_STATUS_EVENT;
 
 /** Pauses or opens the store: kept in this browser and sent to the server at once, on its own. False when the server did
     not keep it (this browser then holds the server's state again: saveNow put it back). */
@@ -62,6 +73,8 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
   const [m, setM] = useState<Maintenance | null>(null);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  /* pausing asks first (below the switch) */
+  const [asking, setAsking] = useState(false);
   useEffect(() => {
     setM(loadMaintenance());
     let live = true;
@@ -93,8 +106,11 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
   if (!m) return null;
   const open = !m.on;
   const cantOpen = !open && sell.read && !sell.ok;
-  const flip = async () => {
+  const flip = async (sure = false) => {
     if (disabled || saving || inFlight || cantOpen) return;
+    /* open now: it pauses only once he says so */
+    if (open && !sure) return setAsking(true);
+    setAsking(false);
     const next = { on: open, message: { en: "", ar: "" } };
     setM(next);
     setFailed(false);
@@ -121,8 +137,9 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
         aria-checked={open}
         aria-disabled={off || undefined}
         aria-busy={saving || undefined}
+        aria-expanded={open ? asking : undefined}
         title={disabled ? disabledTitle : undefined}
-        onClick={() => void flip()}
+        onClick={() => (asking ? setAsking(false) : void flip())}
         className={`flex w-full items-center justify-between gap-3 text-start text-sm ${disabled ? "cursor-not-allowed opacity-40" : cantOpen ? "cursor-not-allowed" : saving ? "cursor-wait" : ""}`}
       >
         <span className="flex min-w-0 items-start gap-3">
@@ -136,6 +153,20 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
           <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${open ? "left-[22px]" : "left-0.5"}`} />
         </span>
       </button>
+      {asking && open && !saving && (
+        <div role="group" aria-label={w.askTitle} className="ms-5 mt-2 rounded-lg bg-amber-500/15 px-3 py-2.5 text-xs text-amber-900 dark:text-amber-200">
+          <p className="font-semibold">{w.askTitle}</p>
+          <p className="mt-0.5">{w.askBody}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" autoFocus onClick={() => void flip(true)} className="rounded-lg bg-amber-600 px-3 py-1.5 font-bold text-white transition hover:bg-amber-700">
+              {w.askYes}
+            </button>
+            <button type="button" onClick={() => setAsking(false)} className="rounded-lg px-3 py-1.5 font-semibold transition hover:bg-amber-500/20">
+              {w.askNo}
+            </button>
+          </div>
+        </div>
+      )}
       {failed && !saving && (
         <p role="alert" className="ms-5 mt-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
           {w.failed}

@@ -582,3 +582,109 @@ input[type="radio"]:not(.sr-only):checked { border-color: var(--sf-primary, rgb(
 input[type="radio"]:not(.sr-only):checked::before { transform: scale(1); }
 input[type="radio"]:not(.sr-only):focus-visible { outline: none; box-shadow: 0 0 0 3px rgb(var(--primary) / 0.25); }
 input[type="radio"]:not(.sr-only):disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Diwan's internal notes on a ticket look like a sticky note, so nobody mistakes one for a reply the merchant reads:
+   yellow paper with ruled lines, a strip of tape on top and a folded corner (components/diwan/TicketChat.tsx). The
+   note being written drops in like a note stuck on the desk when "Internal note" is picked. */
+.sticky-note {
+  --note-paper: 255 241 168;
+  --note-ink: 59 47 6;
+  --note-line: 176 136 20;
+  --note-fold: 233 214 122;
+  --note-shade: 214 190 92;
+  position: relative;
+  background-color: rgb(var(--note-paper));
+  color: rgb(var(--note-ink));
+  border-radius: 3px 3px 3px 3px;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 0.05), 0 10px 20px -10px rgb(120 90 0 / 0.45);
+}
+[data-theme="dark"] .sticky-note {
+  --note-paper: 74 61 20;
+  --note-ink: 253 243 196;
+  --note-line: 255 226 130;
+  --note-fold: 104 88 32;
+  --note-shade: 52 42 12;
+}
+/* the strip of tape that holds it */
+.sticky-note::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 64px;
+  height: 16px;
+  transform: translateX(-50%) rotate(-2deg);
+  background: rgb(255 255 255 / 0.55);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+  border-radius: 2px;
+  pointer-events: none;
+}
+[data-theme="dark"] .sticky-note::before { background: rgb(255 255 255 / 0.18); }
+/* the folded corner (a dog-ear drawn on the paper, so it looks right on any background), at the end of the last line */
+.sticky-note::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  inset-inline-end: 0;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(315deg, rgb(var(--note-shade)) 50%, rgb(var(--note-fold)) 50%);
+  border-start-start-radius: 4px;
+  box-shadow: -1px -1px 2px rgb(0 0 0 / 0.08);
+  pointer-events: none;
+}
+[dir="rtl"] .sticky-note::after {
+  background: linear-gradient(45deg, rgb(var(--note-shade)) 50%, rgb(var(--note-fold)) 50%);
+  box-shadow: 1px -1px 2px rgb(0 0 0 / 0.08);
+}
+/* ruled lines that move with the text when it scrolls */
+.sticky-note-lines {
+  line-height: 1.75rem;
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(1.75rem - 1px), rgb(var(--note-line) / 0.28) calc(1.75rem - 1px), rgb(var(--note-line) / 0.28) 1.75rem);
+  background-attachment: local;
+  background-position: 0 0.5rem;
+}
+@keyframes sticky-note-in {
+  from { opacity: 0; transform: translateY(-8px) rotate(-2.5deg) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.sticky-note-in { animation: sticky-note-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+@media (prefers-reduced-motion: reduce) {
+  .sticky-note-in { animation: none; }
+}
+
+/* Press feedback: every button shrinks a little while it is held, so a tap is felt at once (scale 0.97, 160 ms, a strong
+   ease-out). It uses the `scale` property, which adds to a hover lift (transform) instead of replacing it, and it eases
+   where the element already has a transition (tailwind.config.ts adds scale to "transition"). Not for disabled buttons;
+   kept for people who ask for less motion, as a 3% press is feedback, not movement across the screen. */
+:where(button, [role="button"], input[type="submit"], input[type="button"], summary):not(:disabled):not([aria-disabled="true"]):active {
+  scale: 0.97;
+}
+:where(button, [role="button"], input[type="submit"], input[type="button"], summary):not([class*="transition"]) {
+  transition: scale 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* The 2-step sign-in page (components/TwoStepPrompt.tsx): fades over the dashboard, its text rises a little, and it fades
+   away when closed. Plain CSS so the dashboard does not load an animation library for it. Reduced motion: the fade only. */
+@keyframes two-step-fade-in {
+  from { opacity: 0; }
+}
+@keyframes two-step-fade-out {
+  to { opacity: 0; }
+}
+@keyframes two-step-rise {
+  from { opacity: 0; transform: translateY(16px); }
+}
+.two-step-in {
+  animation: two-step-fade-in 200ms cubic-bezier(0.23, 1, 0.32, 1) backwards;
+}
+.two-step-out {
+  animation: two-step-fade-out 150ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  pointer-events: none;
+}
+.two-step-rise {
+  animation: two-step-rise 250ms cubic-bezier(0.23, 1, 0.32, 1) 50ms backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .two-step-rise { animation-name: two-step-fade-in; }
+}

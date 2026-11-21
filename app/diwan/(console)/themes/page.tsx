@@ -6,6 +6,7 @@ import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, 
 import { ThemesSkeleton } from "@/components/diwan/skeletons";
 import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
 import { ThemePreview } from "@/components/ThemePreview";
+import { latin } from "@/components/digits";
 import { defaultConfig } from "@/components/storefront/config";
 import { designFrom } from "@/components/storefront/storage";
 import { defaultTheme, designTheme, madaTheme, themes, withListing, type ThemeInfo } from "@/components/themes";
@@ -75,7 +76,6 @@ export default function ThemesPage() {
       <Loaded s={s} skeleton={<ThemesSkeleton />}>
         {(d) => {
           const all = d.themes.map(entryOf).filter((x): x is Entry => !!x);
-          const count = (f: Filter) => all.filter((e) => inFilter(e.row.status, f)).length;
           const shown = all.filter((e) => inFilter(e.row.status, filter));
           const open = openId ? all.find((e) => e.row.id === openId) : null;
           const openFree = openId ? FREE.find((x) => x.id === openId) : null;
@@ -85,7 +85,7 @@ export default function ThemesPage() {
                 <div className="mb-3 flex flex-wrap gap-2" role="tablist">
                   {(["live", "hidden"] as Filter[]).map((f) => (
                     <button key={f} type="button" role="tab" aria-selected={filter === f} onClick={() => setFilter(f)} className={`h-9 rounded-full px-4 text-sm font-semibold transition ${filter === f ? "bg-ink text-onink" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}>
-                      {{ live: t("Live", "منشورة"), hidden: t("Hidden", "مخفية") }[f]} <span className="tabular-nums opacity-70">{count(f)}</span>
+                      {{ live: t("Live", "منشورة"), hidden: t("Hidden", "مخفية") }[f]}
                     </button>
                   ))}
                 </div>
@@ -420,11 +420,11 @@ function DetailsForm({ row, code, reload }: { row: ListingRow; code: ThemeInfo |
       <div className="grid grid-cols-2 gap-3">
         <label className="space-y-1 text-sm font-semibold">
           <span>{t("Price (JOD, 0 is free)", "السعر (د.أ، 0 مجاني)")}</span>
-          <input inputMode="decimal" dir="ltr" className={field} value={price} onChange={(e) => setPrice(e.target.value)} />
+          <input inputMode="decimal" dir="ltr" className={field} value={price} onChange={(e) => setPrice(latin(e.target.value))} />
         </label>
         <label className="space-y-1 text-sm font-semibold">
           <span>{t("Place in the store", "الترتيب في المتجر")}</span>
-          <input inputMode="numeric" dir="ltr" className={field} value={sort} onChange={(e) => setSort(e.target.value.replace(/\D/g, ""))} />
+          <input inputMode="numeric" dir="ltr" className={field} value={sort} onChange={(e) => setSort(latin(e.target.value).replace(/\D/g, ""))} />
         </label>
       </div>
       <p className="-mt-2 text-xs text-muted">{t("Smaller places come first; featured themes come before all others.", "الترتيب الأصغر يظهر أولًا، والثيمات المميزة قبل غيرها.")}</p>

@@ -127,7 +127,7 @@ export const themes: ThemeInfo[] = [
     ),
     price: THEME_PRICES.atelier,
     tags: [bi("Dukkan design", "تصميم دكان")],
-    shot: "/themes/atelier.jpg?v=2x",
+    shot: "/themes/atelier.webp",
     features: [
       bi("Edit everything: change every text, every picture and every color", "عدّل كل شيء: غيّر كل نص وكل صورة وكل لون"),
       bi("Your current products are imported into it automatically", "تُستورد منتجاتك الحالية فيه تلقائيًا"),
@@ -150,7 +150,7 @@ export const themes: ThemeInfo[] = [
     ),
     price: THEME_PRICES.lamma,
     tags: [bi("Dukkan design", "تصميم دكان")],
-    shot: "/themes/lamma.jpg?v=3",
+    shot: "/themes/lamma.webp",
     features: [
       bi("Edit everything: change every text, every picture and every color", "عدّل كل شيء: غيّر كل نص وكل صورة وكل لون"),
       bi("Your current products are imported into it automatically", "تُستورد منتجاتك الحالية فيه تلقائيًا"),
