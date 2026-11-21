@@ -5,6 +5,8 @@ import { checkCodeFor, sendCodeEmail, verifyLang } from "@/server/emailVerify";
 import { useRecoveryCode } from "@/server/recovery";
 import { touchShop } from "@/server/shops";
 import { logMerchant } from "@/server/merchantLog";
+import { db } from "@/server/db";
+import { useTotpCode } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -58,8 +60,18 @@ export const POST = guarded(async (req: NextRequest) => {
   const typed = typeof body?.code === "string" ? latin(body.code).trim() : "";
   const six = typed.replace(/\s+/g, "");
   if (/^\d{6}$/.test(six)) {
-    const r = await checkCodeFor(a.ref, six);
-    if (r.result !== "ok") return answer({ result: r.result }, r.result === "wrong" ? 401 : r.result === "expired" ? 410 : 429);
+    /* an account that used an authenticator app before codes came by email: the app's code still works too, so it can
+       always sign in, even while email can't be sent. Its wrong tries count like wrong recovery codes. */
+    const { rows } = await (await db()).query(`SELECT totp_secret FROM accounts WHERE id = $1`, [a.id]);
+    const secret: string | null = rows[0]?.totp_secret ?? null;
+    if (secret && blocked(a.id, req)) return answer({ result: "recovery-wait" }, 429);
+    if (!secret || !(await useTotpCode("accounts", a.id, secret, six))) {
+      const r = await checkCodeFor(a.ref, six);
+      if (r.result !== "ok") {
+        if (secret) noteWrong(a.id, req);
+        return answer({ result: r.result }, r.result === "wrong" ? 401 : r.result === "expired" ? 410 : 429);
+      }
+    }
   } else {
     /* its own answer: the page's "slow-down" talks about sending codes, which has nothing to do with this wait */
     if (blocked(a.id, req)) return answer({ result: "recovery-wait" }, 429);

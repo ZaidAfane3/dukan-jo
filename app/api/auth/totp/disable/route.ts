@@ -5,6 +5,7 @@ import { db } from "@/server/db";
 import { checkCodeFor, sendCodeEmail, verifyLang } from "@/server/emailVerify";
 import { useRecoveryCode } from "@/server/recovery";
 import { logMerchant } from "@/server/merchantLog";
+import { useTotpCode } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -28,12 +29,15 @@ export const POST = guarded(async (req: NextRequest) => {
   const password = typeof body?.password === "string" && body.password.length <= 128 ? body.password : "";
   const typed = typeof body?.code === "string" ? latin(body.code).trim() : "";
   const pool = await db();
-  const { rows } = await pool.query(`SELECT password_hash, totp_on FROM accounts WHERE id = $1`, [a.id]);
+  const { rows } = await pool.query(`SELECT password_hash, totp_on, totp_secret FROM accounts WHERE id = $1`, [a.id]);
   const r = rows[0];
   if (!r?.totp_on) return answer({ result: "ok", on: false });
   if (!password || !(await checkPassword(password, r.password_hash))) return answer({ result: "wrong-password" }, 400);
   const six = typed.replace(/\s+/g, "");
-  if (/^\d{6}$/.test(six)) {
+  /* an account that used an authenticator app before: the app's code works here too (app/api/auth/totp) */
+  if (/^\d{6}$/.test(six) && r.totp_secret && (await useTotpCode("accounts", a.id, r.totp_secret, six))) {
+    /* the app's code */
+  } else if (/^\d{6}$/.test(six)) {
     const c = await checkCodeFor(ref, six);
     if (c.result !== "ok") return answer({ result: c.result === "wrong" ? "wrong-code" : c.result }, 400);
   } else if (!(await useRecoveryCode(a.id, typed))) return answer({ result: "wrong-code" }, 400);

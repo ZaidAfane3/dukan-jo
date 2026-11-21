@@ -895,7 +895,10 @@ export const DIWAN_SCHEMA = `
     expires_at    TIMESTAMPTZ NOT NULL
   );
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS two_step_method TEXT;
-  UPDATE accounts SET two_step_method = 'email', totp_secret = NULL WHERE totp_on AND two_step_method IS NULL;
+  /* accounts that used an authenticator app get their codes by email from now on. Their app's secret is kept, so the
+     app's codes keep signing them in too (app/api/auth/totp): nobody loses their way in, even while email is down. It
+     goes when 2-step is turned off or on again. */
+  UPDATE accounts SET two_step_method = 'email' WHERE totp_on AND two_step_method IS NULL;
 
   /* ---------- the merchant log: what each merchant did with his account and store (server/merchantLog.ts) ----------
      Diwan's "Merchant log" and each store's page read it. Only what happened, never his products, orders or customers:
