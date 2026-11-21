@@ -217,10 +217,11 @@ async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, 
     await pool.query(`UPDATE email_codes SET used_at = now() WHERE ref = $1 AND used_at IS NULL AND email_hash <> $2`, [ref, key]).catch(() => {});
     return "failed";
   }
-  /* sent: this code is the good one from now on (its 10 minutes start now), and the ones before it end, in one step */
+  /* sent: this code is the good one from now on (its 10 minutes start now), and the ones before it end, in one step.
+     Unless it was cancelled meanwhile ("Keep my current email" while the email was on its way): then it stays ended. */
   await pool.query(
     `UPDATE email_codes
-        SET used_at = CASE WHEN id = $2 THEN NULL ELSE now() END,
+        SET used_at = CASE WHEN id = $2 AND cancelled_at IS NULL THEN NULL ELSE COALESCE(used_at, now()) END,
             expires_at = CASE WHEN id = $2 THEN now() + make_interval(mins => $3) ELSE expires_at END
       WHERE ref = $1 AND (id = $2 OR used_at IS NULL)`,
     [ref, id, CODE_MINUTES],
@@ -245,7 +246,8 @@ export type CheckResult =
   | { result: "wrong" | "expired" | "too-many" | "locked" };
 
 /* the ref's code still good now: one at most (a new code ends the ones before it) */
-const LIVE = `ref = $1 AND used_at IS NULL AND expires_at > now()`;
+/* a code that can still be typed: not used, not cancelled, not run out */
+const LIVE = `ref = $1 AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()`;
 
 /** Checks a typed code against the newest code sent for `ref`. "ok" also gives the address it went to (and, for a
     change, the new email). `again`: the same right code was just used (sent twice, from two tabs at once): the caller
@@ -310,6 +312,11 @@ export async function checkCodeFor(ref: string, code: string): Promise<CheckResu
 
 /** Ends every code still good for `ref`. `cancel`: given up (an email change cancelled), so nothing is waiting any more. */
 export async function endCodes(ref: string, cancel = false): Promise<void> {
+  /* in the same line as this ref's sends (sendCodeEmail), so a code still on its way is ended after it is written, never
+     brought back to life by its send finishing after the cancel */
+  return oneAtATime(`ref:${ref}`, () => endCodesNow(ref, cancel));
+}
+async function endCodesNow(ref: string, cancel: boolean): Promise<void> {
   await (await db()).query(
     `UPDATE email_codes SET used_at = COALESCE(used_at, now()), cancelled_at = CASE WHEN $2 THEN now() ELSE cancelled_at END
       WHERE ref = $1 AND (used_at IS NULL OR ($2 AND confirmed_at IS NULL AND cancelled_at IS NULL))`,
