@@ -631,7 +631,9 @@ export async function syncOnOpen() {
   /* This tab has the store as the server has it: pictures still kept inside it (saved before they went to the server as
      files, or a page background kept only in this browser) are sent now, once. */
   const pictures = () => void resendOldPictures(accountData());
-  if (done) return pictures();
+  /* not asked for the store on this load: its copy may be older than another device's saves since (only keys the
+     server still has as this browser does are sent) */
+  if (done) return void resendOldPictures(accountData(), { check: true });
   if (r?.status === 401) return void checkSession(true);
   if (r?.status !== 200 || !r.reply.data || leaving) return;
   markSynced();

@@ -909,16 +909,33 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
 /** Sends again, once, the keys of this browser that still hold pictures inside them (saved before pictures went to the
     server as files, or the background kept only in this browser): they are moved out on the way (see sendBatch). Called
     once the tab has the store as the server has it (accounts.ts syncOnOpen), or keeps its own because changes were
-    still waiting: those go first (resumeSaves). */
-export async function resendOldPictures(data: Record<string, string>) {
+    still waiting: those go first (resumeSaves).
+    `check`: the tab did not ask the server for the store on this load (it synced earlier), so its copy may be older than
+    what another device saved since: a key is sent again only when the server still has exactly this browser's copy of
+    it, never over a newer one. Only a key with a picture that can still become a file is sent (a tiny icon is kept inside
+    its key for good, and would otherwise go again on every load). */
+export async function resendOldPictures(data: Record<string, string>, { check = false }: { check?: boolean } = {}) {
   resumeSaves();
   const { holdsPictures } = await import("./media");
-  let any = false;
-  for (const [k, v] of Object.entries(data)) {
-    if (!pending.has(k) && holdsPictures(k, v)) {
-      pending.set(k, v);
-      any = true;
+  const { picturesIn } = await import("./mediaRules");
+  const me = signedInAs();
+  let keys = Object.keys(data).filter((k) => !pending.has(k) && holdsPictures(k, data[k]) && (picturesIn(data[k]).length > 0 || /"media":"bg-[a-z0-9]+"/i.test(data[k])));
+  if (keys.length && check) {
+    try {
+      const r = await fetch(`/api/store?keys=${keys.map(encodeURIComponent).join(",")}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader(), signal: timeoutSignal(20_000) });
+      if (!r.ok || halted || signedInAs() !== me) return;
+      const j = (await r.json()) as { data?: Record<string, unknown> };
+      keys = keys.filter((k) => j.data?.[k] === data[k] && accountValue(k) === data[k]);
+    } catch {
+      /* offline: the next page load tries again */
+      return;
     }
+  }
+  let any = false;
+  for (const k of keys) {
+    if (pending.has(k)) continue;
+    pending.set(k, data[k]);
+    any = true;
   }
   /* a save already coming takes them along */
   if (any && !timer) schedule(2_000);
