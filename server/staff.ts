@@ -135,11 +135,13 @@ export async function audit(
   target?: { type: string; id: string | number },
   reason?: string | null,
   meta?: Record<string, unknown>,
+  /* a transaction's client, when the line must be saved together with the change (or not at all) */
+  q?: { query: (sql: string, params: unknown[]) => Promise<unknown> },
 ): Promise<void> {
   /* the reason, the address and the details' texts are private (notes, emails, reasons...): sealed like the tables they
      come from (server/crypto.ts), opened again when read */
   const { seal, sealDeep } = await import("./crypto");
-  await (await db()).query(
+  await (q ?? (await db())).query(
     `INSERT INTO audit_log (staff_id, action, target_type, target_id, reason, ip, meta) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [staffId, action, target?.type ?? null, target ? String(target.id) : null, seal(reason ?? null), seal(ipOf(req)), meta ? JSON.stringify(sealDeep(meta)) : null],
   );

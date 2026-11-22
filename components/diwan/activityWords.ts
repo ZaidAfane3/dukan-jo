@@ -33,6 +33,8 @@ const W: Record<string, [en: string, ar: string]> = {
   "shop.suspend": ["Suspended a store", "أوقف متجرًا"],
   "shop.reactivate": ["Reopened a store", "أعاد تشغيل متجر"],
   "shop.payment": ["Marked a payment as received", "سجّل دفعة"],
+  /* testing D-5: a recorded payment corrected (the values before are in the line's details) */
+  "shop.payment_edit": ["Corrected a recorded payment", "صحّح دفعة مسجّلة"],
   /* no longer written (Dukkan has no plans or free trial since 2026-11-16); kept so older log lines still read in words */
   "shop.plan": ["Changed a store's plan", "غيّر باقة متجر"],
   "shop.totp.off": ["Turned off a merchant's 2-step sign-in", "أوقف التحقق بخطوتين لتاجر"],

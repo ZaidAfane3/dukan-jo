@@ -91,6 +91,13 @@ function detailOf(action: string, meta: Record<string, unknown> | null, staffNam
     }
     case "shop.payment":
       return { amount: str(m.amount) ?? undefined, method: str(m.method) ?? undefined };
+    case "shop.payment_edit": {
+      /* each value that changed, from what to what; the note only named (its words stay on the payment) */
+      const changes: Change[] = [];
+      for (const field of ["amount", "method", "paidOn", "reference"])
+        if (!same(before?.[field], after?.[field])) changes.push({ field, from: str(before?.[field]), to: str(after?.[field]) });
+      return { changes, ...(before && after && !same(before.note, after.note) ? { changedFields: ["note"] } : {}) };
+    }
     case "staff.login":
       return m.twoStep === "remembered" ? { via: "remembered" } : m.twoStep === "email" ? { via: "email" } : null;
     case "staff.devices_forgotten":

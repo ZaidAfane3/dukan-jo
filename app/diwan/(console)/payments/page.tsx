@@ -7,6 +7,7 @@ import { Btn, card, DataTable, downloadCsv, field, Loaded, LoadMore, PageHead, s
 import { tell } from "@/components/diwan/dialogs";
 import { askOwnPassword, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { PaymentsSkeleton } from "@/components/diwan/skeletons";
+import { EditPaymentDialog } from "@/components/diwan/PaymentEdit";
 import { FilterBar } from "@/components/diwan/Filters";
 import type { Bi } from "@/components/storefront/config";
 import { findTheme } from "@/components/themes";
@@ -100,6 +101,8 @@ export default function PaymentsPage() {
      (server/staffConfirm.ts passwordAgain). One file per click: the button waits while the file is made, and a failure
      says so. */
   const [exporting, setExporting] = useState(false);
+  /* the payment being corrected (testing D-5), a store payment only: a theme bought has no "Correct" */
+  const [editing, setEditing] = useState<string | null>(null);
   const exportBusy = useRef(false);
   const exportCsv = async () => {
     if (exportBusy.current) return;
@@ -341,6 +344,7 @@ export default function PaymentsPage() {
                     t("Reference", "المرجع"),
                     t("Marked by", "سجّلها"),
                     t("Note", "ملاحظة"),
+                    "",
                   ]}
                   empty={!d.rows.length && (d.all.count ? t("No payments match.", "لا توجد مدفوعات مطابقة.") : t("No payments yet.", "لا توجد مدفوعات بعد."))}
                 >
@@ -369,11 +373,28 @@ export default function PaymentsPage() {
                       </td>
                       <td className={`${td} whitespace-nowrap`}>{r.marked_by ?? (r.kind === "theme" ? t("Theme store", "متجر الثيمات") : "—")}</td>
                       <td className={`${td} min-w-[10rem] max-w-[18rem] break-words`} dir="auto">{r.note || "—"}</td>
+                      <td className={`${td} text-end`}>
+                        {r.kind === "payment" && (
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" onClick={() => setEditing(r.id)}>
+                            {t("Correct", "تصحيح")}
+                          </Btn>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </DataTable>
               )}
               <LoadMore s={s} total={d.count} />
+              {editing && (
+                <EditPaymentDialog
+                  id={editing}
+                  onClose={() => setEditing(null)}
+                  onSaved={() => {
+                    setEditing(null);
+                    s.reload();
+                  }}
+                />
+              )}
             </section>
           </div>
         )}

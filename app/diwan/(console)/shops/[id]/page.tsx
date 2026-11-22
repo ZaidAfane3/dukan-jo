@@ -12,6 +12,7 @@ import { PRIORITY, STATUS as TICKET_STATUS, KIND, type TKind, type TPriority, ty
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { THEME_CHECKOUT_CHARGES } from "@/components/diwan/platformSettings";
 import { ShopSkeleton } from "@/components/diwan/skeletons";
+import { EditPaymentDialog } from "@/components/diwan/PaymentEdit";
 import { OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { REASON_WORDS, type ReportReason } from "@/components/storeReports";
 import type { Bi } from "@/components/storefront/config";
@@ -114,6 +115,8 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
   const [panel, setPanel] = useState<Panel>(null);
   /* the owner's email and mobile, once asked for with the staff member's password (security F08) */
   const [contact, setContact] = useState<ContactInfo | null>(null);
+  /* the payment being corrected (testing D-5) */
+  const [editing, setEditing] = useState<string | null>(null);
   /* a suspend or reactivate the server just confirmed, shown at once over the page it was made on: loading the whole
      page again takes a few seconds, and until then it would still show the old state. The fresh page replaces it. */
   const [changed, setChanged] = useState<{ on: Detail; shop: Partial<Shop> } | null>(null);
@@ -365,10 +368,25 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 >
                   {d.payments.rows.map((r) => (
                     <Item key={r.id} lead={<b className="tabular-nums">{f.jod(r.amount)}</b>} sub={[f.date(r.paid_on), r.marked_by ? t(`marked by ${r.marked_by}`, `سجّلها ${r.marked_by}`) : "", r.reference].filter(Boolean).join(" · ")}>
-                      <MethodBadge method={r.method} />
+                      <span className="flex items-center gap-2">
+                        <MethodBadge method={r.method} />
+                        <Btn kind="ghost" className="h-7 px-2 text-xs" onClick={() => setEditing(String(r.id))}>
+                          {t("Correct", "تصحيح")}
+                        </Btn>
+                      </span>
                     </Item>
                   ))}
                 </Part>
+              )}
+              {editing && (
+                <EditPaymentDialog
+                  id={editing}
+                  onClose={() => setEditing(null)}
+                  onSaved={() => {
+                    setEditing(null);
+                    s.reload();
+                  }}
+                />
               )}
               {d.themes && (
                 <Part

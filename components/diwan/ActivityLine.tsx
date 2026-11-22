@@ -68,6 +68,11 @@ const FIELD: Record<string, [string, string]> = {
   title: ["title", "العنوان"],
   body: ["text", "النص"],
   slug: ["address", "العنوان في الرابط"],
+  /* a corrected payment (shop.payment_edit) */
+  amount: ["amount", "المبلغ"],
+  method: ["method", "الطريقة"],
+  paidOn: ["paid on", "تاريخ الدفع"],
+  reference: ["reference", "المرجع"],
 };
 
 /* statuses of the other things Diwan changes (store reports, documents, pop-ups, pages, themes, developers' work) */
@@ -100,6 +105,8 @@ function valueWords(t: T, action: string, field: string, v: string | null): stri
   if (field === "reason" && REASON_WORDS[v as ReportReason]) return t(REASON_WORDS[v as ReportReason].en, REASON_WORDS[v as ReportReason].ar);
   if (field === "active") return v === "true" ? t("has access", "له دخول") : t("no access", "بلا دخول");
   if (field === "featured") return v === "true" ? t("yes", "نعم") : t("no", "لا");
+  if (action === "shop.payment_edit" && field === "method") return methodText(t, v);
+  if (action === "shop.payment_edit" && field === "amount") return t(`${v} JOD`, `${v} د.أ`);
   if (field === "status") {
     if (v === "new") return t("New", "جديد");
     if (v === "closed") return t("Closed", "مغلق");
