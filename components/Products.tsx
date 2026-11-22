@@ -912,6 +912,8 @@ export function Products() {
                       <Label id="p-sale" hint={p.saleHint} peek={peek("sale")}>{p.sale} ({p.currency})</Label>
                       <input id="p-sale" aria-invalid={!!errors.sale} dir="ltr" inputMode="decimal" value={draft.sale} onChange={(e) => { set("sale", digits(e.target.value)); if (errors.sale) setErrors((x) => ({ ...x, sale: undefined })); }} placeholder="0.00" maxLength={10} className={`mt-auto ${field} h-12 text-start ${errors.sale ? bad : ""}`} />
                       {errors.sale && <p className="mt-1.5 text-xs text-rose-600">{errors.sale}</p>}
+                      {/* zero is allowed (the product is given free, and the store says so), but may be a slip for "no sale" */}
+                      {!errors.sale && draft.sale !== "" && Number(draft.sale) === 0 && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{p.saleZero}</p>}
                     </div>
                     <div className="sm:col-span-2">
                       <Label id="p-category" hint={p.catHint} peek={peek("category")}>{p.category}</Label>

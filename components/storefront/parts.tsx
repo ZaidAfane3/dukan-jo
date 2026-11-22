@@ -111,6 +111,8 @@ export const priceLang = (mode: "auto" | "ar" | "en" | undefined, lang: Lang): L
     merchant's pages too), so prices, counts, order numbers and quantities never mix two sets of digits; only the
     currency's word follows the language (currency()). */
 export const moneyIn = (n: number, _lang: Lang) => money(n);
+/** A product sold for nothing (price or sale price 0) shows this word instead of "0 JOD", in the prices' language */
+export const freeWord = (lang: Lang) => (lang === "ar" ? "مجانًا" : "Free");
 export const priceOf = (p: StoreProduct) => unitPrice(p) ?? 0;
 
 const base = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };

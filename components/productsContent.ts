@@ -119,6 +119,7 @@ type Copy = {
   errName: string;
   errPrice: string;
   priceZero: string;
+  saleZero: string;
   discardAsk: string;
   discardKeep: string;
   discardYes: string;
@@ -254,6 +255,7 @@ export const productsCopy: Record<Lang, Copy> = {
     errName: "Enter the product name",
     errPrice: "Enter a valid price",
     priceZero: "The price is zero. Is this product free?",
+    saleZero: "A sale price of 0 makes this product free. Leave it empty for no sale.",
     discardAsk: "You have changes that are not saved. Leave without saving?",
     discardKeep: "Keep editing",
     discardYes: "Leave without saving",
@@ -385,6 +387,7 @@ export const productsCopy: Record<Lang, Copy> = {
     errName: "أدخل اسم المنتج",
     errPrice: "أدخل سعرًا صحيحًا",
     priceZero: "السعر صفر، هل المنتج مجاني؟",
+    saleZero: "سعر التخفيض 0 يجعل المنتج مجانيًا. اتركه فارغًا إن لم يكن هناك تخفيض.",
     discardAsk: "لديك تعديلات لم تُحفظ. هل تريد الخروج دون حفظ؟",
     discardKeep: "متابعة التعديل",
     discardYes: "الخروج دون حفظ",

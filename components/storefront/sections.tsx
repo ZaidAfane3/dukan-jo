@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
-import { basketMost, copy, currency, fillColors, icons, moneyIn, mostWords, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { basketMost, copy, currency, fillColors, freeWord, icons, moneyIn, mostWords, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { productCount, searchCopy } from "./search";
 import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
@@ -472,8 +472,14 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               <>
                 {/* the price and its currency stay together; the old price goes beside them, or under them when the card is narrow */}
                 <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
-                  <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-                  <span className="text-[11px] font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                  {priceOf(p) === 0 ? (
+                    <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{freeWord(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                  ) : (
+                    <>
+                      <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                      <span className="text-[11px] font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                    </>
+                  )}
                 </span>
                 {k.showOldPrice && <OldPrice p={p} ctx={ctx} size={centered ? 16 : 14} on={cardOn} />}
               </>
@@ -858,8 +864,8 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         className={`inline-flex items-baseline gap-1.5 ${pop ? "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-4 py-2 shadow-[3px_3px_0_var(--sf-text)]" : ""}`}
         style={{ ...priceInk(ctx, priceOn), ...(pop ? { background: tint("--sf-accent", 20) } : {}) }}
       >
-        <span className={s.price} style={{ ...saleTint(ctx, p, ctx.config.theme.background), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{moneyIn(now, pl)}</span>
-        <span className={`text-sm font-semibold ${pop ? "text-[var(--sf-text)]" : "opacity-70"}`}>{currency(pl)}</span>
+        <span className={s.price} style={{ ...saleTint(ctx, p, ctx.config.theme.background), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{now === 0 ? freeWord(pl) : moneyIn(now, pl)}</span>
+        {now !== 0 && <span className={`text-sm font-semibold ${pop ? "text-[var(--sf-text)]" : "opacity-70"}`}>{currency(pl)}</span>}
       </span>
       <OldPrice p={p} ctx={ctx} size={s.old} on={ctx.config.theme.background} />
       {off > 0 && <span dir="ltr" className={s.off}>-{off}%</span>}

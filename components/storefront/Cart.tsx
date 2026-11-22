@@ -10,7 +10,7 @@ import { checkCheckout, orderPays, ORDER_LIMITS, savedPays, storeDelivery, store
 import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type CouponRefusal } from "../records";
 import { nextOrderNumber } from "../orderNumbers";
 import type { CartStyle } from "./config";
-import { basketMost, currency, icons, moneyIn, mostWords, priceOf, ProductImage } from "./parts";
+import { basketMost, currency, freeWord, icons, moneyIn, mostWords, priceOf, ProductImage } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
 import { useVisitorRefresh } from "./visitorStore";
 
@@ -552,6 +552,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   /* each amount on its own, as on the product cards (parts.tsx money): a whole one whole ("22"), any other with two
      decimals ("18.50"), whatever the amounts next to it */
   const amount = (n: number) => `${moneyIn(n, priceLanguage)} ${currency(priceLanguage)}`;
+  /* a product's price or line: one sold for nothing says so (freeWord) rather than "0 JOD"; totals stay amounts */
+  const itemAmount = (n: number) => (n === 0 ? freeWord(priceLanguage) : amount(n));
   /* kept to the fils like the server's (safeOrder priceCart), so the coupon's minimum, its percent and the free delivery
      amount are tested on the same number on both sides (3 x 5.35 adds up to 16.049999… unrounded) */
   const subtotal = toFils(lines.reduce((s, l) => s + l.qty * priceAt(l.p), 0));
@@ -935,7 +937,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
           )}
         </div>
         {size && <p className="text-xs font-semibold opacity-70">{lang === "ar" ? "المقاس" : "Size"}: <bdi>{size}</bdi></p>}
-        <p className={s.unit} dir="auto">{amount(priceAt(p))}</p>
+        <p className={s.unit} dir="auto">{itemAmount(priceAt(p))}</p>
         {/* all it can take of it: + stops, and it says why */}
         {qty >= basketMost(lineStock(p, size)) && <p role="status" className="mt-0.5 text-xs font-semibold text-amber-600">{mostWords(lineStock(p, size), lang)}</p>}
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pt-2">
@@ -943,7 +945,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
             {qtyControl(p, qty, size)}
             {!iconRemove && <button type="button" onClick={() => setQty(p, 0, size)} className={s.remove}>{w.remove}</button>}
           </div>
-          <p className={s.lineTotal} dir="auto">{amount(qty * priceAt(p))}</p>
+          <p className={s.lineTotal} dir="auto">{itemAmount(qty * priceAt(p))}</p>
         </div>
       </div>
     </li>
@@ -962,7 +964,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
               )}
             </div>
             <p dir="auto" className={`${s.sName} ltr:text-left rtl:text-right`}>{p.name}</p>
-            <p className={s.sPrice} dir="auto">{amount(priceOf(p))}</p>
+            <p className={s.sPrice} dir="auto">{itemAmount(priceOf(p))}</p>
             {!iconRemove && <button type="button" onClick={() => setQty(p, 1)} className={s.sAdd}>+ {w.add}</button>}
           </div>
         ))}
@@ -1161,7 +1163,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
             {placed.items.map((it) => (
               <li key={`${it.id}|${it.size ?? ""}`} className="flex justify-between gap-3">
                 <span className="min-w-0"><bdi>{it.name}</bdi>{it.size && <span className="opacity-60"> – <bdi>{it.size}</bdi></span>} <span dir="ltr" className="opacity-60">×{it.qty}</span></span>
-                <span dir="auto" className="shrink-0">{amount(it.qty * it.price)}</span>
+                <span dir="auto" className="shrink-0">{itemAmount(it.qty * it.price)}</span>
               </li>
             ))}
           </ul>
@@ -1278,7 +1280,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
                       <li key={p.id} className="flex items-center gap-2.5 text-sm">
                         <ProductImage p={p} className="h-11 w-11 shrink-0 rounded-[var(--sf-ri,8px)]" />
                         <span dir="auto" className="min-w-0 flex-1 truncate ltr:text-left rtl:text-right"><bdi>{p.name}</bdi> <span className="opacity-60">× {qty}</span></span>
-                        <span dir="auto" className="shrink-0 font-semibold">{amount(qty * priceAt(p))}</span>
+                        <span dir="auto" className="shrink-0 font-semibold">{itemAmount(qty * priceAt(p))}</span>
                       </li>
                     ))}
                   </ul>
