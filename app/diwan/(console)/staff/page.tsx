@@ -175,7 +175,12 @@ export default function StaffPage() {
                             {t("Deactivate", "إيقاف")}
                           </Btn>
                         ) : (
-                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => act(m, { action: "active", active: true })}>
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => act(m, { action: "active", active: true }, {
+                              title: t("Reactivate", "إعادة التفعيل"),
+                              body: t(`Give ${m.name} access to Diwan again? They can sign in with their password. Type your own password to confirm.`, `إعادة دخول ${m.name} إلى الديوان؟ سيستطيع الدخول بكلمة مروره. اكتب كلمة مرورك للتأكيد.`),
+                              confirm: t("Reactivate", "إعادة التفعيل"),
+                              danger: false,
+                            })}>
                             {t("Reactivate", "إعادة التفعيل")}
                           </Btn>
                         ))}
