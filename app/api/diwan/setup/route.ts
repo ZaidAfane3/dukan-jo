@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules";
-import { answer, guarded, hashPassword, readJson, sameOrigin, tooMany, tooManyFor } from "@/server/auth";
+import { answer, countTry, guarded, hashPassword, limitReached, readJson, sameOrigin, tooMany } from "@/server/auth";
 import { emailKey, plainText, seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { audit, DEV_EMAIL } from "@/server/staff";
@@ -13,6 +13,14 @@ export const dynamic = "force-dynamic";
 
 const setupKey = () => process.env.DIWAN_SETUP_KEY ?? "";
 const sha = (s: string) => createHash("sha256").update(s).digest();
+
+/* Wrong keys from every address together: at most WRONG_ALL an hour, so many addresses can't share out the guessing.
+   Only wrong keys count. Once they are used up, a long key (STRONG_KEY characters or more, far too many to guess) still
+   lets its owner in, so strangers sending wrong keys can't keep the real owner out. A short key stays held back with
+   the wrong ones, as before: there the limit is what stops the guessing. */
+const WRONG_ALL = { key: "diwan-setup:wrong", max: 30, minutes: 60 };
+const STRONG_KEY = 20;
+let warned = false;
 
 /* staff other than the local dev owner (server/staff.ts): that row has no password, so it never counts as an owner */
 const REAL_STAFF = `SELECT 1 FROM staff WHERE email_hash IS DISTINCT FROM $1`;
@@ -28,14 +36,22 @@ export const GET = guarded(async () => answer({ open: !!setupKey() && (await noS
 /** Creates the first owner. Answers: "ok", "closed" (staff exist or no setup key on the server), "wrong-key", "invalid", "weak". */
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
-  if (tooMany(req, "diwan-setup", 5, 15) || tooManyFor("diwan-setup:all", 30, 60)) return answer({ result: "slow-down" }, 429);
+  if (tooMany(req, "diwan-setup", 5, 15)) return answer({ result: "slow-down" }, 429);
   const want = setupKey();
   if (!want) return answer({ result: "closed" }, 403);
+  if (want.length < STRONG_KEY && !warned) {
+    warned = true;
+    console.warn(`[diwan setup] DIWAN_SETUP_KEY is shorter than ${STRONG_KEY} characters: a longer one is safer, and lets the owner in even while strangers send wrong keys`);
+  }
   /* Diwan has staff already: closed, whatever key was sent, so the key can't be checked by guessing once setup is done */
   if (!(await noStaff())) return answer({ result: "closed" }, 403);
   const body = await readJson(req, 2_000);
   const key = typeof body?.key === "string" ? body.key : "";
-  if (!timingSafeEqual(sha(key), sha(want))) {
+  const right = timingSafeEqual(sha(key), sha(want));
+  /* the look and the count below run with nothing waited for in between, so wrong keys sent at once can't all pass */
+  if (limitReached(WRONG_ALL.key, WRONG_ALL.max, WRONG_ALL.minutes) && !(right && want.length >= STRONG_KEY)) return answer({ result: "slow-down" }, 429);
+  if (!right) {
+    countTry(WRONG_ALL.key, WRONG_ALL.minutes);
     await audit(req, null, "staff.setup_wrong_key");
     return answer({ result: "wrong-key" }, 403);
   }

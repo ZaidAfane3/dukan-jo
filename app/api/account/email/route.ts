@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
    - GET: { pending: the new email waiting, or null; step: "old" (waiting for the current email's approval) or "new"
      (waiting for the new email's code); to: where the waiting code went; live: that code is still good (false: it could
      not be sent, or ran out: send a new one) }.
-   - POST { oldCode, lang? } (step "old"): the code sent to the current email, or a recovery code. Right: the code goes
+   - POST { oldCode, email?, lang? } (step "old"): the code sent to the current email, or a recovery code; `email`: the
+     new address the page shows (the code approves that one only, else "expired"). Right: the code goes
      to the new email now: "ok" with { step: "new", email, sent, waiting } (as app/api/account PUT says them). Else
      "wrong", "expired", "too-many", "locked", "slow-down", "taken", "none-pending".
    - POST { code, lang? } (step "new"): right: the account's email is the new one now: "ok" with { email }, and the old
@@ -64,21 +65,30 @@ export const POST = guarded(async (req: NextRequest) => {
       const pending = await pendingEmailChange(a.id);
       return pending ? answer({ result: "ok", step: "new", email: pending, sent: "sent", waiting: true }) : answer({ result: "none-pending" }, 410);
     }
+    /* the new address the page shows (sent by the page): the approval is for that address only. Another address asked
+       for meanwhile (from another tab or device) has a code of its own, so this one answers "expired". */
+    const shown = typeof body.email === "string" && body.email.trim() ? body.email.trim() : old.email;
+    if (emailKey(shown) !== emailKey(old.email)) return answer({ result: "expired" }, 410);
     const typed = latin(body.oldCode).trim();
     const six = typed.replace(/\s+/g, "");
+    let email: string;
     if (/^\d{6}$/.test(six)) {
       const r = await checkCodeFor(oldRef(a.id), six);
       if (r.result !== "ok") return answer({ result: r.result }, r.result === "wrong" ? 400 : r.result === "expired" ? 410 : 429);
       /* approved from the address the account has now (not one it had before a change since) */
       if (r.emailHash !== emailKey(a.email)) return answer({ result: "expired" }, 410);
+      /* the address this code approves: the one written on its row when it was sent, never another */
+      email = String(r.newEmail ?? "");
+      if (!email.includes("@") || emailKey(email) !== emailKey(shown)) return answer({ result: "expired" }, 410);
     } else {
       /* a recovery code: a few wrong ones per account, then a wait (they are long, but nobody gets to try them all) */
       if (tooManyFor(`email-change-recovery:${a.id}`, 10, 60)) return answer({ result: "slow-down" }, 429);
       if (!(await useRecoveryCode(a.id, typed))) return answer({ result: "wrong" }, 400);
-      await approveOldStep(a.id);
       logMerchant(a.id, "twostep.recovery-used", { for: "email-change" });
+      const approved = await approveOldStep(a.id, shown);
+      if (!approved) return answer({ result: "expired" }, 410);
+      email = approved;
     }
-    const email = old.email;
     if (await emailTaken(email, a.id)) return answer({ result: "taken" }, 409);
     const sent = await sendCodeEmail(req, "change", ref, email, lang);
     const st = sentState(sent, (await pendingEmailChange(a.id)) === email);

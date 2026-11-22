@@ -45,6 +45,8 @@ const W: Record<string, [en: string, ar: string]> = {
   "tickets.canned.save": ["Saved the ready replies", "حفظ الردود الجاهزة"],
   "complaint.add": ["Added a store report", "أضاف بلاغًا عن متجر"],
   "complaint.update": ["Changed a store report", "عدّل بلاغًا عن متجر"],
+  /* written by Dukkan itself, not by staff: a store got more customer reports in an hour than are kept (app/api/store-reports) */
+  "store_report.over_cap": ["Too many customer reports about this store in an hour: the ones after the first 30 were not kept", "بلاغات عملاء كثيرة عن هذا المتجر خلال ساعة: لم تُحفظ البلاغات بعد أول 30 بلاغًا"],
   "document.review": ["Reviewed a document", "راجع مستندًا"],
   /* marketing */
   "announcement.create": ["Created an announcement", "أنشأ إعلانًا"],

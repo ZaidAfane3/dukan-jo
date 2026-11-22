@@ -428,7 +428,8 @@ export function Settings() {
   /* 2-step on: the code sent to the current email (or a recovery code) approves the change; the code to the new email
      comes next, in the same place */
   const approveOldEmail = async (code: string): Promise<CodeAnswer> => {
-    const r = await merchantCall("/api/account/email", "POST", { oldCode: code, lang });
+    /* with the new address it approves, so the code can't approve another one asked for meanwhile */
+    const r = await merchantCall("/api/account/email", "POST", { oldCode: code, email: emailWait?.email, lang });
     const a = asCode(r);
     /* closed: nothing more for the box to say */
     if (endWait(a)) return "ok";

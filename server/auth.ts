@@ -305,17 +305,34 @@ function ipv6Block(ip: string): string {
 
 /* Counts tries per key in memory (enough for one server; they start again after a deploy). The window slides: the
    last window's count still weighs in as it ages, so nobody gets twice the limit by trying at the edge of a window.
-   The map is kept in order of last use and never holds more than MAX_KEYS (the oldest go first), and expired keys are
-   swept at most once a minute, so random keys can't make it grow or slow every request down. */
+   Each kind of limit (a key's name up to its first ":") keeps its own list, in order of last use, of at most MAX_KEYS
+   keys (the oldest go first), and expired keys are swept at most once a minute, so random keys can't make it grow or
+   slow every request down. Lists apart: a flood of new keys of one kind (one try each from very many addresses, say)
+   only pushes out older keys of that same kind, never another limit's count, such as a store's orders, one mailbox's
+   codes or a staff member's wrong passwords. A limit per visitor (tooMany) is a kind of its own, apart from a limit
+   for one account or store with the same name. Only a try that counts makes a key: a look (limitReached) makes none. */
 type Window = { start: number; n: number; prev: number; ms: number };
-const tries = new Map<string, Window>();
+const tries = new Map<string, Map<string, Window>>();
 const MAX_KEYS = 50_000;
 let swept = 0;
 
+/** A key's kind: its name up to the first ":" */
+const kindOf = (key: string) => {
+  const i = key.indexOf(":");
+  return i < 0 ? key : key.slice(0, i);
+};
+function listOf<T>(lists: Map<string, Map<string, T>>, key: string): Map<string, T> {
+  const kind = kindOf(key);
+  let m = lists.get(kind);
+  if (!m) lists.set(kind, (m = new Map()));
+  return m;
+}
+
 function windowOf(key: string, minutes: number, now: number): Window {
   const ms = minutes * 60_000;
-  let w = tries.get(key);
-  if (w) tries.delete(key);
+  const list = listOf(tries, key);
+  let w = list.get(key);
+  if (w) list.delete(key);
   if (!w || w.ms !== ms) w = { start: now, n: 0, prev: 0, ms };
   else if (now - w.start >= ms) {
     const passed = Math.floor((now - w.start) / ms);
@@ -323,24 +340,38 @@ function windowOf(key: string, minutes: number, now: number): Window {
     w.start += passed * ms;
     w.n = 0;
   }
-  tries.set(key, w);
+  list.set(key, w);
   if (now - swept > 60_000) {
     swept = now;
-    tries.forEach((v, k) => now - v.start >= 2 * v.ms && tries.delete(k));
+    tries.forEach((m, kind) => {
+      m.forEach((v, k) => now - v.start >= 2 * v.ms && m.delete(k));
+      if (!m.size) tries.delete(kind);
+    });
   }
-  if (tries.size > MAX_KEYS) {
-    /* the least recently used first (the map keeps them in that order) */
-    const drop = tries.size - Math.floor(MAX_KEYS * 0.9);
-    Array.from(tries.keys()).slice(0, drop).forEach((k) => tries.delete(k));
+  if (list.size > MAX_KEYS) {
+    /* the least recently used of this kind first (the list keeps them in that order) */
+    const drop = list.size - Math.floor(MAX_KEYS * 0.9);
+    Array.from(list.keys()).slice(0, drop).forEach((k) => list.delete(k));
   }
   return w;
 }
 
 const used = (w: Window, now: number) => w.prev * (1 - (now - w.start) / w.ms) + w.n;
 
+/** What is used of this key's limit now, without making or moving its key (the same sums as windowOf, read only) */
+function usedNow(key: string, minutes: number, now: number): number {
+  const ms = minutes * 60_000;
+  const w = tries.get(kindOf(key))?.get(key);
+  if (!w || w.ms !== ms) return 0;
+  const passed = Math.floor((now - w.start) / ms);
+  if (passed <= 0) return used(w, now);
+  /* the window ran out since: its count weighs in as the last window's, as windowOf would roll it */
+  return passed === 1 ? w.n * (1 - (now - w.start - ms) / ms) : 0;
+}
+
 /** A limit per visitor: this try counts, and true when it is over `max` tries in `minutes` */
 export function tooMany(req: NextRequest, what: string, max: number, minutes: number): boolean {
-  return tooManyFor(`${what}:${visitorIp(req)}`, max, minutes);
+  return tooManyFor(`${what}@visitor:${visitorIp(req)}`, max, minutes);
 }
 
 /** The same limit for anything else than a visitor, such as one account from any address, or one store for all its
@@ -355,8 +386,7 @@ export function tooManyFor(key: string, max: number, minutes: number): boolean {
 /** Whether `max` tries for this key in `minutes` are already used, without counting one: for limits that count only
     what went through (countTry), such as orders a store really got, so failed tries by a stranger can't use them up */
 export function limitReached(key: string, max: number, minutes: number): boolean {
-  const now = Date.now();
-  return used(windowOf(key, minutes, now), now) >= max;
+  return usedNow(key, minutes, Date.now()) >= max;
 }
 
 /** Counts one try for this key, for limitReached */
@@ -364,35 +394,64 @@ export function countTry(key: string, minutes: number): void {
   windowOf(key, minutes, Date.now()).n++;
 }
 
+/** limitReached and countTry in one step, for a limit that counts only what went through when that is known only after
+    a wait (the database): null when `max` tries are used already, else one try is counted at once, before anything is
+    waited for, so tries sent at the same moment can't all pass the look while the first ones are still waiting. Call
+    the function it gives when the try turned out not to count: the try is given back (and a key left with nothing
+    counted is dropped, so failed tries leave no keys behind). */
+export function reserveTry(key: string, max: number, minutes: number): (() => void) | null {
+  const now = Date.now();
+  if (usedNow(key, minutes, now) >= max) return null;
+  const w = windowOf(key, minutes, now);
+  w.n++;
+  const start = w.start;
+  let back = false;
+  return () => {
+    if (back) return;
+    back = true;
+    const list = tries.get(kindOf(key));
+    if (!list || list.get(key) !== w) return;
+    /* counted in this window, or in the one before if the window moved on meanwhile */
+    if (w.start === start) w.n = Math.max(0, w.n - 1);
+    else if (w.start === start + w.ms) w.prev = Math.max(0, w.prev - 1);
+    if (!w.n && !w.prev) list.delete(key);
+  };
+}
+
 /** Forgets what was counted for this key */
 export function forgetTries(key: string): void {
-  tries.delete(key);
+  tries.get(kindOf(key))?.delete(key);
 }
 
 /* Wrong tries counted per account (or per anything else named by `key`), whatever address they come from: after `max`
    wrong tries in `minutes` the key waits. Only wrong tries count, and a right one clears them, so someone who knows the
-   password is never slowed down by their own sign-ins. Kept in memory, like the limit above. */
-const fails = new Map<string, { n: number; until: number }>();
+   password is never slowed down by their own sign-ins. Kept in memory, like the limit above, in a list per kind of key
+   too, so wrong sign-ins with endless made-up emails can't push out a staff member's lock on wrong passwords. */
+const fails = new Map<string, Map<string, { n: number; until: number }>>();
+const failOf = (key: string) => fails.get(kindOf(key))?.get(key);
 /** True while this key has had too many wrong tries */
 export function failedTooOften(key: string, max: number): boolean {
-  const f = fails.get(key);
+  const f = failOf(key);
   return !!f && f.until > Date.now() && f.n >= max;
 }
 /** Notes one wrong try for this key */
 export function noteFailure(key: string, minutes: number): void {
   const now = Date.now();
-  if (fails.size > 10_000) fails.forEach((v, k) => v.until < now && fails.delete(k));
-  /* still full (random keys that haven't expired): the oldest go */
-  if (fails.size > MAX_KEYS) Array.from(fails.keys()).slice(0, fails.size - Math.floor(MAX_KEYS * 0.9)).forEach((k) => fails.delete(k));
-  const f = fails.get(key);
-  if (!f || f.until < now) fails.set(key, { n: 1, until: now + minutes * 60_000 });
+  const list = listOf(fails, key);
+  if (list.size > 10_000) list.forEach((v, k) => v.until < now && list.delete(k));
+  /* still full (random keys that haven't expired): the oldest of this kind go */
+  if (list.size > MAX_KEYS) Array.from(list.keys()).slice(0, list.size - Math.floor(MAX_KEYS * 0.9)).forEach((k) => list.delete(k));
+  const f = list.get(key);
+  if (!f || f.until < now) list.set(key, { n: 1, until: now + minutes * 60_000 });
   else f.n++;
 }
 /** Forgets the wrong tries of this key (the right password was given), and those counted for it per address
     (signInTries) */
 export function clearFailures(key: string): void {
-  fails.delete(key);
-  fails.forEach((_v, k) => k.startsWith(`${key}|`) && fails.delete(k));
+  const list = fails.get(kindOf(key));
+  if (!list) return;
+  list.delete(key);
+  list.forEach((_v, k) => k.startsWith(`${key}|`) && list.delete(k));
 }
 
 /* Wrong passwords (or 2-step codes) at a sign-in. Someone who only knows a merchant's or a staff member's email or mobile
@@ -414,7 +473,7 @@ export function signInTries(req: NextRequest, key: string, max: number, minutes:
     /** The growing wait, after `failed`: none for the first five tries on the account since its last right one, then
         0.5 s, doubling, at most 8 s */
     slowDown: async () => {
-      const f = fails.get(key);
+      const f = failOf(key);
       const n = f && f.until > Date.now() ? f.n : 0;
       if (n > 5) await new Promise((r) => setTimeout(r, Math.min(500 * 2 ** (n - 6), 8_000)));
     },
@@ -426,8 +485,8 @@ export function signInTries(req: NextRequest, key: string, max: number, minutes:
     /** The right password (or code): the account's wrong tries are forgotten, and this address's. Another address
         that was guessing stays held back. */
     passed: () => {
-      fails.delete(key);
-      fails.delete(here);
+      fails.get(kindOf(key))?.delete(key);
+      fails.get(kindOf(here))?.delete(here);
     },
   };
 }
