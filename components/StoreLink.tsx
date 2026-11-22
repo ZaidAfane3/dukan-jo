@@ -16,6 +16,7 @@ import { dropUndos, offerUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
 import { Skeleton } from "./Skeleton";
+import { storeIsLive } from "./storefront/storage";
 
 /* the undo note at the bottom (UndoToast.tsx) */
 const undoLink: Record<Lang, (s: string) => string> = { en: (s) => `Store link changed to ${s}`, ar: (s) => `تغيّر رابط المتجر إلى ${s}` };
@@ -47,6 +48,11 @@ const copy = {
     shareTitle: "My store",
     open: "Open my store",
     pageNow: "This link is now one of Dukkan's own pages, so visitors can't reach your store at it. Choose another link.",
+    held: "Another store used this link until recently, and it is kept for that store for 2 days. Choose another one.",
+    warnTitle: "Change your store link?",
+    warn: (from: string, to: string) =>
+      `Links and QR codes you shared with ${from} will stop opening your store. For 2 days, anyone who opens the old link sees a page that sends them to ${to}, and no other store can take it. After that, another store can use it.`,
+    warnYes: "Yes, change the link",
   },
   ar: {
     title: "رابط المتجر",
@@ -67,6 +73,11 @@ const copy = {
     shareTitle: "متجري",
     open: "افتح متجري",
     pageNow: "أصبح هذا الرابط صفحة من صفحات دكان، لذلك لا يصل الزوار إلى متجرك من خلاله. اختر رابطًا آخر.",
+    held: "استخدم متجر آخر هذا الرابط حتى وقت قريب، وهو محفوظ لذلك المتجر لمدة يومين. اختر رابطًا آخر.",
+    warnTitle: "هل تريد تغيير رابط متجرك؟",
+    warn: (from: string, to: string) =>
+      `الروابط ورموز QR التي شاركتها بالرابط ${from} لن تفتح متجرك بعد الآن. لمدة يومين، من يفتح الرابط القديم يرى صفحة تنقله إلى ${to}، ولا يستطيع متجر آخر أخذه. بعد ذلك يمكن لمتجر آخر استخدامه.`,
+    warnYes: "نعم، غيّر الرابط",
   },
 };
 
@@ -83,6 +94,8 @@ export function StoreLink() {
   /* he typed something a link can't hold (Arabic letters, symbols): said under the box instead of dropped silently */
   const [dropped, setDropped] = useState(false);
   const [flash, setFlash] = useState("");
+  /* the new link he asked for, waiting for him to confirm it (a live store's old links stop working: testing S-2) */
+  const [confirming, setConfirming] = useState("");
   /* his store is kept on Dukkan's server (signed in, not the tour), so its address shows it to anyone */
   const [live, setLive] = useState(false);
 
@@ -114,16 +127,16 @@ export function StoreLink() {
   useEffect(() => () => dropUndos("store-link"), []);
   /* a save on its way: a second press (Enter, then Save) waits for it */
   const busy = useRef(false);
-  const saveSlug = async () => {
+  const saveSlug = async (confirmed = false) => {
     if (busy.current) return;
     busy.current = true;
     try {
-      await trySaveSlug();
+      await trySaveSlug(confirmed);
     } finally {
       busy.current = false;
     }
   };
-  const trySaveSlug = async () => {
+  const trySaveSlug = async (confirmed = false) => {
     const v = draft.trim();
     const was = slug;
     /* keeping the link the store already has is always allowed; a different one must be free to choose now */
@@ -137,10 +150,16 @@ export function StoreLink() {
       const r = await merchantCall(`/api/shop/slug?slug=${encodeURIComponent(v)}`, "GET");
       const why = r?.data.result;
       if (why === "taken" || why === "reserved" || why === "invalid") {
-        setSlugError(why === "taken" ? c.taken : why === "reserved" ? reservedSlugError[lang] : c.invalid);
+        setSlugError(why === "taken" ? c.taken : why === "reserved" ? (r?.data.held ? c.held : reservedSlugError[lang]) : c.invalid);
         return;
       }
     }
+    /* a live store's link people already have: he is told what changing it does, and confirms first */
+    if (server && slug && storeIsLive() && !(confirmed && confirming === v)) {
+      setConfirming(v);
+      return;
+    }
+    setConfirming("");
     const s = loadSetup();
     if (s) {
       let before: string | null = null;
@@ -213,6 +232,7 @@ export function StoreLink() {
                   setSlugError("");
                   /* a notice left from the last time he edited it would no longer be true */
                   setDropped(false);
+                  setConfirming("");
                   setEditing(true);
                 }}
                 className={`rounded-lg border border-primary/60 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white ${demoOff}`}
@@ -243,8 +263,9 @@ export function StoreLink() {
                     setDraft(typedSlug(e.target.value));
                     setDropped(slugDropped(e.target.value));
                     setSlugError("");
+                    setConfirming("");
                   }}
-                  onKeyDown={(e) => e.key === "Enter" && saveSlug()}
+                  onKeyDown={(e) => e.key === "Enter" && saveSlug(!!confirming)}
                   spellCheck={false}
                   autoCapitalize="none"
                   aria-label={c.current}
@@ -253,10 +274,23 @@ export function StoreLink() {
               </div>
               {slugError && <p className="mt-2 text-xs text-rose-600">{slugError}</p>}
               {!slugError && dropped && <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-300">{slugDroppedText[lang]}</p>}
-              <div className="mt-4 flex gap-3">
-                <button type="button" onClick={saveSlug} className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition hover:bg-deep">{c.save}</button>
-                <button type="button" onClick={() => { setEditing(false); setDropped(false); }} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{c.cancel}</button>
-              </div>
+              {confirming ? (
+                <div role="alertdialog" aria-labelledby="link-warn-title" aria-describedby="link-warn-text" className="mt-4 rounded-xl bg-amber-500/10 px-4 py-4 ring-1 ring-amber-500/30">
+                  <p id="link-warn-title" className="text-sm font-bold">{c.warnTitle}</p>
+                  <p id="link-warn-text" className="mt-1 text-sm text-fg/80">
+                    {c.warn(`${PREFIX}${slug}`, `${PREFIX}${confirming}`)}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button type="button" autoFocus onClick={() => saveSlug(true)} className="h-11 rounded-xl bg-ink px-6 text-sm font-semibold text-onink transition hover:bg-deep">{c.warnYes}</button>
+                    <button type="button" onClick={() => setConfirming("")} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{c.cancel}</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 flex gap-3">
+                  <button type="button" onClick={() => saveSlug()} className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition hover:bg-deep">{c.save}</button>
+                  <button type="button" onClick={() => { setEditing(false); setDropped(false); setConfirming(""); }} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{c.cancel}</button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-soft px-5 py-5">

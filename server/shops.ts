@@ -5,6 +5,7 @@ import { isTestOrder, saleState } from "@/components/storeNumbers";
 import { lookupKeys, NAME_KEYS_VERSION, nameKeys, nameSearchKeys, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { logMerchant, type MerchantAction, type MerchantMeta } from "./merchantLog";
+import { holdOldSlug } from "./slugHolds";
 import { SETUP_STEPS } from "@/components/safeOrder";
 
 /* The shops table: one row per merchant account, worked out on the server from what the merchant's pages sync to
@@ -177,6 +178,9 @@ export async function syncShop(
     await c.query(sql, [...values.slice(0, 2), null, ...values.slice(3)]);
     slugKept = null;
   }
+  /* a live store's old link is held for it for a while (server/slugHolds.ts): a problem there never fails the save */
+  if (was?.published && (was.slug ?? "").toLowerCase() !== (slugKept ?? "").toLowerCase())
+    await holdOldSlug(c, accountId, was.slug ?? "", slugKept).catch((e) => console.error("[shops] holding old link", accountId, e));
   if (was)
     logShopChanges(accountId, was, {
       name: values[1] as string,

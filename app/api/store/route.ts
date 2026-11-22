@@ -12,6 +12,7 @@ import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership
 import { stripPaidLooks } from "@/components/themeLooks";
 import { valueVersion } from "@/server/storeVersion";
 import { keepLegalPages } from "@/server/legalPages";
+import { slugHeld } from "@/server/slugHolds";
 import { LIST_KEYS, VERSION_KEYS } from "@/components/listMerge";
 import { lastOrderNumber, ORDER_NUMBER_KEY } from "@/components/orderNumbers";
 
@@ -210,6 +211,8 @@ export const PUT = guarded(async (req: NextRequest) => {
       /* not JSON: the pages read it back as no setup */
     }
     if (slug && (await slugTaken(slug, a.id))) return answer({ result: "slug-taken" }, 409);
+    /* another store's old link, still held for it for a couple of days (server/slugHolds.ts) */
+    if (slug && (await slugHeld(slug, a.id))) return answer({ result: "slug-reserved" }, 409);
     /* a name reserved later (safe.ts RESERVED_FOR_NEW) stays with a store that already had it, but can't be newly chosen */
     if (slug && reservedForNew(slug)) {
       const cur = await (await db()).query(`SELECT slug FROM shops WHERE account_id = $1`, [a.id]);
