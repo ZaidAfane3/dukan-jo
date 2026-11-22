@@ -121,6 +121,43 @@ function gifSize(b: Uint8Array): { w: number; h: number } | null {
   }
 }
 
+/** Where a JPEG's picture ends: just after the end mark of its data, found by walking its blocks and then its data (the
+    end mark is not always the file's last bytes: phones add their own data after it). 0 when it has no end. The server's
+    stripJpeg walks the same way and keeps only what comes before. */
+export function jpegEnd(b: Uint8Array): number {
+  const u16 = (i: number) => (b[i] << 8) | b[i + 1];
+  if (b[0] !== 0xff || b[1] !== 0xd8) return 0;
+  let i = 2;
+  for (;;) {
+    if (i + 4 > b.length || b[i] !== 0xff) return 0;
+    const m = b[i + 1];
+    if (m === 0xff) {
+      i++;
+      continue;
+    }
+    if (m === 0xd9) return 0;
+    const len = u16(i + 2);
+    if (len < 2 || i + 2 + len > b.length) return 0;
+    if (m === 0xda) break;
+    i += 2 + len;
+  }
+  /* inside the data FF is followed by 00 or a restart mark; other marks (a progressive JPEG's tables and next scans)
+     have a length */
+  let j = i + 2 + u16(i + 2);
+  for (;;) {
+    while (j < b.length && b[j] !== 0xff) j++;
+    if (j + 1 >= b.length) return 0;
+    const m = b[j + 1];
+    if (m === 0x00 || m === 0xff || (m >= 0xd0 && m <= 0xd7)) {
+      j += m === 0xff ? 1 : 2;
+      continue;
+    }
+    if (m === 0xd9) return j + 2;
+    if (j + 4 > b.length) return 0;
+    j += 2 + u16(j + 2);
+  }
+}
+
 /** The width and height written at the start of a picture, read without opening the picture (a GIF's: see gifSize). */
 export function imageSize(b: Uint8Array): { w: number; h: number } | null {
   const u16 = (i: number) => (b[i] << 8) | b[i + 1];
@@ -151,15 +188,22 @@ export function imageSize(b: Uint8Array): { w: number; h: number } | null {
   return null;
 }
 
-/** Whether the file ends the way its kind must end. A cut-off upload or a broken copy is refused. */
+/** Whether the file ends the way its kind must end. A cut-off upload or a broken copy is refused. A phone photo with
+    its own data after the picture's end mark (a Samsung trailer, a motion photo's video) is whole: its picture ends
+    (jpegEnd), and the server keeps only the picture. A PDF may end in spaces or zero bytes after its %%EOF. */
 export function isComplete(b: Uint8Array, kind: FileKind): boolean {
-  const tail = (n: number) => b.subarray(Math.max(0, b.length - n));
+  const tail = (n: number, upTo = b.length) => b.subarray(Math.max(0, upTo - n), upTo);
   const has = (part: Uint8Array, bytes: number[]) => part.some((_, i) => bytes.every((v, k) => part[i + k] === v));
-  if (kind === "jpeg") return has(tail(64), [0xff, 0xd9]);
+  if (kind === "jpeg") return has(tail(64), [0xff, 0xd9]) || jpegEnd(b) > 0;
   if (kind === "png") return has(tail(32), [0x49, 0x45, 0x4e, 0x44]); /* IEND */
   if (kind === "gif") return tail(16).includes(0x3b);
   if (kind === "webp") return b.length >= 12 && ((b[4] | (b[5] << 8) | (b[6] << 16) | (b[7] << 24)) >>> 0) + 8 <= b.length;
-  if (kind === "pdf") return has(tail(1024), [0x25, 0x25, 0x45, 0x4f, 0x46]); /* %%EOF */
+  if (kind === "pdf") {
+    /* PDF white space: NUL, tab, line feed, form feed, carriage return, space */
+    let end = b.length;
+    while (end > 0 && (b[end - 1] === 0 || b[end - 1] === 9 || b[end - 1] === 10 || b[end - 1] === 12 || b[end - 1] === 13 || b[end - 1] === 32)) end--;
+    return has(tail(1024, end), [0x25, 0x25, 0x45, 0x4f, 0x46]); /* %%EOF */
+  }
   return true;
 }
 
