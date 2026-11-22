@@ -43,7 +43,7 @@ These files are plain TypeScript with no React or browser code. The backend shou
   - **Category is optional.** `""` means no category. The store shows these products under "Other" / "أخرى" (`withOtherCategory` and `storeCategories` in `components/storefront/useStoreData.ts`). "Other" is always the last group and appears only when it has products. A merchant category literally named "Other" or "أخرى" (any case) joins the same group. Don't reject or rename an empty category.
   - **Unlimited stock:** `unlimited: true` on the product. `quantity` is then ignored (it keeps the last count typed), and the product is never sold out, never low on stock, and never loses stock on an order. Limited products save `unlimited: false`.
   - Old data used `quantity: 9999` with no `unlimited` key for "unlimited". `isUnlimited` (`components/safeOrder.ts`) reads that as unlimited, and the Products page rewrites it once as `unlimited: true, quantity: 0`. The migration should do the same: only rows with no `unlimited` key and exactly 9999. After that, 9999 is a real count.
-  - At checkout an unlimited product is still capped at `ORDER_LIMITS.qty` (99) per order. Use `sellableStock(p)` instead of `p.quantity` wherever stock is checked.
+  - At checkout a product can be ordered up to its stock (or its size's); an unlimited product is capped at `ORDER_LIMITS.unlimitedQty` (999) per order (`lineMost`). Use `sellableStock(p)` instead of `p.quantity` wherever stock is checked.
 
 ## Owner decisions (settled 2026-10-28)
 

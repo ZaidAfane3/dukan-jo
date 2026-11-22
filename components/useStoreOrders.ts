@@ -33,7 +33,7 @@ export function serverRows(list: unknown): StoreOrderRow[] {
     if (!x || typeof x !== "object") continue;
     const r = x as Record<string, unknown>;
     const o = cleanOrder(r);
-    if (o && typeof r.serverId === "string" && /^\d+$/.test(r.serverId)) out.push({ ...o, channel: 1, serverId: r.serverId, payment: r.payment === "unpaid" ? "unpaid" : "test", ...shipOf(r.ship) });
+    if (o && typeof r.serverId === "string" && /^\d+$/.test(r.serverId)) out.push({ ...o, channel: 1, serverId: r.serverId, payment: r.payment === "unpaid" ? "unpaid" : r.payment === "paid" && (o.pay === "card" || o.pay === "cliq") ? "paid" : "test", ...shipOf(r.ship) });
   }
   return out;
 }

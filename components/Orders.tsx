@@ -10,7 +10,7 @@ import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, jordanNumber, phoneError, savedMobile, typedAnyPhone } from "./phone";
 import { ORDER_MAX, cleanOrder, countCouponUse, money, orderMatches, parseList, typedMoney, type Order, type OrderItem } from "./records";
 import { cleanLine, visibleLength } from "./safe";
-import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, freeDeliveryFor, holdsStockAfter, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
+import { CONFIRMED_STATUSES, KNOWN_CITIES, ORDER_LIMITS, deliveryCities, freeDeliveryFor, holdsStockAfter, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
 import { nextOrderNumber } from "./orderNumbers";
 import { shipCityLists, usePublicSettings } from "./platformPublic";
 import { loadSetup } from "./setup";
@@ -64,16 +64,28 @@ const fromStore = (x: Row) => !!x.pay && (x.channel === 1 || x.payment === "test
 
 /** How a store order is paid, worked out from its way to pay and its status (nothing is kept for it in the browser):
     cash is "Cash on delivery" (or on pickup) until it is delivered, then "Paid (cash)", the same rule the home page and
-    Reports count a sale by (storeNumbers.ts saleState); card and CliQ take no money yet, so they say nothing was charged.
+    Reports count a sale by (storeNumbers.ts saleState); card and CliQ take no money online, so they say nothing was
+    charged until he marks the payment received ("Payment received": `payment` "paid"), then "Paid (card)" / "Paid (CliQ)".
     Null for an order he added himself. */
 function payLine(x: Row, o: Copy): { text: string; hint?: string; tone: "paid" | "due" | "test" | "off" } | null {
   if (!fromStore(x)) return null;
-  if (x.pay === "card" || x.pay === "cliq") return { text: x.pay === "card" ? o.testCard : o.testCliq, hint: o.testOrderHint, tone: "test" };
+  if ((x.pay === "card" || x.pay === "cliq") && x.payment === "paid") {
+    if (x.status === "cancelled") return { text: o.cancelledPaid, tone: "off" };
+    if (x.status === "refunded") return { text: o.refundedPay, tone: "off" };
+    return { text: x.pay === "card" ? o.paidCard : o.paidCliq, tone: "paid" };
+  }
+  /* a store order on the server can be marked paid (canMarkPaid); one from his own preview stays a test */
+  if (x.pay === "card" || x.pay === "cliq") return { text: x.pay === "card" ? o.testCard : o.testCliq, hint: canMarkPaid(x) ? o.payDueHint : o.testOrderHint, tone: "test" };
   if (x.status === "delivered") return { text: o.paidCash, tone: "paid" };
   if (x.status === "cancelled") return { text: o.cancelledPay, tone: "off" };
   if (x.status === "refunded") return { text: o.refundedPay, tone: "off" };
   const pickup = x.fulfil === "pickup";
   return { text: pickup ? o.cashPickup : o.payNames.cash, hint: pickup ? o.cashPickupHint : o.cashHint, tone: "due" };
+}
+
+/** A card or CliQ order from his public store whose payment he can mark received: not paid yet, not cancelled or refunded */
+function canMarkPaid(x: Row) {
+  return !!x.serverId && (x.pay === "card" || x.pay === "cliq") && x.payment !== "paid" && x.status !== "cancelled" && x.status !== "refunded";
 }
 
 /** A status as the page names it for this order: a new cash order says how it is paid ("Cash on delivery"), not just "New" */
@@ -241,6 +253,9 @@ export function Orders() {
   /* one deletion per dialog, even on a double click */
   const deleting = useRef(false);
   const [askStatus, setAskStatus] = useState<StatusKey | null>(null);
+  /* "Payment received" is asked first (it takes the stock); `paying`: the order (its server id) on its way */
+  const [askPaid, setAskPaid] = useState(false);
+  const [paying, setPaying] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -471,6 +486,7 @@ export function Orders() {
   useEffect(() => {
     setConfirmDelete(false);
     setAskStatus(null);
+    setAskPaid(false);
   }, [selected]);
 
   useEffect(() => {
@@ -719,6 +735,51 @@ export function Orders() {
       setAskStatus(null);
       setOrderStatus(row, s);
     }
+  };
+  /* "Payment received" on a card or CliQ order from his public store (canMarkPaid): the server marks it paid and takes
+     its stock then (POST /api/orders/<id>/paid), or refuses when a product no longer has enough (nothing changes). Paid,
+     it shows so, and the products are fetched again (the stock moved). Not undone from here: the stock it took goes back
+     when he cancels or refunds the order. */
+  const markPaid = async (row: Row) => {
+    const serverId = row.serverId;
+    if (!serverId || paying) return;
+    const key = keyOf(row);
+    setPaying(serverId);
+    setNotice(null);
+    let r: Response | null = null;
+    try {
+      r = await fetch(`/api/orders/${serverId}/paid`, { method: "POST", credentials: "same-origin" });
+    } catch {
+      r = null;
+    }
+    const j = r ? ((await r.json().catch(() => null)) as { result?: unknown; moved?: unknown; short?: unknown } | null) : null;
+    setPaying(null);
+    setAskPaid(false);
+    if (r?.ok) {
+      const paid = (x: Row): Row => (x.serverId === serverId ? { ...x, payment: "paid" } : x);
+      serverNow.current = serverNow.current.map(paid);
+      setServerOrders((list) => list.map(paid));
+      if (j?.moved === true) void pullOnlineKeys();
+      return;
+    }
+    if (r?.status === 409 && j?.result === "no-stock") return setNotice({ key, text: o.noStock.replace("{items}", itemsText(stockLines(j.short))) });
+    if (r?.status === 400 || r?.status === 404) {
+      /* changed elsewhere (cancelled meanwhile, or gone): the order as the server has it now */
+      setNotice({ key, text: o.statusChanged });
+      fetch(`/api/orders?number=${row.id}`, { credentials: "same-origin", cache: "no-store" })
+        .then((x) => (x.ok ? x.json() : null))
+        .then((g: { orders?: unknown } | null) => {
+          const got = serverRows(g?.orders).find((x) => x.serverId === serverId);
+          if (!got) return;
+          serverNow.current = serverNow.current.map((x) => (x.serverId === serverId ? got : x));
+          setServerOrders((list) => list.map((x) => (x.serverId === serverId ? got : x)));
+        })
+        .catch(() => {
+          /* offline: the next list brings it */
+        });
+      return;
+    }
+    setNotice({ key, text: o.payFailed });
   };
   /* Deleting needs a reason; the reason is kept with the deletion (orderDeletions.ts) */
   const remove = (id: number) => {
@@ -1053,12 +1114,31 @@ export function Orders() {
                   </p>
                 </div>
 
+                {/* a card or CliQ order from his store: he marks it paid once the customer paid him (it takes the stock then) */}
+                {canMarkPaid(current) && (
+                  <div className="mt-4">
+                    {!askPaid ? (
+                      <button type="button" onClick={() => setAskPaid(true)} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">{o.payReceived}</button>
+                    ) : (
+                      <div role="alert" className="flex flex-wrap items-center gap-3">
+                        <p className="text-sm font-semibold">{o.payReceivedAsk}</p>
+                        <button type="button" disabled={!!paying} onClick={() => void markPaid(current)} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60">
+                          {paying === current.serverId ? o.paySaving : o.payReceivedYes}
+                        </button>
+                        <button type="button" disabled={!!paying} onClick={() => setAskPaid(false)} className="rounded-lg border border-fg/20 px-4 py-2 text-sm font-semibold transition hover:bg-soft disabled:opacity-60">{o.payReceivedNo}</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="mt-6 max-w-xs">
                   <label htmlFor="o-status" className="mb-2 block text-sm font-semibold">{o.changeStatus}</label>
                   <select id="o-status" value={askStatus ?? current.status} onChange={(e) => pickStatus(current, e.target.value as StatusKey)} className={`${field} h-11`}>
                     {STATUS_KEYS.map((k) => <option key={k} value={k}>{statusName(current, k, o)}</option>)}
                   </select>
                 </div>
+                {/* moved on before its payment was marked received: it takes no stock until then */}
+                {canMarkPaid(current) && CONFIRMED_STATUSES.includes(current.status) && <p role="status" className="mt-3 text-sm font-semibold text-amber-700 dark:text-amber-400">{o.payNotYet}</p>}
                 {askStatus && (
                   <div role="alert" className="mt-3 flex flex-wrap items-center gap-3">
                     <p className="text-sm text-rose-600">{o.statusAsk.replace("{status}", o.statuses[askStatus])}</p>

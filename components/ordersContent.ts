@@ -66,6 +66,20 @@ type OrdersCopy = {
   cashPickupHint: string;
   testCard: string;
   testCliq: string;
+  /* a card or CliQ store order: nothing is charged online, so he marks it paid once the customer paid him ("Payment
+     received", POST /api/orders/<id>/paid: its stock is taken then); paid, it says so, also once cancelled */
+  payDueHint: string;
+  paidCard: string;
+  paidCliq: string;
+  cancelledPaid: string;
+  payReceived: string;
+  payReceivedAsk: string;
+  payReceivedYes: string;
+  payReceivedNo: string;
+  paySaving: string;
+  payFailed: string;
+  /* such an order moved on (Processing, Out for delivery, Delivered) before its payment was marked received */
+  payNotYet: string;
   /* reaching the customer from the order: a call, WhatsApp with a first message ({n}: order number, {store}: store name) */
   call: string;
   whatsapp: string;
@@ -174,6 +188,17 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     cashPickupHint: "The customer pays at your store when collecting the order. Mark it Delivered once you have the cash.",
     testCard: "Card (test, nothing charged)",
     testCliq: "CliQ (test, nothing charged)",
+    payDueHint: "Nothing was charged on your store's page. Once the customer has paid you, press “Payment received”.",
+    paidCard: "Paid (card)",
+    paidCliq: "Paid (CliQ)",
+    cancelledPaid: "Cancelled after it was paid",
+    payReceived: "Payment received",
+    payReceivedAsk: "Mark this order as paid? This takes the pieces from your stock.",
+    payReceivedYes: "Yes, it's paid",
+    payReceivedNo: "Not yet",
+    paySaving: "Saving…",
+    payFailed: "The payment couldn't be saved. Check your connection and try again.",
+    payNotYet: "Payment not received yet. The pieces stay in your stock until you press “Payment received”.",
     call: "Call",
     whatsapp: "WhatsApp",
     waText: "Hello, about your order #{n} from {store}",
@@ -270,6 +295,17 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     cashPickupHint: "يدفع العميل في متجرك عند استلام الطلب. غيّر الحالة إلى «تم التوصيل» بعد استلام المبلغ.",
     testCard: "بطاقة (تجريبي، لم يُخصم شيء)",
     testCliq: "كليك (تجريبي، لم يُخصم شيء)",
+    payDueHint: "لم يُخصم أي مبلغ عبر صفحة متجرك. بعد أن يدفع لك العميل، اضغط «تم استلام الدفع».",
+    paidCard: "مدفوع (بطاقة)",
+    paidCliq: "مدفوع (كليك)",
+    cancelledPaid: "أُلغي بعد أن دُفع",
+    payReceived: "تم استلام الدفع",
+    payReceivedAsk: "هل تريد تسجيل هذا الطلب كمدفوع؟ سيتم خصم القطع من مخزونك.",
+    payReceivedYes: "نعم، تم الدفع",
+    payReceivedNo: "ليس بعد",
+    paySaving: "جارٍ الحفظ…",
+    payFailed: "تعذّر حفظ الدفع. تأكد من اتصالك وحاول مرة أخرى.",
+    payNotYet: "لم يُستلم الدفع بعد. تبقى القطع في مخزونك حتى تضغط «تم استلام الدفع».",
     call: "اتصال",
     whatsapp: "واتساب",
     waText: "مرحبًا، بخصوص طلبك رقم {n} من {store}",

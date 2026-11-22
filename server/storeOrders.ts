@@ -158,6 +158,8 @@ export type PlaceResult =
   | { status: 409; body: { result: "no-delivery"; pickup: boolean; choices: StoreChoices } }
   | { status: 409; body: { result: "changed"; items: PricedLine[]; total?: number; terms: Terms } }
   | { status: 409; body: { result: "coupon"; why: CouponRefusal } }
+  /* its products (or its total) come to more than one order can be (safeOrder ORDER_LIMITS.total) */
+  | { status: 409; body: { result: "too-big" } }
   | { status: 200; body: { result: "ok"; order: PlacedOrder } };
 
 /** The order a checkout's key placed at this store, as the checkout shows it, or null */
@@ -287,6 +289,8 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
 
     const priced = priceCart(lines as { id: unknown; qty: unknown; size?: unknown }[], catalog);
     if (priced.changed || priced.items.length === 0) return { status: 409, body: { result: "changed", items: priced.items, terms } };
+    /* products worth more than any amount a store keeps (a line may take a product's whole stock): too big to place */
+    if (priced.subtotal > ORDER_LIMITS.total) return { status: 409, body: { result: "too-big" } };
 
     /* the coupon, checked against the shop's own coupons and this subtotal */
     let discount = 0;
@@ -306,6 +310,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const freeByOffer = freeDeliveryFor(freeDelivery, priced.subtotal, discount);
     const delivery = !ships || freeByOffer || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
     const total = toFils(priced.subtotal - discount + delivery);
+    if (total > ORDER_LIMITS.total) return { status: 409, body: { result: "too-big" } };
     /* the customer was shown another total (a price or the delivery changed since the page opened): he looks again */
     const expect = typeof body.expect === "number" && Number.isFinite(body.expect) ? body.expect : null;
     if (expect !== null && Math.abs(expect - total) > 0.0005) return { status: 409, body: { result: "changed", items: priced.items, total, terms } };
@@ -420,7 +425,8 @@ export type MerchantStoreOrder = {
   coupon?: { code: string; discount: number };
   delivery: number;
   created: number;
-  /* "paid": a cash order marked delivered; "test": nothing paid yet (cash still to come, or card/CliQ: nothing charged) */
+  /* "paid": a cash order marked delivered, or a card/CliQ order he marked "Payment received"; "test": nothing paid yet
+     (cash still to come, or card/CliQ: nothing charged online and no payment marked received) */
   payment: "test" | "unpaid" | "paid";
   /* only on an order Dukkan Ship delivers: where its delivery is (staff mark it in Diwan), why not delivered, and when */
   ship?: { state: ShipState; note?: string; at?: number };
@@ -449,7 +455,8 @@ function merchantRow(r: Record<string, any>): MerchantStoreOrder {
     delivery: Number(r.delivery_fee),
     created: new Date(r.created_at).getTime(),
     /* worked out from the status and the way to pay, so a cash order delivered before 'paid' was kept reads paid too */
-    payment: r.payment_method === "cash" && r.status === "delivered" ? "paid" : r.payment_status === "unpaid" ? "unpaid" : "test",
+    /* a card or CliQ order is paid once he marked its payment received (confirmStoreOrderPayment) */
+    payment: (r.payment_method === "cash" ? r.status === "delivered" : r.payment_status === "paid") ? "paid" : r.payment_status === "unpaid" ? "unpaid" : "test",
     ...(r.ship_by === "dukkan"
       ? { ship: { state: (SHIP_STATES.includes(r.ship_state) ? r.ship_state : "waiting") as ShipState, ...(r.ship_state === "failed" && r.ship_note ? { note: String(r.ship_note) } : {}), ...(r.ship_at ? { at: new Date(r.ship_at).getTime() } : {}) } }
       : {}),
@@ -623,8 +630,9 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
 /** Confirms that a card or CliQ store order was paid: its stock is taken then (the top of this file), and the
     confirmation is refused ("no-stock", nothing changes) when a product still in the shop no longer has enough for it.
     "invalid" for a cash order (it is paid on delivery) or one cancelled or refunded; "ok" again for one already paid.
-    Nothing calls it yet: no payment is taken online, so every card and CliQ order is a test order (nothing charged) and
-    takes no stock. A payment provider's confirmation, or a "payment received" button, would call this. */
+    No payment is taken online yet, so the merchant's "Payment received" on the Orders page calls it
+    (POST /api/orders/<id>/paid) once the customer paid him; a payment provider's confirmation would call it too. Until
+    then a card or CliQ order takes no stock, whatever status he moves it to. */
 export async function confirmStoreOrderPayment(accountId: string, serverId: string): Promise<StatusResult> {
   if (!/^\d{1,18}$/.test(serverId)) return { result: "none" };
   return inTransaction(undefined, async (c): Promise<StatusResult> => {
