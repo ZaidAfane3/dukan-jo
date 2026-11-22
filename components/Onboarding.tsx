@@ -803,10 +803,12 @@ function LinkStep({ store, onSave }: StepProps) {
   const [tried, setTried] = useState(false);
   /* the link Dukkan said belongs to another store (asked on Save, like the Store link page) */
   const [taken, setTaken] = useState("");
+  /* the link Dukkan said can't be newly chosen (a reserved name): shown with the reserved-name message below */
+  const [reserved, setReserved] = useState("");
   /* the link the store already has is always fine to keep; the rules for new choices apply to a different one */
   const valid = (slug !== "" && slug === store.slug && isSlug(slug)) || isNewSlug(slug);
   /* Wrong after he leaves the field, or still empty after he pressed Save */
-  const showError = (!valid && ((touched && slug !== "") || tried)) || (taken !== "" && taken === slug);
+  const showError = (!valid && ((touched && slug !== "") || tried)) || (taken !== "" && taken === slug) || (reserved !== "" && reserved === slug);
   const suggestion = slugify(store.name);
   const canSuggest = isNewSlug(suggestion) && suggestion !== slug;
 
@@ -869,8 +871,9 @@ function LinkStep({ store, onSave }: StepProps) {
             /* a store link belongs to one store: a signed-in account asks Dukkan first (the save is refused anyway if taken) */
             if (onServer() && slug !== store.slug) {
               const r = await merchantCall(`/api/shop/slug?slug=${encodeURIComponent(slug)}`, "GET");
-              if (r?.data.result === "taken") {
-                setTaken(slug);
+              if (r?.data.result === "taken" || r?.data.result === "reserved") {
+                if (r.data.result === "taken") setTaken(slug);
+                else setReserved(slug);
                 focusFirst(["ob-link"]);
                 return;
               }
