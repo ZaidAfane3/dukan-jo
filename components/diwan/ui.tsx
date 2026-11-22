@@ -111,6 +111,17 @@ export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELE
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
 }
 
+/** What a refusal of the sign-in or of the request itself means, in words (null for any other answer). Diwan has no
+    roles, so a 403 is not about what someone may do: "forbidden" is a change sent from a page opened at another address
+    or left open from before (server/auth.ts sameOrigin), "not-allowed" what the account can't do; a 401 is a session
+    that ended (the page is on its way to the sign-in). */
+export function refusedWords(t: (en: string, ar: string) => string, r: { status: number; data: any }): string | null {
+  if (r.status === 401) return t("You were signed out. Sign in again and try once more.", "انتهت جلستك. سجّل الدخول مجددًا وحاول مرة أخرى.");
+  if (r.status !== 403) return null;
+  if (r.data?.result === "not-allowed") return t("This account can't do this.", "لا يستطيع هذا الحساب القيام بذلك.");
+  return t("This page is out of date or was opened from another address. Reload it from Dukkan's own address and try again.", "هذه الصفحة قديمة أو فُتحت من عنوان آخر. أعد تحميلها من عنوان دكّان نفسه وحاول مجددًا.");
+}
+
 /* ---------------- formatting ---------------- */
 
 /** The Arabic forms of a counted noun for f.count: one and two are whole phrases (no number), few (3–10, and 0) and many
