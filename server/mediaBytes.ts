@@ -31,29 +31,59 @@ function join(parts: Uint8Array[]): Uint8Array {
 
 type Box = { type: string; start: number; body: number; end: number };
 
-/** The boxes from start to end, one after another, or null when they don't fit exactly */
-function boxesIn(b: Uint8Array, start: number, end: number): Box[] | null {
-  const out: Box[] = [];
+/* a box's name is four letters (Apple's own names start with ©), checked byte by byte */
+const boxLetter = (c: number) => (c >= 0x20 && c <= 0x7e) || c === 0xa9;
+
+/** The boxes from start to end, one after another, at most `most` of them. whole: false when they don't fit exactly
+    (or there are more than `most`); the boxes read until then are still given. */
+function walkBoxes(b: Uint8Array, start: number, end: number, most: number): { boxes: Box[]; whole: boolean } {
+  const boxes: Box[] = [];
   let i = start;
   while (i < end) {
-    if (end - i < 8) return null;
+    if (boxes.length >= most || end - i < 8) return { boxes, whole: false };
     let size = u32be(b, i);
-    const type = ascii(b, i + 4, 4);
-    /* a box's name is four letters (Apple's own names start with ©) */
-    if (!/^[\x20-\x7e\xa9]{4}$/.test(type)) return null;
+    if (!boxLetter(b[i + 4]) || !boxLetter(b[i + 5]) || !boxLetter(b[i + 6]) || !boxLetter(b[i + 7])) return { boxes, whole: false };
     let body = i + 8;
     if (size === 1) {
-      if (end - i < 16) return null;
+      if (end - i < 16) return { boxes, whole: false };
       size = u32be(b, i + 8) * 2 ** 32 + u32be(b, i + 12);
       body = i + 16;
     } else if (size === 0) size = end - i;
-    if (size < body - i || i + size > end) return null;
-    out.push({ type, start: i, body, end: i + size });
+    if (size < body - i || i + size > end) return { boxes, whole: false };
+    boxes.push({ type: String.fromCharCode(b[i + 4], b[i + 5], b[i + 6], b[i + 7]), start: i, body, end: i + size });
     i += size;
-    /* a real file has at most a few thousand top-level boxes (fragments); far more is not a video */
-    if (out.length > 100_000) return null;
   }
-  return out;
+  return { boxes, whole: true };
+}
+
+/** The boxes from start to end, one after another, or null when they don't fit exactly. A real file has at most a few
+    thousand top-level boxes (fragments); far more is not a video. */
+function boxesIn(b: Uint8Array, start: number, end: number): Box[] | null {
+  const { boxes, whole } = walkBoxes(b, start, end, 100_000);
+  return whole ? boxes : null;
+}
+
+/* The boxes the checks below look inside (moov > trak > mdia > minf > stbl, and dinf > dref, whose entries follow its
+   version and count). A real video has a few hundred of them at most, a long fragmented one a few thousand at the top.
+   A file of far more (one made of hundreds of thousands of empty boxes) is refused before any of it is read again:
+   reading such a file once per track and once per step kept the one server process busy for seconds (testing FZ-01). */
+const MP4_LOOKED_INTO: Record<string, number> = { moov: 0, trak: 0, mdia: 0, minf: 0, stbl: 0, dinf: 0, dref: 8 };
+const MP4_MAX_BOXES = 20_000;
+
+/** Whether an MP4 has at most MP4_MAX_BOXES boxes in the places the checks read. Boxes that don't fit are counted up to
+    where they stop fitting, since each later read stops at the same place. */
+function mp4BoxesFew(b: Uint8Array, top: Box[]): boolean {
+  let left = MP4_MAX_BOXES - top.length;
+  const todo = top.slice();
+  while (left >= 0 && todo.length) {
+    const x = todo.pop() as Box;
+    const skip = MP4_LOOKED_INTO[x.type];
+    if (skip === undefined || x.end - x.body < skip) continue;
+    const { boxes } = walkBoxes(b, x.body + skip, x.end, left + 1);
+    left -= boxes.length;
+    for (const k of boxes) todo.push(k);
+  }
+  return left >= 0;
 }
 
 /* what may stand at the top of an MP4 or QuickTime file */
@@ -66,7 +96,7 @@ function mp4Boxes(b: Uint8Array): { top: Box[]; moov: Box; moovKids: Box[] } | n
   if (!top || top[0]?.type !== "ftyp") return null;
   const ftyp = top[0];
   if (ftyp.end - ftyp.start < 16 || ftyp.end - ftyp.start > 1024 || STILL_BRANDS.test(ascii(b, ftyp.body, 4))) return null;
-  if (top.some((x) => !MP4_TOP.has(x.type))) return null;
+  if (top.some((x) => !MP4_TOP.has(x.type)) || !mp4BoxesFew(b, top)) return null;
   const moovs = top.filter((x) => x.type === "moov");
   if (moovs.length !== 1 || !top.some((x) => x.type === "mdat" || x.type === "moof")) return null;
   const moov = moovs[0];
@@ -261,6 +291,33 @@ const SEGMENT_KIDS = new Set([0x114d9b74, INFO, TRACKS, CLUSTER, 0x1c53bb6b, TAG
 /* what the segment's Info may say in words: Title, the date it was made (DateUTC) and the file names it had
    (SegmentFilename, PrevFilename, NextFilename). MuxingApp and WritingApp (the program that wrote it) stay. */
 const INFO_HIDDEN = new Set([0x7ba9, 0x4461, 0x7384, 0x3c83b9, 0x3e83bb]);
+/* a real Info holds about ten fields; one with far more (130,000 empty titles) is not a video (testing FZ-03) */
+const INFO_MAX_FIELDS = 256;
+const TRACK_ENTRY = 0xae;
+const TRACK_TYPE = 0x83;
+
+/** Whether a WebM's Tracks holds a video track (a TrackEntry whose TrackType is 1): an audio file, or one with no track
+    at all, is not a video (testing FZ-05) */
+function hasVideoEntry(b: Uint8Array, tracks: Element): boolean {
+  for (let i = tracks.body; i < tracks.end; ) {
+    const t = elementAt(b, i, tracks.end);
+    if (!t || t.unknown) return false;
+    if (t.id === TRACK_ENTRY) {
+      for (let k = t.body; k < t.end; ) {
+        const f = elementAt(b, k, t.end);
+        if (!f || f.unknown) break;
+        if (f.id === TRACK_TYPE && f.end - f.body >= 1 && f.end - f.body <= 8) {
+          let type = 0;
+          for (let n = f.body; n < f.end; n++) type = type * 256 + b[n];
+          if (type === 1) return true;
+        }
+        k = f.end;
+      }
+    }
+    i = t.end;
+  }
+  return false;
+}
 
 /** The WebM's parts, and the elements that hold words or dates about it (Tags, Chapters, the Info fields above) */
 function webmParts(b: Uint8Array): { hidden: Element[] } | null {
@@ -278,27 +335,28 @@ function webmParts(b: Uint8Array): { hidden: Element[] } | null {
   /* a known size must reach the end of the file: nothing is kept after the video */
   if (!seg || seg.id !== SEGMENT || seg.end !== b.length) return null;
   const hidden: Element[] = [];
-  let tracks = false;
+  let video = false;
   let cluster = false;
   for (let i = seg.body; i < seg.end; ) {
     const e = elementAt(b, i, seg.end);
     if (!e || !SEGMENT_KIDS.has(e.id)) return null;
-    if (e.id === TRACKS) tracks = true;
+    if (e.id === TRACKS && !e.unknown && hasVideoEntry(b, e)) video = true;
     if (e.id === CLUSTER) cluster = true;
     if (e.id === TAGS || e.id === CHAPTERS) hidden.push(e);
     if (e.id === INFO && !e.unknown) {
       const found: Element[] = [];
       let crc: Element | null = null;
+      let fields = 0;
       for (let k = e.body; k < e.end; ) {
         const f = elementAt(b, k, e.end);
-        if (!f || f.unknown) return null;
+        if (!f || f.unknown || ++fields > INFO_MAX_FIELDS) return null;
         if (INFO_HIDDEN.has(f.id)) found.push(f);
         if (f.id === 0xbf) crc = f;
         k = f.end;
       }
       /* the Info's checksum (CRC-32), when it has one, would no longer match: it goes too */
       if (found.length && crc) found.push(crc);
-      hidden.push(...found);
+      for (const f of found) hidden.push(f);
     }
     /* a cluster of unknown size (a recording written as it went) runs to the end: the walk stops there */
     if (e.unknown) {
@@ -307,7 +365,7 @@ function webmParts(b: Uint8Array): { hidden: Element[] } | null {
     }
     i = e.end;
   }
-  return tracks && cluster ? { hidden } : null;
+  return video && cluster ? { hidden } : null;
 }
 
 /** Turns an element into a Void element of exactly the same length, its contents zeroed. The Void id is 1 byte, so its
@@ -448,22 +506,41 @@ function stripPng(b: Uint8Array): Uint8Array | null {
   }
 }
 
+/* The chunks a WebP is drawn from: the picture (VP8, VP8L, or the frames of an animated one), its transparency, the
+   animation's settings and the colour profile. EXIF, XMP and any other chunk (a decoder skips a chunk it doesn't
+   know, so it can only carry something else) are dropped. */
+const WEBP_KEEP = new Set(["VP8 ", "VP8L", "VP8X", "ALPH", "ANIM", "ANMF", "ICCP"]);
+const WEBP_PICTURE = new Set(["VP8 ", "VP8L", "ANMF"]);
+/* a real WebP has a few chunks, an animated one one per frame: far more (a file made of a million empty chunks) is
+   refused rather than read (testing FZ-02) */
+const WEBP_MAX_CHUNKS = 20_000;
+
 function stripWebp(b: Uint8Array): Uint8Array | null {
   if (b.length < 12 || ascii(b, 0, 4) !== "RIFF" || ascii(b, 8, 4) !== "WEBP") return null;
   const end = Math.min(b.length, u32le(b, 4) + 8);
   const parts: Uint8Array[] = [];
+  let chunks = 0;
+  let picture = false;
   for (let i = 12; i < end; ) {
-    if (i + 8 > end) return null;
-    const type = ascii(b, i, 4);
+    if (i + 8 > end || ++chunks > WEBP_MAX_CHUNKS) return null;
+    const type = String.fromCharCode(b[i], b[i + 1], b[i + 2], b[i + 3]);
     const len = u32le(b, i + 4);
     const stop = i + 8 + len + (len & 1);
     if (i + 8 + len > end) return null;
-    const chunk = new Uint8Array(b.subarray(i, Math.min(stop, end)));
-    /* VP8X says which extra chunks follow: the EXIF (0x08) and XMP (0x04) marks are taken off with their chunks */
-    if (type === "VP8X" && len >= 1) chunk[8] &= ~0x0c;
-    if (type !== "EXIF" && type !== "XMP ") parts.push(chunk.length & 1 ? join([chunk, new Uint8Array(1)]) : chunk);
+    if (WEBP_KEEP.has(type)) {
+      if (WEBP_PICTURE.has(type)) picture = true;
+      let chunk = b.subarray(i, Math.min(stop, end));
+      /* VP8X says which extra chunks follow: the EXIF (0x08) and XMP (0x04) marks are taken off with their chunks */
+      if (type === "VP8X" && len >= 1) {
+        chunk = new Uint8Array(chunk);
+        chunk[8] &= ~0x0c;
+      }
+      parts.push(chunk.length & 1 ? join([chunk, new Uint8Array(1)]) : chunk);
+    }
     i = stop;
   }
+  /* a WebP with no picture in it (only a VP8X saying how big it would be) is not a picture */
+  if (!picture) return null;
   const body = join(parts);
   const head = new Uint8Array(12);
   head.set(b.subarray(0, 12));
@@ -752,11 +829,15 @@ export function stripPdf(src: Uint8Array): Uint8Array {
   }
 }
 
-/** Whether a video is built like a real one (see the top of this file) */
+/** Whether a video is built like a real one (see the top of this file). A file that can't be read is not. */
 export function videoLooksReal(b: Uint8Array, kind: "mp4" | "webm"): boolean {
-  if (kind === "webm") return webmParts(b) !== null;
-  const parsed = mp4Boxes(b);
-  return !!parsed && hasVideoTrack(b, parsed.moovKids);
+  try {
+    if (kind === "webm") return webmParts(b) !== null;
+    const parsed = mp4Boxes(b);
+    return !!parsed && hasVideoTrack(b, parsed.moovKids);
+  } catch {
+    return false;
+  }
 }
 
 /** The file without its hidden data (see the top of this file), or null when it is not built the way its kind must be */
