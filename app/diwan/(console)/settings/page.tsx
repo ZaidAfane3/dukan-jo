@@ -147,7 +147,7 @@ function NumBar() {
   );
 }
 
-type PayUse = { orders: number; ordersTotal: number; ordersTest?: boolean; stores: number; themes: number; themesTotal: number; buyers: number };
+type PayUse = { orders: number; ordersTotal: number; testOrders?: number; stores: number; themes: number; themesTotal: number; buyers: number };
 const PERIODS = [["30", "Last 30 days", "آخر 30 يومًا"], ["90", "Last 90 days", "آخر 90 يومًا"], ["365", "Last year", "آخر سنة"], ["all", "All time", "كل الوقت"]] as const;
 
 function Payments({ e }: { e: Entry<"payment_methods"> }) {
@@ -213,8 +213,8 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
                   <div>
                     <dt className="text-xs text-muted">{t("Orders in stores", "طلبات المتاجر")}</dt>
                     <dd className="font-bold tabular-nums">
-                      {/* card and CliQ checkouts are test orders while no payment is taken: their total is not money received */}
-                      {stats.loading ? <NumBar /> : u ? <>{jod(u.ordersTotal)} {u.ordersTest && <span className="font-normal text-amber-700 dark:text-amber-300">{t("(test, nothing charged)", "(تجريبية، لم يُخصم أي مبلغ)")}</span>} <span className="font-normal text-muted">· {f.count(u.orders, ["order", "orders"], { one: "طلب واحد", two: "طلبان", few: "طلبات", many: "طلبًا" })} · {f.count(u.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
+                      {/* card and CliQ orders count once the merchant marked their payment received; the others are test orders, counted apart */}
+                      {stats.loading ? <NumBar /> : u ? <>{jod(u.ordersTotal)} {!!u.testOrders && <span className="font-normal text-amber-700 dark:text-amber-300">{t(`(+ ${f.count(u.testOrders, ["test order", "test orders"], { one: "طلب تجريبي واحد", two: "طلبان تجريبيان", few: "طلبات تجريبية", many: "طلبًا تجريبيًا" })}, nothing charged)`, `(+ ${f.count(u.testOrders, ["test order", "test orders"], { one: "طلب تجريبي واحد", two: "طلبان تجريبيان", few: "طلبات تجريبية", many: "طلبًا تجريبيًا" })}، لم يُخصم أي مبلغ)`)}</span>} <span className="font-normal text-muted">· {f.count(u.orders, ["order", "orders"], { one: "طلب واحد", two: "طلبان", few: "طلبات", many: "طلبًا" })} · {f.count(u.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
                     </dd>
                   </div>
                 )}

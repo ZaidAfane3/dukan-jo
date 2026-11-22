@@ -563,9 +563,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const signPage = ownProduct !== null ? null : ownPage;
   const signProduct = ownProduct !== null;
   const signupTo = useMemo(() => (signSlug ? { slug: signSlug, page: signPage, product: signProduct } : undefined), [signSlug, signPage, signProduct]);
+  /* the coupon's discount in the cart (CartPanel onDiscount): the free-delivery bar and the product page count the
+     products after it, as the cart and the server do (freeDeliveryFor) */
+  const [cartOff, setCartOff] = useState(0);
   const ctx: Ctx = useMemo(
-    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, signupTo, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS, sells }),
-    [lang, compact, goods, look, shop, design, owner, visitor, signupTo, interactive, qty, setQty, openPageS, openProductS, showSectionS, sells],
+    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, signupTo, interactive, qty, off: cartOff, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS, sells }),
+    [lang, compact, goods, look, shop, design, owner, visitor, signupTo, interactive, qty, cartOff, setQty, openPageS, openProductS, showSectionS, sells],
   );
 
   /* his text and title colors, unless they vanish on his background (the same color, or too close): then automatic ones that read */
@@ -1057,7 +1060,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
       )}
       {data.isDemo && design && <p className="px-4 py-2 text-center text-xs font-medium" style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)" }}>{c.sample}</p>}
 
-      <AnnouncementBar config={config} lang={lang} design={design} reduceMotion={reduceMotion} offer={sells.delivers ? freeDeliveryText(fd, lang, cart.total, priceLang(config.theme.prices, lang)) : ""} offerColor={primary} linkFor={(l) => linkProps(l, ctx)} spotted={spotted("announcement")} />
+      <AnnouncementBar config={config} lang={lang} design={design} reduceMotion={reduceMotion} offer={sells.delivers ? freeDeliveryText(fd, lang, toFils(cart.total - cartOff), priceLang(config.theme.prices, lang)) : ""} offerColor={primary} linkFor={(l) => linkProps(l, ctx)} spotted={spotted("announcement")} />
 
       <header onClick={() => design?.select("header")} className={`group/sel z-20 ${pillHeader ? "" : config.theme.hairlines ? "border-b border-[color-mix(in_srgb,var(--sf-primary)_25%,transparent)] backdrop-blur-xl" : "border-b border-black/[0.06] backdrop-blur-xl"} ${h.sticky ? "sticky top-0" : "relative"} ${design ? "cursor-pointer" : ""}`} style={{ background: pillHeader ? "color-mix(in srgb, var(--sf-bg) 94%, transparent)" : "color-mix(in srgb, var(--sf-bg) 86%, transparent)" }}>
         {pillHeader ? (
@@ -1205,7 +1208,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             : `Your cart can hold up to ${ORDER_LIMITS.lines} different products. Place this order first, then add more in a new one.`}
         </p>
       )}
-      {!design && interactive && <CartPanel open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} notice={basketLost} onNoticeSeen={noticeSeen} />}
+      {!design && interactive && <CartPanel onDiscount={setCartOff} open={cartOpen} onClose={() => setCartOpen(false)} lang={lang} lines={cartLines} products={data.products} setQty={setQty} fd={fd} priceLanguage={priceLang(config.theme.prices, lang)} onCleared={() => setQtyMap({})} pickup={data.pickup} ownFee={data.ownFee} ownCities={data.ownCities} shipMode={data.shipMode} chosenPays={data.pays} look={config.cart?.style} orderTo={visitor ? visitor.setup.slug : undefined} notice={basketLost} onNoticeSeen={noticeSeen} />}
       <main>
         {shownProduct ? (
           <>

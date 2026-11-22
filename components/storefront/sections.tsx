@@ -41,6 +41,8 @@ export type Ctx = {
   /* The basket: how many of each product, and a way to change it */
   /* the basket: by product id, or "id|size" for a product in sizes (see basketKey) */
   qty: Record<string, number>;
+  /* the coupon's discount in the cart: free delivery counts the products after it */
+  off?: number;
   /* a product in sizes is added with its size; without one its page opens to choose it */
   setQty: (p: StoreProduct, n: number, size?: string) => void;
   /* Opens a page of the store (an info page the merchant wrote) in place of the home page */
@@ -941,7 +943,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const basket = toFils(Object.entries(ctx.qty).reduce((t, [key, n]) => {
     const x = ctx.data.products.find((y) => String(y.id) === key.split("|")[0]);
     return t + (x ? n * priceOf(x) : 0);
-  }, 0));
+  }, 0) - (ctx.off ?? 0));
   const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
   /* free delivery is only promised by a store that delivers to a door, on a product it delivers */
   if (fd?.on && ctx.sells.delivers && !p.noShip) {

@@ -806,6 +806,8 @@ function LinkStep({ store, onSave }: StepProps) {
   const [taken, setTaken] = useState("");
   /* the link Dukkan said can't be newly chosen (a reserved name): shown with the reserved-name message below */
   const [reserved, setReserved] = useState("");
+  /* that link was another store's until recently, kept for it 2 days (server/slugHolds.ts): said so */
+  const [held, setHeld] = useState(false);
   /* the link the store already has is always fine to keep; the rules for new choices apply to a different one */
   const valid = (slug !== "" && slug === store.slug && isSlug(slug)) || isNewSlug(slug);
   /* Wrong after he leaves the field, or still empty after he pressed Save */
@@ -848,7 +850,11 @@ function LinkStep({ store, onSave }: StepProps) {
                 : !slug
                   ? c.link.errEmpty
                   : SLUG_RULE.test(slug)
-                    ? reservedSlugError[lang]
+                    ? held
+                      ? lang === "ar"
+                        ? "استخدم متجر آخر هذا الرابط حتى وقت قريب، وهو محفوظ لذلك المتجر لمدة يومين. اختر رابطًا آخر."
+                        : "Another store used this link until recently, and it is kept for that store for 2 days. Choose another one."
+                      : reservedSlugError[lang]
                     : c.link.invalid}
             </FieldError>
           ) : dropped ? (
@@ -874,7 +880,10 @@ function LinkStep({ store, onSave }: StepProps) {
               const r = await merchantCall(`/api/shop/slug?slug=${encodeURIComponent(slug)}`, "GET");
               if (r?.data.result === "taken" || r?.data.result === "reserved") {
                 if (r.data.result === "taken") setTaken(slug);
-                else setReserved(slug);
+                else {
+                  setReserved(slug);
+                  setHeld(!!r.data.held);
+                }
                 focusFirst(["ob-link"]);
                 return;
               }

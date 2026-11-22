@@ -378,7 +378,7 @@ function keepAttempt(slug: string, v: { key: string; fp: string } | null, prev: 
    checkout says the store confirms it and charges none); null with Dukkan Ship (its price from Diwan) */
 /* `shipMode`: how he delivers; null: not chosen yet, home delivery is not offered (safeOrder storeDelivery).
    `chosenPays`: the ways to pay he chose (left out: every way Dukkan has on; safeOrder orderPays) */
-export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fdIn, priceLanguage, onCleared, pickup: pickupSaved = false, ownFee = null, ownCities, shipMode, chosenPays, look = "drawer", contained = false, orderTo, notice, onNoticeSeen }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | "ask" | null; /* his own courier's cities as saved (none: all) */ ownCities?: string[]; shipMode: "own" | "seen" | null; chosenPays?: Payment[]; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string; /* lines a kept basket lost when the page opened again (visitorBasket.ts), and told once he has seen them */ notice?: LostLine[]; onNoticeSeen?: () => void }) {
+export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fdIn, priceLanguage, onCleared, pickup: pickupSaved = false, ownFee = null, ownCities, shipMode, chosenPays, look = "drawer", contained = false, orderTo, notice, onNoticeSeen, onDiscount }: { open: boolean; onClose: () => void; lang: Lang; lines: Line[]; products: StoreProduct[]; setQty: (p: StoreProduct, n: number, size?: string) => void; fd: FreeDelivery; priceLanguage: Lang; onCleared: () => void; pickup?: boolean; ownFee?: number | "ask" | null; /* his own courier's cities as saved (none: all) */ ownCities?: string[]; shipMode: "own" | "seen" | null; chosenPays?: Payment[]; look?: CartStyle; /* drawn inside its box (the designer's preview) instead of over the window */ contained?: boolean; orderTo?: string; /* lines a kept basket lost when the page opened again (visitorBasket.ts), and told once he has seen them */ notice?: LostLine[]; onNoticeSeen?: () => void; /* told the coupon's discount, so the store's free-delivery bar counts it as the cart does */ onDiscount?: (n: number) => void }) {
   const w = words[lang];
   /* the public store: after an order (or a "changed" answer) the store's products are read again, so what just sold out shows as sold out */
   const refreshStore = useVisitorRefresh();
@@ -568,6 +568,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   /* the coupon taken is checked again whenever the basket changes (it may fall under its minimum) */
   const cp = coupon ? checkCoupon(coupon, couponList(), subtotal) : null;
   const discount = cp?.ok ? cp.discount : 0;
+  useEffect(() => onDiscount?.(discount), [discount, onDiscount]);
   /* the free delivery amount counts what the products come to after the coupon, as the server does (freeDeliveryFor) */
   const afterCoupon = toFils(subtotal - discount);
   const freeNow = freeDeliveryFor(fd, subtotal, discount);

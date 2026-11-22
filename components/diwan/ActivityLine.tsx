@@ -106,7 +106,12 @@ function valueWords(t: T, action: string, field: string, v: string | null): stri
   if (field === "active") return v === "true" ? t("has access", "له دخول") : t("no access", "بلا دخول");
   if (field === "featured") return v === "true" ? t("yes", "نعم") : t("no", "لا");
   if (action === "shop.payment_edit" && field === "method") return methodText(t, v);
-  if (action === "shop.payment_edit" && field === "amount") return t(`${v} JOD`, `${v} د.أ`);
+  if (action === "shop.payment_edit" && field === "amount") {
+    /* written as Diwan writes an amount (ui.tsx f.jod): "30", "12.50", "4.125", not the stored "30.000" */
+    const n = Number(v);
+    const x = !Number.isFinite(n) ? String(v) : Math.round(n * 1000) % 1000 === 0 ? String(Math.round(n)) : n.toFixed(3).replace(/0$/, "");
+    return t(`${x} JOD`, `${x} د.أ`);
+  }
   if (field === "status") {
     if (v === "new") return t("New", "جديد");
     if (v === "closed") return t("Closed", "مغلق");

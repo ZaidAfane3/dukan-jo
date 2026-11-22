@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Dialog } from "@/components/diwan/dialogs";
 import { askOwnPassword, OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
@@ -26,6 +27,7 @@ type Shown = { name: string; password: string; self?: boolean };
 export default function StaffPage() {
   const t = useT();
   const f = useFmt();
+  const router = useRouter();
   const s = useApi<Data>("/api/diwan/staff");
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -119,6 +121,8 @@ export default function StaffPage() {
             setEmailFor(null);
             setMsg({ ok: true, text: t("Your email was changed. Your sign-in codes go to the new address from now on.", "تغيّر بريدك. تصل رموز الدخول إلى البريد الجديد من الآن.") });
             s.reload();
+            /* the header (the console layout, read on the server) shows the new address without a reload */
+            router.refresh();
           }}
         />
       )}
@@ -170,7 +174,7 @@ export default function StaffPage() {
                     </td>
                     <td className={td}>
                       <span title={f.dateTime(m.lastLoginAt)}>{m.lastLoginAt ? f.ago(m.lastLoginAt) : t("Never", "أبدًا")}</span>
-                      {m.sessions > 0 && <p className="text-xs text-muted">{t(`${m.sessions} open session(s)`, `${m.sessions} جلسة مفتوحة`)}</p>}
+                      {m.sessions > 0 && <p className="text-xs text-muted">{f.count(m.sessions, ["open session", "open sessions"], { one: "جلسة مفتوحة واحدة", two: "جلستان مفتوحتان", few: "جلسات مفتوحة", many: "جلسة مفتوحة" })}</p>}
                     </td>
                     <td className={`${td} text-end`}>
                       <div className="flex flex-wrap justify-end gap-2">
