@@ -8,6 +8,7 @@ import { ArchOutline, type IconName } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS } from "./nav";
 import type { Role } from "./perms";
 import { timeoutSignal } from "../timeoutSignal";
+import { arManyAt } from "../undo";
 import { toSignIn } from "./signInAgain";
 
 /* Diwan's shared building blocks, so every page looks and behaves the same. Every page reads live data from
@@ -154,7 +155,7 @@ export function useFmt() {
       if (n === 1) return ar.one;
       if (n === 2) return ar.two;
       const r = Math.abs(n) % 100;
-      return `${num} ${n === 0 || (r >= 3 && r <= 10) ? ar.few : ar.many}`;
+      return `${num} ${n === 0 || (r >= 3 && r <= 10) ? ar.few : arManyAt(n, ar.many)}`;
     },
     ago: (v: string | number | null | undefined) => {
       if (!v) return "—";
