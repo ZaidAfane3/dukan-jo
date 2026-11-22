@@ -478,22 +478,41 @@ function stripPng(b: Uint8Array): Uint8Array | null {
   }
 }
 
+/* The chunks a WebP is drawn from: the picture (VP8, VP8L, or the frames of an animated one), its transparency, the
+   animation's settings and the colour profile. EXIF, XMP and any other chunk (a decoder skips a chunk it doesn't
+   know, so it can only carry something else) are dropped. */
+const WEBP_KEEP = new Set(["VP8 ", "VP8L", "VP8X", "ALPH", "ANIM", "ANMF", "ICCP"]);
+const WEBP_PICTURE = new Set(["VP8 ", "VP8L", "ANMF"]);
+/* a real WebP has a few chunks, an animated one one per frame: far more (a file made of a million empty chunks) is
+   refused rather than read (testing FZ-02) */
+const WEBP_MAX_CHUNKS = 20_000;
+
 function stripWebp(b: Uint8Array): Uint8Array | null {
   if (b.length < 12 || ascii(b, 0, 4) !== "RIFF" || ascii(b, 8, 4) !== "WEBP") return null;
   const end = Math.min(b.length, u32le(b, 4) + 8);
   const parts: Uint8Array[] = [];
+  let chunks = 0;
+  let picture = false;
   for (let i = 12; i < end; ) {
-    if (i + 8 > end) return null;
-    const type = ascii(b, i, 4);
+    if (i + 8 > end || ++chunks > WEBP_MAX_CHUNKS) return null;
+    const type = String.fromCharCode(b[i], b[i + 1], b[i + 2], b[i + 3]);
     const len = u32le(b, i + 4);
     const stop = i + 8 + len + (len & 1);
     if (i + 8 + len > end) return null;
-    const chunk = new Uint8Array(b.subarray(i, Math.min(stop, end)));
-    /* VP8X says which extra chunks follow: the EXIF (0x08) and XMP (0x04) marks are taken off with their chunks */
-    if (type === "VP8X" && len >= 1) chunk[8] &= ~0x0c;
-    if (type !== "EXIF" && type !== "XMP ") parts.push(chunk.length & 1 ? join([chunk, new Uint8Array(1)]) : chunk);
+    if (WEBP_KEEP.has(type)) {
+      if (WEBP_PICTURE.has(type)) picture = true;
+      let chunk = b.subarray(i, Math.min(stop, end));
+      /* VP8X says which extra chunks follow: the EXIF (0x08) and XMP (0x04) marks are taken off with their chunks */
+      if (type === "VP8X" && len >= 1) {
+        chunk = new Uint8Array(chunk);
+        chunk[8] &= ~0x0c;
+      }
+      parts.push(chunk.length & 1 ? join([chunk, new Uint8Array(1)]) : chunk);
+    }
     i = stop;
   }
+  /* a WebP with no picture in it (only a VP8X saying how big it would be) is not a picture */
+  if (!picture) return null;
   const body = join(parts);
   const head = new Uint8Array(12);
   head.set(b.subarray(0, 12));
