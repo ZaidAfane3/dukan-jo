@@ -55,6 +55,14 @@ export async function endStaffSession(res: NextResponse, req: NextRequest): Prom
   res.cookies.set(STAFF_COOKIE, "", { httpOnly: true, sameSite: "strict", secure: secureCookies(req), path: "/", maxAge: 0 });
 }
 
+/** Ends every session of this staff member except the one this request comes from ("Sign out my other browsers", the
+    Staff page; owner decision 2026-11-23: a lost laptop is signed out at once). Answers how many were ended. */
+export async function endOtherStaffSessions(req: NextRequest, staffId: string): Promise<number> {
+  const token = req.cookies.get(STAFF_COOKIE)?.value ?? "";
+  const r = await (await db()).query(`DELETE FROM staff_sessions WHERE staff_id = $1 AND token_hash <> $2`, [staffId, tokenHash(token)]);
+  return r.rowCount ?? 0;
+}
+
 /** The staff member behind a cookie token, and whether the 2-step code was given. Also usable from server components.
     `touch: false` for a page's own background load (a ticket looked at again every few seconds): it is answered, but
     it is not counted as use, so a page left open still ends the session after IDLE_MIN with nothing done. */

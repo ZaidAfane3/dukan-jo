@@ -3,6 +3,7 @@ import { answer, currentAccount, guarded, otherAccount, sameOrigin, startRunning
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
+import { courierApproved } from "@/server/courierProof";
 import { db } from "@/server/db";
 import { movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
@@ -218,7 +219,8 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
      this save leaves them: two devices saving at once (one taking away the last way to pay of a paused store, the other
      reopening it) are checked one after the other, so the second sees what the first kept. */
   const touchesLive = [...set.map(([k]) => k), ...(remove as string[])].some((k) => LIVE_KEYS.includes(k));
-  const platform = touchesLive ? await sellPlatform() : null;
+  /* with whether Diwan approved his own courier's proof: until then that courier does not deliver (safeOrder readyToSell) */
+  const platform = touchesLive ? { ...(await sellPlatform()), courierApproved: await courierApproved(await db(), a.id) } : null;
 
   /* a store link belongs to one shop only */
   const setup = set.find(([k]) => k === "seen-setup");

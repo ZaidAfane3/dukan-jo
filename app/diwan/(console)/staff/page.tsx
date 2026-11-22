@@ -11,7 +11,7 @@ import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi,
 import { StaffSkeleton } from "@/components/diwan/skeletons";
 
 /* Dukkan's staff: who they are, whether they can sign in and whether their email is confirmed (a sign-in on a browser not
-   remembered yet asks for a code sent to it; "Forget my other browsers" makes all but this one ask again). Every staff member is an owner and may do everything (Diwan has no roles). They add staff with a
+   remembered yet asks for a code sent to it; "Sign out my other browsers" ends their sessions and makes all but this one ask again). Every staff member is an owner and may do everything (Diwan has no roles). They add staff with a
    temporary password, take access away (which signs them out everywhere) or reset a forgotten password, and change their
    own email. Diwan always keeps one staff member who can sign in; the server refuses anything that would leave none. */
 
@@ -70,14 +70,18 @@ export default function StaffPage() {
   };
 
   /* every browser remembered for me except this one asks for the emailed code again (app/api/diwan/auth/devices) */
+  /* "Sign out my other browsers": asked first (it ends sessions at once), then the list reloads its session counts */
+  const [forgetAsk, setForgetAsk] = useState<Member | null>(null);
   const forgetOthers = async (m: Member) => {
     setBusy(m.id);
     setMsg(null);
     const r = await send("/api/diwan/auth/devices", "POST");
     setBusy(null);
+    setForgetAsk(null);
     setMsg(r.ok
-      ? { ok: true, text: t("Done. Your other browsers will ask for the emailed code at their next sign-in.", "تم. ستطلب متصفحاتك الأخرى رمز البريد عند الدخول القادم.") }
+      ? { ok: true, text: t("Done. Your other browsers are signed out, and they will ask for the emailed code at their next sign-in.", "تم. خرجت متصفحاتك الأخرى، وستطلب رمز البريد عند الدخول القادم.") }
       : { ok: false, text: why(r) });
+    if (r.ok) s.reload();
   };
 
   return (
@@ -111,6 +115,24 @@ export default function StaffPage() {
             setMsg({ ok: true, text: t("Saved.", "تم الحفظ.") });
             if (!self) s.reload();
           }}
+        />
+      )}
+      {forgetAsk && (
+        <Dialog
+          title={t("Sign out your other browsers?", "تسجيل خروج متصفحاتك الأخرى؟")}
+          body={t(
+            "Every other browser or device signed in to Diwan as you is signed out now, and asks for the code sent to your email at its next sign-in. This browser stays signed in.",
+            "يخرج الآن كل متصفح أو جهاز آخر داخل الديوان باسمك، ويطلب الرمز المرسل إلى بريدك عند الدخول القادم. يبقى هذا المتصفح داخلًا.",
+          )}
+          busy={busy === forgetAsk.id}
+          onClose={() => setForgetAsk(null)}
+          onSubmit={() => void forgetOthers(forgetAsk)}
+          footer={
+            <>
+              <Btn type="button" kind="ghost" disabled={busy === forgetAsk.id} onClick={() => setForgetAsk(null)}>{t("Cancel", "إلغاء")}</Btn>
+              <Btn type="submit" disabled={busy === forgetAsk.id}>{t("Sign them out", "تسجيل خروجها")}</Btn>
+            </>
+          }
         />
       )}
       {emailFor && (
@@ -216,8 +238,8 @@ export default function StaffPage() {
                           </Btn>
                         )}
                         {self && (
-                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => forgetOthers(m)}>
-                            {t("Forget my other browsers", "نسيان متصفحاتي الأخرى")}
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => setForgetAsk(m)}>
+                            {t("Sign out my other browsers", "تسجيل خروج متصفحاتي الأخرى")}
                           </Btn>
                         )}
                         <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => setPwFor(m)}>

@@ -155,12 +155,15 @@ type SellSetup = {
     first save, the profile menu's open switch, app/api/store PUT "not-ready"); a live one is never taken offline by it,
     but he can't make a change that leaves it so. `platform`: what Diwan has on now (platformPublic storePays and
     shipCityLists on the pages; server/storeOrders.ts sellPlatform on the server). */
-export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment[]; shipCities: { en: readonly string[]; ar: readonly string[] } }): { ok: boolean; missing: SellNeed[] } {
+/* `courierApproved`: whether Diwan approved his own courier's proof (server/courierProof.ts). Only the server knows; left
+   out (the browser's own check) it is not counted. Until it is approved his own courier does not deliver (testing T-5),
+   so a store with only that and no pickup can't take an order and can't go live (owner decision 2026-11-23). */
+export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment[]; shipCities: { en: readonly string[]; ar: readonly string[] }; courierApproved?: boolean }): { ok: boolean; missing: SellNeed[] } {
   const missing: SellNeed[] = [];
   if (orderPays(platform.pays, setup?.pays ? savedPays(setup.pays) : undefined).length === 0) missing.push("pay");
   const ship = setup?.shipping;
   const offer = storeDelivery(ship?.mode, { price: 0, cities: platform.shipCities }, { fee: ship?.fee, cities: ship?.cities });
-  const courierOk = ship?.mode !== "own" || (visibleLength(ship.name ?? "") >= 2 && isJordanMobile(ship.phone ?? ""));
+  const courierOk = ship?.mode !== "own" || (visibleLength(ship.name ?? "") >= 2 && isJordanMobile(ship.phone ?? "") && platform.courierApproved !== false);
   const delivers = !!offer && offer.cities.en.length > 0 && courierOk;
   if (setup?.pickup !== true && !delivers) missing.push("delivery");
   /* every setup step finished (its Done pressed), not only the ones selling needs */
