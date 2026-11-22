@@ -35,6 +35,7 @@ import { SizesEditor } from "./SizesEditor";
 import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, sizeTwice, type ProductKind, type SizeStock } from "./safeOrder";
 import { RudeNote } from "./RudeNote";
 import { usePageTitle } from "./pageTitle";
+import { moneyText } from "./moneyText";
 
 /* ====================================================================
    Types and constants
@@ -1149,7 +1150,7 @@ function ProductStep({ store, onSave }: StepProps) {
                 aria-invalid={!!errors.price}
                 aria-describedby={errors.price ? "ob-product-price-err" : undefined}
                 value={price}
-                onChange={(e) => { setPrice(latin(e.target.value).replace(/[^\d.]/g, "").slice(0, 13)); if (errors.price) setErrors((x) => ({ ...x, price: undefined })); }}
+                onChange={(e) => { setPrice(typedMoney(e.target.value)); if (errors.price) setErrors((x) => ({ ...x, price: undefined })); }}
                 inputMode="decimal"
                 placeholder={p.pricePh}
                 className={`${inputClass} h-12 ps-14 ${errors.price ? bad : ""}`}
@@ -1251,7 +1252,7 @@ function ProductStep({ store, onSave }: StepProps) {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-lg font-bold">{shownName}</p>
                         <p className="mt-2 text-sm font-semibold">
-                          {priceNumber > 0 ? <span dir="ltr">{priceNumber.toFixed(2)} {p.currency}</span> : <span className="text-muted">-</span>}
+                          {priceNumber > 0 ? <span dir="ltr">{moneyText(priceNumber)} {p.currency}</span> : <span className="text-muted">-</span>}
                         </p>
                         <div className="mt-4 flex gap-2">
                           <span className="flex-1 rounded-md border border-fg/30 px-2 py-2 text-center text-[11px] font-semibold">{p.addToCart}</span>

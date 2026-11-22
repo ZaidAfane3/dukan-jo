@@ -25,6 +25,7 @@ import { onServer } from "./merchantApi";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { ShareMenu } from "./ShareMenu";
 import { usePageTitle } from "./pageTitle";
+import { moneyText } from "./moneyText";
 
 const TOTAL_TASKS = 6;
 
@@ -481,7 +482,7 @@ export function Dashboard() {
                     onMouseLeave={() => setHover(null)}
                     onFocus={() => setHover(i)}
                     onBlur={() => setHover(null)}
-                    aria-label={`${mode === "daily" ? i + 1 : monthShort(i)}: ${v} ${cur}`}
+                    aria-label={`${mode === "daily" ? i + 1 : monthShort(i)}: ${fmt(v)} ${cur}`}
                     className={`flex-1 rounded-sm transition-all duration-500 ${i === shown ? "bg-deep" : i === current ? "bg-primary" : "bg-primary/35 hover:bg-primary/60"}`}
                     style={{ height: `${v ? Math.max((v / peak) * 100, 12) : 28}%`, opacity: v || i === current ? 1 : 0.55 }}
                   />
@@ -738,4 +739,4 @@ export function Dashboard() {
   );
 }
 
-const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = moneyText;

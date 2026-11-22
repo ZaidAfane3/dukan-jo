@@ -27,6 +27,7 @@ import { dropUndos, listUndo, offerUndo } from "./undo";
 import { usePageTitle } from "./pageTitle";
 import { Skeleton } from "./Skeleton";
 import { leaveUnasked } from "./serverSync";
+import { moneyText } from "./moneyText";
 
 
 
@@ -93,7 +94,7 @@ const blank: Draft = {
 
 /* An amount typed in a field: null when empty, NaN when it is not an amount Dukkan accepts (more than a million too) */
 const num = (v: string) => (v.trim() === "" ? null : money(v) ?? NaN);
-/* An amount of money as he types it: one dot, at most two decimals (fils), no extra zeros in front ("007" becomes "7") */
+/* An amount of money as he types it: one dot, at most three decimals (fils), no extra zeros in front ("007" becomes "7") */
 const digits = (v: string) => typedMoney(v);
 /* A whole number as he types it: digits only, no extra zeros in front, and never above `max` */
 const whole = (v: string, max?: number) => typedCount(v, max);
@@ -423,7 +424,7 @@ export function Products() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, filter, query, sort, lang]);
 
-  const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = moneyText;
 
   /* Unsaved changes are only thrown away after he says so, in the page's own box (never the browser's window): what he
      was about to do waits in `discardThen` until he answers */

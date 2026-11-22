@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Lang } from "./content";
 import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
 import { loadConfig } from "./storefront/storage";
+import { moneyText } from "./moneyText";
 
 /* A field of the product form that shows on the store's product card */
 export type PeekField = "notes" | "badge" | "sale" | "category";
@@ -108,7 +109,7 @@ export function CardPeek({ lang, field, values }: { lang: Lang; field: PeekField
     /* no photo: the store's own placeholder, as the card will really show it */
     <ProductPhoto src={values.photo} hue={noPhotoHue(values.id)} className={h} />
   );
-  const money = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  const money = moneyText;
 
   return (
     <span className="relative ms-1.5 inline-block align-middle" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>

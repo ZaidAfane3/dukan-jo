@@ -1,4 +1,5 @@
 import { SITE_HOST } from "@/components/siteAddress";
+import { moneyText } from "@/components/moneyText";
 
 /* Every email Dukkan sends, in one place so the words can be read and changed together. Each function gives one
    email's { subject, heading, text, button? } in one language. `text` is a paragraph per line. `button` is where the
@@ -29,7 +30,8 @@ const arOrders = (n: number) => {
   /* 100, 101, 102, 200…: the singular */
   return `${n} طلب جديد`;
 };
-const jod = (total: string | number, lang: EmailLang) => `${Number(total).toFixed(3)} ${lang === "ar" ? "د.أ" : "JOD"}`;
+/* written as everywhere else (components/moneyText.ts): "22", "18.50", "14.475" */
+const jod = (total: string | number, lang: EmailLang) => `${moneyText(Number(total))} ${lang === "ar" ? "د.أ" : "JOD"}`;
 /* free text from elsewhere (a reason, a note, a ticket's subject) on one short line */
 const line = (s: unknown, max = 200) => {
   const t = String(s ?? "").replace(/\s+/g, " ").trim();

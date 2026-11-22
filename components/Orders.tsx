@@ -25,6 +25,7 @@ import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
 import { Skeleton } from "./Skeleton";
 import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
+import { moneyText } from "./moneyText";
 
 
 /* Kept in this browser so orders are still there when he comes back. */
@@ -535,7 +536,7 @@ export function Orders() {
         setMoreLoading(false);
       });
   };
-  const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = moneyText;
   const dateOf = (t: number, time = false) => {
     const day = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" }).format(new Date(t));
     if (!time) return day;

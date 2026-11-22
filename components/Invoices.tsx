@@ -25,6 +25,7 @@ import type { LogoConfig } from "./storefront/config";
 import { dropUndos, offerUndo, valueUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
+import { moneyText } from "./moneyText";
 
 const KEY = "seen-invoice";
 /* the undo note at the bottom (UndoToast.tsx) */
@@ -251,7 +252,7 @@ function Preview({ s, watermark, stamp, store }: { s: InvoiceSettings; watermark
     const setup = loadSetup();
     setMark({ logo: resolveLogo(loadConfig().identity.logo, setup?.logo ?? ""), color: setup?.color || "#e67726" });
   }, []);
-  const money = (n: number) => `${n.toFixed(2)} ${w.cur}`;
+  const money = (n: number) => `${moneyText(n)} ${w.cur}`;
   /* The sample order: tax is 16% of the products, then shipping is added on top */
   const subtotal = 30;
   const shipping = 3;

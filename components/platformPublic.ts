@@ -2,6 +2,7 @@ import { jordanNumber } from "./phone";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { arCount } from "./undo";
 import { cleanSetting, PUBLIC_KEYS, SETTING_DEFAULTS, THEME_PAYS, type Bi, type PayMethod, type PublicSettings, type ThemePay } from "./diwan/platformSettings";
+import { moneyText } from "./moneyText";
 
 export { THEME_PAYS, type ThemePay };
 
@@ -120,7 +121,7 @@ export const noteFor = (note: Bi, lang: "en" | "ar"): string => note[lang] || no
 export const payNote = (s: Pick<PublicSettings, "payment_methods">, m: PayMethod, lang: "en" | "ar" = "en"): string => noteFor(s.payment_methods[m].note, lang);
 
 /** A price in JOD as the shipping pages write it: "JOD 3" / "3 د.أ" */
-export const jod = (n: number, lang: "en" | "ar") => (lang === "ar" ? `${n} د.أ` : `JOD ${n}`);
+export const jod = (n: number, lang: "en" | "ar") => (lang === "ar" ? `${moneyText(n)} د.أ` : `JOD ${moneyText(n)}`);
 
 /** Dukkan Ship in the page's language: its price, the pickup cities, the line under the price and its points. A price of 0
     reads "Free", the word the store's customers see at checkout, and `free` tells the page to leave out "per order". */

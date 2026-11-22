@@ -28,9 +28,10 @@ export function count(v: unknown, fallback = 0, max = MAX_COUNT, min = 0): numbe
   return n === null || n < min ? fallback : n;
 }
 
-/** An amount as he types it: Arabic digits become Latin, one dot, at most `decimals` decimals, no extra zeros in
-    front ("007" becomes "7"). Letters, minus signs and exponents ("1e9") are dropped. */
-export const typedMoney = (v: string, decimals = 2) =>
+/** An amount as he types it: Arabic digits become Latin, one dot, at most `decimals` decimals (3 for JOD: its fils, the
+    same as money() keeps), no extra zeros in front ("007" becomes "7"). Letters, minus signs and exponents ("1e9") are
+    dropped. */
+export const typedMoney = (v: string, decimals = 3) =>
   latin(v).replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1").replace(new RegExp(`^(\\d*\\.\\d{0,${decimals}}).*$`), "$1").replace(/^0+(?=\d)/, "").slice(0, 10);
 
 /** A whole number as he types it: what comes after a decimal point is dropped ("1.5" is 1, not 15), no extra zeros

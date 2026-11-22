@@ -12,6 +12,7 @@ import { dropUndos, listUndo, offerUndo } from "./undo";
 import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { usePageTitle } from "./pageTitle";
 import { leaveUnasked } from "./serverSync";
+import { moneyText } from "./moneyText";
 
 /* ====================================================================
    Types
@@ -508,7 +509,7 @@ export function Coupons() {
     URL.revokeObjectURL(url);
   };
 
-  const discountText = (c: Coupon) => (c.kind === "shipping" ? m.freeShipping : c.kind === "percent" ? `${c.value}%` : `${c.value} ${currency}`);
+  const discountText = (c: Coupon) => (c.kind === "shipping" ? m.freeShipping : c.kind === "percent" ? `${c.value}%` : `${moneyText(c.value)} ${currency}`);
   const dateText = (iso: string, fallback: string) => (iso ? new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" }).format(new Date(iso + "T00:00:00")) : fallback);
 
   const th = "px-4 py-3 text-start text-xs font-bold text-muted";
