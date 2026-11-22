@@ -35,12 +35,16 @@ export default function StaffPage() {
   const [shown, setShown] = useState<Shown | null>(null);
   /* the signed-in member changing their own email */
   const [emailFor, setEmailFor] = useState<Member | null>(null);
+  /* another member whose email, not confirmed yet, is being corrected */
+  const [fixFor, setFixFor] = useState<Member | null>(null);
 
   const why = (r: { data: any }) => {
     const res = r.data?.result;
     if (res === "last-owner") return t("Diwan needs at least one staff member who can sign in.", "يحتاج الديوان إلى عضو واحد على الأقل يستطيع الدخول.");
     if (res === "self") return t("You can't take away your own access. Ask another staff member.", "لا يمكنك إزالة صلاحية دخولك بنفسك. اطلب من عضو آخر.");
     if (res === "taken") return t("Someone on the staff already has this email.", "يوجد عضو في الفريق بهذا البريد.");
+    if (res === "confirmed") return t("This member has confirmed this email, so only they can change it.", "أكّد هذا العضو بريده، فلا يغيّره إلا هو.");
+    if (res === "same") return t("This is already their email.", "هذا بريده الحالي.");
     const w = passwordWords[r.data?.problem as keyof typeof passwordWords];
     if (res === "weak" && w) return t(w.en, w.ar);
     if (res === "invalid") return t("Check the name and the email.", "تحقق من الاسم والبريد.");
@@ -118,6 +122,18 @@ export default function StaffPage() {
           }}
         />
       )}
+      {fixFor && (
+        <FixEmailDialog
+          m={fixFor}
+          why={why}
+          onClose={() => setFixFor(null)}
+          onSaved={(email) => {
+            setFixFor(null);
+            setMsg({ ok: true, text: t(`Saved. ${fixFor.name}'s sign-in codes go to ${email} from now on.`, `تم الحفظ. تصل رموز دخول ${fixFor.name} إلى ⁨${email}⁩ من الآن.`) });
+            s.reload();
+          }}
+        />
+      )}
       {shown && (
         <ShowPasswordOnce
           name={shown.name}
@@ -184,6 +200,12 @@ export default function StaffPage() {
                             {t("Reactivate", "إعادة التفعيل")}
                           </Btn>
                         ))}
+                        {/* another member's email, only while they have not confirmed it (a typo when they were added) */}
+                        {!self && !m.emailConfirmed && (
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => setFixFor(m)}>
+                            {t("Correct email", "تصحيح البريد")}
+                          </Btn>
+                        )}
                         {self && (
                           <Btn kind="ghost" className="h-8 px-3 text-xs" onClick={() => setEmailFor(m)}>
                             {t("Change my email", "تغيير بريدي")}
@@ -254,6 +276,51 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
       }
     >
       <PasswordField id="st-new-pass" label={t("Temporary password", "كلمة مرور مؤقتة")} value={password} onChange={setPassword} checked={checked} autoFocus />
+      <div className="mt-4">
+        <OwnPasswordField t={t} value={myPassword} onChange={setMyPassword} />
+      </div>
+      {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
+    </Dialog>
+  );
+}
+
+/** Corrects another member's email while they have not confirmed it (app/api/diwan/staff/[id], action "email") */
+function FixEmailDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: { data: any }) => string; onClose: () => void; onSaved: (email: string) => void }) {
+  const t = useT();
+  const [email, setEmail] = useState(m.email);
+  const [myPassword, setMyPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const submit = async () => {
+    setErr("");
+    if (!email.trim()) return setErr(t("Type the right email.", "اكتب البريد الصحيح."));
+    if (!myPassword) return setErr(t("Type your own password to confirm.", "اكتب كلمة مرورك للتأكيد."));
+    setBusy(true);
+    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", { action: "email", email, myPassword });
+    setBusy(false);
+    if (r.ok) onSaved(email.trim().toLowerCase());
+    else setErr(r.data?.result === "invalid" ? t("Check the email address.", "تحقّق من البريد الإلكتروني.") : why(r));
+  };
+  return (
+    <Dialog
+      title={t(`Correct ${m.name}'s email`, `تصحيح بريد ${m.name}`)}
+      body={t(
+        `${m.name} has not confirmed this email yet, so it can still be corrected. Their sign-in codes go to the new address; a sign-in waiting for a code sent to the old one ends. Once they confirm an email, only they can change it.`,
+        `لم يؤكّد ${m.name} هذا البريد بعد، لذا يمكن تصحيحه. تصل رموز دخوله إلى البريد الجديد، وينتهي أي دخول ينتظر رمزًا أُرسل إلى القديم. بعد أن يؤكّد بريده لا يغيّره إلا هو.`,
+      )}
+      wide
+      busy={busy}
+      onClose={onClose}
+      onSubmit={submit}
+      footer={
+        <>
+          <Btn type="button" kind="ghost" disabled={busy} onClick={onClose}>{t("Cancel", "إلغاء")}</Btn>
+          <Btn type="submit" disabled={busy}>{busy ? t("Saving…", "جارٍ الحفظ…") : t("Save the email", "حفظ البريد")}</Btn>
+        </>
+      }
+    >
+      <label htmlFor="st-fix-email" className="mb-1.5 block text-sm font-medium">{t("The right email", "البريد الصحيح")}</label>
+      <input id="st-fix-email" type="email" dir="ltr" className={field} required maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} data-autofocus />
       <div className="mt-4">
         <OwnPasswordField t={t} value={myPassword} onChange={setMyPassword} />
       </div>

@@ -237,7 +237,7 @@ export const twoStepOffEmail = (lang: EmailLang): EmailWords => {
 
 /* ---------------- Diwan: a change to the staff, to the other owners ---------------- */
 
-export type StaffChange = "added" | "deactivated" | "reactivated" | "passwordReset" | "twoStepReset";
+export type StaffChange = "added" | "deactivated" | "reactivated" | "passwordReset" | "twoStepReset" | "emailFixed";
 
 /* the time in Jordan, e.g. "20 Nov 2026, 14:05" (Latin digits in Arabic too, as Diwan shows them) */
 const ammanTime = (at: Date, lang: EmailLang) =>
@@ -258,6 +258,7 @@ export function staffChangeEmail(lang: EmailLang, p: { change: StaffChange; targ
       reactivated: ["أُعيد وصول عضو في ديوان", `أُعيد وصول ${target} إلى ديوان.`],
       passwordReset: ["أُعيد تعيين كلمة مرور عضو في ديوان", `أُعطي ${target} كلمة مرور مؤقتة جديدة، وخرج من كل أجهزته.`],
       twoStepReset: ["أُلغي التحقق بخطوتين لعضو في ديوان", `أُلغي التحقق بخطوتين لـ ${target}، وخرج من كل أجهزته. سيُعدّه من جديد عند الدخول القادم.`],
+      emailFixed: ["صُحّح بريد عضو في ديوان", `صُحّح بريد ${target} قبل أن يؤكّده. تصل رموز دخوله إلى هذا البريد من الآن.`],
     };
     const [subject, change] = what[p.change];
     return {
@@ -273,6 +274,7 @@ export function staffChangeEmail(lang: EmailLang, p: { change: StaffChange; targ
     reactivated: ["A Diwan member's access was turned back on", `${target} can sign in to Diwan again.`],
     passwordReset: ["A Diwan member's password was reset", `${target} was given a new temporary password and signed out everywhere.`],
     twoStepReset: ["A Diwan member's 2-step was turned off", `2-step was turned off for ${target}, and they were signed out everywhere. They set up a new one at their next sign-in.`],
+    emailFixed: ["A Diwan member's email was corrected", `The email of ${target} was corrected before they confirmed it. Their sign-in codes go to this address from now on.`],
   };
   const [subject, change] = what[p.change];
   return {

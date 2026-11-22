@@ -29,6 +29,7 @@ const W: Record<string, [en: string, ar: string]> = {
   "staff.reactivate": ["Gave a member access again", "أعاد دخول عضو"],
   "staff.reset_2step": ["Reset a member's 2-step sign-in", "أعاد ضبط التحقق بخطوتين لعضو"],
   "staff.reset_password": ["Reset a member's password", "أعاد ضبط كلمة مرور عضو"],
+  "staff.email_fixed": ["Corrected a member's email before they confirmed it", "صحّح بريد عضو قبل أن يؤكّده"],
   /* stores */
   "shop.suspend": ["Suspended a store", "أوقف متجرًا"],
   "shop.reactivate": ["Reopened a store", "أعاد تشغيل متجر"],
