@@ -752,8 +752,8 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
       <>
         <p className="text-sm text-muted">
           {t(
-            "Only after checking it is really the owner (for example a call to the mobile on the account). Their next sign-in needs only the password.",
-            "فقط بعد التأكد من أنه المالك فعلًا (مثلًا باتصال على جوال الحساب). يحتاج دخوله التالي إلى كلمة المرور فقط.",
+            "Only after checking it is really the owner (for example a call to the mobile on the account). Their next sign-in needs only the password. The merchant is told in Dukkan and by email.",
+            "فقط بعد التأكد من أنه المالك فعلًا (مثلًا باتصال على جوال الحساب). يحتاج دخوله التالي إلى كلمة المرور فقط. يُبلَّغ التاجر بذلك في دكّان وبالبريد.",
           )}
         </p>
         {reasonBox(t("How you checked it is the owner", "كيف تأكدت من أنه المالك"))}
