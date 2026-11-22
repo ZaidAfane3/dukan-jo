@@ -224,8 +224,9 @@ export const DIWAN_SCHEMA = `
      customer and the merchant see). The customer's details are sealed (server/crypto.ts); items are the products as
      priced by the server (id, name, qty, price, size, image). No payment is taken online yet: payment_status is 'test',
      and 'paid' for a cash order while it is marked delivered.
-     stock_taken: the order took its products out of the shop's saved stock, so a merchant's save made before he saw
-     the order gets it taken again (server/storeOrders.ts mergeOnlineSales). */
+     stock_taken: not used: nothing writes it (always its default) and nothing reads it. What an order took out of the
+     shop's saved stock is counted on each product and coupon instead (soldOnline, usedOnline), and that is what
+     server/storeOrders.ts mergeOnlineSales uses. */
   CREATE TABLE IF NOT EXISTS store_orders (
     id               BIGSERIAL PRIMARY KEY,
     account_id       BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -831,10 +832,9 @@ export const DIWAN_SCHEMA = `
   );
 
   /* ---------- a merchant's email, confirmed by a code (server/emailVerify.ts) ----------
-     email_verified: the account proved it gets the email it signs in with. Every account made before this column counts
-     as confirmed (DEFAULT true), so nobody already using Dukkan is held back; a sign-up writes false while Dukkan can
-     send email (server/email.ts emailOn), and so does a change of the email. While it is false and email is on, the
-     store can't go live (app/api/store PUT "not-ready" with "email").
+     email_verified: the account proved it gets the email it signs in with. Always true now (see "email codes" below): a
+     sign-up (server/signup.ts) and a change of the email (app/api/account/email) write true, and nothing reads it, so
+     it holds nothing back (no store waits for it to go live).
      email_verifications: the codes sent for it, apart from password_resets so a code for one can never work for the
      other. Kept only as an HMAC (crypto.ts blind) of the account, the address it went to and the code; 10 minutes, 5
      tries, once. email_hash: the address the code went to (crypto.ts emailKey), so a code sent before the email changed
