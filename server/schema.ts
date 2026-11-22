@@ -978,4 +978,15 @@ export const DIWAN_SCHEMA = `
     expires_at    TIMESTAMPTZ NOT NULL
   );
   CREATE INDEX IF NOT EXISTS staff_devices_staff ON staff_devices (staff_id, last_used_at DESC);
+  /* ---------- where each account signed in from (server/auth.ts knownSigninPlace, security audit N05) ----------
+     signin_places: who ("m:<account id>" or "s:<staff id>") fully signed in from which address: only a keyed
+     fingerprint of the address (crypto.ts blind), never the address. While wrong passwords from everywhere hold an
+     account's sign-in, a place listed here still gets through. 90 days, 20 a person (the newest). */
+  CREATE TABLE IF NOT EXISTS signin_places (
+    who      TEXT NOT NULL,
+    place    TEXT NOT NULL,
+    last_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (who, place)
+  );
+  CREATE INDEX IF NOT EXISTS signin_places_at ON signin_places (last_at);
 `;

@@ -2,6 +2,7 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import type { PoolClient } from "pg";
 import { SITE_HOST } from "@/components/siteAddress";
+import { blind } from "./crypto";
 import { db } from "./db";
 import { cookieLang } from "./lang";
 
@@ -494,18 +495,30 @@ export function clearFailures(key: string): void {
    must not be able to keep the real owner out by typing wrong passwords. So the wrong tries are counted twice:
    - per account AND address: after `max` of them in `minutes`, that address waits ("slow-down") for this account. The
      owner, on his own address, is not held back by tries from somewhere else.
-   - per account, from every address together: never a refusal, only a wait before the password is checked that grows
-     with the wrong tries (slowDown), so guessing from many addresses gets slow while the right password still always gets
-     in. The wait comes before the check, for a right and a wrong password alike, so it gives nothing away.
+   - per account, from every address together: a wait before the password is checked that grows with the wrong tries
+     (slowDown), so guessing from many addresses gets slow. The wait comes before the check, for a right and a wrong
+     password alike, so it gives nothing away. And a ceiling (security audit N05): once ACCOUNT_CAP wrong tries came from
+     everywhere together within `minutes`, the account's sign-in is held for HOLD_MINUTES (held): no password is
+     checked, the answer is "slow-down", and each wrong try after the hold, while the count still stands, holds it
+     again. Many addresses together then get about ACCOUNT_CAP guesses in `minutes`, not 10 each. The sign-in routes
+     let through, while held, only an address that signed in to the account before (knownSigninPlace) or, for staff, a
+     remembered browser: a stranger can hold the account for minutes at a time, but never keeps the owner out where he
+     usually signs in.
    A try is counted (failed) right after the look (blocked) and before the password is checked, so tries sent all at
    once can't all pass the look while the first ones are still being checked, and the right password forgets them again (passed). A new password set by a reset
    forgets them from every address (clearFailures). `key` names the account, or
    for an email nobody has what was typed, so an unknown account waits the same way as a real one. */
+export const ACCOUNT_CAP = 50;
+export const HOLD_MINUTES = 5;
+/* until when each account's sign-in is held (only accounts that reached ACCOUNT_CAP have one) */
+const holds = new Map<string, number>();
 export function signInTries(req: NextRequest, key: string, max: number, minutes: number) {
   const here = `${key}|${visitorIp(req)}`;
   return {
     /** True while this address has had too many wrong tries for this account */
     blocked: () => failedTooOften(here, max),
+    /** True while the account's sign-in is held, after ACCOUNT_CAP wrong tries from everywhere together (see above) */
+    held: () => (holds.get(key) ?? 0) > Date.now(),
     /** The growing wait, after `failed`: none for the first five tries on the account since its last right one, then
         0.5 s, doubling, at most 8 s */
     slowDown: async () => {
@@ -513,18 +526,60 @@ export function signInTries(req: NextRequest, key: string, max: number, minutes:
       const n = f && f.until > Date.now() ? f.n : 0;
       if (n > 5) await new Promise((r) => setTimeout(r, Math.min(500 * 2 ** (n - 6), 8_000)));
     },
-    /** Counts one try as wrong, for the account and for this address */
+    /** Counts one try as wrong, for the account and for this address; at ACCOUNT_CAP the account's sign-in is held */
     failed: () => {
       noteFailure(key, minutes);
       noteFailure(here, minutes);
+      const f = failOf(key);
+      if (f && f.n >= ACCOUNT_CAP) {
+        const now = Date.now();
+        if (holds.size > 10_000) holds.forEach((until, k) => until < now && holds.delete(k));
+        holds.set(key, now + HOLD_MINUTES * 60_000);
+      }
     },
     /** The right password (or code): the account's wrong tries are forgotten, and this address's. Another address
-        that was guessing stays held back. */
+        that was guessing stays held back, and a hold runs to its end (the owner's own places pass it anyway). */
     passed: () => {
       fails.get(kindOf(key))?.delete(key);
       fails.get(kindOf(here))?.delete(here);
     },
   };
+}
+
+/* ---------------- where an account signed in before ----------------
+   Kept for the sign-in hold above: a keyed fingerprint (server/crypto.ts blind) of each address an account fully signed
+   in from (never the address itself), in signin_places, for PLACE_DAYS, at most PLACE_MAX per account (the newest).
+   `who`: "m:<account id>" for a merchant, "s:<staff id>" for staff. */
+const PLACE_DAYS = 90;
+const PLACE_MAX = 20;
+const placeOf = (req: NextRequest) => blind(`signin-place:${visitorIp(req)}`);
+
+/** Notes that `who` fully signed in from this request's address. Never holds up or breaks the sign-in. */
+export async function noteSigninPlace(req: NextRequest, who: string): Promise<void> {
+  try {
+    const pool = await db();
+    await pool.query(
+      `INSERT INTO signin_places (who, place) VALUES ($1, $2) ON CONFLICT (who, place) DO UPDATE SET last_at = now()`,
+      [who, placeOf(req)],
+    );
+    await pool.query(
+      `DELETE FROM signin_places WHERE who = $1 AND (last_at < now() - make_interval(days => $2)
+         OR place IN (SELECT place FROM signin_places WHERE who = $1 ORDER BY last_at DESC OFFSET $3))`,
+      [who, PLACE_DAYS, PLACE_MAX],
+    );
+    if (Math.random() < 0.02) pool.query(`DELETE FROM signin_places WHERE last_at < now() - make_interval(days => $1)`, [PLACE_DAYS]).catch(() => {});
+  } catch (e) {
+    console.error("[sign-in] noting the address", (e as Error)?.message ?? e);
+  }
+}
+
+/** True when `who` fully signed in from this request's address within PLACE_DAYS */
+export async function knownSigninPlace(req: NextRequest, who: string): Promise<boolean> {
+  const { rows } = await (await db()).query(
+    `SELECT 1 FROM signin_places WHERE who = $1 AND place = $2 AND last_at > now() - make_interval(days => $3)`,
+    [who, placeOf(req), PLACE_DAYS],
+  );
+  return rows.length > 0;
 }
 
 /** Reads a JSON object body of at most `max` bytes, or null. The body is read piece by piece and dropped as soon as it

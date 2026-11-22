@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { savedMobile } from "@/components/phone";
-import { answer, checkPassword, guarded, hashPassword, noteLogin, readJson, sameOrigin, signInTries, startSession, suspendedReply, tooMany } from "@/server/auth";
+import { answer, checkPassword, guarded, hashPassword, knownSigninPlace, noteLogin, noteSigninPlace, readJson, sameOrigin, signInTries, startSession, suspendedReply, tooMany } from "@/server/auth";
 import { emailKey, phoneKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { dataKeyWorks } from "@/server/dataKey";
@@ -13,8 +13,9 @@ export const dynamic = "force-dynamic";
 /* Signs in with an email or the mobile number the account signed up with. Answers: "ok"; "wrong" (no such account, or
    the password does not match: the same answer, after the same wait, so nobody can test which emails and mobiles have an
    account); "slow-down" (too many tries from this address, or too many wrong ones on this email or mobile from this
-   address: wait 15 minutes. Wrong tries on the account from everywhere together only make each try wait longer, so
-   nobody can keep the owner out: server/auth.ts signInTries); "suspended" (Dukkan suspended the store: no sign-in until it is back; with the reason staff wrote and since
+   address: wait 15 minutes; or 50 wrong ones on the account from everywhere together in 15 minutes: no password is
+   checked for 5 minutes, except from an address the account signed in from before, so nobody can keep the owner out
+   where he usually signs in: server/auth.ts signInTries. Before that they only make each try wait longer); "suspended" (Dukkan suspended the store: no sign-in until it is back; with the reason staff wrote and since
    when, told only after the right password); "code" (the account has 2-step sign-in on: a code went to its email, and the
    session waits for it, given to /api/auth/totp within 15 minutes). */
 
@@ -53,6 +54,9 @@ export const POST = guarded(async (req: NextRequest) => {
   const who = a ? `login:account:${a.id}` : `login:${mobile ? phoneKey(mobile) : emailKey(id)}`;
   const gate = signInTries(req, who, ACCOUNT_TRIES, ACCOUNT_WAIT);
   if (gate.blocked()) return answer({ result: "slow-down" }, 429);
+  /* wrong passwords from everywhere together reached the account's ceiling: held a few minutes, except where the
+     account signed in before (server/auth.ts signInTries) */
+  if (gate.held() && !(a && (await knownSigninPlace(req, `m:${a.id}`)))) return answer({ result: "slow-down" }, 429);
   /* the try is counted before the password is checked, in the same step as the look above: tries sent all at once
      can't all pass the look while the first ones are still being checked. The right password forgets them again. */
   gate.failed();
@@ -79,6 +83,7 @@ export const POST = guarded(async (req: NextRequest) => {
   const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone }, totpOn: false });
   await startSession(res, req, String(a.id));
   await noteLogin(String(a.id), req);
+  await noteSigninPlace(req, `m:${a.id}`);
   logMerchant(a.id, "signin", { twoStep: false });
   touchShop(a.id);
   return res;

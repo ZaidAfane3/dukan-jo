@@ -1,12 +1,12 @@
 import type { NextRequest } from "next/server";
 import { emailOf } from "@/components/safe";
-import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, signInTries, tooMany } from "@/server/auth";
+import { answer, checkPassword, guarded, hashPassword, knownSigninPlace, noteSigninPlace, readJson, sameOrigin, signInTries, tooMany } from "@/server/auth";
 import { emailKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { dataKeyWorks } from "@/server/dataKey";
 import { maskEmail } from "@/server/emailVerify";
 import { audit, startStaffSession } from "@/server/staff";
-import { deviceRemembered, sendSigninCode, staffCodesOn, startSignin } from "@/server/staffSignin";
+import { deviceKnown, deviceRemembered, sendSigninCode, staffCodesOn, startSignin } from "@/server/staffSignin";
 
 export const dynamic = "force-dynamic";
 
@@ -43,10 +43,13 @@ export const POST = guarded(async (req: NextRequest) => {
   );
   const s = rows[0];
   /* as a merchant's sign-in (server/auth.ts signInTries): five wrong passwords on this email from one address and that
-     address waits 15 minutes; wrong ones from everywhere together only make each try wait longer, so nobody can keep a
-     staff member out. Counted by the email typed, so an email that is not staff waits the same way. */
+     address waits 15 minutes; wrong ones from everywhere together make each try wait longer, and at 50 hold the sign-in
+     for 5 minutes except where the member signed in before, so nobody can keep a staff member out for long. Counted by the email typed, so an email that is not staff waits the same way. */
   const gate = signInTries(req, `diwan-login:${emailKey(email)}`, 5, 15);
   if (gate.blocked()) return answer({ result: "slow-down" }, 429);
+  /* 50 wrong passwords on this email from everywhere together in 15 minutes: no password is checked for 5 minutes,
+     except on a browser remembered for the member or from an address they signed in from before */
+  if (gate.held() && !(s && ((await deviceKnown(req, String(s.id))) || (await knownSigninPlace(req, `s:${s.id}`))))) return answer({ result: "slow-down" }, 429);
   gate.failed();
   await gate.slowDown();
   const ok = await checkPassword(password, s?.password_hash ?? (await dummyHash()));
@@ -65,6 +68,7 @@ export const POST = guarded(async (req: NextRequest) => {
       return answer({ result: "wrong" }, 401);
     }
     await pool.query(`UPDATE staff SET last_login_at = now() WHERE id = $1`, [id]);
+    await noteSigninPlace(req, `s:${id}`);
     await audit(req, id, "staff.login", { type: "staff", id }, null, { twoStep: "remembered" });
     return done;
   }
