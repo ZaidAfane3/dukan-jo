@@ -3,6 +3,7 @@ import { savedMobile } from "@/components/phone";
 import { answer, checkPassword, guarded, hashPassword, noteLogin, readJson, sameOrigin, signInTries, startSession, suspendedReply, tooMany } from "@/server/auth";
 import { emailKey, phoneKey } from "@/server/crypto";
 import { db } from "@/server/db";
+import { dataKeyWorks } from "@/server/dataKey";
 import { maskEmail, sendCodeEmail, verifyLang } from "@/server/emailVerify";
 import { touchShop } from "@/server/shops";
 import { logMerchant } from "@/server/merchantLog";
@@ -34,6 +35,9 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!id || typeof password !== "string" || password.length > 128) return answer({ result: "invalid" }, 400);
 
   const pool = await db();
+  /* the server's data key is missing or wrong: no account could be found, so this is not "wrong" (and not counted as a
+     wrong try), it is the server's problem (server/dataKey.ts). The page says to try again later. */
+  if (!(await dataKeyWorks(pool))) return answer({ result: "error" }, 503);
   const { rows } = await pool.query(
     `SELECT a.id, a.email, a.name, a.phone, a.password_hash, a.totp_on, COALESCE(s.status = 'suspended', false) AS suspended,
             s.suspend_reason, s.suspended_at

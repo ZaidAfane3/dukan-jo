@@ -27,6 +27,9 @@ function loadKeys() {
     if (process.env.NODE_ENV === "production") throw new Error("DUKKAN_DATA_KEY is missing or not 32 bytes of base64: private data can't be read or written");
     console.warn("[crypto] DUKKAN_DATA_KEY is not set: using the development key. Never run production like this.");
     master = Buffer.alloc(32, 7);
+  } else if (master.every((b) => b === master[0]) || master.every((b) => b >= 0x20 && b < 0x7f)) {
+    /* 32 bytes, but not random ones (all the same byte, or typed text): it still works, so only a warning */
+    console.warn("[crypto] DUKKAN_DATA_KEY does not look random (one repeated byte, or plain text). Make it with randomBytes(32).");
   }
   /* two separate keys from the one secret, so the fingerprints never reuse the encryption key */
   keys = {
