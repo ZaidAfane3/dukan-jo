@@ -8,6 +8,7 @@ import { sanitizeDesign, sanitizePages } from "@/components/safeDesign";
 import { defaultConfig, type PageRef } from "@/components/storefront/config";
 import { stripPaidLooks, withLookOf } from "@/components/themeLooks";
 import { db } from "./db";
+import { courierApproved } from "./courierProof";
 import { keepLegalPages } from "./legalPages";
 import { themeInUse, themeOwner } from "./themeOwnership";
 
@@ -104,6 +105,8 @@ export async function publicStore(slug: string): Promise<PublicStore | null> {
     },
     /* asked only for a store that is open and has a design of its own */
     () => themeOwner(pool, shop.account_id),
+    /* asked only for an open store that delivers with its own courier */
+    () => courierApproved(pool, shop.account_id),
   );
 }
 
@@ -114,6 +117,7 @@ export async function shapePublicStore(
   data: Map<string, string>,
   starter: () => Promise<unknown>,
   owner?: () => Promise<(themeId: string) => boolean>,
+  courierOk?: () => Promise<boolean>,
 ): Promise<PublicStore> {
   if (shop.status === "suspended") return { status: "unavailable" };
   const setup = cleanSetup(parse(data.get("seen-setup")));
@@ -138,7 +142,11 @@ export async function shapePublicStore(
     pickup: setup?.pickup === true,
     /* a live store from before a delivery choice was asked for, with no choice saved, delivers with Dukkan Ship as it did
        then, pickup on or off (safeOrder checkoutShipMode): the checkout offers what the server will accept for its orders */
-    shipping: setup?.shipping
+    /* his own courier is offered only once Dukkan's team approved its proof (server/courierProof.ts): until then no
+       delivery choice is sent, so the checkout offers pickup only (when he allows it), as the server accepts */
+    shipping: setup?.shipping?.mode === "own" && courierOk && !(await courierOk())
+      ? null
+      : setup?.shipping
       ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}), ...(setup.shipping.cities ? { cities: setup.shipping.cities } : {}) }
       : { mode: checkoutShipMode(setup) },
     ...(setup?.pays ? { pays: setup.pays } : {}),

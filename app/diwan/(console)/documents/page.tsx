@@ -70,7 +70,7 @@ export default function DocumentsPage() {
     <div>
       <PageHead
         title={t("Documents", "المستندات")}
-        sub={t("Papers stores send for checking. Approve or reject each one; the merchant is told.", "الأوراق التي ترسلها المتاجر للمراجعة. اقبل كل مستند أو ارفضه، ويُبلَّغ التاجر.")}
+        sub={t("Papers stores send for checking. Approve or reject each one; the merchant is told. A store can offer delivery with its own shipping only after one of its proofs of delivery is approved.", "الأوراق التي ترسلها المتاجر للمراجعة. اقبل كل مستند أو ارفضه، ويُبلَّغ التاجر. لا يستطيع المتجر عرض التوصيل بطريقة شحنه الخاصة إلا بعد قبول أحد إثباتات التوصيل الخاصة به.")}
       />
 
       <ShopOnly id={shop} name={s.data?.shopName || (s.data?.documents[0] ? s.data.documents[0].shopName || s.data.documents[0].ownerName : null)} onClear={() => setShop("")} />
