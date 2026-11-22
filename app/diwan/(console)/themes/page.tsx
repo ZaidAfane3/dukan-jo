@@ -292,7 +292,7 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
                 <Num label={t("Stores using it", "متاجر تستخدمه")} value={f.num(n.stores)} />
                 <Num label={t("Bought", "مرات الشراء")} value={f.num(n.bought)} />
                 {/* the theme checkout takes no money yet (THEME_CHECKOUT_CHARGES): a theme bought brought nothing in */}
-                <Num label={t("Money in", "الدخل")} value={THEME_CHECKOUT_CHARGES ? f.jod(n.revenue) : t("Not charged", "لم يُدفع")} />
+                <Num label={t("Money in", "الدخل")} value={THEME_CHECKOUT_CHARGES ? f.jod(n.revenue) : t("Not charged", "دون تحصيل")} />
               </div>
               <div className="space-y-2">
                 <p className="text-sm font-bold">{t("Where it is", "أين هو الآن")}</p>

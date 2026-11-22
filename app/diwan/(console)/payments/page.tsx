@@ -104,21 +104,34 @@ export default function PaymentsPage() {
     if (exportBusy.current) return;
     exportBusy.current = true;
     try {
-      const myPassword = await askOwnPassword(t, {
-        title: t("Export the payments", "تصدير المدفوعات"),
-        body: t("The file holds the owners' names and emails. Type your own password to confirm.", "يحوي الملف أسماء أصحاب المتاجر وبريدهم. اكتب كلمة مرورك للتأكيد."),
-        confirm: t("Export", "تصدير"),
-      });
-      if (myPassword === null) return;
-      setExporting(true);
-      const r = await send(`/api/diwan/payments?${params}`, "POST", { myPassword });
-      const j = r.data;
+      const ask = t("The file holds the owners' names and emails. Type your own password to confirm.", "يحوي الملف أسماء أصحاب المتاجر وبريدهم. اكتب كلمة مرورك للتأكيد.");
+      let wrong = "";
+      let r: Awaited<ReturnType<typeof send>>;
+      let j: any;
+      /* a wrong password asks again in the same dialog (with why), instead of closing it */
+      for (;;) {
+        const myPassword = await askOwnPassword(t, {
+          title: t("Export the payments", "تصدير المدفوعات"),
+          body: wrong ? `${wrong} ${ask}` : ask,
+          confirm: t("Export", "تصدير"),
+        });
+        if (myPassword === null) return;
+        setExporting(true);
+        r = await send(`/api/diwan/payments?${params}`, "POST", { myPassword });
+        j = r.data;
+        setExporting(false);
+        if (j?.result === "password" && j?.why === "wrong") {
+          wrong = passwordAgainWords(t, j, { exporting: true }) ?? "";
+          continue;
+        }
+        break;
+      }
       if (!r.ok || !Array.isArray(j?.rows)) {
         if (r.status !== 401)
           await tell({
             title: t("Not exported", "لم يتم التصدير"),
             body:
-              passwordAgainWords(t, j) ??
+              passwordAgainWords(t, j, { exporting: true }) ??
               (r.status === 0
                 ? t("Diwan can't be reached right now. Check the connection and try again.", "تعذّر الوصول إلى الديوان الآن. تحقّق من الاتصال وحاول مجددًا.")
                 : t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا.")),
@@ -260,7 +273,7 @@ export default function PaymentsPage() {
                         on ? "border-primary text-fg" : "border-transparent text-muted hover:text-fg"
                       }`}
                     >
-                      {x === "" ? t("All", "الكل") : x === "store" ? t("Store payments", "دفعات المتاجر") : THEME_CHECKOUT_CHARGES ? t("Theme purchases", "شراء الثيمات") : t("Themes chosen (not charged)", "الثيمات المختارة (بلا دفع)")}
+                      {x === "" ? t("All", "الكل") : x === "store" ? t("Store payments", "دفعات المتاجر") : THEME_CHECKOUT_CHARGES ? t("Theme purchases", "شراء الثيمات") : t("Themes chosen (not charged)", "الثيمات المختارة (دون تحصيل)")}
                     </button>
                   );
                 })}
@@ -281,7 +294,7 @@ export default function PaymentsPage() {
                   {d.count > d.paid && (
                     <>
                       {tab !== "themes" || d.paid > 0 ? " · " : ""}
-                      {f.count(d.count - d.paid, ["theme chosen, not charged", "themes chosen, not charged"], { one: "ثيم واحد مختار، لم يُدفع", two: "ثيمان مختاران، لم يُدفعا", few: "ثيمات مختارة، لم تُدفع", many: "ثيمًا مختارًا، لم يُدفع" })}
+                      {f.count(d.count - d.paid, ["theme chosen, not charged", "themes chosen, not charged"], { one: "ثيم واحد مختار، دون تحصيل", two: "ثيمان مختاران، دون تحصيل", few: "ثيمات مختارة، دون تحصيل", many: "ثيمًا مختارًا، دون تحصيل" })}
                     </>
                   )}
                 </p>
@@ -306,11 +319,11 @@ export default function PaymentsPage() {
                       <td className={`${td} min-w-[10rem] font-medium`}>{themeLabel(t, r)}</td>
                       <td className={`${td} whitespace-nowrap tabular-nums`}>{f.jod(r.amount)}</td>
                       <td className={td}>
-                        <MethodBadge method={r.method} />
+                        {notCharged(r) ? <span className="text-muted">—</span> : <MethodBadge method={r.method} />}
                       </td>
                       <td className={`${td} whitespace-nowrap text-muted`}>
                         {notCharged(r)
-                          ? t("Not charged: the checkout takes no money yet", "لم يُدفع: لا يأخذ الدفع أي مبلغ بعد")
+                          ? t("Not charged: the checkout takes no money yet", "دون تحصيل: لا يأخذ الدفع أي مبلغ بعد")
                           : r.method ? t("Theme store checkout", "الدفع في متجر الثيمات") : t("Not recorded", "غير مسجّلة")}
                       </td>
                     </tr>
@@ -341,14 +354,14 @@ export default function PaymentsPage() {
                       <td className={`${td} whitespace-nowrap tabular-nums`}>
                         {notCharged(r) ? (
                           <span className="text-muted" title={t("The theme's listed price. The checkout takes no money yet.", "السعر المعروض للثيم. لا يأخذ الدفع أي مبلغ بعد.")}>
-                            {t("Not charged", "لم يُدفع")} ({f.jod(r.amount)})
+                            {t("Not charged", "دون تحصيل")} ({f.jod(r.amount)})
                           </span>
                         ) : (
                           f.jod(r.amount)
                         )}
                       </td>
                       <td className={td}>
-                        <MethodBadge method={r.method} />
+                        {notCharged(r) ? <span className="text-muted">—</span> : <MethodBadge method={r.method} />}
                       </td>
                       <td className={`${td} whitespace-nowrap`} dir="ltr">
                         {r.reference || "—"}

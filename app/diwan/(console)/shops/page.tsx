@@ -84,7 +84,7 @@ export default function ShopsPage() {
     const j = r.data;
     setExporting(false);
     if (!r.ok || !j?.rows) {
-      if (r.status !== 401) await tell({ title: t("Not exported", "لم يتم التصدير"), body: passwordAgainWords(t, j) ?? t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا.") });
+      if (r.status !== 401) await tell({ title: t("Not exported", "لم يتم التصدير"), body: passwordAgainWords(t, j, { exporting: true }) ?? t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا.") });
       return;
     }
     downloadCsv(`dukkan-stores-${new Date().toISOString().slice(0, 10)}.csv`, [

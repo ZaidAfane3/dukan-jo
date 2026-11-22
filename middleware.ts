@@ -16,6 +16,10 @@ import { isStoreAddress } from "@/components/safe";
    A visitor sending the mark only skips the check: the page still shows the right thing. */
 const PASSED = "x-dukkan-store-checked";
 
+/* the Diwan page asked for (path and query), handed to the console's layout so a signed-out visit can come back to it
+   after signing in (/diwan/login?next=..., checked there by safeNext). Set here only, never taken from the visitor. */
+export const DIWAN_PAGE = "x-diwan-page";
+
 /* an address with a broken percent sign ("/%ff") can't be read: Next fails on it with a 500, so it is answered here */
 function unreadable(pathname: string): boolean {
   try {
@@ -31,6 +35,11 @@ export async function middleware(req: NextRequest) {
   if (unreadable(path)) {
     if (/^\/api\//.test(path)) return NextResponse.json({ result: "invalid" }, { status: 400 });
     return new NextResponse("هذا الرابط غير صالح.\nThis link is not valid.\n", { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
+  if (path.startsWith("/diwan/")) {
+    const headers = new Headers(req.headers);
+    headers.set(DIWAN_PAGE, `${path}${req.nextUrl.search}`.slice(0, 2000));
+    return NextResponse.next({ request: { headers } });
   }
   if (!isStoreAddress(path) || req.headers.has(PASSED)) return NextResponse.next();
   const slug = req.nextUrl.pathname.slice(1).toLowerCase();
@@ -59,5 +68,6 @@ export async function middleware(req: NextRequest) {
 
 /* only addresses with a single part, never inside /api/, /_next/ or /media/ (those exact names: "/mediashop" is a store
    link like any other). Files and the platform's own pages are passed on by isStoreAddress above. Inside /api/ and
-   /media/ only an address with a percent sign comes here, for the broken-percent check. */
-export const config = { matcher: ["/((?!(?:api|_next|media)(?:/|$))[^/]+)", "/(api|media)/(.*%.*)"] };
+   /media/ only an address with a percent sign comes here, for the broken-percent check. Diwan's pages come here to hand
+   on the page asked for (DIWAN_PAGE). */
+export const config = { matcher: ["/((?!(?:api|_next|media)(?:/|$))[^/]+)", "/(api|media)/(.*%.*)", "/diwan/:path+"] };

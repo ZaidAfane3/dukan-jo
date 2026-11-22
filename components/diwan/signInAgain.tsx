@@ -80,6 +80,14 @@ export function forgetDrafts() {
   }
 }
 
+function forgetKept() {
+  try {
+    sessionStorage.removeItem(KEY);
+  } catch {
+    /* storage off: nothing kept */
+  }
+}
+
 function takeKept(): Kept | null {
   try {
     const raw = sessionStorage.getItem(KEY);
@@ -90,7 +98,9 @@ function takeKept(): Kept | null {
       return null;
     }
     if (k.page !== here()) return null;
-    sessionStorage.removeItem(KEY);
+    /* not removed here: it is let go once the text is back, or the staff member types or clicks, or RESTORE_MS is over.
+       An effect stopped before any of that (React running it twice in development, the frame mounted again) leaves it
+       for the next run (QA) */
     return k;
   } catch {
     return null;
@@ -125,6 +135,7 @@ export function DraftsBack({ page }: { page: string }) {
         if (v !== undefined && el.value !== v) {
           put(el, v);
           setShown(true);
+          forgetKept();
         }
       });
     };
@@ -132,13 +143,18 @@ export function DraftsBack({ page }: { page: string }) {
       stopped = true;
       window.clearInterval(timer);
       window.clearTimeout(end);
-      window.removeEventListener("keydown", stop, true);
-      window.removeEventListener("pointerdown", stop, true);
+      window.removeEventListener("keydown", done, true);
+      window.removeEventListener("pointerdown", done, true);
+    };
+    /* typing, clicking or the time running out lets the kept text go; the effect only being stopped does not */
+    const done = () => {
+      stop();
+      forgetKept();
     };
     const timer = window.setInterval(tryPut, 300);
-    const end = window.setTimeout(stop, RESTORE_MS);
-    window.addEventListener("keydown", stop, true);
-    window.addEventListener("pointerdown", stop, true);
+    const end = window.setTimeout(done, RESTORE_MS);
+    window.addEventListener("keydown", done, true);
+    window.addEventListener("pointerdown", done, true);
     tryPut();
     return stop;
   }, [page]);

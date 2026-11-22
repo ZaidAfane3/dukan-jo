@@ -380,7 +380,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                       key={r.id}
                       lead={<b>{themeName(r)}</b>}
                       /* the theme checkout takes no money yet (THEME_CHECKOUT_CHARGES): the price is the listed one, not paid */
-                      sub={[f.date(r.paid_at), Number(r.price) > 0 ? (THEME_CHECKOUT_CHARGES ? f.jod(r.price) : t(`${f.jod(r.price)}, not charged`, `${f.jod(r.price)}، لم يُدفع`)) : t("Free", "مجاني")].join(" · ")}
+                      sub={[f.date(r.paid_at), Number(r.price) > 0 ? (THEME_CHECKOUT_CHARGES ? f.jod(r.price) : t(`${f.jod(r.price)}, not charged`, `${f.jod(r.price)}، دون تحصيل`)) : t("Free", "مجاني")].join(" · ")}
                     >
                       <span className="flex flex-col items-end gap-1">
                         {Number(r.price) > 0 ? <MethodBadge method={r.method} /> : <Badge>{t("Free", "مجاني")}</Badge>}
