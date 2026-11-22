@@ -4,6 +4,11 @@
    the app), it is tried again a few times; Diwan's first request runs them otherwise. */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  /* The live server refuses to start without a strong data key (server/crypto.ts dataKeyProblem): missing, too short,
+     one repeated byte, plain text or typed words. It stops here with one clear line in the log, so the deploy's health
+     check fails and the previous version is put back (deploy/deploy.sh), instead of running with data that is easy to
+     unlock. The key itself is never written to the log. A development copy only warns (server/crypto.ts). */
+  if (process.env.NODE_ENV === "production") (await import("./server/crypto")).stopOnWeakKey();
   /* tracing of slow requests (server/tracing.ts), only when a collector's address is given: off by default, and then
      not even loaded */
   if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
