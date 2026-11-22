@@ -109,6 +109,25 @@ export const SETTING_DEFAULTS: PlatformSettings = {
   support_reply_hours: 2,
 };
 
+/* The info pages a store starts with, from the legal pages' text (Diwan's templates): the return policy, the terms and the
+   privacy policy, ids 1 to 3. Their "created" times are fixed, so the same starting page made in two places (a browser,
+   or the copy the server keeps for a store when it goes live: server/legalPages.ts) counts as one page when the lists are
+   merged (components/listMerge.ts sameMaking), not as two. */
+const STARTER_MADE = Date.UTC(2026, 0, 1);
+export function starterLegalPages(t: StoreLegalTemplates) {
+  const list = [
+    { type: 1 as const, page: t.returns },
+    { type: 2 as const, page: t.terms },
+    { type: 2 as const, page: t.privacy },
+  ];
+  return list.map(({ type, page }, i) => ({ id: i + 1, type, published: true, footer: true, title: { ...page.title }, content: { ...page.body }, created: STARTER_MADE - i * 1000 }));
+}
+/** Which legal template a starting page (ids 1 to 3, of the matching type) came from, or null for any other page */
+export function legalTemplateOf(page: { id: number; type: number }): LegalPage | null {
+  const k = (["returns", "terms", "privacy"] as const)[page.id - 1];
+  return k && page.type === (k === "returns" ? 1 : 2) ? k : null;
+}
+
 export const LIMITS = {
   city: 40, note: 200,
   shipPrice: 100, shipCities: 30, shipPolicy: 200, shipFeatures: 8, shipFeature: 80, legalTitle: 80, legalBody: 6000,

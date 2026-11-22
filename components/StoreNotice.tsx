@@ -5,6 +5,7 @@ import { brandName } from "./content";
 import { usePrefs } from "./Prefs";
 import { isStoreAddress } from "./safe";
 import { usePageTitle } from "./pageTitle";
+import { STORE_PREFIX } from "./siteAddress";
 
 /* The short pages shown instead of a store: suspended by Dukkan, not open yet, no store at this address, or no page at
    all (app/not-found.tsx). */
@@ -126,6 +127,39 @@ export function MissingPage({ kind }: { kind?: "store" | "page" } = {}) {
             {/* to Dukkan's main page, where anyone can see what Dukkan is and start a store of their own (never offered
                 to a store's customers, on a missing page inside a store that exists) */}
             {!back && <a href="/" className="inline-block text-sm font-semibold text-primary hover:underline">{missing.create[lang]}</a>}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+const moved = {
+  en: { title: "This store has moved", line: "It has a new address now. Update your saved link or QR code.", go: "Go to the store", goNamed: "Go to {name}", home: "Go to Dukkan's home page" },
+  ar: { title: "انتقل هذا المتجر", line: "أصبح له عنوان جديد. حدّث الرابط أو رمز QR المحفوظ لديك.", go: "الذهاب إلى المتجر", goNamed: "الذهاب إلى {name}", home: "العودة إلى صفحة دكان الرئيسية" },
+};
+
+/** An old store link a store gave up less than two days ago (server/slugHolds.ts): says the store moved, with its new
+    address and a button to it, in the visitor's language */
+export function MovedPage({ to, name }: { to: string; name: string }) {
+  const { lang } = usePrefs();
+  const w = moved[lang];
+  usePageTitle(`${w.title} · ${brandName(lang)}`);
+  const goNamed = w.goNamed.split("{name}");
+  return (
+    <div dir={lang === "ar" ? "rtl" : "ltr"} className="flex min-h-screen flex-col bg-page text-fg">
+      <main className="grid flex-1 place-items-center px-5 py-16">
+        <div className="w-full max-w-xl">
+          <h1 className="text-3xl font-extrabold tracking-tight text-fg/80 sm:text-4xl">{w.title}</h1>
+          <p className="mt-5 leading-relaxed text-muted">{w.line}</p>
+          <p dir="ltr" className={`mt-3 break-all text-lg font-bold ${lang === "ar" ? "text-end" : ""}`}>
+            <a href={`/${to}`} className="hover:text-primary hover:underline">{`${STORE_PREFIX}${to}`}</a>
+          </p>
+          <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <a href={`/${to}`} className="inline-flex min-h-[44px] items-center rounded-full bg-primary px-6 text-sm font-bold text-white shadow-sm transition hover:opacity-90">
+              {name ? <>{goNamed[0]}<bdi>{name}</bdi>{goNamed[1]}</> : w.go}
+            </a>
+            <a href="/" className="inline-flex min-h-[44px] items-center rounded-full px-5 text-sm font-bold text-fg/80 ring-1 ring-fg/15 transition hover:ring-fg/30">{w.home}</a>
           </div>
         </div>
       </main>

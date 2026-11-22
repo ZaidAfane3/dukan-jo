@@ -969,6 +969,27 @@ export async function saveNow(key: string, before: string): Promise<boolean> {
   return false;
 }
 
+/** The server's copy of one key, put in this browser when it has none (nothing is sent back), with its version for the
+    next save of it. For a page that would otherwise start the key from its defaults: the Info pages take the legal pages
+    the server kept for a live store (server/legalPages.ts) instead of making them again from Diwan's newest text. True
+    when it took one. */
+export async function takeServerCopy(key: string): Promise<boolean> {
+  const owner = signedInAs();
+  if (halted || !owner) return false;
+  try {
+    const r = await fetch(`/api/store?keys=${encodeURIComponent(key)}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader(owner), signal: timeoutSignal(20_000) });
+    if (!r.ok || halted || signedInAs() !== owner) return false;
+    const j = (await r.json()) as { data?: Record<string, unknown>; versions?: Record<string, unknown> };
+    const v = j.data?.[key];
+    if (typeof v !== "string" || !restoreAccountValue(key, v, null)) return false;
+    const ver = j.versions?.[key];
+    if (typeof ver === "string") writeBases(owner, { [key]: { v: ver, m: (LIST_KEYS.has(key) && listMarks(v)) || {} } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /* One key as the server has it: null when it has none, undefined when it can't be asked */
 async function serverValue(key: string): Promise<string | null | undefined> {
   if (halted) return undefined;

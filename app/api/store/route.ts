@@ -11,6 +11,8 @@ import { liveMissing, readyToSell, shipsByDefaultFor, type SellNeed } from "@/co
 import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership";
 import { stripPaidLooks } from "@/components/themeLooks";
 import { valueVersion } from "@/server/storeVersion";
+import { keepLegalPages } from "@/server/legalPages";
+import { slugHeld } from "@/server/slugHolds";
 import { LIST_KEYS, VERSION_KEYS } from "@/components/listMerge";
 import { lastOrderNumber, ORDER_NUMBER_KEY } from "@/components/orderNumbers";
 
@@ -209,6 +211,8 @@ export const PUT = guarded(async (req: NextRequest) => {
       /* not JSON: the pages read it back as no setup */
     }
     if (slug && (await slugTaken(slug, a.id))) return answer({ result: "slug-taken" }, 409);
+    /* another store's old link, still held for it for a couple of days (server/slugHolds.ts) */
+    if (slug && (await slugHeld(slug, a.id))) return answer({ result: "slug-reserved" }, 409);
     /* a name reserved later (safe.ts RESERVED_FOR_NEW) stays with a store that already had it, but can't be newly chosen */
     if (slug && reservedForNew(slug)) {
       const cur = await (await db()).query(`SELECT slug FROM shops WHERE account_id = $1`, [a.id]);
@@ -361,6 +365,14 @@ export const PUT = guarded(async (req: NextRequest) => {
     }
   }
   touchShop(a.id);
+  /* a live store that never saved its pages keeps the legal pages' text as it is now (server/legalPages.ts): on the
+     save that opens it, or the first save of a store live from before. Saved already: a problem here is tried again. */
+  if (!set.some(([k]) => k === "seen-pages")) {
+    const pool = await db();
+    const { rows } = await pool.query(`SELECT key FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, ["seen-storefront", "seen-pages"]]);
+    if (rows.some((r) => r.key === "seen-storefront") && !rows.some((r) => r.key === "seen-pages"))
+      await keepLegalPages(pool, a.id).catch((e) => console.error("[pages] keeping legal pages", a.id, e));
+  }
   /* his delivery choice saved with his own courier: the courier proofs he sent for it go to Diwan to be checked */
   const savedSetup = set.find(([k]) => k === "seen-setup");
   if (savedSetup) {

@@ -9,6 +9,8 @@ import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required"
 import { DashboardBar } from "./DashboardBar";
 import { usePrefs } from "./Prefs";
 import { publicSettings, refreshPublicSettings } from "./platformPublic";
+import { legalTemplateOf, starterLegalPages } from "./diwan/platformSettings";
+import { takeServerCopy } from "./serverSync";
 import { dropUndos, listUndo, offerUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
@@ -38,15 +40,8 @@ const field =
 
 /* The pages every store starts with: the return policy, the terms and the privacy policy Dukkan's staff write in Diwan
    (platform settings, store_legal_templates; the copy this browser has, or the original text). The text is a starting point
-   he can edit: once his pages are saved they are his, and a later change in Diwan reaches only new stores. */
-const defaults = (): Omit<InfoPage, "id" | "created">[] => {
-  const t = publicSettings().store_legal_templates;
-  return [
-    { type: 1, published: true, footer: true, title: { ...t.returns.title }, content: { ...t.returns.body } },
-    { type: 2, published: true, footer: true, title: { ...t.terms.title }, content: { ...t.terms.body } },
-    { type: 2, published: true, footer: true, title: { ...t.privacy.title }, content: { ...t.privacy.body } },
-  ];
-};
+   he can edit: once his pages are saved they are his. A live store keeps the copy it had when it went live (the server
+   keeps it: server/legalPages.ts), so a later change in Diwan reaches only stores that go live after it. */
 
 const copy = {
   en: {
@@ -83,6 +78,8 @@ const copy = {
     noMatch: "No pages match your search",
     pickOne: "Select a page to edit it, or add a new one",
     sample: "These pages start with sample text. Read them and change them to match how your store works.",
+    newest: "Use Dukkan's newest text",
+    newestHint: "Puts Dukkan's latest wording for this page in the form, in this language. Nothing changes until you save.",
     untitled: "Untitled page",
     /* the undo note at the bottom (UndoToast.tsx) */
     undoAdded: (t: string) => `Page “${t}” added`,
@@ -122,6 +119,8 @@ const copy = {
     noMatch: "لا توجد صفحات مطابقة لبحثك",
     pickOne: "اختر صفحة لتعديلها، أو أضف صفحة جديدة",
     sample: "تبدأ هذه الصفحات بنص تجريبي. اقرأها وعدّلها لتناسب طريقة عمل متجرك.",
+    newest: "استخدم أحدث نص من دكان",
+    newestHint: "يضع أحدث صياغة من دكان لهذه الصفحة في النموذج، بهذه اللغة. لا يتغير شيء حتى تحفظ.",
     untitled: "صفحة بدون عنوان",
     undoAdded: (t: string) => `أُضيفت الصفحة «${t}»`,
     undoEdited: (t: string) => `حُفظت تعديلات الصفحة «${t}»`,
@@ -149,8 +148,7 @@ export function load(): InfoPage[] {
 /** The pages a store has before it saved any of its own (the return policy, the terms and the privacy policy). The
     public store (app/[slug]) shows these too for a store that never saved its pages. */
 export function starterPages(): InfoPage[] {
-  const now = Date.now();
-  return defaults().map((d, i) => ({ ...d, id: i + 1, created: now - i * 1000 }));
+  return starterLegalPages(publicSettings().store_legal_templates);
 }
 
 /** Saves the list of pages (the same list the Info pages dashboard shows) */
@@ -256,8 +254,10 @@ export function InfoPages() {
   usePageTitle(`${brandName(lang)} | ${c.title}`);
 
   useEffect(() => {
-    /* A store with no pages saved yet gets them now (they are saved below), so it first asks Dukkan for the templates its
-       staff wrote in Diwan: a store opening this page for the first time starts from the latest ones. */
+    /* A store with no pages saved in this browser takes the server's copy first (a live store's pages are kept there from
+       when it went live: server/legalPages.ts). With none there either it gets them now (they are saved below), so it
+       first asks Dukkan for the templates its staff wrote in Diwan: a store opening this page for the first time starts
+       from the latest ones. */
     let gone = false;
     let saved = true;
     try {
@@ -265,11 +265,11 @@ export function InfoPages() {
     } catch {
       /* storage blocked: nothing is kept anyway */
     }
-    void (saved ? Promise.resolve(true) : refreshPublicSettings()).then(() => {
+    void (saved ? Promise.resolve(true) : Promise.all([refreshPublicSettings(), takeServerCopy(pagesScope())]).then(([, took]) => took)).then((had) => {
       if (gone) return;
       const list = load();
       /* a store's first pages (the templates) are saved; a list it already had is not saved back (see below) */
-      loadedList.current = saved ? list : null;
+      loadedList.current = had ? list : null;
       setPages(list);
       setReady(true);
       /* The dashboard search links here with ?open=ID: that page opens in the editor (an unknown id: just the list). The
@@ -507,6 +507,27 @@ export function InfoPages() {
                     ))}
                   </div>
                 </div>
+
+                {typeof editing === "number" && legalTemplateOf({ id: editing, type }) && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void refreshPublicSettings().then(() => {
+                          const k = legalTemplateOf({ id: editing, type });
+                          if (!k || editingNow.current !== editing) return;
+                          const tpl = publicSettings().store_legal_templates[k];
+                          setTitle(tpl.title[lang] || t(tpl.title));
+                          setContent(tpl.body[lang] || t(tpl.body));
+                        })
+                      }
+                      className="rounded-lg border border-fg/20 px-4 py-2 text-sm font-semibold transition hover:bg-soft"
+                    >
+                      {c.newest}
+                    </button>
+                    <span className="text-xs text-muted">{c.newestHint}</span>
+                  </div>
+                )}
 
                 <div>
                   <label htmlFor="pg-content" className="mb-2 block text-sm font-semibold">{c.content}<RequiredMark /></label>

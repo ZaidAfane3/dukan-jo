@@ -410,8 +410,8 @@ const LockIcon = ({ open = false }: { open?: boolean }) => (
 type LockProblem = "wrong" | "no-password" | "slow-down" | "owner-only" | "no-session" | "locked" | "failed";
 const SERVER_PROBLEMS = ["wrong", "no-password", "slow-down", "owner-only", "no-session"] as const;
 
-/* The legal pages every new store starts with. Locked by default: changing them changes what every new store's pages
-   say, so only an owner can unlock them, by typing his own password again (checked by the server, which remembers it
+/* The legal pages every new store starts with (a store keeps them as they were when it went live: server/legalPages.ts).
+   Locked by default: changing them changes what the pages say for every store that goes live after it, so only an owner can unlock them, by typing his own password again (checked by the server, which remembers it
    on this sign-in for 10 minutes and refuses to save without it). Saving locks them again, and so does leaving the page. */
 function LegalTemplates({ e, legal }: { e: Entry<"store_legal_templates">; legal: Data["legal"] }) {
   const t = useT();
@@ -488,7 +488,7 @@ function LegalTemplates({ e, legal }: { e: Entry<"store_legal_templates">; legal
             <span className={unlocked ? "text-amber-700 dark:text-amber-300" : "text-muted"}><LockIcon open={unlocked} /></span>
             {t("Store legal pages", "الصفحات القانونية للمتاجر")}
           </h2>
-          <p className="mt-0.5 text-sm text-muted">{t("The return, terms and privacy pages a new store starts with. Each store edits its own copy; stores that already have their pages keep them.", "صفحات الاسترجاع والأحكام والخصوصية التي يبدأ بها كل متجر جديد. يعدّل كل متجر نسخته؛ والمتاجر التي لديها صفحاتها تحتفظ بها.")}</p>
+          <p className="mt-0.5 text-sm text-muted">{t("The return, terms and privacy pages a store starts with. A store keeps the text it had when it went live (or the text it wrote), so a change here reaches only stores that go live after it. Stores already live keep theirs.", "صفحات الاسترجاع والأحكام والخصوصية التي يبدأ بها المتجر. يحتفظ كل متجر بالنص الذي كان لديه عند نشره (أو بالنص الذي كتبه)، لذلك يصل التغيير هنا فقط إلى المتاجر التي تُنشر بعده. والمتاجر المنشورة تحتفظ بنصوصها.")}</p>
         </div>
         {!unlocked && legal.owner && (
           <Btn kind="ghost" onClick={() => { setProblem(null); setAsking(true); }}>
@@ -500,13 +500,13 @@ function LegalTemplates({ e, legal }: { e: Entry<"store_legal_templates">; legal
 
       {unlocked ? (
         <p role="status" className="mt-4 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-500/30 dark:text-amber-200">
-          {t("Unlocked for 10 minutes. Saving changes what every new store's legal pages say, and locks them again.", "مفتوحة لمدة 10 دقائق. الحفظ يغيّر ما تقوله الصفحات القانونية لكل متجر جديد، ويعيد قفلها.")}
+          {t("Unlocked for 10 minutes. Saving changes what the legal pages say for every store that goes live after it (live stores keep theirs), and locks them again.", "مفتوحة لمدة 10 دقائق. الحفظ يغيّر ما تقوله الصفحات القانونية لكل متجر يُنشر بعده (المتاجر المنشورة تحتفظ بنصوصها)، ويعيد قفلها.")}
         </p>
       ) : (
         <p className="mt-4 flex items-start gap-2 rounded-xl bg-soft px-3 py-2 text-sm ring-1 ring-fg/10">
           <span className="mt-0.5 shrink-0 text-muted"><LockIcon /></span>
           <span>
-            {t("Locked: changing these changes what every new store's legal pages say.", "مقفلة: تغييرها يغيّر ما تقوله الصفحات القانونية لكل متجر جديد.")}
+            {t("Locked: changing these changes what the legal pages say for every store that goes live after it. Live stores keep theirs.", "مقفلة: تغييرها يغيّر ما تقوله الصفحات القانونية لكل متجر يُنشر بعده. المتاجر المنشورة تحتفظ بنصوصها.")}
             {!legal.owner && <strong className="ms-1 font-semibold">{t("Only an owner can change these.", "يستطيع المالك فقط تغيير هذه الصفحات.")}</strong>}
           </span>
         </p>

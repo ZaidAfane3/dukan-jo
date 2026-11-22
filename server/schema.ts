@@ -978,4 +978,15 @@ export const DIWAN_SCHEMA = `
     expires_at    TIMESTAMPTZ NOT NULL
   );
   CREATE INDEX IF NOT EXISTS staff_devices_staff ON staff_devices (staff_id, last_used_at DESC);
+  /* ---------- Store links given up (server/slugHolds.ts, owner decision 2026-11-22, testing S-2) ----------
+     A live store that changes its link keeps its old one for 2 days (until): no other store can take it meanwhile, and a
+     visit to it shows "this store moved" with the new address. slug: the old link, in small letters. After until it is
+     free again (the row is only read while until is ahead, and old rows are cleared when a link is next given up). */
+  CREATE TABLE IF NOT EXISTS slug_holds (
+    slug       TEXT PRIMARY KEY,
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    until      TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS slug_holds_account ON slug_holds (account_id);
 `;

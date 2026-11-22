@@ -9,6 +9,7 @@ import {
 } from "@/components/safeOrder";
 import { highestOrderNumber, lastOrderNumber, ORDER_NUMBER_KEY, ORDER_NUMBER_START } from "@/components/orderNumbers";
 import { reserveTry } from "./auth";
+import { courierApproved } from "./courierProof";
 import { plainDeep, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { emailNotice, notify } from "./notify";
@@ -244,7 +245,10 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const setup = cleanSetup(parse(data.get("seen-setup")));
     const ship = settings.dukkan_ship;
     /* no delivery choice saved (a store from before one was asked for): Dukkan Ship, as it did then (checkoutShipMode) */
-    const offer = storeDelivery(checkoutShipMode(setup), { price: ship.price, cities: { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) } }, setup?.shipping ?? {});
+    /* his own courier delivers only once Dukkan's team approved its proof (server/courierProof.ts): until then no home
+       delivery with it (pickup still works), as the public store offers */
+    const ownBlocked = checkoutShipMode(setup) === "own" && !(await courierApproved(c, id));
+    const offer = ownBlocked ? null : storeDelivery(checkoutShipMode(setup), { price: ship.price, cities: { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) } }, setup?.shipping ?? {});
     const pickup = setup?.pickup === true;
     const pays = orderPays(storePaysFrom(settings.payment_methods as unknown as Record<string, { on: boolean }>), setup?.pays);
     /* the store's choices as they are now, sent with a refusal: he may have changed his cities, delivery, pickup or ways
