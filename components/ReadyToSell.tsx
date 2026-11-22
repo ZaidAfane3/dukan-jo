@@ -7,7 +7,7 @@ import type { PublicSettings } from "./diwan/platformSettings";
 import { shipCityLists, storePays, usePublicSettings, useSettingsChecked } from "./platformPublic";
 
 type PublicSettingsLike = Pick<PublicSettings, "payment_methods" | "dukkan_ship">;
-import { readyToSell, SETUP_STEPS, type SellNeed } from "./safeOrder";
+import { liveMissing, readyToSell, SETUP_STEPS, shipsByDefaultFor, type SellNeed } from "./safeOrder";
 import { loadSetup, type SavedSetup } from "./setup";
 import { storeIsLive } from "./storefront/storage";
 
@@ -53,7 +53,7 @@ export const sellCheck = (s: PublicSettingsLike, setup: SavedSetup | null = load
 /** A store that never chose how it delivers (one from before a choice was asked for) delivers with Dukkan Ship by default
     while Dukkan Ship serves a city (safeOrder checkoutShipMode): once live, his pages say so and ask him to choose,
     rather than "customers can't complete an order" */
-export const shipsByDefault = (s: PublicSettingsLike, setup: SavedSetup | null | undefined) => !setup?.shipping && shipCityLists(s).en.length > 0;
+export const shipsByDefault = (s: PublicSettingsLike, setup: SavedSetup | null | undefined) => shipsByDefaultFor(setup, shipCityLists(s));
 
 /** Whether customers can see the store now: its design was saved once and it is not under maintenance */
 export const storeLiveNow = () => storeIsLive() && !loadMaintenance().on;
@@ -84,9 +84,7 @@ export function useSellReady({ designSaving = false }: { designSaving?: boolean 
 
 /** What a live store is missing, with "delivery" left out when it delivers with Dukkan Ship by default (shipsByDefault:
     ShipDefaultNote says so instead), and "setup" left out (only going live needs it) */
-export const liveMissing = (missing: SellNeed[], shipDefault: boolean): SellNeed[] =>
-  /* a store already live keeps selling with setup steps left (customers can still order): only going live needs them */
-  missing.filter((m) => m !== "setup" && !(shipDefault && m === "delivery"));
+export { liveMissing };
 
 /** A live store that delivers with Dukkan Ship by default: says so, with a link to choose on Delivery options */
 export function ShipDefaultNote({ lang, className = "" }: { lang: Lang; className?: string }) {

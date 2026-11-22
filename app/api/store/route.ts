@@ -7,7 +7,7 @@ import { db } from "@/server/db";
 import { movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
 import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, type OnlineKey } from "@/server/storeOrders";
-import { readyToSell, type SellNeed } from "@/components/safeOrder";
+import { liveMissing, readyToSell, shipsByDefaultFor, type SellNeed } from "@/components/safeOrder";
 import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership";
 import { stripPaidLooks } from "@/components/themeLooks";
 import { valueVersion } from "@/server/storeVersion";
@@ -263,14 +263,19 @@ export const PUT = guarded(async (req: NextRequest) => {
       };
       const before = (k: string) => was.get(k) ?? null;
       const isLive = (get: (k: string) => string | null) => get("seen-storefront") !== null && !pausedIn(get("seen-maintenance"));
-      const now = readyToSell(setupIn(after("seen-setup")), platform);
+      const afterSetup = setupIn(after("seen-setup"));
+      const now = readyToSell(afterSetup, platform);
       const then = readyToSell(setupIn(before("seen-setup")), platform);
+      /* a store that was live and is paused opens again by the rule that keeps a live store selling (safeOrder
+         liveMissing: setup steps left, or Dukkan Ship by default, don't stop it); only going live the first time needs
+         every setup step (testing S-1) */
+      const opening = before("seen-storefront") !== null ? liveMissing(now.missing, shipsByDefaultFor(afterSetup, platform.shipCities)) : now.missing;
       let hold: string[] = [];
-      if (isLive(after) && !isLive(before) && !now.ok) hold = ["seen-storefront", "seen-maintenance"];
+      if (isLive(after) && !isLive(before) && opening.length) hold = ["seen-storefront", "seen-maintenance"];
       else if (isLive(after) && isLive(before) && now.missing.some((m) => !then.missing.includes(m))) hold = ["seen-setup"];
       hold = hold.filter((k) => set.some(([s]) => s === k) || remove.includes(k));
       if (hold.length) {
-        const missing = hold.includes("seen-setup") ? now.missing.filter((m) => !then.missing.includes(m)) : now.missing;
+        const missing = hold.includes("seen-setup") ? now.missing.filter((m) => !then.missing.includes(m)) : opening;
         for (const k of hold) {
           const i = set.findIndex(([s]) => s === k);
           if (i >= 0) set.splice(i, 1);

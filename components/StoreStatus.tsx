@@ -6,7 +6,8 @@ import type { Lang } from "./content";
 import { loadMaintenance, MAINTENANCE_KEY, maintenanceText, saveMaintenance, type Maintenance } from "./maintenance";
 import { saveNow } from "./serverSync";
 import { offerUndo } from "./undo";
-import { SELL_LINKS, sellWords, useSellReady } from "./ReadyToSell";
+import { liveMissing, SELL_LINKS, sellWords, useSellReady } from "./ReadyToSell";
+import { storeIsLive } from "./storefront/storage";
 
 const words = {
   en: {
@@ -105,7 +106,10 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
   const sell = useSellReady();
   if (!m) return null;
   const open = !m.on;
-  const cantOpen = !open && sell.read && !sell.ok;
+  /* a store that was live (its design saved once) opens again by the rule that keeps a live store selling (liveMissing):
+     setup steps left don't stop it, only going live the first time needs them (testing S-1) */
+  const needs = storeIsLive() ? liveMissing(sell.missing, sell.shipDefault) : sell.missing;
+  const cantOpen = !open && sell.read && needs.length > 0;
   const flip = async (sure = false) => {
     if (disabled || saving || inFlight || cantOpen) return;
     /* open now: it pauses only once he says so */
@@ -176,7 +180,7 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
         <div role="status" className="ms-5 mt-2 rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
           <p className="font-semibold">{sellWords[lang].notReady}</p>
           <ul className="mt-1 list-disc space-y-0.5 ps-4">
-            {sell.missing.map((x) => (
+            {needs.map((x) => (
               <li key={x}><a href={SELL_LINKS[x]} onClick={onLink} className="font-bold underline underline-offset-2">{sellWords[lang][x]}</a></li>
             ))}
           </ul>

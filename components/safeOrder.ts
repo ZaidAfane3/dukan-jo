@@ -159,6 +159,16 @@ export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment
   return { ok: missing.length === 0, missing };
 }
 
+/** What a store that was live (its design saved once) still needs to take orders, from readyToSell's `missing`: setup
+    steps left don't stop it (only going live the first time needs them), and with no delivery choice saved it delivers
+    with Dukkan Ship by default while Ship serves a city (checkoutShipMode, `shipDefault`). The same rule keeps a live
+    store selling (its pages, ReadyToSell liveMissing) and lets a paused one open again (app/api/store PUT). */
+export const liveMissing = (missing: SellNeed[], shipDefault: boolean): SellNeed[] =>
+  missing.filter((m) => m !== "setup" && !(shipDefault && m === "delivery"));
+
+/** A store with no delivery choice saved that delivers with Dukkan Ship by default (Ship serves a city) */
+export const shipsByDefaultFor = (setup: SellSetup, shipCities: { en: readonly string[] }) => !setup?.shipping && shipCities.en.length > 0;
+
 /* ============================== catalog ============================== */
 
 /** Amounts in JOD are kept to the fils (3 decimals). */
