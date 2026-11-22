@@ -196,7 +196,10 @@ export async function putMedia(pool: Pool, accountId: string, kind: MediaKind, d
       /* one file at a time per account, so two sent together can't both slip under the limit */
       await c.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [accountId]);
       const same = await c.query(`SELECT id, bytes FROM media WHERE account_id = $1 AND sha256 = $2`, [accountId, sha256]);
-      if (same.rows[0]) return { ok: true, id: same.rows[0].id, url: mediaUrl(same.rows[0].id), bytes: same.rows[0].bytes, existed: true };
+      if (same.rows[0]) {
+        givenAgainNow(accountId, same.rows[0].id);
+        return { ok: true, id: same.rows[0].id, url: mediaUrl(same.rows[0].id), bytes: same.rows[0].bytes, existed: true };
+      }
       const used = await c.query(
         `SELECT count(*)::int AS n, COALESCE(sum(bytes), 0)::bigint AS total,
                 COALESCE(sum(bytes) FILTER (WHERE created_at > now() - interval '1 day'), 0)::bigint AS day
@@ -307,6 +310,24 @@ export async function mediaUsage(pool: Pool, accountId: string): Promise<{ files
   return { files: rows[0].n, bytes: Number(rows[0].total) };
 }
 
+/* An old file given again for the same picture sent once more (a photo removed weeks ago and added back): it is as new
+   as a file just sent, so the sweep leaves it the same time (UNUSED_DAYS) for its page to be saved. Its row keeps the
+   date it was first sent. Kept on this server, per account: file id -> when it was given again. */
+const givenAgain = new Map<string, Map<string, number>>();
+function givenAgainNow(accountId: string, id: string) {
+  const m = givenAgain.get(accountId) ?? new Map<string, number>();
+  m.set(id, Date.now());
+  givenAgain.set(accountId, m);
+}
+function givenAgainSince(accountId: string, days: number): string[] {
+  const m = givenAgain.get(accountId);
+  if (!m) return [];
+  const since = Date.now() - days * 86_400_000;
+  for (const [id, t] of Array.from(m)) if (t < since) m.delete(id);
+  if (!m.size) givenAgain.delete(accountId);
+  return Array.from(m.keys());
+}
+
 /* When each account was last swept, on this server: a sweep reads all of an account's saved data */
 const swept = new Map<string, number>();
 /* a full store tries the sweep again at most this often; a store that keeps sending is swept in the background this often */
@@ -353,6 +374,8 @@ export async function sweepUnusedMedia(pool: Pool, accountId: string, days = UNU
      UNION ALL SELECT value::text FROM platform_settings WHERE value::text LIKE '%/media/%'`,
   );
   for (const r of platform.rows) mediaIdsIn(String(r.v)).forEach((id) => used.add(id));
+  /* and a file just given again for a picture sent once more, whose page is not saved yet */
+  givenAgainSince(accountId, days).forEach((id) => used.add(id));
   const gone = await pool.query(
     `DELETE FROM media WHERE account_id = $1 AND created_at < now() - make_interval(days => $2::int) AND NOT (id = ANY($3::text[])) RETURNING id, backend`,
     [accountId, days, Array.from(used)],
