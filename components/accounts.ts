@@ -206,8 +206,9 @@ export const loginCodeTo = () => lastCodeTo;
     or the password does not match (the server gives one answer for both, so nobody can test which emails have an
     account); "slow-down": too many wrong tries, wait 15 minutes; "suspended": Dukkan suspended the store (its reason
     and date are kept for the /suspended page); "code": the account has 2-step codes on, so logInCode must follow;
+    "server": the server answered with a problem of its own (its data key, say: try later, the password was not checked);
     "error": the server could not be reached. */
-export async function logIn(id: string, password: string, lang?: "ar" | "en"): Promise<"ok" | "wrong" | "slow-down" | "suspended" | "code" | "error"> {
+export async function logIn(id: string, password: string, lang?: "ar" | "en"): Promise<"ok" | "wrong" | "slow-down" | "suspended" | "code" | "server" | "error"> {
   forgetSuspension();
   const r = await call("/api/auth/login", "POST", { id, password, lang });
   const result = r?.reply.result;
@@ -215,6 +216,7 @@ export async function logIn(id: string, password: string, lang?: "ar" | "en"): P
   const suspension = asSuspension(r?.reply);
   if (suspension) rememberSuspension(suspension);
   if (result === "wrong" || result === "slow-down" || result === "suspended" || result === "code") return result;
+  if (result === "error" && r && r.status >= 500) return "server";
   if (result !== "ok" || !r?.reply.account) return "error";
   if (!(await signedIn(r.reply.account))) return "error";
   askTwoStep();

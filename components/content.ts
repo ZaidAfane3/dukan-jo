@@ -63,6 +63,8 @@ export type Content = {
     errTaken: string;
     errPhoneTaken: string;
     errServer: string;
+    /* the server answered but has a problem of its own (its data key, say): not the visitor's connection */
+    errServerDown: string;
     errWrongPassword: string;
     errTooMany: string;
     errSignupMany: string;
@@ -547,6 +549,7 @@ export const content: Record<Lang, Content> = {
       errTaken: "This email is already in use.",
       errPhoneTaken: "This mobile number is already in use.",
       errServer: "We couldn't reach Dukkan right now. Check your connection and try again.",
+      errServerDown: "Dukkan has a problem on its side right now. Your password was not checked. Please try again later.",
       errWrongPassword: "The email, number or password is not right. Try again.",
       errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
       errSignupMany: "Too many accounts were created from this connection in the last hour. Wait an hour and try again.",
@@ -1137,6 +1140,7 @@ export const content: Record<Lang, Content> = {
       errTaken: "هذا البريد مستخدم بالفعل.",
       errPhoneTaken: "رقم الجوال هذا مستخدم بالفعل.",
       errServer: "تعذّر الاتصال بدكّان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
+      errServerDown: "يواجه دكّان مشكلة من جهته الآن، ولم تُفحص كلمة المرور. حاول مرة أخرى لاحقًا.",
       errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
       errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
       errSignupMany: "أُنشئت حسابات كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",

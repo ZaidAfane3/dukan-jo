@@ -3,6 +3,7 @@ import { emailOf } from "@/components/safe";
 import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, signInTries, tooMany } from "@/server/auth";
 import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
+import { dataKeyWorks } from "@/server/dataKey";
 import { STAFF_2FA_REQUIRED } from "@/components/diwan/staffRules";
 import { audit, newTotpSecret, startStaffSession, totpLink } from "@/server/staff";
 
@@ -26,6 +27,9 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!email || typeof password !== "string" || !password || password.length > 128) return answer({ result: "invalid" }, 400);
 
   const pool = await db();
+  /* the server's data key is missing or wrong (server/dataKey.ts): the server's problem, not a wrong password, and not
+     counted as a wrong try. The page says Diwan can't be reached right now. */
+  if (!(await dataKeyWorks(pool))) return answer({ result: "error" }, 503);
   const { rows } = await pool.query(
     `SELECT id, password_hash, active, totp_on, totp_secret, must_change_password FROM staff WHERE email_hash = $1`,
     [emailKey(email)],

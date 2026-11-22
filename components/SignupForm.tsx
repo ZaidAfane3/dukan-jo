@@ -298,7 +298,7 @@ export function SignupForm() {
       if (r === "suspended") return router.push(SUSPENDED_PATH);
       if (r !== "ok") {
         /* one message for a wrong email, mobile or password: the server does not say which it was */
-        setErrors({ password: r === "wrong" ? c.errWrongPassword : r === "slow-down" ? c.errTooMany : c.errServer });
+        setErrors({ password: r === "wrong" ? c.errWrongPassword : r === "slow-down" ? c.errTooMany : r === "server" ? c.errServerDown : c.errServer });
         document.getElementById("s-password")?.focus();
         return;
       }
