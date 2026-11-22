@@ -65,7 +65,11 @@ export async function startSession(
 ): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   const minutes = opts.minutes ?? DAYS * 1440;
+  /* the session this browser held before (whatever account it was): its cookie is replaced now, so it ends too, and a
+     token the browser brought never lives on beside the new one */
+  const brought = req.cookies.get(COOKIE)?.value;
   await underAccountLock(accountId, async (c) => {
+    if (brought && brought.length <= 100) await c.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash(brought)]);
     await c.query(
       `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(mins => $3), $4)`,
       [tokenHash(token), accountId, minutes, !!opts.pendingTotp],
@@ -196,22 +200,34 @@ export async function pendingAccount(req: NextRequest): Promise<{ id: string; em
   return { id: String(r.a.id), email: r.a.email, name: r.a.name, phone: r.a.phone, ref: `l:${tokenHash(r.token)}` };
 }
 
-/** The code was right: the waiting session becomes a full one (60 days), and the cookie with it */
-export async function finishPendingSession(res: NextResponse, req: NextRequest): Promise<void> {
-  const token = req.cookies.get(COOKIE)?.value;
-  if (!token) return;
+/** The code was right: the waiting session ends and a full one (60 days) starts in its place, with a brand-new token
+    and cookie. The waiting session's token is never made the signed-in one: a token the browser brought (which someone
+    else could have planted there, or seen while it waited) never becomes a signed-in session. */
+export async function finishPendingSession(res: NextResponse, req: NextRequest): Promise<boolean> {
+  const old = req.cookies.get(COOKIE)?.value;
+  if (!old) return false;
   /* whose session it is, to take that account's sign-in lock (see underAccountLock) */
-  const { rows: owner } = await (await db()).query(`SELECT account_id FROM sessions WHERE token_hash = $1`, [tokenHash(token)]);
-  if (owner[0])
-    await underAccountLock(String(owner[0].account_id), async (c) => {
-      const { rows } = await c.query(
-        `UPDATE sessions SET pending_totp = false, expires_at = now() + make_interval(days => $2) WHERE token_hash = $1 AND replaced_at IS NULL RETURNING account_id`,
-        [tokenHash(token), DAYS],
-      );
-      /* the sign-in is complete now: it is the account's only session (see ONE DEVICE AT A TIME) */
-      if (rows[0]) await onlyThisSession(c, String(rows[0].account_id), tokenHash(token));
-    });
-  res.cookies.set(COOKIE, token, cookieOptions(req, DAYS * 86400));
+  const { rows: owner } = await (await db()).query(`SELECT account_id FROM sessions WHERE token_hash = $1`, [tokenHash(old)]);
+  if (!owner[0]) return false;
+  const token = randomBytes(32).toString("base64url");
+  let made = false;
+  await underAccountLock(String(owner[0].account_id), async (c) => {
+    const { rows } = await c.query(
+      `DELETE FROM sessions WHERE token_hash = $1 AND pending_totp AND replaced_at IS NULL AND expires_at > now() RETURNING account_id`,
+      [tokenHash(old)],
+    );
+    if (!rows[0]) return;
+    const accountId = String(rows[0].account_id);
+    await c.query(
+      `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(days => $3), false)`,
+      [tokenHash(token), accountId, DAYS],
+    );
+    /* the sign-in is complete now: it is the account's only session (see ONE DEVICE AT A TIME) */
+    await onlyThisSession(c, accountId, tokenHash(token));
+    made = true;
+  });
+  if (made) res.cookies.set(COOKIE, token, cookieOptions(req, DAYS * 86400));
+  return made;
 }
 
 /** Notes a full sign-in (for Diwan: when, and how many times), and the language the page is in (server/lang.ts) */

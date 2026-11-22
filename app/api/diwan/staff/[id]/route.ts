@@ -71,6 +71,8 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
     } else if (action === "password") {
       await c.query(`UPDATE staff SET password_hash = $2, must_change_password = true WHERE id = $1`, [id, hash]);
       await signOutEverywhere();
+      /* a sign-in waiting for its emailed code, made with the old password, ends too (with the code sent for it) */
+      await c.query(`DELETE FROM staff_signins WHERE staff_id = $1`, [id]);
     } else throw new Bad("invalid");
     await c.query("COMMIT");
     meta.email = s.email;

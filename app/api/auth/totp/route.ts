@@ -83,7 +83,8 @@ export const POST = guarded(async (req: NextRequest) => {
     logMerchant(a.id, "twostep.recovery-used");
   }
   const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone }, totpOn: true });
-  await finishPendingSession(res, req);
+  /* the waiting sign-in ended meanwhile (another device signed in, it ran out): sign in again */
+  if (!(await finishPendingSession(res, req))) return answer({ result: "gone" }, 401);
   await noteLogin(a.id, req);
   logMerchant(a.id, "signin", { twoStep: true, recovery: !/^\d{6}$/.test(six) });
   touchShop(a.id);
