@@ -55,7 +55,7 @@ const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 
 type Shop = { account_id: string; slug: string; status: string; paused: boolean; published: boolean };
 
 /** The shop at this link name, or null */
-async function findShop(q: { query: PoolClient["query"] }, slug: unknown): Promise<Shop | null> {
+export async function findShop(q: { query: PoolClient["query"] }, slug: unknown): Promise<Shop | null> {
   const name = String(slug ?? "").toLowerCase();
   if (!SLUG_RULE.test(name)) return null;
   const { rows } = await q.query(`SELECT account_id, slug, status, paused, published FROM shops WHERE lower(slug) = $1 LIMIT 1`, [name]);
@@ -63,7 +63,7 @@ async function findShop(q: { query: PoolClient["query"] }, slug: unknown): Promi
 }
 
 /* only an open store takes orders: not suspended by Dukkan, published, not paused by the merchant */
-const isOpen = (s: Shop) => s.status !== "suspended" && s.published && !s.paused;
+export const isOpen = (s: Pick<Shop, "status" | "published" | "paused">) => s.status !== "suspended" && s.published && !s.paused;
 
 /** The products customers can buy (not in the bin, not hidden), as the cart prices them. `noShip`: the ones that are not
     delivered to an address (safeOrder productShips: a digital product, a service, or "Needs shipping" off). */

@@ -918,4 +918,31 @@ export const DIWAN_SCHEMA = `
   CREATE OR REPLACE FUNCTION merchant_log_frozen() RETURNS trigger AS $f$ BEGIN RAISE EXCEPTION 'merchant_log is append-only'; END $f$ LANGUAGE plpgsql;
   DROP TRIGGER IF EXISTS merchant_log_frozen ON merchant_log;
   CREATE TRIGGER merchant_log_frozen BEFORE UPDATE ON merchant_log FOR EACH ROW EXECUTE FUNCTION merchant_log_frozen();
+
+  /* ---------- the emails visitors leave on a store (server/storeSignups.ts) ----------
+     kind 'newsletter': an email left in the store's newsletter block; source: where the block was ('home', 'page': an
+     info page, page_id its id, 'product'). kind 'back_in_stock': "Remind me when it's back" on a sold-out product;
+     product_id, size (the sold-out size, '' for the whole product) and product_name (its name then, for when it is
+     gone). Only the store's own merchant sees them (Marketing > Customer emails). email: sealed. email_hash: a keyed
+     fingerprint of the email for this shop only (the same email in two shops gives two different ones): an email is
+     kept once per shop in the newsletter, and once per product and size for back in stock. Dukkan sends them nothing.
+     They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_signups (
+    id           BIGSERIAL PRIMARY KEY,
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL CHECK (kind IN ('newsletter', 'back_in_stock')),
+    email        TEXT NOT NULL,
+    email_hash   TEXT NOT NULL,
+    lang         TEXT NOT NULL CHECK (lang IN ('ar', 'en')),
+    source       TEXT NOT NULL CHECK (source IN ('home', 'page', 'product')),
+    page_id      BIGINT,
+    product_id   BIGINT,
+    size         TEXT NOT NULL DEFAULT '',
+    product_name TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (kind <> 'back_in_stock' OR product_id IS NOT NULL)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS store_signups_newsletter ON store_signups (account_id, email_hash) WHERE kind = 'newsletter';
+  CREATE UNIQUE INDEX IF NOT EXISTS store_signups_back ON store_signups (account_id, email_hash, product_id, size) WHERE kind = 'back_in_stock';
+  CREATE INDEX IF NOT EXISTS store_signups_account ON store_signups (account_id, kind, id DESC);
 `;

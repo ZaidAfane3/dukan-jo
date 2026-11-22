@@ -856,7 +856,7 @@ export const content: Record<Lang, Content> = {
       cartsLink: "View the full report",
     },
     marketing: {
-      menu: ["Abandoned carts", "Coupons", "Repurchase reminders", "Free delivery"],
+      menu: ["Abandoned carts", "Coupons", "Repurchase reminders", "Free delivery", "Customer emails"],
       tabs: ["Abandoned carts", "Automatic reminders"],
       title: "Abandoned carts at a glance",
       sub: "Follow the key abandoned-cart numbers and how many you win back over the selected period.",
@@ -1446,7 +1446,7 @@ export const content: Record<Lang, Content> = {
       cartsLink: "عرض التقرير الكامل",
     },
     marketing: {
-      menu: ["السلات المتروكة", "الكوبونات", "تذكيرات إعادة الشراء", "التوصيل المجاني"],
+      menu: ["السلات المتروكة", "الكوبونات", "تذكيرات إعادة الشراء", "التوصيل المجاني", "إيميلات العملاء"],
       tabs: ["السلات المتروكة", "التذكيرات التلقائية"],
       title: "نظرة سريعة على أداء السلات المتروكة",
       sub: "تتبّع أهم مؤشرات السلات المتروكة ومعدل استعادتها خلال الفترة المحددة.",
