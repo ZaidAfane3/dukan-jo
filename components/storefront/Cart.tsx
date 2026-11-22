@@ -6,7 +6,7 @@ import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
 import { payNote, shipCityLists, storePayKey, storePays, usePublicSettings } from "../platformPublic";
 import { jordanMobile } from "../phone";
-import { checkCheckout, orderPays, ORDER_LIMITS, savedPays, storeDelivery, storeFulfils, type Payment, priceCart, productSizes, sellableStock, stockTaken, takeStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
+import { checkCheckout, orderPays, ORDER_LIMITS, savedPays, storeDelivery, storeFulfils, type Payment, priceCart, productSizes, sellableStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type CouponRefusal } from "../records";
 import { nextOrderNumber } from "../orderNumbers";
 import type { CartStyle } from "./config";
@@ -287,13 +287,9 @@ function saveOrder(o: { customer: string; phone: string; total: number; items: (
     const list = readList("seen-orders");
     /* the next number the store never gave (orderNumbers.ts), so it never meets another order's */
     const id = nextOrderNumber(list);
-    /* each line keeps how many pieces it really took (none from a product with no limit), so cancelling it on the Orders
-       page gives back exactly that, as the server does for orders on the public store */
-    const items = stockTaken(readList("seen-products"), o.items).lines;
-    localStorage.setItem("seen-orders", JSON.stringify([{ id, ...o, items, status: "pending", channel: 1, created: Date.now() }, ...list]));
-    /* what was bought leaves the stock: each size its own, and a stock with no limit stays as it is (safeOrder.ts, the
-       same rule the server runs for orders on the public store) */
-    if (localStorage.getItem("seen-products")) localStorage.setItem("seen-products", JSON.stringify(takeStock(readList("seen-products"), items.map((it) => ({ ...it, qty: it.took })))));
+    /* no stock is taken yet, as for an order on the public store (server/storeOrders.ts): it is taken once he confirms it
+       on the Orders page (`held`, safeOrder holdsStockAfter), and each line then keeps what it took */
+    localStorage.setItem("seen-orders", JSON.stringify([{ id, ...o, status: "pending", channel: 1, held: false, created: Date.now() }, ...list]));
     /* the coupon counts one more use (its limit is checked against this) */
     if (o.coupon) localStorage.setItem("seen-coupons", JSON.stringify(countCouponUse(readList("seen-coupons"), o.coupon.code)));
     return id;
@@ -371,7 +367,7 @@ function keepAttempt(slug: string, v: { key: string; fp: string } | null, prev: 
 
 /* `pickup`: the merchant lets customers collect the order, so checkout offers it and then asks no city or address */
 /* `orderTo`: the public store (app/[slug]) at this link name. The order is sent to Dukkan's server
-   (POST /api/public/store/<link>/orders), which prices it again from the store's saved products, takes the stock and
+   (POST /api/public/store/<link>/orders), which prices it again from the store's saved products (the stock is taken once it is confirmed) and
    keeps it for the merchant; coupons are checked by the server too. Nothing of the store is read from the visitor's
    own storage (only his basket is kept there, by the storefront: visitorBasket.ts), and no payment is taken: the
    card option says nothing is charged (no "test order" wording reaches the customer). Without it (the merchant's own preview) the order is saved in his browser, as
@@ -442,7 +438,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   /* the keys of the earlier sends of this checkout that got no answer: the order that was on its way when the page was
      reloaded, and a send that timed out (both tries) before he changed something small and pressed Place again. Sent
      along (`previous`) until an order is in, so if one of them got in it is the answer even when the order changed
-     since (the stock it took makes the reloaded page cut it, an edit gives it a new key), never a second order. A send
+     since (the stock or prices moved and the reloaded page cut it, an edit gives it a new key), never a second order. A send
      the server answered (refused, changed) is not kept: it is known not to be in (testing C-1). */
   const previousKey = useRef<string[]>([]);
   /* asked once the page opens: did it get in? Then the thank-you shows at once (lookedUp) instead of a cut basket */
@@ -849,7 +845,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       return;
     }
     if (!checked.ok) return setSendErr(bad.has("pay") ? w.errPay : bad.has("fulfil") ? w.noDelivery : w.errCheck);
-    /* the public store: the server prices it, takes the stock and keeps it for the merchant */
+    /* the public store: the server prices it and keeps it for the merchant (its stock is taken once it is confirmed) */
     if (orderTo) return void placeRemote(total);
     /* The prices, the stock and the total come from the catalog, never from what is on screen */
     const priced = priceCart(lines.map((l) => ({ id: l.p.id, qty: l.qty, size: l.size })), currentCatalog(products));

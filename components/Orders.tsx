@@ -10,7 +10,7 @@ import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, jordanNumber, phoneError, savedMobile, typedAnyPhone } from "./phone";
 import { ORDER_MAX, cleanOrder, countCouponUse, money, orderMatches, parseList, typedMoney, type Order, type OrderItem } from "./records";
 import { cleanLine, visibleLength } from "./safe";
-import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
+import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, holdsStockAfter, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
 import { nextOrderNumber } from "./orderNumbers";
 import { shipCityLists, usePublicSettings } from "./platformPublic";
 import { loadSetup } from "./setup";
@@ -129,10 +129,11 @@ function savedList(key: string): unknown[] | null {
   }
 }
 
-/** An order from his own store preview took its products out of the stock saved in this browser (storefront/Cart.tsx
-    saveOrder), and counted its coupon's use. Cancelling or refunding it gives back exactly what each line took
-    (`take` false), as the server does for store orders; moving it out of those again takes it again (`take` true),
-    refused ("short") when a product still in the store no longer has enough. `dry`: only says whether it can.
+/** An order from his own store preview takes its products out of the stock saved in this browser by the same rule as
+    the server's store orders (safeOrder holdsStockAfter): a cash order once he confirms it, never when it is placed
+    (storefront/Cart.tsx saveOrder; older preview orders took it then, `held` left out). Taking it (`take` true) is
+    refused ("short") when a product still in the store no longer has enough; giving it back (`take` false: cancelled,
+    refunded, or a cash order moved back to New) gives exactly what each line took. `dry`: only says whether it can.
     Gives the order's lines as they are after it (each with what it took this time) and the pieces that could not go
     back (their size no longer exists). */
 function moveLocalStock(order: Order, take: boolean, dry = false): { ok: true; items?: OrderItem[]; notBack: StockLine[] } | { ok: false; short: StockLine[] } {
@@ -159,14 +160,26 @@ function moveLocalStock(order: Order, take: boolean, dry = false): { ok: true; i
         localStorage.setItem("seen-products", JSON.stringify(takeStock(products, lines.map((it) => ({ ...it, qty: -it.took })))));
       }
     }
-    if (dry) return { ok: true, notBack };
-    const coupons = order.coupon ? savedList("seen-coupons") : null;
-    if (order.coupon && coupons) localStorage.setItem("seen-coupons", JSON.stringify(countCouponUse(coupons, order.coupon.code, { by: take ? 1 : -1 })));
   } catch {
     /* storage full or blocked: the status still changes */
   }
+  if (dry) return { ok: true, notBack };
   return { ok: true, items: next, notBack };
 }
+
+/** An order from his own store preview counted its coupon's use when it was placed: cancelling or refunding it gives
+    that back (`by` -1), bringing it back counts it again (1) */
+function moveLocalCoupon(order: Order, by: 1 | -1) {
+  try {
+    const coupons = order.coupon ? savedList("seen-coupons") : null;
+    if (order.coupon && coupons) localStorage.setItem("seen-coupons", JSON.stringify(countCouponUse(coupons, order.coupon.code, { by })));
+  } catch {
+    /* storage full or blocked: the status still changes */
+  }
+}
+
+/** Whether an order from his own store preview holds its stock now (one he added by hand never took any) */
+const localHeld = (x: Order) => x.channel === 1 && x.held !== false && x.status !== "cancelled" && x.status !== "refunded";
 
 /* ?open=<number> in the address (a notification, the search or the home page link here): read every time it changes,
    also while the page is already open, and then taken out of the address, so the same link opens it again later and a
@@ -590,22 +603,28 @@ export function Orders() {
     const serverId = row.serverId;
     const was = row.status;
     const key = keyOf(row);
-    /* cancelling or refunding gives the order's stock (and its coupon's use) back, and leaving those takes it again */
-    const stockMoved = off(was) !== off(s);
     if (!serverId) {
-      /* an order from his own store preview: its stock is in this browser (moveLocalStock); one he added by hand took none */
-      const local = row.channel === 1 && stockMoved;
-      const m = local ? moveLocalStock(row, !off(s)) : null;
+      /* an order from his own store preview: its stock is in this browser (moveLocalStock), taken once he confirms it and
+         given back when he cancels it; its coupon's use goes with cancelling. One he added by hand took none. */
+      const local = row.channel === 1;
+      const heldNow = localHeld(row);
+      const holdsNext = local && holdsStockAfter({ pay: row.pay }, heldNow, was, s);
+      const stockGo = heldNow !== holdsNext;
+      const couponGo = local && off(was) !== off(s);
+      const m = stockGo ? moveLocalStock(row, holdsNext) : null;
       if (m && !m.ok) return setNotice({ key, text: o.noStock.replace("{items}", itemsText(m.short)) });
       setNotice(m?.notBack.length ? { key, text: o.notBack.replace("{items}", itemsText(m.notBack)), warn: true } : null);
-      const after: Order = { ...row, status: s, ...(m?.items ? { items: m.items } : {}) };
+      if (couponGo) moveLocalCoupon(row, off(s) ? -1 : 1);
+      const after: Order = { ...row, status: s, ...(local ? { held: holdsNext } : {}), ...(m?.items ? { items: m.items } : {}) };
       return change(
         ordersNow.current.map((x) => (x.id === row.id ? after : x)),
         statusLabel(row.id, s),
         (undone) => {
           if (!undone || !local) return;
+          if (couponGo) moveLocalCoupon(row, off(s) ? 1 : -1);
+          if (!stockGo) return;
           /* the stock goes back the other way; taken again, each line keeps what it took this time */
-          const back = moveLocalStock(after, off(s));
+          const back = moveLocalStock(after, heldNow);
           if (back.ok && back.items) {
             const next = ordersNow.current.map((x) => (x.id === row.id ? { ...x, items: back.items } : x));
             ordersNow.current = next;
@@ -613,7 +632,7 @@ export function Orders() {
           }
         },
         /* an undo that would take the stock again only while there is enough */
-        () => !local || moveLocalStock(after, off(s), true).ok,
+        () => !stockGo || moveLocalStock(after, heldNow, true).ok,
       );
     }
     /* an order from his public store: shown at once, saved on the server, and put back if the server did not take it */
@@ -635,7 +654,8 @@ export function Orders() {
         .catch(() => {
           /* offline: the next list brings it */
         });
-    type Sent = { ok: true; notBack: StockLine[] } | { ok: false; why: "offline" | "changed" | "no-stock" | "failed"; short?: StockLine[] };
+    /* `moved`: the order took its stock or gave it back (confirming, cancelling...): the products are fetched again */
+    type Sent = { ok: true; notBack: StockLine[]; moved: boolean } | { ok: false; why: "offline" | "changed" | "no-stock" | "failed"; short?: StockLine[] };
     /* `from`: always the status the page showed, so the server changes it only while the order still has it (a change
        or an undo never overwrites a newer change made elsewhere) */
     const send = async (st: StatusKey, from: StatusKey): Promise<Sent> => {
@@ -645,8 +665,8 @@ export function Orders() {
       } catch {
         return { ok: false, why: "offline" };
       }
-      const j = (await r.json().catch(() => null)) as { result?: unknown; notBack?: unknown; short?: unknown } | null;
-      if (r.ok) return { ok: true, notBack: stockLines(j?.notBack) };
+      const j = (await r.json().catch(() => null)) as { result?: unknown; notBack?: unknown; short?: unknown; moved?: unknown } | null;
+      if (r.ok) return { ok: true, notBack: stockLines(j?.notBack), moved: j?.moved === true };
       if (r.status === 409 && j?.result === "no-stock") return { ok: false, why: "no-stock", short: stockLines(j.short) };
       if (r.status === 409 && j?.result === "changed") return { ok: false, why: "changed" };
       return { ok: false, why: "failed" };
@@ -668,7 +688,7 @@ export function Orders() {
         else void reload();
         return;
       }
-      if (stockMoved) void pullOnlineKeys();
+      if (r.moved) void pullOnlineKeys();
       if (r.notBack.length) setNotice({ key, text: o.notBack.replace("{items}", itemsText(r.notBack)), warn: true });
       /* a status change sends the customer nothing, so it can be undone: the old status goes back the same way */
       offerUndo({
@@ -681,7 +701,7 @@ export function Orders() {
           const back = await send(was, s);
           if (back.ok) {
             put(was);
-            if (stockMoved) void pullOnlineKeys();
+            if (back.moved) void pullOnlineKeys();
             return true;
           }
           if (back.why === "offline") return "offline";
@@ -705,12 +725,14 @@ export function Orders() {
     if (deleting.current || !deleteReasonOk(reason)) return;
     deleting.current = true;
     logDeletion(id, cleanDeleteReason(reason));
-    /* an order from his own store preview that still holds its stock (not cancelled or refunded, which gave it back
-       already) gives its stock and its coupon's use back, once, the way a cancel does (moveLocalStock: the saved products
-       and coupons, which go to the server like any change) */
+    /* an order from his own store preview that still holds its stock (it took it and is not cancelled or refunded,
+       which gave it back already) gives it back, once, the way a cancel does (moveLocalStock: the saved products, which
+       go to the server like any change); one not cancelled or refunded gives its coupon's use back too */
     const row = ordersNow.current.find((x) => x.id === id);
-    const held = !!row && row.channel === 1 && !off(row.status);
+    const held = !!row && localHeld(row);
+    const couponOn = !!row && row.channel === 1 && !off(row.status);
     const m = held && row ? moveLocalStock(row, false) : null;
+    if (couponOn && row) moveLocalCoupon(row, -1);
     const gone: Order | undefined = row && m?.ok && m.items ? { ...row, items: m.items } : row;
     /* an Undo puts the order back and takes the deletion's record back with it. The record also goes when the undo had
        nothing to do because the order is in the list again anyway (another device's copy brought it back). An order
@@ -719,6 +741,7 @@ export function Orders() {
       ordersNow.current.filter((x) => x.id !== id),
       (l) => undoWords[l].deleted(id),
       (undone) => {
+        if (undone && couponOn && row) moveLocalCoupon(row, 1);
         if (undone && held && gone) {
           const back = moveLocalStock(gone, true);
           if (back.ok && back.items) {
