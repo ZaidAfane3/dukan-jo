@@ -702,6 +702,8 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
     "reason-needed": t("Write a reason (at least 5 characters).", "اكتب السبب (5 أحرف على الأقل)."),
     invalid: t("Check the fields.", "تحقق من الحقول."),
     already: t("Already done.", "تم ذلك بالفعل."),
+    /* Mark a payment pressed again with other details after an answer that never came: the first one is saved */
+    "key-used": t("A payment from this form was already saved, with other details. Reload the page to see it, and edit it there if it is wrong.", "حُفظت دفعة من هذا النموذج من قبل بتفاصيل أخرى. أعد تحميل الصفحة لتراها، وعدّلها من هناك إن كانت خاطئة."),
     "not-allowed": t("Your role can't do this.", "صلاحياتك لا تسمح بذلك."),
   };
 
