@@ -10,6 +10,7 @@ import { ticketHref } from "@/components/diwan/TicketChat";
 import { MARK_METHODS, MethodBadge, methodText, Select, STATUS_LOOK, StatusBadge, StatusIcon, storeLink, storeLinkHref, todayJo, type ShopStatus } from "@/components/diwan/shopBits";
 import { PRIORITY, STATUS as TICKET_STATUS, KIND, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { THEME_CHECKOUT_CHARGES } from "@/components/diwan/platformSettings";
 import { ShopSkeleton } from "@/components/diwan/skeletons";
 import { OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { REASON_WORDS, type ReportReason } from "@/components/storeReports";
@@ -378,7 +379,8 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                     <Item
                       key={r.id}
                       lead={<b>{themeName(r)}</b>}
-                      sub={[f.date(r.paid_at), Number(r.price) > 0 ? f.jod(r.price) : t("Free", "مجاني")].join(" · ")}
+                      /* the theme checkout takes no money yet (THEME_CHECKOUT_CHARGES): the price is the listed one, not paid */
+                      sub={[f.date(r.paid_at), Number(r.price) > 0 ? (THEME_CHECKOUT_CHARGES ? f.jod(r.price) : t(`${f.jod(r.price)}, not charged`, `${f.jod(r.price)}، لم يُدفع`)) : t("Free", "مجاني")].join(" · ")}
                     >
                       <span className="flex flex-col items-end gap-1">
                         {Number(r.price) > 0 ? <MethodBadge method={r.method} /> : <Badge>{t("Free", "مجاني")}</Badge>}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LEGAL_PAGES, LIMITS, okSupportEmail, okSupportNumber, PAY_METHODS, type Bi, type PayMethod, type PlatformSettings, type SettingKey, type SupportContact } from "@/components/diwan/platformSettings";
+import { LEGAL_PAGES, LIMITS, okSupportEmail, okSupportNumber, PAY_METHODS, THEME_CHECKOUT_CHARGES, type Bi, type PayMethod, type PlatformSettings, type SettingKey, type SupportContact } from "@/components/diwan/platformSettings";
 import { replyWithin, supportLinks } from "@/components/platformPublic";
 import { latin } from "@/components/digits";
 import { askConfirm, Dialog } from "@/components/diwan/dialogs";
@@ -222,7 +222,8 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
                   <div>
                     <dt className="text-xs text-muted">{t("Themes bought", "ثيمات مشتراة")}</dt>
                     <dd className="font-bold tabular-nums">
-                      {stats.loading ? <NumBar /> : u ? <>{jod(u.themesTotal)} <span className="font-normal text-muted">· {f.count(u.themes, ["purchase", "purchases"], { one: "عملية شراء واحدة", two: "عمليتا شراء", few: "عمليات شراء", many: "عملية شراء" })} · {f.count(u.buyers, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
+                      {/* the theme checkout takes no money yet (THEME_CHECKOUT_CHARGES): its total is the listed prices, not money received */}
+                      {stats.loading ? <NumBar /> : u ? <>{jod(u.themesTotal)} {!THEME_CHECKOUT_CHARGES && <span className="font-normal text-amber-700 dark:text-amber-300">{t("(listed prices, nothing charged)", "(بالسعر المعروض، لم يُخصم أي مبلغ)")}</span>} <span className="font-normal text-muted">· {f.count(u.themes, ["purchase", "purchases"], { one: "عملية شراء واحدة", two: "عمليتا شراء", few: "عمليات شراء", many: "عملية شراء" })} · {f.count(u.buyers, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
                     </dd>
                   </div>
                 )}

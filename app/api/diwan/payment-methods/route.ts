@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
      keeps in his browser, his preview's test orders among them, never the customers' checkouts. One grouped query over
      store_orders counts the real ones, in milliseconds.)
    - buying themes: theme_purchases, which records the way to pay since it was asked at checkout (older ones have none).
+     The theme checkout takes no money yet (components/diwan/platformSettings.ts THEME_CHECKOUT_CHARGES): its total is
+     the listed prices, and the settings page says nothing was charged.
    ?days=30|90|365 limits it to that many days back; anything else means all time.
    A store checkout paid by card or CliQ is a test order while no payment is taken (payment_status 'test', the same rule
    as the merchant's numbers, components/storeNumbers.ts isTestOrder): nothing was charged, so `ordersTest` says its

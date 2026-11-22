@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { answer, readJson, tooManyFor } from "@/server/auth";
+import { THEME_CHECKOUT_CHARGES } from "@/components/diwan/platformSettings";
 import { lookupKeys } from "@/server/crypto";
 import { db } from "@/server/db";
 import { dayOf } from "@/server/shopActions";
@@ -13,10 +14,13 @@ const PAGE = 50;
 /* Marked payments use bank, cliq, cash and card; the theme checkout takes card and cliq */
 const METHODS = ["bank", "cliq", "cash", "card"];
 const KINDS = ["payment", "theme"];
+/* the rows that are money received: the marked payments, and a theme bought only once its checkout takes money */
+const MONEY = THEME_CHECKOUT_CHARGES ? "true" : "x.kind = 'payment'";
 
 /* Every payment to Dukkan in one list: the payments staff marked as received (a store's page, "Mark as paid") and the
-   themes merchants bought in the theme store, which are the only thing they pay Dukkan for by themselves today. A free
-   theme is no payment, so only purchases with a price count. A purchase's day is its day in Jordan, so it sorts and
+   themes merchants bought in the theme store. A free theme is no payment, so only purchases with a price are listed.
+   While the theme checkout takes no money (THEME_CHECKOUT_CHARGES), a theme bought is listed with its price but is not
+   money received: the total and the summary by method count the marked payments only. A purchase's day is its day in Jordan, so it sorts and
    filters with the marked payments' paid-on days. Newest first.
    Filters: kind (payment or theme), shop (one store's account id), method, from/to (paid on, yyyy-mm-dd), q (store name, owner email or mobile, the
    payment's reference, or the theme). Gives the total of what matches, and how each method was used (payments, JOD and
@@ -62,9 +66,10 @@ async function payments(req: NextRequest, staff: Staff, exporting: boolean) {
   /* the summary by method (and, as the ROLLUP row, every method together: GROUPING tells it apart from purchases made
      before the way to pay was recorded, whose method is empty too): before the method filter is added, with the
      parameters as they are now */
+  const methodWhere = THEME_CHECKOUT_CHARGES ? where : [...where, MONEY];
   const methodSql = `SELECT x.method, GROUPING(x.method) = 1 AS every, count(*)::int AS n, COALESCE(sum(x.amount), 0)::numeric(14, 3) AS total,
                             count(DISTINCT x.account_id)::int AS stores
-                       ${joins} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY ROLLUP (x.method)`;
+                       ${joins} WHERE ${methodWhere.join(" AND ") || "true"} GROUP BY ROLLUP (x.method)`;
   const methodParams = [...params];
   const method = p.get("method");
   if (method && METHODS.includes(method)) where.push(`x.method = ${add(method)}`);
@@ -79,7 +84,12 @@ async function payments(req: NextRequest, staff: Staff, exporting: boolean) {
          LIMIT ${exporting ? 20_000 : PAGE} OFFSET ${exporting ? 0 : (page - 1) * PAGE}`,
       params,
     ),
-    pool.query(`SELECT count(*)::int AS n, COALESCE(sum(x.amount), 0)::numeric(14, 3) AS total ${fromSql}`, params),
+    /* n: every row (for the pages); paid and total: only what is money received */
+    pool.query(
+      `SELECT count(*)::int AS n, count(*) FILTER (WHERE ${MONEY})::int AS paid,
+              COALESCE(sum(x.amount) FILTER (WHERE ${MONEY}), 0)::numeric(14, 3) AS total ${fromSql}`,
+      params,
+    ),
     exporting ? null : pool.query(methodSql, methodParams),
     exporting ? null : pool.query(kindSql, kindParams),
     /* the store's name, for the note above a list narrowed to it */
@@ -99,6 +109,8 @@ async function payments(req: NextRequest, staff: Staff, exporting: boolean) {
     result: "ok",
     rows: rows.rows,
     count: n,
+    /* how many of those rows are money received, and how much */
+    paid: sum.rows[0].paid,
     total: sum.rows[0].total,
     page,
     pages: Math.max(1, Math.ceil(n / PAGE)),

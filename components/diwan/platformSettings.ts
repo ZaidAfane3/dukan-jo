@@ -14,6 +14,10 @@ export type PaymentMethods = Record<PayMethod, { on: boolean; note: Bi }>;
 /** The ways the theme checkout can take a merchant's payment (it has no cash): only the ones Diwan has on are offered */
 export const THEME_PAYS = ["card", "cliq"] as const satisfies readonly PayMethod[];
 export type ThemePay = (typeof THEME_PAYS)[number];
+/** Whether the theme checkout really takes the merchant's money. Not yet: app/api/themes/purchase only records the theme,
+    its listed price and the way to pay that was picked. So Diwan shows a theme "bought" as a theme chosen, not charged,
+    and never counts it as money received (Payments, Settings' ways to pay, Themes). Turn on with a real checkout. */
+export const THEME_CHECKOUT_CHARGES = false;
 export type Bi = { en: string; ar: string };
 /* Dukkan Ship, Dukkan's own delivery service: its flat price per order (also what a store's customer pays for delivery), the
    cities it picks up from, the short line under the price and the points listed beside it */

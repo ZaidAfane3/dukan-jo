@@ -10,6 +10,7 @@ import { PaymentsSkeleton } from "@/components/diwan/skeletons";
 import { FilterBar } from "@/components/diwan/Filters";
 import type { Bi } from "@/components/storefront/config";
 import { findTheme } from "@/components/themes";
+import { THEME_CHECKOUT_CHARGES } from "@/components/diwan/platformSettings";
 
 type Pay = {
   /* a payment staff marked as received, or a theme bought in the theme store */
@@ -37,7 +38,9 @@ const tileOn = tile.replace("ring-1 ring-fg/[0.08]", "ring-2 ring-primary");
 
 type Use = { count: number; total: string; stores: number };
 type Data = {
-  rows: Pay[]; count: number; total: string; page: number; pages: number; methods: (Use & { method: string })[]; all: Use;
+  /* count: every row matching; paid and total: those that are money received (not a theme while its checkout takes no
+     money, THEME_CHECKOUT_CHARGES) */
+  rows: Pay[]; count: number; paid: number; total: string; page: number; pages: number; methods: (Use & { method: string })[]; all: Use;
   /* how many of each kind match the other filters, for the tabs */
   kinds: { payment: number; theme: number };
   /* the store's name when the list is narrowed to one store */
@@ -46,7 +49,8 @@ type Data = {
 
 /* The page's tabs, kept in the address (?tab=) so a tab can be linked: everything, the payments staff marked as received
    (a store's page, "Mark as paid"), and the themes merchants bought in the theme store. Dukkan has no plans, so these
-   two are everything stores pay it today. */
+   two are everything stores could pay it today; while the theme checkout takes no money (THEME_CHECKOUT_CHARGES) a theme
+   bought is shown as chosen and not charged, and is not in the totals. */
 const TABS = ["", "store", "themes"] as const;
 type Tab = (typeof TABS)[number];
 const KIND_OF: Record<Tab, string> = { "": "", store: "payment", themes: "theme" };
@@ -61,7 +65,8 @@ const themeLabel = (t: (en: string, ar: string) => string, r: Pay) => {
 /* Payments stores made to Dukkan: the themes merchants bought in the theme store (only those with a price) and the
    payments staff marked received (a store's page, "Mark as paid"), together, newest first. At the top, how stores pay:
    for each method the payments, the JOD and how many stores used it, over the kind, dates and search chosen; a method's
-   card also filters the list to it. A marked payment stands on its own; theme purchases come from the theme store. */
+   card also filters the list to it. A marked payment stands on its own; theme purchases come from the theme store, and
+   count as money only once its checkout takes money (THEME_CHECKOUT_CHARGES). */
 /* the method, dates and search, kept in the address so Back from a store brings the list back as it was (the tab and
    the store are in it already: ?tab=, ?shop=) */
 const DAY = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
@@ -87,6 +92,8 @@ export default function PaymentsPage() {
   useListScroll(s);
   const pickMethod = (m: string) => setMethod(m);
   const whatFor = (r: Pay) => (r.kind === "theme" ? t(`Theme: ${themeLabel(t, r)}`, `ثيم: ${themeLabel(t, r)}`) : t("Payment", "دفعة"));
+  /* a theme bought while its checkout takes no money: its listed price, and that nothing was charged */
+  const notCharged = (r: Pay) => r.kind === "theme" && !THEME_CHECKOUT_CHARGES;
 
   /* The file holds the owners' names and emails: the staff member's own password first, as for the store list
      (server/staffConfirm.ts passwordAgain). One file per click: the button waits while the file is made, and a failure
@@ -126,16 +133,17 @@ export default function PaymentsPage() {
   };
   const saveCsv = (rows: Pay[]) =>
     downloadCsv(`dukkan-payments-${todayJo()}.csv`, [
-      ["kind", "id", "store id", "store", "owner", "email", "paid on", "amount JOD", "method", "what for", "theme", "reference", "marked by", "note"],
+      ["kind", "id", "store id", "store", "owner", "email", "paid on", "amount JOD", "listed price JOD (not charged)", "method", "what for", "theme", "reference", "marked by", "note"],
       ...rows.map((r) => [
-        r.kind === "theme" ? "theme purchase" : "marked payment",
+        r.kind !== "theme" ? "marked payment" : notCharged(r) ? "theme chosen (not charged)" : "theme purchase",
         r.id,
         r.shop_id,
         r.shop ?? "",
         r.owner,
         r.email,
         String(r.paid_on).slice(0, 10),
-        r.amount,
+        notCharged(r) ? "0" : r.amount,
+        notCharged(r) ? r.amount : "",
         r.method ?? "",
         whatFor(r),
         r.kind === "theme" ? themeLabel(t, r) : "",
@@ -189,43 +197,52 @@ export default function PaymentsPage() {
       <Loaded s={s} skeleton={<PaymentsSkeleton />}>
         {(d) => (
           <div className="space-y-6">
-            <section aria-labelledby="pay-methods">
-              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-                <h2 id="pay-methods" className="text-lg font-extrabold tracking-tight">
-                  {t("How stores paid", "كيف دفعت المتاجر")}
-                </h2>
-                <p className="text-sm text-muted">
-                  {t("All methods", "كل الطرق")}: <b className="text-fg">{f.jod(d.all.total)}</b> · {f.count(d.all.count, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} ·{" "}
-                  {f.count(d.all.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}
-                </p>
-              </div>
-              {/* the cards fill the row whatever the number of methods: two by two on narrow screens, then one row of
-                  equal columns (wrapping when they would get too narrow) */}
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
-                {d.methods.map((m) => {
-                  const on = method === m.method;
-                  return (
-                    <button
-                      key={m.method}
-                      type="button"
-                      aria-pressed={on}
-                      title={on ? t("Show every method", "عرض كل الطرق") : t("Show only this method", "عرض هذه الطريقة فقط")}
-                      onClick={() => pickMethod(on ? "" : m.method)}
-                      className={`${on ? tileOn : tile} text-start transition hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
-                    >
-                      <span className="flex items-center gap-2.5 text-sm font-semibold">
-                        <PayLogo method={m.method} className="h-9 w-14" />
-                        {methodText(t, m.method)}
-                      </span>
-                      <span className="mt-3 block text-2xl font-extrabold tabular-nums tracking-tight">{f.jod(m.total)}</span>
-                      <span className="mt-1 block text-xs text-muted">
-                        {f.count(m.count, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} · {f.count(m.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+            {tab === "themes" && !THEME_CHECKOUT_CHARGES ? (
+              <p role="note" className="rounded-xl bg-amber-500/10 p-3 text-sm ring-1 ring-amber-500/30">
+                {t(
+                  "The theme checkout takes no money yet: these are the themes stores chose, with their listed price. Nothing was charged, so they are not counted as money received.",
+                  "لا يأخذ الدفع في متجر الثيمات أي مبلغ بعد: هذه الثيمات التي اختارتها المتاجر مع سعرها المعروض. لم يُخصم أي مبلغ، لذلك لا تُحسب مالًا مستلمًا.",
+                )}
+              </p>
+            ) : (
+              <section aria-labelledby="pay-methods">
+                <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <h2 id="pay-methods" className="text-lg font-extrabold tracking-tight">
+                    {t("How stores paid", "كيف دفعت المتاجر")}
+                  </h2>
+                  <p className="text-sm text-muted">
+                    {t("All methods", "كل الطرق")}: <b className="text-fg">{f.jod(d.all.total)}</b> · {f.count(d.all.count, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} ·{" "}
+                    {f.count(d.all.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}
+                  </p>
+                </div>
+                {/* the cards fill the row whatever the number of methods: two by two on narrow screens, then one row of
+                    equal columns (wrapping when they would get too narrow) */}
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
+                  {d.methods.map((m) => {
+                    const on = method === m.method;
+                    return (
+                      <button
+                        key={m.method}
+                        type="button"
+                        aria-pressed={on}
+                        title={on ? t("Show every method", "عرض كل الطرق") : t("Show only this method", "عرض هذه الطريقة فقط")}
+                        onClick={() => pickMethod(on ? "" : m.method)}
+                        className={`${on ? tileOn : tile} text-start transition hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
+                      >
+                        <span className="flex items-center gap-2.5 text-sm font-semibold">
+                          <PayLogo method={m.method} className="h-9 w-14" />
+                          {methodText(t, m.method)}
+                        </span>
+                        <span className="mt-3 block text-2xl font-extrabold tabular-nums tracking-tight">{f.jod(m.total)}</span>
+                        <span className="mt-1 block text-xs text-muted">
+                          {f.count(m.count, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} · {f.count(m.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             <section className="space-y-3">
               {/* the tabs: everything, the payments staff marked, the themes bought */}
@@ -243,7 +260,7 @@ export default function PaymentsPage() {
                         on ? "border-primary text-fg" : "border-transparent text-muted hover:text-fg"
                       }`}
                     >
-                      {x === "" ? t("All", "الكل") : x === "store" ? t("Store payments", "دفعات المتاجر") : t("Theme purchases", "شراء الثيمات")}
+                      {x === "" ? t("All", "الكل") : x === "store" ? t("Store payments", "دفعات المتاجر") : THEME_CHECKOUT_CHARGES ? t("Theme purchases", "شراء الثيمات") : t("Themes chosen (not charged)", "الثيمات المختارة (بلا دفع)")}
                     </button>
                   );
                 })}
@@ -256,13 +273,27 @@ export default function PaymentsPage() {
                   options={[{ value: "", label: t("Every method", "كل الطرق") }, ...METHODS.map((m) => ({ value: m, label: methodText(t, m) }))]}
                 />
                 <p className="text-sm text-muted">
-                  {f.count(d.count, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} · {t("total", "المجموع")} <b className="text-fg">{f.jod(d.total)}</b>
+                  {(tab !== "themes" || d.paid > 0) && (
+                    <>
+                      {f.count(d.paid, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} · {t("total", "المجموع")} <b className="text-fg">{f.jod(d.total)}</b>
+                    </>
+                  )}
+                  {d.count > d.paid && (
+                    <>
+                      {tab !== "themes" || d.paid > 0 ? " · " : ""}
+                      {f.count(d.count - d.paid, ["theme chosen, not charged", "themes chosen, not charged"], { one: "ثيم واحد مختار، لم يُدفع", two: "ثيمان مختاران، لم يُدفعا", few: "ثيمات مختارة، لم تُدفع", many: "ثيمًا مختارًا، لم يُدفع" })}
+                    </>
+                  )}
                 </p>
               </div>
               {tab === "themes" ? (
                 /* a theme bought: which theme, by which store, for how much, and how it was paid at the theme store's checkout */
                 <DataTable
-                  head={[t("Bought on", "تاريخ الشراء"), t("Store", "المتجر"), t("Theme", "الثيم"), t("Price", "السعر"), t("Method", "الطريقة"), t("Paid through", "طريقة الدفع")]}
+                  head={[
+                    t("Bought on", "تاريخ الشراء"), t("Store", "المتجر"), t("Theme", "الثيم"),
+                    THEME_CHECKOUT_CHARGES ? t("Price", "السعر") : t("Listed price", "السعر المعروض"),
+                    t("Method", "الطريقة"), t("Paid through", "طريقة الدفع"),
+                  ]}
                   empty={!d.rows.length && (d.kinds.theme ? t("No theme purchases match.", "لا توجد مشتريات ثيمات مطابقة.") : t("No themes bought yet.", "لم تُشترَ أي ثيمات بعد."))}
                 >
                   {d.rows.map((r) => (
@@ -278,7 +309,9 @@ export default function PaymentsPage() {
                         <MethodBadge method={r.method} />
                       </td>
                       <td className={`${td} whitespace-nowrap text-muted`}>
-                        {r.method ? t("Theme store checkout", "الدفع في متجر الثيمات") : t("Not recorded", "غير مسجّلة")}
+                        {notCharged(r)
+                          ? t("Not charged: the checkout takes no money yet", "لم يُدفع: لا يأخذ الدفع أي مبلغ بعد")
+                          : r.method ? t("Theme store checkout", "الدفع في متجر الثيمات") : t("Not recorded", "غير مسجّلة")}
                       </td>
                     </tr>
                   ))}
@@ -305,7 +338,15 @@ export default function PaymentsPage() {
                         <ShopAndOwner id={r.shop_id} shop={r.shop} owner={r.owner} truncate />
                       </td>
                       {tab === "" && <td className={td}>{whatFor(r)}</td>}
-                      <td className={`${td} whitespace-nowrap tabular-nums`}>{f.jod(r.amount)}</td>
+                      <td className={`${td} whitespace-nowrap tabular-nums`}>
+                        {notCharged(r) ? (
+                          <span className="text-muted" title={t("The theme's listed price. The checkout takes no money yet.", "السعر المعروض للثيم. لا يأخذ الدفع أي مبلغ بعد.")}>
+                            {t("Not charged", "لم يُدفع")} ({f.jod(r.amount)})
+                          </span>
+                        ) : (
+                          f.jod(r.amount)
+                        )}
+                      </td>
                       <td className={td}>
                         <MethodBadge method={r.method} />
                       </td>
