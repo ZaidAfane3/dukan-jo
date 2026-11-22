@@ -28,13 +28,6 @@ fonts/
 # the original pictures (sources of what is in public/); kept on this computer only
 demos/
 
-# the one-file prototype (big, built from the app) and its build folder (kept, except what it makes)
-!prototype/build/
-prototype/Dukkan-prototype.html
-prototype/build/node_modules/
-prototype/build/dist/
-prototype/build/src/assets.json
-prototype/build/src/fonts.css
 
 /.next-*/
 
