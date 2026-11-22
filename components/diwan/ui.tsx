@@ -541,6 +541,13 @@ export type MoreState<T> = ApiState<T> & { more: () => void; hasMore: boolean; m
     `page=2` or `before=123`, or null when there is no more) and adds its rows below the ones shown, so the page stays
     where it is. New filters or a reload start again from the first batch. data.rows is every row loaded so far; the
     rest of data comes from the newest batch. */
+/* a row's identity in a list (its id or number, and its kind where two kinds share numbers: Payments) */
+const rowKey = (r: unknown): string | null => {
+  const o = r as Record<string, unknown> | null;
+  const id = o && typeof o === "object" ? o.id ?? o.number : undefined;
+  return typeof id === "string" || typeof id === "number" ? `${String(o?.kind ?? "")}|${id}` : null;
+};
+
 export function useMore<T extends { rows: unknown[] }>(url: string | null, nextOf: (d: T, loaded: number) => string | null): MoreState<T> {
   const first = useApi<T>(url);
   /* the batches after the first, kept only while the first batch they follow is the one shown */
@@ -570,7 +577,14 @@ export function useMore<T extends { rows: unknown[] }>(url: string | null, nextO
         if (!r.ok || !j?.rows) return setMoreFailed(true);
         setExtra((e) => {
           const prev = e.base === base ? e : { base, rows: [] as T["rows"], last: null, loaded: 1 };
-          return { base, rows: [...prev.rows, ...j.rows] as T["rows"], last: j, loaded: prev.loaded + 1 };
+          /* a list sorted by something that moves (the last update) can give again a row already shown when rows
+             moved up since the first batch: it is shown once */
+          const shown = new Set([...base.rows, ...prev.rows].map(rowKey).filter((k): k is string => k !== null));
+          const added = j.rows.filter((r) => {
+            const k = rowKey(r);
+            return k === null || !shown.has(k);
+          });
+          return { base, rows: [...prev.rows, ...added] as T["rows"], last: j, loaded: prev.loaded + 1 };
         });
       })
       .catch(() => setMoreFailed(true))
