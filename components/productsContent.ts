@@ -114,6 +114,8 @@ type Copy = {
   restockMin: string;
   restockMinHint: string;
   save: string;
+  /* the Save button while a photo or the size chart is still uploading (it waits for them) */
+  saveUploading: string;
   cancel: string;
   delete: string;
   errName: string;
@@ -250,6 +252,7 @@ export const productsCopy: Record<Lang, Copy> = {
     restockMin: "Notify subscribed customers when quantity is above",
     restockMinHint: "Avoids sending alerts when only a few pieces come back. Default 15.",
     save: "Save",
+    saveUploading: "Uploading…",
     cancel: "Cancel",
     delete: "Delete product",
     errName: "Enter the product name",
@@ -382,6 +385,7 @@ export const productsCopy: Record<Lang, Copy> = {
     restockMin: "إشعار العملاء المشتركين عند توفر كمية أكبر من",
     restockMinHint: "لتجنب إرسال الإشعارات عند توفر كمية محدودة من المنتج. القيمة الافتراضية 15.",
     save: "حفظ",
+    saveUploading: "جارٍ الرفع…",
     cancel: "إلغاء",
     delete: "حذف المنتج",
     errName: "أدخل اسم المنتج",

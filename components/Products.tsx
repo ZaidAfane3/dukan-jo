@@ -347,6 +347,10 @@ export function Products() {
   const [photoBad, setPhotoBad] = useState<false | "bad" | "max">(false);
   /* photos still being read, and the ones that failed to show: neither counts as the product's photo */
   const [uploading, setUploading] = useState(0);
+  /* the size chart still uploading (SizesEditor): Save waits for it, as for the photos */
+  const [chartBusy, setChartBusy] = useState(false);
+  /* nothing picked is still on its way: Save is only pressed once every photo and the size chart arrived, so none is lost */
+  const sending = uploading > 0 || chartBusy;
   /* which opening of the editor photos were picked in: a photo that finishes after another product (or a new one) was
      opened is dropped, not added to whichever product is open then */
   const photoRound = useRef(0);
@@ -565,6 +569,8 @@ export function Products() {
   const peek = (f: PeekField) => <CardPeek lang={lang} field={f} values={{ name: draft.name, notes: draft.notes, badge: draft.badge, category: draft.categories[0] ?? typedCat.current, price: draft.price, sale: draft.sale, photo: photos[0], id: typeof editing === "number" ? editing : undefined }} />;
   const save = (e: React.FormEvent) => {
     e.preventDefault();
+    /* a photo or the size chart still uploading would be left out: the button says "Uploading…" until they are in */
+    if (sending) return;
     const next: typeof errors = {};
     const price = num(draft.price);
     const sale = num(draft.sale);
@@ -992,7 +998,7 @@ export function Products() {
                   {/* clothing and shoes: each size with its own quantity; the other kinds one quantity. Only the one that applies shows (not the other greyed out) */}
                   {kindHasSizes(draft.kind) ? (
                   <div>
-                    <SizesEditor lang={lang} kind={draft.kind} sizes={draft.sizes} chart={draft.sizeChart} onChart={(v) => set("sizeChart", v)} error={errors.sizes} inputClass={field} onChange={(sizes) => { set("sizes", sizes); if (errors.sizes) setErrors((x) => ({ ...x, sizes: undefined })); }} />
+                    <SizesEditor lang={lang} kind={draft.kind} sizes={draft.sizes} chart={draft.sizeChart} onChart={(v) => set("sizeChart", v)} onBusy={setChartBusy} error={errors.sizes} inputClass={field} onChange={(sizes) => { set("sizes", sizes); if (errors.sizes) setErrors((x) => ({ ...x, sizes: undefined })); }} />
                   </div>
                   ) : (
                   <div>
@@ -1017,7 +1023,7 @@ export function Products() {
                 {/* the notifications (low stock, back in stock) were taken out until they work; the saved values keep their defaults */}
 
                 <div className="flex flex-wrap items-center gap-3 border-t border-fg/10 pt-6">
-                  <button type="submit" className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition hover:bg-deep">{p.save}</button>
+                  <button type="submit" disabled={sending} aria-busy={sending} className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition enabled:hover:bg-deep disabled:cursor-wait disabled:opacity-60">{sending ? p.saveUploading : p.save}</button>
                   <button type="button" onClick={close} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{p.cancel}</button>
 
                   {typeof editing === "number" &&

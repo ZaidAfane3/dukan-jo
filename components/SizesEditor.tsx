@@ -13,8 +13,9 @@ import { RequiredMark } from "./Required";
 import { SIZE_MAX, sizeTwice, type ProductKind } from "./safeOrder";
 
 /** The sizes of a piece of clothing or a pair of shoes: one press adds a usual size, each size has its own quantity.
-    Without `onChart` the size chart part is left out (setup leaves it for the Products page). */
-export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart = "", onChart, error, inputClass }: { id?: string; lang: Lang; kind: ProductKind; sizes: { name: string; quantity: string }[]; onChange: (v: { name: string; quantity: string }[]) => void; chart?: string; onChart?: (v: string) => void; error?: string; inputClass: string }) {
+    Without `onChart` the size chart part is left out (setup leaves it for the Products page). `onBusy` hears when the size
+    chart starts and finishes uploading, so the form waits for it before saving. */
+export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart = "", onChart, onBusy, error, inputClass }: { id?: string; lang: Lang; kind: ProductKind; sizes: { name: string; quantity: string }[]; onChange: (v: { name: string; quantity: string }[]) => void; chart?: string; onChart?: (v: string) => void; onBusy?: (busy: boolean) => void; error?: string; inputClass: string }) {
   const w = kindWords[lang];
   /* the size chart: a picture he uploads (a file that is not a picture says so) */
   const chartInput = useRef<HTMLInputElement>(null);
@@ -23,10 +24,16 @@ export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart
   const pickChart = async (f?: File) => {
     if (!f) return;
     setChartBusy(true);
-    const read = f.size <= 8_000_000 ? await readPhoto(f, 1400) : null;
-    /* a signed-in store keeps it on the server (components/media.ts); otherwise, or if it can't be sent now, it stays here */
-    const url = read && (await keepPicture(read, "product"));
-    setChartBusy(false);
+    onBusy?.(true);
+    let url: string | null = null;
+    try {
+      const read = f.size <= 8_000_000 ? await readPhoto(f, 1400) : null;
+      /* a signed-in store keeps it on the server (components/media.ts); otherwise, or if it can't be sent now, it stays here */
+      url = read ? await keepPicture(read, "product") : null;
+    } finally {
+      setChartBusy(false);
+      onBusy?.(false);
+    }
     setChartBad(!url);
     if (url) onChart?.(url);
   };
