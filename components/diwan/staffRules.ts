@@ -3,11 +3,8 @@ import { cleanLine, emailOf, isWeakPassword, visibleLength } from "../safe";
 /* The rules for a staff member's details, shared by the sign-in page, the staff page and their routes. Staff passwords are
    longer than merchants' (they open every shop). */
 
-/* TODO(2FA): turn this on (true) before Diwan is used for real on the server. While it is off, staff sign in with their
-   email and password only: no 2-step code is set up or asked for, except from someone who already turned theirs on.
-   Everything for the codes is built and stays in place (app/api/diwan/auth/login, app/api/diwan/auth/totp,
-   app/diwan/login/LoginForm.tsx); switching this to true makes every staff member set up their code at the next sign-in. */
-export const STAFF_2FA_REQUIRED = false;
+/* Every staff sign-in asks for a 6-digit code emailed to the member's address on file, after the password
+   (server/staffSignin.ts; the authenticator app it replaced, and its switch, are gone since 2026-11-22). */
 
 export const STAFF_PASSWORD_MIN = 10;
 export const STAFF_PASSWORD_MAX = 128;

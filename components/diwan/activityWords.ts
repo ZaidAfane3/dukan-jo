@@ -12,6 +12,9 @@ const W: Record<string, [en: string, ar: string]> = {
   "staff.logout": ["Signed out", "سجّل الخروج"],
   "staff.login_failed": ["Sign-in failed", "فشل تسجيل الدخول"],
   "staff.code_failed": ["Wrong 2-step code", "رمز تحقق خاطئ"],
+  /* the emailed sign-in code (since 2026-11-22) */
+  "staff.email_confirmed": ["Confirmed their email with a sign-in code", "أكّد بريده برمز الدخول"],
+  "staff.email_changed": ["Changed their email", "غيّر بريده الإلكتروني"],
   "staff.2step_on": ["Turned on 2-step sign-in", "فعّل التحقق بخطوتين"],
   "staff.password_changed": ["Changed their password", "غيّر كلمة المرور"],
   "staff.setup": ["Created the first owner", "أنشأ المالك الأول"],
@@ -141,4 +144,4 @@ export const documentKindWords = (t: (en: string, ar: string) => string, kind: s
 export const documentNumber = (seq: number) => `#${String(seq).padStart(3, "0")}`;
 
 /** Sign-in lines, for the "Sign-ins only" filter */
-export const SIGN_IN_ACTIONS = ["staff.login", "staff.logout", "staff.login_failed", "staff.code_failed", "staff.setup_wrong_key"];
+export const SIGN_IN_ACTIONS = ["staff.login", "staff.logout", "staff.login_failed", "staff.code_failed", "staff.email_confirmed", "staff.setup_wrong_key"];

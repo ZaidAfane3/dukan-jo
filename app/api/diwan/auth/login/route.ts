@@ -1,11 +1,12 @@
 import type { NextRequest } from "next/server";
 import { emailOf } from "@/components/safe";
 import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, signInTries, tooMany } from "@/server/auth";
-import { emailKey, seal } from "@/server/crypto";
+import { emailKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { dataKeyWorks } from "@/server/dataKey";
-import { STAFF_2FA_REQUIRED } from "@/components/diwan/staffRules";
-import { audit, newTotpSecret, startStaffSession, totpLink } from "@/server/staff";
+import { maskEmail } from "@/server/emailVerify";
+import { audit } from "@/server/staff";
+import { sendSigninCode, staffCodesOn, startSignin } from "@/server/staffSignin";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +14,15 @@ export const dynamic = "force-dynamic";
 let dummy: Promise<string> | null = null;
 const dummyHash = () => (dummy ??= hashPassword("diwan-no-such-staff"));
 
-/* The first step of a staff sign-in: email and password. It starts a session that opens nothing until the 2-step code is
-   given (POST /api/diwan/auth/totp). Answers: "ok" with step "code" (the app already gives codes) or "enroll" (first
-   sign-in: the secret to add to an authenticator app), and mustChange when the password was a temporary one.
-   While 2-step codes are not required (STAFF_2FA_REQUIRED, see its TODO) and this staff member has none: step "done"
-   (signed in), or "new-password" (a temporary password to replace first, at /api/diwan/auth/totp without a code). */
+/* The first step of a staff sign-in: email and password. A right password starts a sign-in that waits for the 6-digit
+   code emailed to the member's address on file (server/staffSignin.ts): no staff session exists until the code is given
+   to POST /api/diwan/auth/code. Answers:
+   - "ok" with step "code": `to` (the address, partly hidden), `mustChange` (a temporary password, replaced with the code),
+     `sent` (false when the code could not go out this time, with `why`: "failed" the email failed, "slow-down" too many
+     codes lately, "locked" too many wrong codes this hour: the code page says so and can ask for a new one);
+   - "no-email" (503): Diwan can't send email at all (no RESEND_API_KEY / EMAIL_FROM on the server), so nobody can sign
+     in; told only after the right password;
+   - "wrong", "invalid", "slow-down", "forbidden". */
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   if (tooMany(req, "diwan-login", 10, 15)) return answer({ result: "slow-down" }, 429);
@@ -31,7 +36,7 @@ export const POST = guarded(async (req: NextRequest) => {
      counted as a wrong try. The page says Diwan can't be reached right now. */
   if (!(await dataKeyWorks(pool))) return answer({ result: "error" }, 503);
   const { rows } = await pool.query(
-    `SELECT id, password_hash, active, totp_on, totp_secret, must_change_password FROM staff WHERE email_hash = $1`,
+    `SELECT id, email, lang, password_hash, active, must_change_password FROM staff WHERE email_hash = $1`,
     [emailKey(email)],
   );
   const s = rows[0];
@@ -50,39 +55,25 @@ export const POST = guarded(async (req: NextRequest) => {
   gate.passed();
 
   const id = String(s.id);
+  /* no way to send the code (the live server without an email provider): nobody gets in without one */
+  if (!staffCodesOn()) {
+    await audit(req, id, "staff.login_failed", { type: "staff", id }, null, { noEmail: true });
+    return answer({ result: "no-email" }, 503);
+  }
+  const to = maskEmail(String(s.email));
+  const mustChange = !!s.must_change_password;
+  const res = answer({ result: "ok", step: "code", to, mustChange, sent: true });
+  const ref = await startSignin(res, req, id, s.password_hash);
   /* the password was replaced or the account turned off while it was being checked: as a wrong password */
-  const replaced = async () => {
+  if (!ref) {
     await audit(req, id, "staff.login_failed", { type: "staff", id }, null, { changedDuringCheck: true });
     return answer({ result: "wrong" }, 401);
-  };
-  /* TODO(2FA): this whole branch goes once STAFF_2FA_REQUIRED is on */
-  if (!STAFF_2FA_REQUIRED && !s.totp_on) {
-    if (s.must_change_password) {
-      const res = answer({ result: "ok", step: "new-password", mustChange: true });
-      if (!(await startStaffSession(res, req, id, s.password_hash))) return replaced();
-      await audit(req, id, "staff.password_ok", { type: "staff", id });
-      return res;
-    }
-    const res = answer({ result: "ok", step: "done", mustChange: false });
-    if (!(await startStaffSession(res, req, id, s.password_hash, true))) return replaced();
-    await pool.query(`UPDATE staff SET last_login_at = now() WHERE id = $1`, [id]);
-    await audit(req, id, "staff.login", { type: "staff", id }, null, { without2step: true });
-    return res;
   }
-
-  let secret: string | null = s.totp_secret;
-  /* first sign-in (or after an owner reset the code): a secret to add to the app; kept until it is confirmed */
-  if (!s.totp_on && !secret) {
-    secret = newTotpSecret();
-    await pool.query(`UPDATE staff SET totp_secret = $2 WHERE id = $1 AND NOT totp_on`, [id, seal(secret)]);
-  }
-  const res = answer({
-    result: "ok",
-    step: s.totp_on ? "code" : "enroll",
-    mustChange: !!s.must_change_password,
-    ...(s.totp_on ? {} : { secret, link: totpLink(secret!, email) }),
-  });
-  if (!(await startStaffSession(res, req, id, s.password_hash))) return replaced();
   await audit(req, id, "staff.password_ok", { type: "staff", id });
-  return res;
+  /* always to the address on file, in the member's saved language (both while none is saved) */
+  const sent = await sendSigninCode(req, ref, String(s.email), s.lang);
+  if (sent === "sent") return res;
+  const late = answer({ result: "ok", step: "code", to, mustChange, sent: false, why: sent === "off" ? "failed" : sent });
+  res.cookies.getAll().forEach((c) => late.cookies.set(c));
+  return late;
 });

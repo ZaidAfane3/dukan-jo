@@ -10,6 +10,7 @@ import { moneyText } from "@/components/moneyText";
    - the merchant notices  server/notify.ts, next to the bell's message of the same kind (the bell's own words are in
                            components/content.ts, notifications.server)
    - staffChangeEmail      the Diwan staff routes (app/api/diwan/staff), to the other owners
+   - staffSigninCodeEmail, staffEmailCodeEmail, staffEmailChangedEmail   a staff member's own codes (server/staffSignin.ts)
 
    Notices go out in the language the reader uses Dukkan in (accounts.lang / staff.lang, server/lang.ts): wordsIn. Someone
    whose language isn't saved yet (they haven't signed in since it was) gets both: bothLangs puts the Arabic first and
@@ -281,3 +282,47 @@ export function staffChangeEmail(lang: EmailLang, p: { change: StaffChange; targ
     button,
   };
 }
+
+/* ---------------- Diwan: a staff member's own codes (server/staffSignin.ts) ---------------- */
+
+/** The 6-digit code that finishes a staff sign-in (the code is shown on its own by email.ts). `minutes`: how long it works. */
+export const staffSigninCodeEmail = (lang: EmailLang, minutes: number): EmailWords =>
+  lang === "ar"
+    ? {
+        subject: "رمز الدخول إلى ديوان",
+        heading: "رمز الدخول إلى ديوان",
+        text: `هذا رمز دخولك إلى ديوان، لوحة فريق دكّان.\nاكتبه في صفحة الدخول، وينتهي خلال ${minutes} دقائق.\nإذا لم تحاول الدخول، فهناك من يعرف كلمة مرورك: اطلب من مالك آخر في الفريق كلمة مرور جديدة لك الآن.`,
+      }
+    : {
+        subject: "Your Diwan sign-in code",
+        heading: "Diwan sign-in code",
+        text: `Here is your code to sign in to Diwan, Dukkan's staff console.\nType it on the sign-in page. It expires in ${minutes} minutes.\nIf you didn't try to sign in, someone knows your password: ask another owner on the team for a new one now.`,
+      };
+
+/** The code that confirms a new email a staff member typed in Diwan */
+export const staffEmailCodeEmail = (lang: EmailLang, minutes: number): EmailWords =>
+  lang === "ar"
+    ? {
+        subject: "أكّد بريدك الجديد في ديوان",
+        heading: "تأكيد البريد الجديد",
+        text: `هذا رمز تأكيد بريدك الإلكتروني الجديد في ديوان.\nاكتبه في صفحة الفريق، وينتهي خلال ${minutes} دقائق.\nإذا لم تطلبه فتجاهل هذه الرسالة.`,
+      }
+    : {
+        subject: "Confirm your new Diwan email",
+        heading: "Confirm your new email",
+        text: `Here is the code to confirm your new email address in Diwan.\nType it on the Staff page. It expires in ${minutes} minutes.\nIf you didn't ask for it, you can ignore this email.`,
+      };
+
+/** To a staff member's OLD address once their email changed (`to`: the new one, partly hidden) */
+export const staffEmailChangedEmail = (lang: EmailLang, to: string): EmailWords =>
+  lang === "ar"
+    ? {
+        subject: "تغيّر بريدك في ديوان",
+        heading: "تغيّر بريد حسابك في ديوان",
+        text: `تغيّر البريد الإلكتروني لحسابك في ديوان إلى ${line(to, 120)}.\nمن الآن تصل رموز الدخول إلى ديوان إلى البريد الجديد، لا إلى هذا البريد.\nإذا لم تكن أنت من غيّره، فأخبر مالكًا آخر في الفريق فورًا.`,
+      }
+    : {
+        subject: "Your Diwan email was changed",
+        heading: "Your Diwan email was changed",
+        text: `The email of your Diwan account was changed to ${line(to, 120)}.\nFrom now on, Diwan's sign-in codes go to the new address, not to this one.\nIf it wasn't you, tell another owner on the team right away.`,
+      };

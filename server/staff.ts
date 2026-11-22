@@ -4,13 +4,15 @@ import { answer, guarded, sameOrigin, secureCookies, tooManyFor, visitorIp } fro
 import { db } from "./db";
 import { cookieLang } from "./lang";
 
-/* Diwan's staff: their sign-in, roles, 2-step codes and the activity log. Staff accounts are separate from merchant
-   accounts: their own table, their own cookie (dukkan-diwan, SameSite=Strict), 12 hours at most and 60 minutes idle.
-   A session only counts once the 2-step code was given (verified). Every Diwan route goes through staffRoute(). */
+/* Diwan's staff: their sign-in, roles and the activity log. Staff accounts are separate from merchant accounts: their
+   own table, their own cookie (dukkan-diwan, SameSite=Strict), 12 hours at most and 60 minutes idle. A session is made
+   only once the emailed 2-step code was given (server/staffSignin.ts), always verified. Sessions left unverified from
+   before (the authenticator app, retired on 2026-11-22) never open anything and can't become verified any more. Every
+   Diwan route goes through staffRoute(). */
 
 import { can, type Perm, type Role } from "@/components/diwan/perms";
 export { can, type Perm, type Role };
-export type Staff = { id: string; email: string; name: string; role: Role; totpOn: boolean };
+export type Staff = { id: string; email: string; name: string; role: Role };
 
 export const STAFF_COOKIE = "dukkan-diwan";
 const HOURS = 12;
@@ -20,7 +22,7 @@ export const ipOf = (req: NextRequest) => visitorIp(req);
 
 /* ---------------- sessions ---------------- */
 
-/** Starts a staff session (not verified until the 2-step code is given) and sets the cookie. passwordHash is the hash the
+/** Starts a staff session and sets the cookie, after the emailed code (app/api/diwan/auth/code). passwordHash is the hash the
     password was checked against: the session is made only while the account still has it and is active, so a password
     replaced (an owner's reset, the setup key) or an account turned off during the check can't leave a session behind.
     False when it wasn't made. */
@@ -28,8 +30,7 @@ export async function startStaffSession(res: NextResponse, req: NextRequest, sta
   const token = randomBytes(32).toString("base64url");
   const pool = await db();
   /* FOR SHARE waits for a change to this account in progress (it locks the row, and then deletes its sessions), and then
-     sees the new password; a change that starts after waits for this session, and so deletes it.
-     Verified from the start only while 2-step codes are not required (STAFF_2FA_REQUIRED) and none is set up. */
+     sees the new password; a change that starts after waits for this session, and so deletes it. */
   const r = await pool.query(
     `INSERT INTO staff_sessions (token_hash, staff_id, ip, verified, expires_at)
      SELECT $1, id, $3, $4, now() + make_interval(hours => $5) FROM staff WHERE id = $2 AND password_hash = $6 AND active FOR SHARE`,
@@ -50,12 +51,6 @@ export async function endStaffSession(res: NextResponse, req: NextRequest): Prom
   res.cookies.set(STAFF_COOKIE, "", { httpOnly: true, sameSite: "strict", secure: secureCookies(req), path: "/", maxAge: 0 });
 }
 
-/** Marks the current session as past the 2-step code */
-export async function verifyStaffSession(req: NextRequest): Promise<void> {
-  const token = req.cookies.get(STAFF_COOKIE)?.value;
-  if (token) await (await db()).query(`UPDATE staff_sessions SET verified = true WHERE token_hash = $1`, [tokenHash(token)]);
-}
-
 /** The staff member behind a cookie token, and whether the 2-step code was given. Also usable from server components.
     `touch: false` for a page's own background load (a ticket looked at again every few seconds): it is answered, but
     it is not counted as use, so a page left open still ends the session after IDLE_MIN with nothing done. */
@@ -65,7 +60,7 @@ export async function staffFromToken(token: string | undefined, { touch = true }
   /* read first; the last use is written only when it is more than a minute old, so a console page's many requests
      don't each rewrite the session row */
   const { rows } = await pool.query(
-    `SELECT s.id, s.email, s.name, s.role, s.totp_on, ss.verified, ss.last_used_at < now() - interval '1 minute' AS stale
+    `SELECT s.id, s.email, s.name, s.role, ss.verified, ss.last_used_at < now() - interval '1 minute' AS stale
        FROM staff_sessions ss JOIN staff s ON s.id = ss.staff_id
       WHERE ss.token_hash = $1 AND s.active
         AND ss.expires_at > now() AND ss.last_used_at > now() - make_interval(mins => $2)`,
@@ -76,7 +71,7 @@ export async function staffFromToken(token: string | undefined, { touch = true }
   /* locally, a sign-in left halfway (no code given yet) doesn't stop the dev owner either */
   if (!s || (LOCAL_DEV && !s.verified)) return LOCAL_DEV ? devOwner() : null;
   /* no roles any more (components/diwan/perms.ts): everyone is an owner, whatever an old row still says */
-  return { id: String(s.id), email: s.email, name: s.name, role: "owner" as Role, totpOn: s.totp_on, verified: s.verified };
+  return { id: String(s.id), email: s.email, name: s.name, role: "owner" as Role, verified: s.verified };
 }
 
 /* ---------------- local development: no sign-in ---------------- */
@@ -100,7 +95,7 @@ function devOwner(): Promise<Staff & { verified: boolean }> {
        ON CONFLICT (email_hash) DO UPDATE SET role = 'owner', active = true RETURNING id`,
       [seal(DEV_EMAIL), emailKey(DEV_EMAIL)],
     );
-    return { id: String(rows[0].id), email: DEV_EMAIL, name: "Local dev", role: "owner" as Role, totpOn: false, verified: true };
+    return { id: String(rows[0].id), email: DEV_EMAIL, name: "Local dev", role: "owner" as Role, verified: true };
   })().catch((e) => {
     gDev.diwanDevOwner = undefined;
     throw e;
@@ -150,18 +145,11 @@ export async function audit(
   );
 }
 
-/* ---------------- 2-step codes (TOTP, RFC 6238: 30 seconds, 6 digits, SHA-1, as authenticator apps expect) ---------------- */
+/* ---------------- authenticator app codes (TOTP, RFC 6238: 30 seconds, 6 digits, SHA-1) ----------------
+   Only for merchants who set up an app before their codes came by email (app/api/auth/totp). Staff no longer use
+   them (their codes come by email since 2026-11-22, server/staffSignin.ts); their old secrets are left unread. */
 
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-
-export function newTotpSecret(): string {
-  const bytes = randomBytes(20);
-  let bits = "";
-  bytes.forEach((b) => (bits += b.toString(2).padStart(8, "0")));
-  let out = "";
-  for (let i = 0; i + 5 <= bits.length; i += 5) out += B32[parseInt(bits.slice(i, i + 5), 2)];
-  return out;
-}
 
 function base32Bytes(s: string): Buffer {
   let bits = "";
@@ -207,7 +195,3 @@ export async function useTotpCode(table: "accounts" | "staff", id: string, secre
   const r = await (await db()).query(`UPDATE ${table} SET totp_last_step = $2 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)`, [id, step]);
   return !!r.rowCount;
 }
-
-/** The link authenticator apps read (also shown as text to type in). issuer: the name the app shows ("Dukkan" for merchants). */
-export const totpLink = (secret: string, email: string, issuer = "Diwan") =>
-  `otpauth://totp/${encodeURIComponent(`${issuer}:${email}`)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&digits=6&period=30`;
