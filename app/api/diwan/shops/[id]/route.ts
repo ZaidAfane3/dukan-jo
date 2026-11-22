@@ -86,7 +86,9 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
               ${ORDERS_SQL} AS order_count, ${SALES_SQL} AS total_sales, ${STORE_PAGE_SQL}, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
               /* the oldest order: the one the merchant's saved orders give, or an older one customers placed on its page */
               LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at,
-              a.name AS owner, a.email, a.phone, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
+              /* never the owner's email or mobile (security F08): "Contact the merchant" asks for them with the password
+                 (app/api/diwan/shops/[id]/contacts) */
+              a.name AS owner, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
               /* how many orders customers placed on its public page (in order_count too), and the card/CliQ test orders
                  left out of both: counts only, never the orders (they are the shop's) */
               so.n AS storefront_orders, so.test AS storefront_test,

@@ -355,6 +355,12 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   return { sql, params, order: SORTS[p.get("sort") ?? ""] ?? SORTS.newest };
 }
 
-export const SHOP_LIST_COLUMNS = `s.account_id AS id, s.name, s.slug, a.name AS owner, a.email, a.phone,
+/** The shop list's columns. Never the owner's email or mobile (security F08): the paged list could be walked for every
+    merchant's contacts with no password and no trace. They come one store at a time behind the staff member's password
+    (app/api/diwan/shops/[id]/contacts), or all together in the export (SHOP_EXPORT_COLUMNS), which needs it too. The
+    search still finds an owner by the full email or mobile typed (their fingerprints, shopListSql). */
+export const SHOP_LIST_COLUMNS = `s.account_id AS id, s.name, s.slug, a.name AS owner,
   (${STATUS_SQL}) AS status, s.setup_done, s.published, s.paused, s.ship_mode, s.product_count, ${STORE_PAGE_SQL},
   s.last_seen_at, s.created_at`;
+/** The same with the owner's email and mobile, for the password-protected CSV export only */
+export const SHOP_EXPORT_COLUMNS = `${SHOP_LIST_COLUMNS}, a.email, a.phone`;

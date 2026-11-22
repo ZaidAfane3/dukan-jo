@@ -1,5 +1,5 @@
 /* The activity log in plain words. Diwan's log keeps what staff changed and their sign-ins, never what they only looked
-   at: the old "opened a page" lines (any "….view") and the half-way "password right, waiting for the code" stay in the database,
+   at (but for a merchant's contacts shown, "shop.contacts", the one reading of private details that is logged): the old "opened a page" lines (any "….view") and the half-way "password right, waiting for the code" stay in the database,
    which allows no deleting, but are left out of every list (HIDDEN_ACTIONS, read by the routes). */
 
 export const HIDDEN_ACTIONS = ["staff.password_ok"];
@@ -29,13 +29,18 @@ const W: Record<string, [en: string, ar: string]> = {
   "staff.reactivate": ["Gave a member access again", "أعاد دخول عضو"],
   "staff.reset_2step": ["Reset a member's 2-step sign-in", "أعاد ضبط التحقق بخطوتين لعضو"],
   "staff.reset_password": ["Reset a member's password", "أعاد ضبط كلمة مرور عضو"],
+  "staff.email_fixed": ["Corrected a member's email before they confirmed it", "صحّح بريد عضو قبل أن يؤكّده"],
   /* stores */
   "shop.suspend": ["Suspended a store", "أوقف متجرًا"],
   "shop.reactivate": ["Reopened a store", "أعاد تشغيل متجر"],
   "shop.payment": ["Marked a payment as received", "سجّل دفعة"],
+  /* testing D-5: a recorded payment corrected (the values before are in the line's details) */
+  "shop.payment_edit": ["Corrected a recorded payment", "صحّح دفعة مسجّلة"],
   /* no longer written (Dukkan has no plans or free trial since 2026-11-16); kept so older log lines still read in words */
   "shop.plan": ["Changed a store's plan", "غيّر باقة متجر"],
   "shop.totp.off": ["Turned off a merchant's 2-step sign-in", "أوقف التحقق بخطوتين لتاجر"],
+  /* "Show contacts" (security F08): a merchant's email and mobile shown, after the staff member's password */
+  "shop.contacts": ["Looked at a merchant's email and mobile", "اطّلع على بريد تاجر وجواله"],
   /* no longer written ("Log in as merchant" was removed on 2026-11-16); kept so older log lines still read in words */
   "shop.impersonate.start": ["Opened a store as its merchant", "دخل متجرًا كتاجر"],
   "shop.impersonate.end": ["Left a store opened as its merchant", "خرج من متجر دخله كتاجر"],

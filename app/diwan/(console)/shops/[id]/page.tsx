@@ -5,13 +5,14 @@ import { useRef, useState, use } from "react";
 import { ActivityText, type ActivityRow } from "@/components/diwan/ActivityLine";
 import { MerchantLineText, type MerchantLine } from "@/components/diwan/merchantLogWords";
 import { usePrefs } from "@/components/Prefs";
-import { ContactDialog } from "@/components/diwan/Contact";
+import { askShopContacts, ContactDialog, type ContactInfo } from "@/components/diwan/Contact";
 import { ticketHref } from "@/components/diwan/TicketChat";
 import { MARK_METHODS, MethodBadge, methodText, Select, STATUS_LOOK, StatusBadge, StatusIcon, storeLink, storeLinkHref, todayJo, type ShopStatus } from "@/components/diwan/shopBits";
 import { PRIORITY, STATUS as TICKET_STATUS, KIND, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
 import { THEME_CHECKOUT_CHARGES } from "@/components/diwan/platformSettings";
 import { ShopSkeleton } from "@/components/diwan/skeletons";
+import { EditPaymentDialog } from "@/components/diwan/PaymentEdit";
 import { OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { REASON_WORDS, type ReportReason } from "@/components/storeReports";
 import type { Bi } from "@/components/storefront/config";
@@ -61,8 +62,6 @@ type Shop = {
   last_seen_at: string | null;
   created_at: string;
   owner: string;
-  email: string;
-  phone: string;
   last_login_at: string | null;
   login_count: number;
   totp_on: boolean;
@@ -106,7 +105,7 @@ const reportTone: Record<ReportRow["status"], Tone> = { new: "red", checking: "a
    documents, reports about it, deleted orders, the activity log), each part with its count, its newest rows and a "See
    all" to the full list narrowed to this store. A part shows only to staff whose role may open its own page (the server
    sends nothing for the others). The actions are only shown to staff whose role allows them (the server checks again).
-   The owner's email and mobile are behind the Contact button, not printed on the page. */
+   The owner's email and mobile are behind the Contact button and the staff member's password, not sent with the page. */
 export default function ShopPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const t = useT();
@@ -114,7 +113,10 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
   const { lang } = usePrefs();
   const s = useApi<Detail>(`/api/diwan/shops/${encodeURIComponent(params.id)}`);
   const [panel, setPanel] = useState<Panel>(null);
-  const [contact, setContact] = useState(false);
+  /* the owner's email and mobile, once asked for with the staff member's password (security F08) */
+  const [contact, setContact] = useState<ContactInfo | null>(null);
+  /* the payment being corrected (testing D-5) */
+  const [editing, setEditing] = useState<string | null>(null);
   /* a suspend or reactivate the server just confirmed, shown at once over the page it was made on: loading the whole
      page again takes a few seconds, and until then it would still show the old state. The fresh page replaces it. */
   const [changed, setChanged] = useState<{ on: Detail; shop: Partial<Shop> } | null>(null);
@@ -190,8 +192,11 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
               <ActionCard
                 icon="mail"
                 title={t("Contact the merchant", "التواصل مع التاجر")}
-                line={t("Email, call or WhatsApp the owner.", "راسل المالك أو اتصل به أو عبر واتساب.")}
-                onClick={() => setContact(true)}
+                line={t("The owner's email and mobile, after your own password.", "بريد المالك وجواله، بعد كتابة كلمة مرورك.")}
+                onClick={async () => {
+                  const got = await askShopContacts(t, id, { owner: sh.owner, storePhone: sh.store_phone });
+                  if (got) setContact(got);
+                }}
               />
               {d.can.billing && (
                 <ActionCard
@@ -227,7 +232,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                   />
                 ))}
             </section>
-            {contact && <ContactDialog info={{ owner: sh.owner, email: sh.email, phone: sh.phone, storePhone: sh.store_phone }} onClose={() => setContact(false)} />}
+            {contact && <ContactDialog info={contact} onClose={() => setContact(null)} />}
 
             {panel && (
               <ActionPanel
@@ -363,10 +368,25 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 >
                   {d.payments.rows.map((r) => (
                     <Item key={r.id} lead={<b className="tabular-nums">{f.jod(r.amount)}</b>} sub={[f.date(r.paid_on), r.marked_by ? t(`marked by ${r.marked_by}`, `سجّلها ${r.marked_by}`) : "", r.reference].filter(Boolean).join(" · ")}>
-                      <MethodBadge method={r.method} />
+                      <span className="flex items-center gap-2">
+                        <MethodBadge method={r.method} />
+                        <Btn kind="ghost" className="h-7 px-2 text-xs" onClick={() => setEditing(String(r.id))}>
+                          {t("Correct", "تصحيح")}
+                        </Btn>
+                      </span>
                     </Item>
                   ))}
                 </Part>
+              )}
+              {editing && (
+                <EditPaymentDialog
+                  id={editing}
+                  onClose={() => setEditing(null)}
+                  onSaved={() => {
+                    setEditing(null);
+                    s.reload();
+                  }}
+                />
               )}
               {d.themes && (
                 <Part

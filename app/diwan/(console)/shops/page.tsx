@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Select, StatusBadge, statusOptions, statusText, storeLink, storeLinkHref } from "@/components/diwan/shopBits";
 import { Btn, DataTable, downloadCsv, field, Loaded, PageHead, send, tdDense as td, LoadMore, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { tell } from "@/components/diwan/dialogs";
+import { ContactButton } from "@/components/diwan/Contact";
 import { askOwnPassword, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { ShopsSkeleton } from "@/components/diwan/skeletons";
 import { FilterBar } from "@/components/diwan/Filters";
@@ -15,8 +16,9 @@ type Row = {
   name: string;
   slug: string | null;
   owner: string;
-  email: string;
-  phone: string;
+  /* only in the export's rows (behind the password), never in the list's */
+  email?: string;
+  phone?: string;
   status: string;
   setup_done: number;
   published: boolean;
@@ -34,7 +36,7 @@ type Row = {
 type List = { rows: Row[]; total: number; page: number; pages: number; canExport: boolean };
 
 const FILTERS = ["status", "setup", "published", "ship", "sort"] as const;
-/* a link or email in the table: one line, cut with "…" past a set width */
+/* a link in the table: one line, cut with "…" past a set width */
 const clip = "block max-w-[8.5rem] truncate text-xs text-muted rtl:text-end";
 type Filters = Record<(typeof FILTERS)[number], string>;
 /* the search, filters and sort, kept in the address so Back from a store brings the list back as it was */
@@ -228,7 +230,7 @@ export default function ShopsPage() {
                 <tr key={r.id} className="hover:bg-soft/50">
                   {/* the store's name and under it its link, in one column so the whole table fits its card at 1440 wide.
                       The link shows only what tells stores apart (/its-link-name; Dukkan's address is the same for all, and
-                      the whole address is in its tooltip). A long one, or a long email, is cut short with "…" on one line,
+                      the whole address is in its tooltip). A long one is cut short with "…" on one line,
                       never broken mid-word; in Arabic it is still written left to right, lined up with the name above it. */}
                   <td className={td}>
                     <Link href={`/diwan/shops/${r.id}`} title={r.name || undefined} dir="auto" className="block max-w-[11rem] truncate font-semibold text-primary hover:underline ltr:text-left rtl:text-right">
@@ -250,12 +252,8 @@ export default function ShopsPage() {
                   </td>
                   <td className={td}>
                     <p title={r.owner} dir="auto" className="max-w-[8.5rem] truncate ltr:text-left rtl:text-right">{r.owner}</p>
-                    <p dir="ltr" title={r.email} className={clip}>
-                      {r.email}
-                    </p>
-                    <p dir="ltr" className="whitespace-nowrap text-xs text-muted rtl:text-end">
-                      {r.phone}
-                    </p>
+                    {/* the email and mobile are not in the list (security F08): shown for this one store after the password */}
+                    <ContactButton shopId={r.id} info={{ owner: r.owner }} label={t("Show contacts", "إظهار التواصل")} className="mt-1 h-7 px-2 text-xs" />
                   </td>
                   <td className={td} title={statusText(t, r.status)}>
                     <StatusBadge status={r.status} compact />

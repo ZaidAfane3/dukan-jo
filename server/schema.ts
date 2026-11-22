@@ -1001,4 +1001,11 @@ export const DIWAN_SCHEMA = `
     PRIMARY KEY (who, place)
   );
   CREATE INDEX IF NOT EXISTS signin_places_at ON signin_places (last_at);
+  /* ---------- Diwan: correcting a recorded payment (app/api/diwan/payments/[id], testing D-5) ----------
+     version: 1 when it was recorded, one more at each correction. A correction is saved only from the version its form
+     showed, so two staff correcting the same payment at once can't overwrite each other. edited_at / edited_by: the
+     last correction. The values before each one are kept in its activity-log line ("shop.payment_edit"). */
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS edited_by BIGINT REFERENCES staff (id);
 `;

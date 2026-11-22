@@ -5,7 +5,7 @@ import { emailKey, seal } from "./crypto";
 import { db } from "./db";
 import { emailOn, sendEmailSoon } from "./email";
 import { CODE_MINUTES, maskEmail, sendCodeEmail, type SendResult } from "./emailVerify";
-import { staffEmailChangedEmail, staffEmailCodeEmail, staffSigninCodeEmail, wordsIn } from "./emailWords";
+import { staffEmailApproveEmail, staffEmailChangedEmail, staffEmailCodeEmail, staffSigninCodeEmail, wordsIn } from "./emailWords";
 
 /* Diwan's 2-step sign-in, by emailed code (since 2026-11-22; the authenticator app is gone for staff, its columns stay
    unread). The codes themselves are the merchants' (server/emailVerify.ts: 10 minutes, 5 tries each, one use, a new
@@ -24,8 +24,10 @@ import { staffEmailChangedEmail, staffEmailCodeEmail, staffSigninCodeEmail, word
    and is active.
    3. A browser where the code was typed is remembered (below): there, later, the right password alone signs in.
 
-   A staff member's own new email (app/api/diwan/account/email): a code to the new address (ref "sc:<staff id>"),
-   then a notice to the old one. */
+   A staff member's own new email (app/api/diwan/account/email), in two steps as a merchant's with 2-step on: first a code
+   to the CURRENT address approves the change to that one new address (ref "sco:<staff id>", purpose "staff-change-old":
+   its row names the address it approves), so someone holding a session and the password but not the mailbox can't move
+   the sign-in codes away; then a code to the new address proves it (ref "sc:<staff id>"); then a notice to the old one. */
 
 export const WAIT_COOKIE = "dukkan-diwan-wait";
 const WAIT_MINUTES = 15;
@@ -33,6 +35,7 @@ const WAIT_PATH = "/api/diwan/auth";
 const tokenHash = (t: string) => createHash("sha256").update(t).digest("hex");
 const signinRef = (hash: string) => `sl:${hash}`;
 export const emailChangeRef = (staffId: string) => `sc:${staffId}`;
+export const emailApproveRef = (staffId: string) => `sco:${staffId}`;
 
 /** True when a code can go out: an email provider (RESEND_API_KEY and EMAIL_FROM), or the local dev server, where the
     code is written to its console. Without it nobody can sign in to Diwan on the live server. */
@@ -102,7 +105,40 @@ export function sendSigninCode(req: NextRequest, ref: string, email: string, lan
   return sendCodeEmail(req, "staff-login", ref, email, w.lang, "", w.words);
 }
 
-/** Sends the code that confirms a staff member's new email, to that new address */
+/** Sends the code that approves a change to `newEmail`, to the member's CURRENT address. The new address is written on the
+    code's row and is part of the code (server/emailVerify.ts sendCodeEmail): it approves that one address only, and
+    asking for another one ends it. */
+export function sendEmailApproveCode(req: NextRequest, staffId: string, current: string, newEmail: string, lang: unknown): Promise<SendResult> {
+  const w = wordsIn(lang, (l) => staffEmailApproveEmail(l, CODE_MINUTES, maskEmail(newEmail)));
+  return sendCodeEmail(req, "staff-change-old", emailApproveRef(staffId), current, w.lang, newEmail, w.words);
+}
+
+/** The new email waiting for the current address's approval (the last day, not approved or given up yet), or null;
+    `live`: its code still works now */
+export async function pendingStaffApproval(staffId: string): Promise<{ email: string; live: boolean } | null> {
+  const { rows } = await (await db()).query(
+    `SELECT new_email, confirmed_at, cancelled_at, (used_at IS NULL AND expires_at > now()) AS live FROM email_codes
+      WHERE ref = $1 AND purpose = 'staff-change-old' AND created_at > now() - interval '1 day' ORDER BY id DESC LIMIT 1`,
+    [emailApproveRef(staffId)],
+  );
+  const r = rows[0];
+  return r && !r.confirmed_at && !r.cancelled_at && r.new_email ? { email: String(r.new_email), live: !!r.live } : null;
+}
+
+/** True when the current address approved a change to `newEmail` in the last day (the newest approval, its code typed).
+    The new address's code is sent and taken only then, so a code to a new address can never stand without it (one
+    asked for before the approval step existed included). */
+export async function approvedFor(staffId: string, newEmail: string): Promise<boolean> {
+  const { rows } = await (await db()).query(
+    `SELECT new_email, confirmed_at FROM email_codes WHERE ref = $1 AND purpose = 'staff-change-old' AND created_at > now() - interval '1 day'
+      ORDER BY id DESC LIMIT 1`,
+    [emailApproveRef(staffId)],
+  );
+  const r = rows[0];
+  return !!r?.confirmed_at && !!r.new_email && emailKey(String(r.new_email)) === emailKey(newEmail);
+}
+
+/** Sends the code that confirms a staff member's new email, to that new address (after the current one approved it) */
 export function sendEmailChangeCode(req: NextRequest, staffId: string, newEmail: string, lang: unknown): Promise<SendResult> {
   const w = wordsIn(lang, (l) => staffEmailCodeEmail(l, CODE_MINUTES));
   return sendCodeEmail(req, "staff-change", emailChangeRef(staffId), newEmail, w.lang, "", w.words);

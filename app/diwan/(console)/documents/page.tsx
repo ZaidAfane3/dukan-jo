@@ -18,7 +18,7 @@ import { FilterBar } from "@/components/diwan/Filters";
 type Status = "waiting" | "approved" | "rejected";
 type Kind = "courier_proof" | "commercial_registration" | "other";
 type Row = {
-  id: string; shopId: string; shopName: string; ownerName: string; shopSlug: string | null; shopEmail: string; ownerPhone: string; storePhone: string; kind: Kind; seq: number; name: string;
+  id: string; shopId: string; shopName: string; ownerName: string; shopSlug: string | null; storePhone: string; kind: Kind; seq: number; name: string;
   partner: string; partnerKind: 0 | 1 | null; hasFile: boolean; mime: string | null; bytes: number | null;
   status: Status; note: string; reviewer: string | null; createdAt: string;
   /* when the merchant removed it (its file is gone), or null */
@@ -219,8 +219,8 @@ function DocCard({ row, statusName, kindName, onDone, onGone }: {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Badge tone={tone[row.status]}>{statusName(row.status)}</Badge>
           {row.removedAt && <Badge tone="grey">{t("Removed by the merchant", "حذفه التاجر")}</Badge>}
-          {/* the merchant's email and mobile stay in the Contact pop-up, not printed on the card */}
-          <ContactButton info={{ owner: row.ownerName, email: row.shopEmail, phone: row.ownerPhone, storePhone: row.storePhone }} />
+          {/* the merchant's email and mobile are asked for with the staff member's password (security F08), never in the list */}
+          <ContactButton shopId={row.shopId} info={{ owner: row.ownerName, storePhone: row.storePhone }} />
         </div>
       </div>
       {row.note && <p className="mt-3 whitespace-pre-line rounded-xl bg-soft px-3 py-2 text-sm">{row.note}</p>}

@@ -148,8 +148,6 @@ export default function TicketsPage() {
                   </td>
                   <td className={td}>
                     <ShopAndOwner id={r.accountId} shop={r.shop} owner={r.owner} />
-                    {/* kept: the search finds a ticket by its merchant's full email */}
-                    <p className="text-xs text-muted" dir="ltr">{r.email}</p>
                   </td>
                   <td className={td}><Badge tone={STATUS[r.status].tone}>{t(STATUS[r.status].en, STATUS[r.status].ar)}</Badge></td>
                   <td className={td}><Badge tone={PRIORITY[r.priority].tone}>{t(PRIORITY[r.priority].en, PRIORITY[r.priority].ar)}</Badge></td>

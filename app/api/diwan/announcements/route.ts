@@ -28,14 +28,14 @@ export const GET = staffRoute("announce", async (req) => {
   const shops = ids.length
     ? (
         await pool.query(
-          `SELECT a.id, COALESCE(NULLIF(s.name, ''), a.name) AS name, a.email FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = ANY($1::bigint[])`,
+          `SELECT a.id, COALESCE(NULLIF(s.name, ''), a.name) AS name, s.slug FROM accounts a LEFT JOIN shops s ON s.account_id = a.id WHERE a.id = ANY($1::bigint[])`,
           [ids],
         )
       ).rows
     : [];
   return answer({
     result: "ok",
-    shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, email: s.email }])),
+    shops: Object.fromEntries(shops.map((s) => [String(s.id), { name: s.name, slug: s.slug ?? null }])),
     /* the past list grows with "Load more" (rows, page, pages); the current one is all in one */
     ...(past ? { rows: list.rows.map(announcementRow), page, pages: Math.max(1, Math.ceil(total / PAST_PAGE)) } : { announcements: list.rows.map(announcementRow) }),
   });

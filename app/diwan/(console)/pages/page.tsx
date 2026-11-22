@@ -70,7 +70,7 @@ export default function PagesPage() {
     /* the server's copy when it answered with one, else the row built from what was sent */
     const row = answered?.id === id ? answered : built;
     /* the names of the shops chosen in it, which the list may not know until it has loaded again */
-    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
+    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, slug: x.slug ?? null }])) : undefined;
     js.show(row, wasEdit ? t("Saved", "تم الحفظ") : t("Saved as draft", "حُفظت كمسودة"), names);
   };
 
