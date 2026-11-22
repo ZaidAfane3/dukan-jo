@@ -8,6 +8,7 @@ import { sanitizeDesign, sanitizePages } from "@/components/safeDesign";
 import { defaultConfig, type PageRef } from "@/components/storefront/config";
 import { stripPaidLooks, withLookOf } from "@/components/themeLooks";
 import { db } from "./db";
+import { keepLegalPages } from "./legalPages";
 import { themeInUse, themeOwner } from "./themeOwnership";
 
 /* A store as anyone sees it at its address (app/[slug] and GET /api/public/store/<slug>). The shop is found by its link
@@ -87,6 +88,13 @@ export async function publicStore(slug: string): Promise<PublicStore | null> {
   if (shop.status === "suspended") return { status: "unavailable" };
   const data = new Map<string, string>();
   for (const r of rows as { key: string | null; value: string | null }[]) if (r.key !== null && r.value !== null) data.set(r.key, r.value);
+  /* a live store that never saved its pages gets the legal pages' text as it is today, kept as its own
+     (server/legalPages.ts), so a later change in Diwan does not change a live store's terms. If that can't be done now,
+     the store is served as before and it is tried again on the next visit. */
+  if (shop.published && !data.has("seen-pages")) {
+    const kept = await keepLegalPages(pool, shop.account_id).catch((e) => (console.error("[pages] keeping legal pages", shop.account_id, e), null));
+    if (kept !== null) data.set("seen-pages", kept);
+  }
   return shapePublicStore(
     shop,
     data,
