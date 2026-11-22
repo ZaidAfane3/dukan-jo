@@ -1,9 +1,11 @@
-import { answer } from "@/server/auth";
+import type { NextRequest } from "next/server";
+import { answer, readJson, tooManyFor } from "@/server/auth";
 import { lookupKeys } from "@/server/crypto";
 import { db } from "@/server/db";
 import { dayOf } from "@/server/shopActions";
 import { likeText } from "@/server/shops";
-import { audit, staffRoute } from "@/server/staff";
+import { audit, staffRoute, type Staff } from "@/server/staff";
+import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +21,8 @@ const KINDS = ["payment", "theme"];
    Filters: kind (payment or theme), shop (one store's account id), method, from/to (paid on, yyyy-mm-dd), q (store name, owner email or mobile, the
    payment's reference, or the theme). Gives the total of what matches, and how each method was used (payments, JOD and
    stores) over the same kind, dates and search but every method, so the summary shows the whole picture while the list
-   is narrowed. export=1 gives up to 20,000 rows for a CSV file and is logged. */
-export const GET = staffRoute("billing", async (req, staff) => {
+   is narrowed. The same list for a CSV file (up to 20,000 rows, with every owner's email) is the POST below. */
+async function payments(req: NextRequest, staff: Staff, exporting: boolean) {
   const p = req.nextUrl.searchParams;
   const where: string[] = [];
   const params: unknown[] = [];
@@ -67,7 +69,6 @@ export const GET = staffRoute("billing", async (req, staff) => {
   const method = p.get("method");
   if (method && METHODS.includes(method)) where.push(`x.method = ${add(method)}`);
   const fromSql = `${joins} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`;
-  const exporting = p.get("export") === "1";
   const page = Math.max(1, Math.min(10_000, Number.parseInt(p.get("page") ?? "1", 10) || 1));
   const pool = await db();
   const [rows, sum, byMethod, byKind, shopRow] = await Promise.all([
@@ -106,4 +107,17 @@ export const GET = staffRoute("billing", async (req, staff) => {
     kinds: Object.fromEntries(KINDS.map((k) => [k, byKind?.rows.find((r) => r.kind === k)?.n ?? 0])),
     shopName: shopRow?.rows[0]?.name ?? null,
   });
+}
+
+export const GET = staffRoute("billing", (req, staff) => payments(req, staff, false));
+
+/* The list as rows for a CSV file, with the same filters (in the address). Like the store list's export
+   (app/api/diwan/shops/export) it holds the owners' names and emails, so it needs the staff member's own password with
+   it ({ myPassword }, server/staffConfirm.ts passwordAgain), a few an hour, and the activity log keeps who exported,
+   when, how many rows and with which filters. */
+export const POST = staffRoute("billing", async (req, staff) => {
+  if (tooManyFor(`diwan-export:${staff.id}`, 10, 60)) return answer({ result: "slow-down" }, 429);
+  const refused = await passwordAgain(req, staff, (await readJson(req, 1_000))?.myPassword, "payments.export");
+  if (refused) return refused;
+  return payments(req, staff, true);
 });

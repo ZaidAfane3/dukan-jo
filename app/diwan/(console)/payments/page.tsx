@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { shaped, typedText, useListScroll, useListState } from "@/components/diwan/useListState";
 import { METHODS, MethodBadge, methodText, PayLogo, Select, ShopAndOwner, ShopOnly, todayJo, useUrlParam } from "@/components/diwan/shopBits";
-import { Btn, card, DataTable, downloadCsv, field, Loaded, LoadMore, PageHead, td, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { Btn, card, DataTable, downloadCsv, field, Loaded, LoadMore, PageHead, send, td, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { tell } from "@/components/diwan/dialogs";
+import { askOwnPassword, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { PaymentsSkeleton } from "@/components/diwan/skeletons";
 import { FilterBar } from "@/components/diwan/Filters";
 import type { Bi } from "@/components/storefront/config";
@@ -86,13 +88,46 @@ export default function PaymentsPage() {
   const pickMethod = (m: string) => setMethod(m);
   const whatFor = (r: Pay) => (r.kind === "theme" ? t(`Theme: ${themeLabel(t, r)}`, `ثيم: ${themeLabel(t, r)}`) : t("Payment", "دفعة"));
 
+  /* The file holds the owners' names and emails: the staff member's own password first, as for the store list
+     (server/staffConfirm.ts passwordAgain). One file per click: the button waits while the file is made, and a failure
+     says so. */
+  const [exporting, setExporting] = useState(false);
+  const exportBusy = useRef(false);
   const exportCsv = async () => {
-    const r = await fetch(`/api/diwan/payments?${params}&export=1`, { credentials: "same-origin", cache: "no-store" });
-    const j = await r.json().catch(() => null);
-    if (!r.ok || !j?.rows) return;
+    if (exportBusy.current) return;
+    exportBusy.current = true;
+    try {
+      const myPassword = await askOwnPassword(t, {
+        title: t("Export the payments", "تصدير المدفوعات"),
+        body: t("The file holds the owners' names and emails. Type your own password to confirm.", "يحوي الملف أسماء أصحاب المتاجر وبريدهم. اكتب كلمة مرورك للتأكيد."),
+        confirm: t("Export", "تصدير"),
+      });
+      if (myPassword === null) return;
+      setExporting(true);
+      const r = await send(`/api/diwan/payments?${params}`, "POST", { myPassword });
+      const j = r.data;
+      if (!r.ok || !Array.isArray(j?.rows)) {
+        if (r.status !== 401)
+          await tell({
+            title: t("Not exported", "لم يتم التصدير"),
+            body:
+              passwordAgainWords(t, j) ??
+              (r.status === 0
+                ? t("Diwan can't be reached right now. Check the connection and try again.", "تعذّر الوصول إلى الديوان الآن. تحقّق من الاتصال وحاول مجددًا.")
+                : t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا.")),
+          });
+        return;
+      }
+      saveCsv(j.rows as Pay[]);
+    } finally {
+      exportBusy.current = false;
+      setExporting(false);
+    }
+  };
+  const saveCsv = (rows: Pay[]) =>
     downloadCsv(`dukkan-payments-${todayJo()}.csv`, [
       ["kind", "id", "store id", "store", "owner", "email", "paid on", "amount JOD", "method", "what for", "theme", "reference", "marked by", "note"],
-      ...(j.rows as Pay[]).map((r) => [
+      ...rows.map((r) => [
         r.kind === "theme" ? "theme purchase" : "marked payment",
         r.id,
         r.shop_id,
@@ -109,7 +144,6 @@ export default function PaymentsPage() {
         r.note,
       ]),
     ]);
-  };
 
   return (
     <>
@@ -117,8 +151,8 @@ export default function PaymentsPage() {
         title={t("Payments", "المدفوعات")}
         sub={t("What stores paid Dukkan, and how they paid it.", "ما دفعته المتاجر لدكّان، وكيف دفعته.")}
         actions={
-          <Btn kind="ghost" onClick={exportCsv} disabled={!s.data?.count}>
-            {t("Export CSV", "تصدير CSV")}
+          <Btn kind="ghost" onClick={exportCsv} disabled={exporting || !s.data?.count} aria-busy={exporting}>
+            {exporting ? t("Preparing…", "جارٍ التجهيز…") : t("Export CSV", "تصدير CSV")}
           </Btn>
         }
       />
