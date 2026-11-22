@@ -291,6 +291,33 @@ const SEGMENT_KIDS = new Set([0x114d9b74, INFO, TRACKS, CLUSTER, 0x1c53bb6b, TAG
 /* what the segment's Info may say in words: Title, the date it was made (DateUTC) and the file names it had
    (SegmentFilename, PrevFilename, NextFilename). MuxingApp and WritingApp (the program that wrote it) stay. */
 const INFO_HIDDEN = new Set([0x7ba9, 0x4461, 0x7384, 0x3c83b9, 0x3e83bb]);
+/* a real Info holds about ten fields; one with far more (130,000 empty titles) is not a video (testing FZ-03) */
+const INFO_MAX_FIELDS = 256;
+const TRACK_ENTRY = 0xae;
+const TRACK_TYPE = 0x83;
+
+/** Whether a WebM's Tracks holds a video track (a TrackEntry whose TrackType is 1): an audio file, or one with no track
+    at all, is not a video (testing FZ-05) */
+function hasVideoEntry(b: Uint8Array, tracks: Element): boolean {
+  for (let i = tracks.body; i < tracks.end; ) {
+    const t = elementAt(b, i, tracks.end);
+    if (!t || t.unknown) return false;
+    if (t.id === TRACK_ENTRY) {
+      for (let k = t.body; k < t.end; ) {
+        const f = elementAt(b, k, t.end);
+        if (!f || f.unknown) break;
+        if (f.id === TRACK_TYPE && f.end - f.body >= 1 && f.end - f.body <= 8) {
+          let type = 0;
+          for (let n = f.body; n < f.end; n++) type = type * 256 + b[n];
+          if (type === 1) return true;
+        }
+        k = f.end;
+      }
+    }
+    i = t.end;
+  }
+  return false;
+}
 
 /** The WebM's parts, and the elements that hold words or dates about it (Tags, Chapters, the Info fields above) */
 function webmParts(b: Uint8Array): { hidden: Element[] } | null {
@@ -308,27 +335,28 @@ function webmParts(b: Uint8Array): { hidden: Element[] } | null {
   /* a known size must reach the end of the file: nothing is kept after the video */
   if (!seg || seg.id !== SEGMENT || seg.end !== b.length) return null;
   const hidden: Element[] = [];
-  let tracks = false;
+  let video = false;
   let cluster = false;
   for (let i = seg.body; i < seg.end; ) {
     const e = elementAt(b, i, seg.end);
     if (!e || !SEGMENT_KIDS.has(e.id)) return null;
-    if (e.id === TRACKS) tracks = true;
+    if (e.id === TRACKS && !e.unknown && hasVideoEntry(b, e)) video = true;
     if (e.id === CLUSTER) cluster = true;
     if (e.id === TAGS || e.id === CHAPTERS) hidden.push(e);
     if (e.id === INFO && !e.unknown) {
       const found: Element[] = [];
       let crc: Element | null = null;
+      let fields = 0;
       for (let k = e.body; k < e.end; ) {
         const f = elementAt(b, k, e.end);
-        if (!f || f.unknown) return null;
+        if (!f || f.unknown || ++fields > INFO_MAX_FIELDS) return null;
         if (INFO_HIDDEN.has(f.id)) found.push(f);
         if (f.id === 0xbf) crc = f;
         k = f.end;
       }
       /* the Info's checksum (CRC-32), when it has one, would no longer match: it goes too */
       if (found.length && crc) found.push(crc);
-      hidden.push(...found);
+      for (const f of found) hidden.push(f);
     }
     /* a cluster of unknown size (a recording written as it went) runs to the end: the walk stops there */
     if (e.unknown) {
@@ -337,7 +365,7 @@ function webmParts(b: Uint8Array): { hidden: Element[] } | null {
     }
     i = e.end;
   }
-  return tracks && cluster ? { hidden } : null;
+  return video && cluster ? { hidden } : null;
 }
 
 /** Turns an element into a Void element of exactly the same length, its contents zeroed. The Void id is 1 byte, so its
@@ -801,11 +829,15 @@ export function stripPdf(src: Uint8Array): Uint8Array {
   }
 }
 
-/** Whether a video is built like a real one (see the top of this file) */
+/** Whether a video is built like a real one (see the top of this file). A file that can't be read is not. */
 export function videoLooksReal(b: Uint8Array, kind: "mp4" | "webm"): boolean {
-  if (kind === "webm") return webmParts(b) !== null;
-  const parsed = mp4Boxes(b);
-  return !!parsed && hasVideoTrack(b, parsed.moovKids);
+  try {
+    if (kind === "webm") return webmParts(b) !== null;
+    const parsed = mp4Boxes(b);
+    return !!parsed && hasVideoTrack(b, parsed.moovKids);
+  } catch {
+    return false;
+  }
 }
 
 /** The file without its hidden data (see the top of this file), or null when it is not built the way its kind must be */
