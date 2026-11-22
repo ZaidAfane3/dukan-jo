@@ -31,29 +31,59 @@ function join(parts: Uint8Array[]): Uint8Array {
 
 type Box = { type: string; start: number; body: number; end: number };
 
-/** The boxes from start to end, one after another, or null when they don't fit exactly */
-function boxesIn(b: Uint8Array, start: number, end: number): Box[] | null {
-  const out: Box[] = [];
+/* a box's name is four letters (Apple's own names start with ©), checked byte by byte */
+const boxLetter = (c: number) => (c >= 0x20 && c <= 0x7e) || c === 0xa9;
+
+/** The boxes from start to end, one after another, at most `most` of them. whole: false when they don't fit exactly
+    (or there are more than `most`); the boxes read until then are still given. */
+function walkBoxes(b: Uint8Array, start: number, end: number, most: number): { boxes: Box[]; whole: boolean } {
+  const boxes: Box[] = [];
   let i = start;
   while (i < end) {
-    if (end - i < 8) return null;
+    if (boxes.length >= most || end - i < 8) return { boxes, whole: false };
     let size = u32be(b, i);
-    const type = ascii(b, i + 4, 4);
-    /* a box's name is four letters (Apple's own names start with ©) */
-    if (!/^[\x20-\x7e\xa9]{4}$/.test(type)) return null;
+    if (!boxLetter(b[i + 4]) || !boxLetter(b[i + 5]) || !boxLetter(b[i + 6]) || !boxLetter(b[i + 7])) return { boxes, whole: false };
     let body = i + 8;
     if (size === 1) {
-      if (end - i < 16) return null;
+      if (end - i < 16) return { boxes, whole: false };
       size = u32be(b, i + 8) * 2 ** 32 + u32be(b, i + 12);
       body = i + 16;
     } else if (size === 0) size = end - i;
-    if (size < body - i || i + size > end) return null;
-    out.push({ type, start: i, body, end: i + size });
+    if (size < body - i || i + size > end) return { boxes, whole: false };
+    boxes.push({ type: String.fromCharCode(b[i + 4], b[i + 5], b[i + 6], b[i + 7]), start: i, body, end: i + size });
     i += size;
-    /* a real file has at most a few thousand top-level boxes (fragments); far more is not a video */
-    if (out.length > 100_000) return null;
   }
-  return out;
+  return { boxes, whole: true };
+}
+
+/** The boxes from start to end, one after another, or null when they don't fit exactly. A real file has at most a few
+    thousand top-level boxes (fragments); far more is not a video. */
+function boxesIn(b: Uint8Array, start: number, end: number): Box[] | null {
+  const { boxes, whole } = walkBoxes(b, start, end, 100_000);
+  return whole ? boxes : null;
+}
+
+/* The boxes the checks below look inside (moov > trak > mdia > minf > stbl, and dinf > dref, whose entries follow its
+   version and count). A real video has a few hundred of them at most, a long fragmented one a few thousand at the top.
+   A file of far more (one made of hundreds of thousands of empty boxes) is refused before any of it is read again:
+   reading such a file once per track and once per step kept the one server process busy for seconds (testing FZ-01). */
+const MP4_LOOKED_INTO: Record<string, number> = { moov: 0, trak: 0, mdia: 0, minf: 0, stbl: 0, dinf: 0, dref: 8 };
+const MP4_MAX_BOXES = 20_000;
+
+/** Whether an MP4 has at most MP4_MAX_BOXES boxes in the places the checks read. Boxes that don't fit are counted up to
+    where they stop fitting, since each later read stops at the same place. */
+function mp4BoxesFew(b: Uint8Array, top: Box[]): boolean {
+  let left = MP4_MAX_BOXES - top.length;
+  const todo = top.slice();
+  while (left >= 0 && todo.length) {
+    const x = todo.pop() as Box;
+    const skip = MP4_LOOKED_INTO[x.type];
+    if (skip === undefined || x.end - x.body < skip) continue;
+    const { boxes } = walkBoxes(b, x.body + skip, x.end, left + 1);
+    left -= boxes.length;
+    for (const k of boxes) todo.push(k);
+  }
+  return left >= 0;
 }
 
 /* what may stand at the top of an MP4 or QuickTime file */
@@ -66,7 +96,7 @@ function mp4Boxes(b: Uint8Array): { top: Box[]; moov: Box; moovKids: Box[] } | n
   if (!top || top[0]?.type !== "ftyp") return null;
   const ftyp = top[0];
   if (ftyp.end - ftyp.start < 16 || ftyp.end - ftyp.start > 1024 || STILL_BRANDS.test(ascii(b, ftyp.body, 4))) return null;
-  if (top.some((x) => !MP4_TOP.has(x.type))) return null;
+  if (top.some((x) => !MP4_TOP.has(x.type)) || !mp4BoxesFew(b, top)) return null;
   const moovs = top.filter((x) => x.type === "moov");
   if (moovs.length !== 1 || !top.some((x) => x.type === "mdat" || x.type === "moof")) return null;
   const moov = moovs[0];
