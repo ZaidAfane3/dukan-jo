@@ -7,6 +7,7 @@ import { ORDER_LIMITS, unitPrice } from "../safeOrder";
 import type { Lang } from "../content";
 import type { LogoConfig, MarkKey } from "./config";
 import type { StoreProduct } from "./useStoreData";
+import { moneyText } from "../moneyText";
 
 /* Small pieces shared by the storefront sections: icons, product picture, copy. */
 
@@ -101,10 +102,10 @@ export const copy = {
 
 export const currency = (lang: Lang) => (lang === "ar" ? "د.أ" : "JOD");
 /** One way to write an amount everywhere in the store (cards, product page, cart, checkout, the order placed, search,
-    deals): each amount on its own, a whole one without decimals ("22"), any other with two ("18.50", never "18.5"),
-    whatever the amounts shown next to it (a sale price and its old price, the lines of a total). */
-export const hasFils = (n: number) => Math.round(n * 100) % 100 !== 0;
-export const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: hasFils(n) ? 2 : 0, maximumFractionDigits: 2 });
+    deals), the same as on the merchant's pages (components/moneyText.ts): each amount on its own, a whole one without
+    decimals ("22"), one with fils with two or three ("18.50", never "18.5"; "14.475", never cut to "14.48"), whatever the
+    amounts shown next to it (a sale price and its old price, the lines of a total). */
+export const money = (n: number) => moneyText(n);
 /** The language the prices are shown in: the page's language, or the one the merchant chose for his prices */
 export const priceLang = (mode: "auto" | "ar" | "en" | undefined, lang: Lang): Lang => (mode === "ar" ? "ar" : mode === "en" ? "en" : lang);
 /** An amount for prices in `lang`. The digits are the Latin ones in both languages, as on every page of Dukkan (the

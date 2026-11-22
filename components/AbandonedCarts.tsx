@@ -10,6 +10,7 @@ import { cleanOrder, parseList } from "./records";
 import { initialOf } from "./safe";
 import { AnimatedNumber, Money, mulberry32, pctDecimals } from "./reportBits";
 import { usePageTitle } from "./pageTitle";
+import { moneyText } from "./moneyText";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
 const RANGE_SCALE = [1, 3.6, 2.4];
@@ -108,7 +109,7 @@ export function AbandonedCarts() {
     const cols = m.cols.filter((_, i) => i < 5 && visible[i]);
     const lines = [cols.join(",")];
     for (const row of shown) {
-      const all = [row.name, String(row.items), row.total.toFixed(2), String(row.updatedDays), isSent(row) ? m.sent : m.notSent];
+      const all = [row.name, String(row.items), moneyText(row.total).replace(/,/g, ""), String(row.updatedDays), isSent(row) ? m.sent : m.notSent];
       /* a cell that starts like a formula (= + - @, tab, return) gets a ' first, so Excel shows it instead of running it:
          the name is typed by store visitors */
       lines.push(all.filter((_, i) => visible[i]).map((v) => `"${v.replace(/^[=+\-@\t\r]/, "'$&").replace(/"/g, '""')}"`).join(","));
@@ -250,7 +251,7 @@ export function AbandonedCarts() {
                           </div>
                         </td>
                       )}
-                      {visible[2] && <td className={`${td} font-semibold`}><span dir="ltr">{row.total.toFixed(2)} {cur}</span></td>}
+                      {visible[2] && <td className={`${td} font-semibold`}><span dir="ltr">{moneyText(row.total)} {cur}</span></td>}
                       {visible[3] && <td className={`${td} text-muted`}>{m.ago.replace("{n}", String(row.updatedDays))}</td>}
                       {visible[4] && (
                         <td className={td}>

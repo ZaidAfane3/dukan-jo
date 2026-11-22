@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { moneyDecimals } from "./moneyText";
 
 /* Small pieces the home page (Dashboard.tsx), Abandoned carts and Reports share. They live here, not in Reports.tsx, so
    the pages that only need a counting number or a refresh button don't load the whole Reports page with them. */
@@ -53,7 +54,7 @@ export function AnimatedNumber({ value, decimals = 0 }: { value: number; decimal
 export function Money({ value, currency }: { value: number; currency: string }) {
   return (
     <span dir="ltr" className="inline-flex items-baseline gap-1.5">
-      <AnimatedNumber value={value} decimals={2} />
+      <AnimatedNumber value={value} decimals={moneyDecimals(value)} />
       <small className="text-[0.45em] font-bold opacity-70">{currency}</small>
     </span>
   );

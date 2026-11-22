@@ -1,6 +1,7 @@
 import { content, type Lang } from "./content";
 import { demoActive, signedInAs } from "./demoSandbox";
 import { bounceIfSuspended } from "./suspended";
+import { moneyText } from "./moneyText";
 
 /* The bell's list. Two sources, shown as one list:
    - this browser session: pages add to it when something happens here (a task is finished, a coupon is created, ...).
@@ -191,6 +192,8 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
   const fill = (t: string, extra: Record<string, string> = {}) =>
     Object.entries({ ...p, ...extra }).reduce((s, [k, v]) => s.split(`{${k}}`).join(v), t);
   const note = p.note ? `${w.sep}${p.note}` : "";
+  /* an amount the server sent ("14.475", or "22.000" in older notices) written as everywhere else ("14.475", "22") */
+  const amount = (v: string | undefined) => (v !== undefined && /^\d+(\.\d+)?$/.test(v) ? moneyText(Number(v)) : v ?? "");
   switch (item.kind) {
     case "announcement":
       return (lang === "ar" ? p.titleAr : p.titleEn) || p.titleEn || p.titleAr || "";
@@ -205,11 +208,11 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
     case "shopReactivated":
       return w.shopReactivated;
     case "paymentReceived":
-      return fill(w.paymentReceived, { method: w.methods[p.method as keyof typeof w.methods] ?? p.method ?? "" });
+      return fill(w.paymentReceived, { amount: amount(p.amount), method: w.methods[p.method as keyof typeof w.methods] ?? p.method ?? "" });
     case "supportViewed":
       return w.supportViewed;
     case "orderPlaced":
-      return fill(w.orderPlaced);
+      return fill(w.orderPlaced, { total: amount(p.total) });
     case "shipDelivered":
       return fill(w.shipDelivered);
     case "shipFailed":

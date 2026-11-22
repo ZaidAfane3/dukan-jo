@@ -25,6 +25,7 @@ import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
 import { Skeleton } from "./Skeleton";
 import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
+import { moneyText } from "./moneyText";
 
 
 /* Kept in this browser so orders are still there when he comes back. */
@@ -535,7 +536,7 @@ export function Orders() {
         setMoreLoading(false);
       });
   };
-  const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = moneyText;
   const dateOf = (t: number, time = false) => {
     const day = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" }).format(new Date(t));
     if (!time) return day;
@@ -704,11 +705,32 @@ export function Orders() {
     if (deleting.current || !deleteReasonOk(reason)) return;
     deleting.current = true;
     logDeletion(id, cleanDeleteReason(reason));
+    /* an order from his own store preview that still holds its stock (not cancelled or refunded, which gave it back
+       already) gives its stock and its coupon's use back, once, the way a cancel does (moveLocalStock: the saved products
+       and coupons, which go to the server like any change) */
+    const row = ordersNow.current.find((x) => x.id === id);
+    const held = !!row && row.channel === 1 && !off(row.status);
+    const m = held && row ? moveLocalStock(row, false) : null;
+    const gone: Order | undefined = row && m?.ok && m.items ? { ...row, items: m.items } : row;
     /* an Undo puts the order back and takes the deletion's record back with it. The record also goes when the undo had
-       nothing to do because the order is in the list again anyway (another device's copy brought it back). */
-    change(ordersNow.current.filter((x) => x.id !== id), (l) => undoWords[l].deleted(id), () => {
-      if (ordersNow.current.some((x) => x.id === id)) unlogDeletion(id);
-    });
+       nothing to do because the order is in the list again anyway (another device's copy brought it back). An order
+       that gave its stock back takes it again, so the undo waits while a product no longer has enough. */
+    change(
+      ordersNow.current.filter((x) => x.id !== id),
+      (l) => undoWords[l].deleted(id),
+      (undone) => {
+        if (undone && held && gone) {
+          const back = moveLocalStock(gone, true);
+          if (back.ok && back.items) {
+            const next = ordersNow.current.map((x) => (x.id === id ? { ...x, items: back.items } : x));
+            ordersNow.current = next;
+            setOrders(next);
+          }
+        }
+        if (ordersNow.current.some((x) => x.id === id)) unlogDeletion(id);
+      },
+      () => !held || !gone || moveLocalStock(gone, true, true).ok,
+    );
     setSelected(null);
     setConfirmDelete(false);
   };
