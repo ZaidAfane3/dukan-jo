@@ -284,7 +284,7 @@ const storeCoupons = (): Coupon[] => {
 };
 
 /* The order saved for the merchant: the same shape as the orders of the dashboard (components/Orders.tsx) */
-function saveOrder(o: { customer: string; phone: string; total: number; items: (PricedLine & { image?: string })[]; fulfil: Fulfil; city: string; address: string; note: string; pay: Pay; coupon?: { code: string; discount: number }; /* the delivery fee inside the total, for his reports */ delivery: number }): number | null {
+function saveOrder(o: { customer: string; phone: string; total: number; items: (PricedLine & { image?: string })[]; fulfil: Fulfil; city: string; address: string; note: string; pay: Pay; coupon?: { code: string; discount: number }; /* the delivery fee inside the total, for his reports */ delivery: number; /* the store confirms the fee */ feeOpen?: boolean }): number | null {
   try {
     const list = readList("seen-orders");
     /* the next number the store never gave (orderNumbers.ts), so it never meets another order's */
@@ -882,6 +882,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       ...checked.value,
       total: sum,
       delivery: toFils(fee),
+      /* the store confirms the fee (none set, not free): kept with the order, as on the server */
+      feeOpen: feeAsk && fee === 0 && !(!ships || freeDeliveryFor(fd, priced.subtotal, off) || checked.value.fulfil === "pickup" || (used?.ok && used.freeDelivery)),
       items: priced.items.map((it) => ({ ...it, image: lines.find((l) => l.p.id === it.id)?.p.image })),
       ...(used?.ok ? { coupon: { code: used.coupon.code, discount: off } } : {}),
     });

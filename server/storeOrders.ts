@@ -330,17 +330,19 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     /* who takes it to the customer; nothing to deliver (A2: only codes, services...): nobody, so it never reaches
        Dukkan Ship's To deliver list */
     const big = items.reduce((n, it) => n + Number(it.qty || 0), 0) > BIG_ORDER_ITEMS;
+    /* no fee in the total because his own courier has none set (not free by his offer or a coupon): the store confirms it */
+    const feeOpen = ships && fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !freeByOffer;
     const shipBy = !ships ? "none" : v.fulfil === "pickup" ? "pickup" : checkoutShipMode(setup) === "own" ? "own" : "dukkan";
     await c.query(
       `INSERT INTO store_orders (account_id, number, items, subtotal, discount, delivery_fee, total, coupon, fulfil,
-                                 customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key, ship_by, status, stock_taken)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17, $18, $19, false)`,
+                                 customer_name, customer_phone, customer_email, city, address, notes, payment_method, payment_status, source, attempt_key, ship_by, status, stock_taken, fee_open)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'test', 'storefront', $17, $18, $19, false, $20)`,
       [
         /* the lines (product names, sizes) and the coupon code are the shop's own words, kept unsealed: made safe first */
         id, number, JSON.stringify(plainDeep(items)), priced.subtotal, discount, delivery, total, plainText(couponUsed), v.fulfil,
         /* the customer's details are private: sealed, and opened again only for the shop's own owner (GET /api/orders) */
         seal(v.customer), v.phone ? seal(v.phone) : null, v.email ? seal(v.email) : null,
-        v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt, shipBy, big ? "review" : "pending",
+        v.city ? seal(v.city) : null, v.address ? seal(v.address) : null, v.note ? seal(v.note) : null, v.pay, attempt, shipBy, big ? "review" : "pending", feeOpen,
       ],
     );
 
@@ -361,7 +363,6 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);
     after.notice = () => emailNotice(id, "orderPlaced", { number, total: total.toFixed(3) });
 
-    const feeOpen = ships && fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !freeByOffer;
     return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen, ...(big ? { review: true } : {}) } } };
   });
   if (!client && placed.status === 200) after.notice?.();
@@ -411,6 +412,8 @@ export async function checkStoreCoupon(slug: unknown, code: unknown): Promise<{ 
 export type MerchantStoreOrder = {
   serverId: string;
   id: number;
+  /* the store confirms the delivery fee (none was in the total); left out on orders placed before it was kept */
+  feeOpen?: boolean;
   customer: string;
   phone: string;
   email?: string;
@@ -453,6 +456,7 @@ function merchantRow(r: Record<string, any>): MerchantStoreOrder {
     pay: r.payment_method as Payment,
     ...(r.coupon ? { coupon: { code: String(r.coupon), discount: Number(r.discount) } } : {}),
     delivery: Number(r.delivery_fee),
+    ...(typeof r.fee_open === "boolean" ? { feeOpen: r.fee_open } : {}),
     created: new Date(r.created_at).getTime(),
     /* worked out from the status and the way to pay, so a cash order delivered before 'paid' was kept reads paid too */
     /* a card or CliQ order is paid once he marked its payment received (confirmStoreOrderPayment) */
@@ -464,7 +468,7 @@ function merchantRow(r: Record<string, any>): MerchantStoreOrder {
 }
 
 const ROW = `id, number, created_at, status, items, subtotal, discount, delivery_fee, total, coupon, fulfil, customer_name, customer_phone,
-             customer_email, city, address, notes, payment_method, payment_status, ship_by, ship_state, ship_note, ship_at`;
+             customer_email, city, address, notes, payment_method, payment_status, ship_by, ship_state, ship_note, ship_at, fee_open`;
 
 /** How many store orders the Orders page asks for at a time */
 export const ORDERS_PAGE = 100;

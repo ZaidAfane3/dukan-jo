@@ -1071,10 +1071,11 @@ export function Orders() {
                           Nothing charged: "Free", or, delivered by his own courier with no fee set (not free by his offer
                           or a free delivery coupon), the store confirms the fee, as the customer was told */}
                       {current.delivery !== undefined && current.fulfil !== "pickup" && (() => {
-                        const ship = current.delivery === 0 ? loadSetup()?.shipping : null;
+                        /* what the order was told when it was placed (kept with it since); an older order: worked out from the settings now */
+                        const ship = current.delivery === 0 && current.feeOpen === undefined ? loadSetup()?.shipping : null;
                         const fd = ship ? loadFreeDelivery() : null;
                         const sub = (current.items ?? []).reduce((n, it) => n + it.qty * it.price, 0);
-                        const open = !!ship && ship.mode === "own" && ship.fee === undefined && !(current.coupon && current.coupon.discount === 0) && !(fd && freeDeliveryFor(fd, sub, current.coupon?.discount ?? 0));
+                        const open = current.delivery === 0 && current.feeOpen !== undefined ? current.feeOpen : !!ship && ship.mode === "own" && ship.fee === undefined && !(current.coupon && current.coupon.discount === 0) && !(fd && freeDeliveryFor(fd, sub, current.coupon?.discount ?? 0));
                         return (
                           <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold">
                             <span>{lang === "ar" ? "التوصيل" : "Delivery"}</span>

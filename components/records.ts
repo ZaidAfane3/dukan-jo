@@ -240,6 +240,9 @@ export type Order = {
   /* Orders from the store: the delivery fee the customer paid (already in the total; 0 when delivery was free). Older
      orders and orders added by hand have none, so Reports leaves their delivery out instead of guessing it */
   delivery?: number;
+  /* Orders from the store: true when no fee was in the total because the store confirms it (his own courier with no fee
+     set), false when the delivery was free or charged. Older orders have none (the Orders page works it out as before) */
+  feeOpen?: boolean;
   /* An order from his own store preview: whether it took its stock from the products saved in this browser. Since
      2026-11-22 it takes it only once he confirms it (safeOrder holdsStockAfter), and is saved with false until then;
      left out on older ones, which took it when they were placed (they hold it unless cancelled or refunded). */
@@ -282,6 +285,7 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     ...(x.pay !== undefined ? { pay: oneOf(x.pay, ["cliq", "cash", "card"] as const, "cash") } : {}),
     ...(couponOf(x.coupon) ? { coupon: couponOf(x.coupon) } : {}),
     ...(money(x.delivery) !== null ? { delivery: money(x.delivery) as number } : {}),
+    ...(typeof x.feeOpen === "boolean" ? { feeOpen: x.feeOpen } : {}),
     ...(typeof x.held === "boolean" ? { held: x.held } : {}),
     created: time(x.created, 0),
   };

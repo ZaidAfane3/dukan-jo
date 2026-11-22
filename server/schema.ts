@@ -1008,4 +1008,10 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE payments ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
   ALTER TABLE payments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
   ALTER TABLE payments ADD COLUMN IF NOT EXISTS edited_by BIGINT REFERENCES staff (id);
+  /* ---------- whether a store order's delivery fee was left for the store to confirm (server/storeOrders.ts) ----------
+     fee_open: true when his own courier had no fee set and the delivery was not free (the customer was told "Confirmed by
+     the store"), false when not. Empty on orders placed before it was kept: the Orders page works it out from the
+     settings then, as before. Kept with the order, so changing the delivery settings later never changes what an order
+     was told. */
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS fee_open BOOLEAN;
 `;
