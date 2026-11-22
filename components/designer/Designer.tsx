@@ -322,7 +322,7 @@ export function Designer() {
     };
   }, []);
   /* whether the store can sell (safeOrder readyToSell): the first save, which opens the store, waits until it can */
-  const sell = useSellReady();
+  const sell = useSellReady({ designSaving: true });
   /* In the platform tour the designer can be opened and looked at, but nothing in it can be changed or uploaded */
   const [readOnly, setReadOnly] = useState(false);
   const root = useRef<HTMLDivElement>(null);

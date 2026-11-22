@@ -802,7 +802,14 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
   /* the keys to send again later */
   const again = new Set<string>();
   const oneByOne = async () => {
-    const asks: [string[], Record<string, string>, string[]][] = Object.keys(set).map((k) => [[k], { [k]: set[k] }, []]);
+    /* the setup and the keys that open the store go in one request: the designer's first save marks the last setup step
+       done and opens the store at once, and the server checks the store is ready against the setup in the same save
+       (app/api/store PUT "not-ready"). Sent apart, the design would come first and be refused. */
+    const together = ["seen-setup", "seen-storefront", "seen-maintenance"].filter((k) => Object.hasOwn(set, k));
+    const asks: [string[], Record<string, string>, string[]][] = Object.keys(set)
+      .filter((k) => together.length < 2 || !together.includes(k))
+      .map((k) => [[k], { [k]: set[k] }, []]);
+    if (together.length >= 2) asks.unshift([together, Object.fromEntries(together.map((k) => [k, set[k]])), []]);
     if (remove.length) asks.push([remove, {}, remove]);
     const run = async ([keys, s, r]: (typeof asks)[number]) => {
       /* taken by a later save while the ones before it went (saveNow): that one sends it */

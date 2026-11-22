@@ -7,7 +7,7 @@ import type { PublicSettings } from "./diwan/platformSettings";
 import { shipCityLists, storePays, usePublicSettings, useSettingsChecked } from "./platformPublic";
 
 type PublicSettingsLike = Pick<PublicSettings, "payment_methods" | "dukkan_ship">;
-import { readyToSell, type SellNeed } from "./safeOrder";
+import { readyToSell, SETUP_STEPS, type SellNeed } from "./safeOrder";
 import { loadSetup, type SavedSetup } from "./setup";
 import { storeIsLive } from "./storefront/storage";
 
@@ -59,8 +59,11 @@ export const shipsByDefault = (s: PublicSettingsLike, setup: SavedSetup | null |
 export const storeLiveNow = () => storeIsLive() && !loadMaintenance().on;
 
 /** The store's readiness, read again when the setup changes (this tab or another). `checked`: Diwan's settings came
-    from the server, so a warning about them is not a flash of the starting values. */
-export function useSellReady() {
+    from the server, so a warning about them is not a flash of the starting values. `designSaving`: asked by the
+    designer, whose save is the last setup step (Store design) itself: that step counts as done, since the save marks it
+    and the server checks the setup it sends. Asking it to be done before the save made a new store unable ever to go
+    live (testing round FL1-01). */
+export function useSellReady({ designSaving = false }: { designSaving?: boolean } = {}) {
   const platform = usePublicSettings();
   const checked = useSettingsChecked();
   const [setup, setSetup] = useState<SavedSetup | null | undefined>(undefined);
@@ -74,7 +77,8 @@ export function useSellReady() {
       window.removeEventListener("storage", again);
     };
   }, []);
-  const r = readyToSell(setup ?? null, sellPlatformOf(platform));
+  const asked = designSaving && setup ? { ...setup, done: Array.from({ length: SETUP_STEPS }, (_, i) => (i === SETUP_STEPS - 1 ? true : setup.done?.[i] === true)) } : setup;
+  const r = readyToSell(asked ?? null, sellPlatformOf(platform));
   return { ...r, read: setup !== undefined, checked, shipDefault: setup !== undefined && shipsByDefault(platform, setup) };
 }
 
