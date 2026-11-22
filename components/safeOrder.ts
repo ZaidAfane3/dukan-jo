@@ -13,11 +13,16 @@ export const ORDER_LIMITS = {
   address: 200,
   note: 300,
   email: 120,
-  /* the most of one product in a single order, and the most different products */
-  qty: 99,
+  /* the most of one product (or one size) in a single order: its stock, never more than the most stock a product can
+     have (stock() below), and the most different products */
+  qty: 1_000_000,
+  /* a product with no limit on its stock: at most this many of it in one order */
+  unlimitedQty: 999,
   lines: 50,
   /* no price in JOD can be higher than this */
   price: 100_000,
+  /* no order's products can come to more than this, in JOD (the most any amount in a store can be: records.ts MAX_MONEY) */
+  total: 1_000_000,
 };
 
 /** Whether the store's free delivery offer covers an order: it is on, and what the products come to AFTER the coupon's
@@ -191,7 +196,7 @@ export function stock(v: unknown): number {
 }
 
 /** The stock a product with no limit counts as: never sold out and never "only a few left". A visitor can still
-    order at most ORDER_LIMITS.qty of it at a time. */
+    order at most ORDER_LIMITS.unlimitedQty of it at a time (lineMost). */
 export const UNLIMITED_STOCK = 1_000_000;
 
 /** The stock had no limit. Saved products say so with `unlimited: true`. Products saved before that flag existed
@@ -301,10 +306,18 @@ export function unitPrice(p: { price: unknown; sale?: unknown }): number | null 
   return salePrice(price, p.sale) ?? price;
 }
 
-/** A quantity a visitor asks for, cut to what can be sold: a whole number from 0 to the stock (and the per order limit). */
+/** The most of one product (or one size) a single order takes, from its stock: all of it (at most ORDER_LIMITS.qty),
+    and for a product with no limit (UNLIMITED_STOCK) ORDER_LIMITS.unlimitedQty. The cart's + button, the checkout and
+    the server all stop there. */
+export function lineMost(available: unknown): number {
+  const s = stock(available);
+  return s >= UNLIMITED_STOCK ? ORDER_LIMITS.unlimitedQty : Math.min(s, ORDER_LIMITS.qty);
+}
+
+/** A quantity a visitor asks for, cut to what can be sold: a whole number from 0 to the stock (lineMost). */
 export function cartQty(n: unknown, available: unknown): number {
   const v = typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : 0;
-  return Math.max(0, Math.min(v, stock(available), ORDER_LIMITS.qty));
+  return Math.max(0, Math.min(v, lineMost(available)));
 }
 
 export type PricedLine = { id: number; name: string; qty: number; price: number; /* the size chosen (clothing and shoes) */ size?: string };

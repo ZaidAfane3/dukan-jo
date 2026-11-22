@@ -84,6 +84,7 @@ const words = {
     errGone: "This store is no longer at this address, so your order was not placed.",
     errForbidden: "Your order couldn't be sent from this page. Reload the page, then try again.",
     errBig: "Your order is too large to send. Shorten your note or remove some products, then try again.",
+    errTooBig: "This order comes to more than 1,000,000 JOD, too much for one order. Order fewer pieces, or contact the store.",
     errServer: "The store can't take your order for a moment (a problem on Dukkan's side). Please try again in a few minutes.",
     errTimeout: "The store took too long to answer. Your order may already be in: press the button again, it will not be placed twice.",
     errPay: "This way to pay is no longer available. Choose another one.",
@@ -189,6 +190,7 @@ const words = {
     errGone: "لم يعد هذا المتجر على هذا العنوان، فلم يُرسل طلبك.",
     errForbidden: "تعذّر إرسال طلبك من هذه الصفحة. أعد تحميل الصفحة ثم حاول مرة أخرى.",
     errBig: "طلبك أكبر من أن يُرسل. اختصر ملاحظتك أو أزل بعض المنتجات، ثم حاول مرة أخرى.",
+    errTooBig: "تزيد قيمة هذا الطلب على 1,000,000 دينار، وهذا أكثر مما يقبله طلب واحد. اطلب قطعًا أقل، أو تواصل مع المتجر.",
     errServer: "لا يستطيع المتجر استقبال طلبك لحظيًا (مشكلة لدى دكان). حاول مرة أخرى بعد بضع دقائق.",
     errTimeout: "تأخر المتجر في الرد. ربما وصل طلبك بالفعل: اضغط الزر مرة أخرى، ولن يُسجَّل مرتين.",
     errPay: "طريقة الدفع هذه لم تعد متاحة. اختر طريقة أخرى.",
@@ -802,6 +804,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     setSendErr(
       status === 429 ? w.errSlow
       : j.result === "closed" ? w.errClosed
+      : j.result === "too-big" ? w.errTooBig
       : status === 404 ? w.errGone
       : status === 403 ? w.errForbidden
       : status === 413 ? w.errBig
@@ -859,6 +862,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       setStep("cart");
       return;
     }
+    /* worth more than one order can be (safeOrder ORDER_LIMITS.total), as the server refuses it */
+    if (priced.subtotal > ORDER_LIMITS.total) return setSendErr(w.errTooBig);
     /* The coupon is checked again with the catalog's subtotal and the coupons as saved now (it may have been used up) */
     const used = coupon ? checkCoupon(coupon, storeCoupons(), priced.subtotal) : null;
     if (used && !used.ok) {
@@ -870,6 +875,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     const off = used?.ok ? used.discount : 0;
     const fee = !ships || freeDeliveryFor(fd, priced.subtotal, off) || checked.value.fulfil === "pickup" || (used?.ok && used.freeDelivery) ? 0 : DELIVERY_FEE;
     const sum = toFils(priced.subtotal - off + fee);
+    if (sum > ORDER_LIMITS.total) return setSendErr(w.errTooBig);
     placing.current = true;
     const id = saveOrder({
       ...checked.value,

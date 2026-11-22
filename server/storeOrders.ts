@@ -158,6 +158,8 @@ export type PlaceResult =
   | { status: 409; body: { result: "no-delivery"; pickup: boolean; choices: StoreChoices } }
   | { status: 409; body: { result: "changed"; items: PricedLine[]; total?: number; terms: Terms } }
   | { status: 409; body: { result: "coupon"; why: CouponRefusal } }
+  /* its products (or its total) come to more than one order can be (safeOrder ORDER_LIMITS.total) */
+  | { status: 409; body: { result: "too-big" } }
   | { status: 200; body: { result: "ok"; order: PlacedOrder } };
 
 /** The order a checkout's key placed at this store, as the checkout shows it, or null */
@@ -287,6 +289,8 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
 
     const priced = priceCart(lines as { id: unknown; qty: unknown; size?: unknown }[], catalog);
     if (priced.changed || priced.items.length === 0) return { status: 409, body: { result: "changed", items: priced.items, terms } };
+    /* products worth more than any amount a store keeps (a line may take a product's whole stock): too big to place */
+    if (priced.subtotal > ORDER_LIMITS.total) return { status: 409, body: { result: "too-big" } };
 
     /* the coupon, checked against the shop's own coupons and this subtotal */
     let discount = 0;
@@ -306,6 +310,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const freeByOffer = freeDeliveryFor(freeDelivery, priced.subtotal, discount);
     const delivery = !ships || freeByOffer || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
     const total = toFils(priced.subtotal - discount + delivery);
+    if (total > ORDER_LIMITS.total) return { status: 409, body: { result: "too-big" } };
     /* the customer was shown another total (a price or the delivery changed since the page opened): he looks again */
     const expect = typeof body.expect === "number" && Number.isFinite(body.expect) ? body.expect : null;
     if (expect !== null && Math.abs(expect - total) > 0.0005) return { status: 409, body: { result: "changed", items: priced.items, total, terms } };

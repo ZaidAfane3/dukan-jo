@@ -258,7 +258,8 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     const image = picture(i.image);
     const id = recordId(i.id);
     const size = cleanLine(i.size, 12);
-    const qty = count(i.qty, 1, 9999, 1);
+    /* up to the most a line can have (safeOrder ORDER_LIMITS.qty: a product's whole stock) */
+    const qty = count(i.qty, 1, MAX_COUNT, 1);
     const took = typeof i.took === "number" && Number.isSafeInteger(i.took) && i.took >= 0 ? Math.min(i.took, qty) : null;
     return name && price !== null ? { ...(id ? { id } : {}), name, qty, price, ...(image ? { image } : {}), ...(size ? { size } : {}), ...(took !== null ? { took } : {}) } : null;
   });

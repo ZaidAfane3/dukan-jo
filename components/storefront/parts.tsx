@@ -3,7 +3,7 @@
 import { focusStyle } from "../FocusPicker";
 import { noPhotoHue, ProductPhoto } from "./NoPhoto";
 import { initialOf } from "../safe";
-import { ORDER_LIMITS, unitPrice } from "../safeOrder";
+import { lineMost, ORDER_LIMITS, UNLIMITED_STOCK, unitPrice } from "../safeOrder";
 import type { Lang } from "../content";
 import type { LogoConfig, MarkKey } from "./config";
 import type { StoreProduct } from "./useStoreData";
@@ -11,13 +11,14 @@ import { moneyText } from "../moneyText";
 
 /* Small pieces shared by the storefront sections: icons, product picture, copy. */
 
-/** The most of one product (or one size: `stock`) a basket takes: its stock, and never more than one order takes */
-export const basketMost = (stock: number) => Math.max(0, Math.min(stock, ORDER_LIMITS.qty));
+/** The most of one product (or one size: `stock`) a basket takes: its stock, or for a product with no limit the most
+    one order takes (safeOrder lineMost) */
+export const basketMost = (stock: number) => lineMost(stock);
 /** Said once the basket holds that most (the card, the cart and the product page): only so many are left, or for a
-    product with more (or no limit) the most one order takes */
+    product with no limit the most one order takes */
 export const mostWords = (stock: number, lang: Lang) =>
-  stock > ORDER_LIMITS.qty
-    ? lang === "ar" ? `الحد الأقصى ${ORDER_LIMITS.qty} قطعة في الطلب الواحد` : `Up to ${ORDER_LIMITS.qty} per order`
+  stock >= UNLIMITED_STOCK
+    ? lang === "ar" ? `الحد الأقصى ${ORDER_LIMITS.unlimitedQty} قطعة في الطلب الواحد` : `Up to ${ORDER_LIMITS.unlimitedQty} per order`
     : lang === "ar" ? `المتوفر ${stock} فقط` : `Only ${stock} available`;
 
 /** The usual heading of a group in the sidebar (he can give it his own name in the designer) */

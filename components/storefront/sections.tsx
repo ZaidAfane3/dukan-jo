@@ -921,7 +921,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
   useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
-  /* the stepper stops at what the basket takes: the stock (of that size), at most one order's limit (99 with no limit) */
+  /* the stepper stops at what the basket takes: the stock (of that size), or with no limit one order's most (999) */
   const most = basketMost(sizeLeft);
   const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, most), n))));
   /* a product in sizes waits for its size before it can be added */
