@@ -377,7 +377,9 @@ export function unboughtIn(raw: string | null): string | null {
     the paid theme's id, or null when nothing had to change (or it could not be saved). */
 export async function leaveUnboughtTheme(lang: Lang): Promise<string | null> {
   if (!onServer() || isOwnCopy()) return null;
-  await refreshThemeAccess();
+  /* the server could not say which themes he bought (offline, or it failed): nothing changes until it can. The prices in
+     the code are not the rule (Diwan may have made a theme free or taken it out of the store). */
+  if (!(await refreshThemeAccess())) return null;
   const s = loadThemeState();
   const base = unboughtBase(s.active, s);
   if (!base) return null;
