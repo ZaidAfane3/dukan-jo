@@ -12,13 +12,12 @@ import { latin } from "@/components/digits";
 import { menuEntries } from "@/components/DashboardBar";
 import { POPUP_IMAGE_MAX, POPUP_NEXT, type PopupStatus } from "@/components/popupRules";
 import {
-  biOf, isBiKind, POPUP_TEMPLATE_RULES, TEMPLATE_IDS, templateRule, valueOf,
+  biOf, isBiKind, POPUP_TEMPLATE_RULES, TEMPLATE_IDS, templateRule,
   type BiList, type PopupPlacement, type SlotDef, type SlotValues, type TemplateId,
 } from "@/components/popupTemplateRules";
-import { PopupTemplate } from "@/components/popupTemplates";
+import { PopupTemplate, popupPicture } from "@/components/popupTemplates";
 import { checkImage, uploadProblemFor } from "@/components/safe";
 import type { ListingRow } from "@/components/themeListing";
-import { findTheme } from "@/components/themes";
 import { useCatalog } from "@/components/catalog";
 
 /* Pop-ups to merchants, in Diwan's marketing pages: one of the coded templates (components/popupTemplateRules.ts) with
@@ -58,7 +57,7 @@ const blank = (): Form => ({
 const SHOWN_TONE: Record<Shown, Tone> = { draft: "grey", scheduled: "blue", showing: "green", expired: "amber", ended: "grey" };
 
 /** The picture a pop-up shows in the list: its own, else its theme's */
-const pictureOf = (r: { slots: SlotValues }) => valueOf(r.slots, "image") || findTheme(valueOf(r.slots, "theme"))?.shot || "";
+const pictureOf = (r: { slots: SlotValues }) => popupPicture(r.slots);
 
 export default function PopupsPage() {
   /* the theme store's list, so a theme gift made with a theme designed in Diwan shows its picture here as merchants see it */
