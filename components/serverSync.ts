@@ -844,9 +844,14 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
       const o = outcome(await put(Object.fromEntries(Object.entries(s).filter(([k]) => ks.includes(k))), rm, owner), s, owner, keep, rm);
       ks.forEach((k) => (o === "retry" ? again.add(k) : !keep.has(k) && settle(owner, k, sent.get(k))));
     };
-    /* closing: all at once, there may be no time to wait; otherwise in order */
-    if (quick) await Promise.all(asks.map(run));
-    else for (const a of asks) await run(a);
+    /* closing: two at a time, there may be no time to wait (the server runs at most two saves of an account at once
+       and asks the others to wait: app/api/store PUT); otherwise in order */
+    if (quick) {
+      let next = 0;
+      await Promise.all([0, 1].map(async () => {
+        while (next < asks.length) await run(asks[next++]);
+      }));
+    } else for (const a of asks) await run(a);
   };
 
   if (size > SPLIT && batch.size > 1) await oneByOne();

@@ -434,6 +434,26 @@ export function reserveTry(key: string, max: number, minutes: number): (() => vo
   };
 }
 
+/* Requests running right now, per key (in memory, like the counts above): for the heaviest ones, a limit on how many of
+   one account's run at the same time, not only on how many it sends in a while. Holds a key only while a request runs. */
+const running = new Map<string, number>();
+
+/** Starts one request under this key when fewer than `max` of its kind are running, and gives the function to call when
+    it is done (in a finally); null when `max` already run: the request is answered at once instead of waiting */
+export function startRunning(key: string, max: number): (() => void) | null {
+  const n = running.get(key) ?? 0;
+  if (n >= max) return null;
+  running.set(key, n + 1);
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    const left = (running.get(key) ?? 1) - 1;
+    if (left > 0) running.set(key, left);
+    else running.delete(key);
+  };
+}
+
 /** Forgets what was counted for this key */
 export function forgetTries(key: string): void {
   tries.get(kindOf(key))?.delete(key);
