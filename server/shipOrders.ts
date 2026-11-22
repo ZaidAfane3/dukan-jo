@@ -4,7 +4,8 @@ import { seal } from "./crypto";
 import { db } from "./db";
 import { emailNotice, notify } from "./notify";
 import { audit, type Staff } from "./staff";
-import { paidSet, type ShipState } from "./storeOrders";
+import { holdsStockAfter } from "@/components/safeOrder";
+import { holdsStockNow, moveOrderStock, paidSet, shopLock, type ShipState } from "./storeOrders";
 
 /* Diwan > Dukkan Ship > Orders: the store orders Dukkan Ship takes to the customer (store_orders.ship_by = 'dukkan',
    set when the order is placed, server/storeOrders.ts). Unlike the rest of Diwan, these show the customer's name,
@@ -147,8 +148,11 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
   let done: { account: string; number: number; from: string } | null = null;
   try {
     await c.query("BEGIN");
-    const { rows } = await c.query(`SELECT account_id, number, status, ship_state FROM store_orders WHERE id = $1 AND ship_by = 'dukkan' FOR UPDATE`, [id]);
-    const o = rows[0] as { account_id: string; number: number; status: string; ship_state: string } | undefined;
+    /* the shop's order lock first, as the merchant's status changes take it (a delivery may take the order's stock) */
+    const shop = await c.query(`SELECT account_id FROM store_orders WHERE id = $1 AND ship_by = 'dukkan'`, [id]);
+    if (shop.rows[0]) await shopLock(c, String(shop.rows[0].account_id));
+    const { rows } = await c.query(`SELECT account_id, number, status, ship_state, items, payment_method, payment_status, stock_taken FROM store_orders WHERE id = $1 AND ship_by = 'dukkan' FOR UPDATE`, [id]);
+    const o = rows[0] as { account_id: string; number: number; status: string; ship_state: string; items: unknown; payment_method: string; payment_status: string; stock_taken: boolean } | undefined;
     if (!o) {
       await c.query("ROLLBACK");
       return "none";
@@ -160,9 +164,19 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
     /* the merchant's own status follows: delivered when Dukkan delivered it; back to shipping when a delivery Dukkan had
        marked is undone or changed to "not delivered" (so a cash order no longer reads as paid either: paidSet) */
     const status = state === "delivered" ? "delivered" : o.ship_state === "delivered" && o.status === "delivered" ? "shipping" : o.status;
+    /* a cash order the merchant never confirmed takes its stock once Dukkan delivered it (safeOrder holdsStockAfter; a
+       mark never gives stock back). It was delivered, so this is never refused: each line takes what there is, never
+       below 0, and a cancel gives back exactly that. */
+    const held = holdsStockNow(o);
+    const holds = holdsStockAfter({ pay: o.payment_method, paid: o.payment_method !== "cash" && o.payment_status === "paid" }, held, o.status, status) || held;
+    let items: string | null = null;
+    if (holds && !held) {
+      const m = await moveOrderStock(c, String(o.account_id), o.items, true, false);
+      if (m.ok) items = m.items;
+    }
     await c.query(
-      `UPDATE store_orders SET ship_state = $2, ship_note = $3, ship_at = $4, ship_staff = $5, status = $6, ${paidSet("$6")}, updated_at = now() WHERE id = $1`,
-      [id, state, state === "failed" ? seal(note) : null, state === "waiting" ? null : new Date(), state === "waiting" ? null : me.id, status],
+      `UPDATE store_orders SET ship_state = $2, ship_note = $3, ship_at = $4, ship_staff = $5, status = $6, ${paidSet("$6")}, stock_taken = $7${items !== null ? ", items = $8" : ""}, updated_at = now() WHERE id = $1`,
+      [id, state, state === "failed" ? seal(note) : null, state === "waiting" ? null : new Date(), state === "waiting" ? null : me.id, status, holds, ...(items !== null ? [items] : [])],
     );
     if (state === "delivered" && o.ship_state !== "delivered") await notify(o.account_id, "shipDelivered", { number: o.number }, c);
     if (state === "failed") await notify(o.account_id, "shipFailed", { number: o.number, note }, c);

@@ -224,9 +224,10 @@ export const DIWAN_SCHEMA = `
      customer and the merchant see). The customer's details are sealed (server/crypto.ts); items are the products as
      priced by the server (id, name, qty, price, size, image). No payment is taken online yet: payment_status is 'test',
      and 'paid' for a cash order while it is marked delivered.
-     stock_taken: not used: nothing writes it (always its default) and nothing reads it. What an order took out of the
-     shop's saved stock is counted on each product and coupon instead (soldOnline, usedOnline), and that is what
-     server/storeOrders.ts mergeOnlineSales uses. */
+     stock_taken: whether the order took its stock (server/storeOrders.ts: an order placed since 2026-11-22 takes it only
+     once it is confirmed or paid, and is saved with false until then; every order placed before took it when it was
+     placed, so the default true is right for them). What an order took is counted on each product and coupon too
+     (soldOnline, usedOnline), and that is what server/storeOrders.ts mergeOnlineSales uses. */
   CREATE TABLE IF NOT EXISTS store_orders (
     id               BIGSERIAL PRIMARY KEY,
     account_id       BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,

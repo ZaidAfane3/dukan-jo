@@ -20,6 +20,11 @@ export const ORDER_LIMITS = {
   price: 100_000,
 };
 
+/** Whether the store's free delivery offer covers an order: it is on, and what the products come to AFTER the coupon's
+    discount (`discount`) reaches its amount. The checkout (storefront/Cart.tsx), the server (server/storeOrders.ts) and
+    the Orders page all decide with this, so they agree. */
+export const freeDeliveryFor = (fd: { on: boolean; min: number }, subtotal: number, discount = 0): boolean => fd.on && toFils(subtotal - discount) >= fd.min;
+
 /** The cities orders are delivered to today. Anything else sent as a city for a new order is refused. */
 export const CITIES = {
   ar: ["إربد", "عمّان", "السلط"],
@@ -477,6 +482,31 @@ export function stockTaken<T extends { id?: unknown; qty: number; size?: string 
     return { ...it, took };
   });
   return { lines, short };
+}
+
+/* ============================== when an order takes its stock ==============================
+   Placing an order takes no stock (anyone can place one, for free, F05): the store refuses only an order larger than the
+   stock there is. The stock is taken when the order is really on: a cash order (on delivery or at pickup) once the
+   merchant confirms it (moves it to one of CONFIRMED_STATUSES), a card or CliQ order once its payment is confirmed. It is
+   checked again then, and the confirmation is refused when there is not enough left. Cancelling or refunding gives back
+   what was taken, once; an order that took nothing gives nothing back. A cash order moved back to New or Awaiting review
+   (an undo of its confirmation) gives it back too. Orders placed before this rule took their stock when they were placed
+   and keep it. The server (server/storeOrders.ts) and the merchant's own preview orders (Orders.tsx) both decide with
+   holdsStockAfter. */
+
+/** The statuses that mean the merchant confirmed an order paid in cash */
+export const CONFIRMED_STATUSES: readonly string[] = ["processing", "shipping", "delivered"];
+const stockOff = (status: string) => status === "cancelled" || status === "refunded";
+
+/** Whether an order holds its stock after its status moves from `from` to `to`. `held`: whether it holds it now; `paid`:
+    a card or CliQ order whose payment is confirmed. */
+export function holdsStockAfter(o: { pay?: string; paid?: boolean }, held: boolean, from: string, to: string): boolean {
+  if (stockOff(to)) return false;
+  if (o.pay === "card" || o.pay === "cliq") return held || o.paid === true;
+  if (CONFIRMED_STATUSES.includes(to)) return true;
+  /* back to New or Awaiting review from a confirmed status: not confirmed any more */
+  if (CONFIRMED_STATUSES.includes(from)) return false;
+  return held;
 }
 
 /** The lines of an order whose pieces can't go back to the saved stock when it is cancelled: the product is now sold in
