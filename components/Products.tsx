@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SEARCH_OPEN } from "./searchSources";
 import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { FILTER_KEYS, kindWords, productsCopy, type FilterKey } from "./productsContent";
@@ -398,6 +399,17 @@ export function Products() {
     if (hit) openEdit(hit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
+  /* ... also one picked in the search while this page is open */
+  useEffect(() => {
+    const onOpen = () => {
+      const id = Number(new URLSearchParams(window.location.search).get("open"));
+      const hit = id ? items.find((x) => x.id === id && !x.deletedAt) : undefined;
+      if (hit) openEdit(hit);
+    };
+    window.addEventListener(SEARCH_OPEN, onOpen);
+    return () => window.removeEventListener(SEARCH_OPEN, onOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   useEffect(() => {
     if (!ready || items === loadedList.current) return;

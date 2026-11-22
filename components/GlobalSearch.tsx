@@ -7,7 +7,7 @@ import { useDemo } from "./demoSandbox";
 import { latin } from "./digits";
 import { usePrefs } from "./Prefs";
 import { cleanOrder, cleanProduct, couponName, parseList, productCategories, type Coupon, type Order } from "./records";
-import { findStoreOrder, loadStoreOrders, readCoupons, readInfoPages, useStoreOrders, type SearchPage } from "./searchSources";
+import { findStoreOrder, loadStoreOrders, readCoupons, readInfoPages, SEARCH_OPEN, useStoreOrders, type SearchPage } from "./searchSources";
 
 /* The groups, in the order they are shown: products, orders, coupons, his own info pages, the dashboard's pages */
 const GROUPS = [0, 1, 2, 3, 4] as const;
@@ -235,6 +235,14 @@ export function GlobalSearch() {
     setOpen(false);
     setQ("");
     input.current?.blur();
+    /* a result on the page already open: the page is not opened again, so it is told to open the item (the Orders page
+       follows its address by itself) */
+    const to = new URL(r.href, window.location.href);
+    if (to.pathname === window.location.pathname && to.searchParams.has("open") && to.pathname !== "/orders") {
+      window.history.replaceState(window.history.state, "", to.pathname + to.search + to.hash);
+      window.dispatchEvent(new Event(SEARCH_OPEN));
+      return;
+    }
     router.push(r.href);
   };
 

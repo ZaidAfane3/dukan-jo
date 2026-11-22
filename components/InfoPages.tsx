@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SEARCH_OPEN } from "./searchSources";
 import { brandName } from "./content";
 import type { SectionConfig } from "./storefront/config";
 import { sanitizePages } from "./safeDesign";
@@ -292,9 +293,21 @@ export function InfoPages() {
       setPages(list);
     };
     window.addEventListener("storage", onStorage);
+    /* a page picked in the search while this page is open (its address got ?open=ID): opened in the editor */
+    const onOpen = () => {
+      const url = new URL(window.location.href);
+      const want = url.searchParams.get("open");
+      if (want === null) return;
+      const hit = pagesNow.current.find((x) => x.id === Number(want));
+      if (hit) open(hit);
+      url.searchParams.delete("open");
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    };
+    window.addEventListener(SEARCH_OPEN, onOpen);
     return () => {
       gone = true;
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener(SEARCH_OPEN, onOpen);
     };
   }, []);
 
