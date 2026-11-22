@@ -144,6 +144,22 @@ function sampleRanges(b: Uint8Array, trak: Box, mdats: Box[]): [number, number][
   if (stsc.body + 8 + runs * 12 > stsc.end) return null;
   const runAt = (r: number) => ({ first: u32be(b, stsc.body + 8 + r * 12), per: u32be(b, stsc.body + 12 + r * 12) });
 
+  /* Whether [start, end) lies inside one mdat. The top-level boxes follow each other, so the mdats are already in
+     order: a binary search finds the one that could hold it. Scanning every mdat for every chunk instead made a small
+     file with thousands of empty mdats and chunks cost seconds of work, freezing the one server process (audit F01). */
+  const inMdat = (start: number, end: number) => {
+    let lo = 0;
+    let hi = mdats.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const m = mdats[mid];
+      if (start < m.body) hi = mid - 1;
+      else if (start >= m.end) lo = mid + 1;
+      else return end <= m.end;
+    }
+    return false;
+  };
+
   const out: [number, number][] = [];
   let sample = 0;
   let run = 0;
@@ -156,7 +172,7 @@ function sampleRanges(b: Uint8Array, trak: Box, mdats: Box[]): [number, number][
     if (!len) continue;
     const start = chunkAt(c);
     const end = start + len;
-    if (!mdats.some((m) => m.body <= start && end <= m.end)) return null;
+    if (!inMdat(start, end)) return null;
     out.push([start, end]);
   }
   return sample === sampleCount ? out : null;
@@ -593,13 +609,27 @@ function pdfValue(s: string, i: number, depth = 0): PdfValue | null {
   return /^([+-]?(\d+\.?\d*|\.\d+)|true|false|null)$/.test(word) ? { kind: "other", start, end } : null;
 }
 
-/** Where each copy of object `num gen` begins (just after "obj"): an updated PDF can hold several */
-function pdfObjects(s: string, [num, gen]: [number, number]): number[] {
-  const out: number[] = [];
-  const re = new RegExp(`(?<![0-9])${num}[\\0\\t\\n\\f\\r ]+${gen}[\\0\\t\\n\\f\\r ]+obj(?![^\\0\\t\\n\\f\\r ()<>[\\]{}/%])`, "g");
-  for (let m = re.exec(s); m; m = re.exec(s)) out.push(m.index + m[0].length);
-  return out;
+/** Where each object begins (just after "obj"), by "num gen": an updated PDF can hold several copies of one. Built in
+    one pass over the file. Looking each reference up with its own scan of the whole file instead made a small PDF full
+    of /Info references cost seconds to minutes of work, freezing the one server process (audit F02). */
+function pdfObjectIndex(s: string): Map<string, number[]> {
+  const index = new Map<string, number[]>();
+  const re = /(?<![0-9])(\d+)[\0\t\n\f\r ]+(\d+)[\0\t\n\f\r ]+obj(?![^\0\t\n\f\r ()<>[\]{}/%])/g;
+  for (let m = re.exec(s); m; m = re.exec(s)) {
+    const key = `${Number(m[1])} ${Number(m[2])}`;
+    const at = m.index + m[0].length;
+    const list = index.get(key);
+    if (list) list.push(at);
+    else index.set(key, [at]);
+  }
+  return index;
 }
+
+/* A real PDF has one document information object and a few XMP streams (more after many updates). A file that asks
+   for far more is not a document a person made: it is kept exactly as it came, like any PDF that doesn't read the way
+   it should, instead of spending the server's time on it (each object read can run to the end of the file). */
+const PDF_MAX_REFS = 64;
+const PDF_MAX_READS = 512;
 
 /** The PDF text with the data of every stream (between "stream" and its "endstream") turned to spaces, or null when a
     stream has no end (the file can't be read safely) */
@@ -629,6 +659,16 @@ export function stripPdf(src: Uint8Array): Uint8Array {
        own text can look like "5 0 obj" or "/Info 5 0 R" and must never be taken for the file's structure */
     const s = maskPdfStreams(raw);
     if (s === null) return src;
+    const index = pdfObjectIndex(s);
+    let reads = 0;
+    /* where each copy of an object begins; throws (the file is kept as it came) once it asks for more reads than any
+       real PDF needs */
+    const pdfObjects = (_s: string, [num, gen]: [number, number]): number[] => {
+      const found = index.get(`${num} ${gen}`) ?? [];
+      reads += found.length;
+      if (reads > PDF_MAX_READS) throw new Error("too many objects");
+      return found;
+    };
     const b = new Uint8Array(src);
     let changed = false;
     const spaces = (v: PdfValue) => {
@@ -638,7 +678,10 @@ export function stripPdf(src: Uint8Array): Uint8Array {
     const refsTo = (key: string) => {
       const out = new Map<string, [number, number]>();
       const re = new RegExp(`/${key}[\\0\\t\\n\\f\\r ]+(\\d+)[\\0\\t\\n\\f\\r ]+(\\d+)[\\0\\t\\n\\f\\r ]+R(?![^\\0\\t\\n\\f\\r ()<>[\\]{}/%])`, "g");
-      for (let m = re.exec(s); m; m = re.exec(s)) out.set(`${m[1]} ${m[2]}`, [Number(m[1]), Number(m[2])]);
+      for (let m = re.exec(s); m; m = re.exec(s)) {
+        out.set(`${Number(m[1])} ${Number(m[2])}`, [Number(m[1]), Number(m[2])]);
+        if (out.size > PDF_MAX_REFS) throw new Error("too many references");
+      }
       return Array.from(out.values());
     };
     /* a text, a list of texts (Apple's keywords), or a reference to an object that is only a text; anything else there
