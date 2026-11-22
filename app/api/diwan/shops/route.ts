@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 
 const PAGE = 25;
 
-/* The shop list: search (store name, owner, email, phone, link), filters, sort and pages, all done by the database. */
+/* The shop list: search (store name, owner, email, phone, link), filters, sort and pages, all done by the database.
+   No owner's email or mobile in it (server/shops.ts SHOP_LIST_COLUMNS): "Show contacts" asks for them one store at a time. */
 export const GET = staffRoute("shops.read", async (req, staff) => {
   await prepareShops();
   const p = req.nextUrl.searchParams;

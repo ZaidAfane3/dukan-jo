@@ -19,7 +19,8 @@ type Pay = {
   shop_id: string;
   shop: string | null;
   owner: string;
-  email: string;
+  /* only in the export's rows (behind the password), never in the list's (security F08) */
+  email?: string;
   amount: string;
   /* empty for a theme bought before the checkout recorded the way to pay */
   method: string | null;

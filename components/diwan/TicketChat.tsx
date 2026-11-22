@@ -30,7 +30,7 @@ type Msg = { id: string; author: "merchant" | "staff" | "system"; internal: bool
 type Ticket = {
   number: number; kind: TKind; category: number; subject: string; status: TStatus; priority: TPriority; assigneeId: string | null;
   where: string; created: string; updated: string;
-  shop: { accountId: string; name: string; owner: string; email: string; phone: string; storePhone: string; slug: string | null; status: string | null };
+  shop: { accountId: string; name: string; owner: string; storePhone: string; slug: string | null; status: string | null };
   messages: Msg[];
 };
 type Data = { ticket: Ticket; staff: { id: string; name: string; role: string }[]; me: string };
@@ -368,7 +368,7 @@ function TicketView({ first }: { first: Data }) {
             <ShopAndOwner id={tk.shop.accountId} shop={tk.shop.name} owner={tk.shop.owner} className="mt-1 text-lg" />
             {tk.shop.status === "suspended" && <div className="mt-2"><Badge tone="red">{t("Suspended", "موقوف")}</Badge></div>}
             <p className="mt-3 text-xs text-muted">{t("Opened", "فُتحت")} {f.dateTime(tk.created)} · {t("last activity", "آخر نشاط")} {f.ago(tk.updated)}</p>
-            <ContactButton info={{ owner: tk.shop.owner, email: tk.shop.email, phone: tk.shop.phone, storePhone: tk.shop.storePhone }} className="mt-3" />
+            <ContactButton shopId={tk.shop.accountId} info={{ owner: tk.shop.owner, storePhone: tk.shop.storePhone }} className="mt-3" />
           </section>
 
           <section className={`${card} space-y-3`}>

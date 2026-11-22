@@ -11,8 +11,9 @@ import { field, useT } from "./ui";
 
 export type Audience = { all: true } | { newStores: true } | { accounts: (number | string)[] };
 export type Who = "all" | "newStores" | "accounts";
-export type Shop = { id: string; name: string; email: string };
-export type ShopNames = Record<string, { name: string; email: string }>;
+/* a store is told apart by its link, never by its owner's email (security F08: the search would list them 20 at a time) */
+export type Shop = { id: string; name: string; slug?: string | null };
+export type ShopNames = Record<string, { name: string; slug?: string | null }>;
 export type AudienceForm = { who: Who; shops: Shop[] };
 
 export const blankAudience = (): AudienceForm => ({ who: "all", shops: [] });
@@ -21,7 +22,7 @@ export const blankAudience = (): AudienceForm => ({ who: "all", shops: [] });
 export function audienceForm(audience: Audience, names: ShopNames): AudienceForm {
   const a = audience as Record<string, unknown>;
   if (Array.isArray(a.accounts))
-    return { who: "accounts", shops: (a.accounts as unknown[]).map((id) => ({ id: String(id), name: names[String(id)]?.name ?? `#${id}`, email: names[String(id)]?.email ?? "" })) };
+    return { who: "accounts", shops: (a.accounts as unknown[]).map((id) => ({ id: String(id), name: names[String(id)]?.name ?? `#${id}`, slug: names[String(id)]?.slug ?? null })) };
   if (a.newStores === true) return { who: "newStores", shops: [] };
   if (a.all === true) return blankAudience();
   return { who: "accounts", shops: [] };
@@ -100,7 +101,7 @@ export function AudiencePicker({ value, onChange, name }: { value: AudienceForm;
                 <li key={x.id}>
                   <button type="button" disabled={value.shops.some((y) => y.id === x.id)} onClick={() => set({ shops: [...value.shops, x] })} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-start text-sm hover:bg-soft disabled:opacity-50">
                     <span className="font-medium">{x.name}</span>
-                    <span className="text-xs text-muted" dir="ltr">{x.email}</span>
+                    {x.slug && <span className="text-xs text-muted" dir="ltr">/{x.slug}</span>}
                   </button>
                 </li>
               ))}

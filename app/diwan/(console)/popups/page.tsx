@@ -106,7 +106,7 @@ export default function PopupsPage() {
     /* one released with its end already passed belongs under Past, which the reload above brings it into */
     if (row.shown === "expired" || row.shown === "ended") return;
     /* the names of the shops chosen in it, which the list may not know until it has loaded again */
-    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
+    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, slug: x.slug ?? null }])) : undefined;
     js.show(row, wasEdit ? t("Saved", "تم الحفظ") : t("Saved as draft", "حُفظت كمسودة"), names);
   };
 

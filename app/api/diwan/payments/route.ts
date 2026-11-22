@@ -25,7 +25,8 @@ const MONEY = THEME_CHECKOUT_CHARGES ? "true" : "x.kind = 'payment'";
    Filters: kind (payment or theme), shop (one store's account id), method, from/to (paid on, yyyy-mm-dd), q (store name, owner email or mobile, the
    payment's reference, or the theme). Gives the total of what matches, and how each method was used (payments, JOD and
    stores) over the same kind, dates and search but every method, so the summary shows the whole picture while the list
-   is narrowed. The same list for a CSV file (up to 20,000 rows, with every owner's email) is the POST below. */
+   is narrowed. The page's list has no owner's email (security F08: it could be paged through for every merchant's); the
+   same list for a CSV file (up to 20,000 rows, with every owner's email) is the POST below, behind the password. */
 async function payments(req: NextRequest, staff: Staff, exporting: boolean) {
   const p = req.nextUrl.searchParams;
   const where: string[] = [];
@@ -78,7 +79,7 @@ async function payments(req: NextRequest, staff: Staff, exporting: boolean) {
   const pool = await db();
   const [rows, sum, byMethod, byKind, shopRow] = await Promise.all([
     pool.query(
-      `SELECT x.kind, x.id, x.account_id AS shop_id, s.name AS shop, a.name AS owner, a.email, x.amount, x.method, x.reference,
+      `SELECT x.kind, x.id, x.account_id AS shop_id, s.name AS shop, a.name AS owner, ${exporting ? "a.email, " : ""}x.amount, x.method, x.reference,
               x.paid_on::text AS paid_on, x.note, x.marked_by, x.theme_id, x.theme_name, x.created_at
          ${fromSql} ORDER BY x.paid_on DESC, x.created_at DESC, x.kind, x.id DESC
          LIMIT ${exporting ? 20_000 : PAGE} OFFSET ${exporting ? 0 : (page - 1) * PAGE}`,

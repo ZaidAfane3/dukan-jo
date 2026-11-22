@@ -247,7 +247,7 @@ export async function listTickets(sp: URLSearchParams, kinds: string[], staffId:
   const total = await pool.query(`SELECT count(*)::int AS n ${base} WHERE ${where.join(" AND ")}`, params);
   const { rows } = await pool.query(
     `SELECT t.number, t.kind, t.category, t.subject, t.status, t.priority, t.assignee_id, st.name AS assignee_name, t.where_text,
-            t.account_id, COALESCE(s.name, '') AS shop, a.name AS owner, a.email, t.created_at, t.updated_at,
+            t.account_id, COALESCE(s.name, '') AS shop, a.name AS owner, t.created_at, t.updated_at,
             /* who wrote last to the other side: an internal note isn't a message the merchant got, so it doesn't count */
             (SELECT m.author FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author <> 'system' AND NOT m.internal ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author,
             (SELECT m.body FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author = 'merchant' ORDER BY m.created_at, m.id LIMIT 1) AS first,
@@ -274,10 +274,10 @@ export async function listTickets(sp: URLSearchParams, kinds: string[], staffId:
       assignee: r.assignee_id ? { id: String(r.assignee_id), name: r.assignee_name } : null,
       where: r.where_text,
       accountId: String(r.account_id),
-      /* the store's own name ("" while it has none) and its owner's, shown together by ShopAndOwner */
+      /* the store's own name ("" while it has none) and its owner's, shown together by ShopAndOwner. Never the owner's
+         email (security F08: the list could be paged for every merchant's); the search still finds it typed in full. */
       shop: r.shop,
       owner: r.owner,
-      email: r.email,
       created: r.created_at,
       updated: r.updated_at,
       lastAuthor: r.last_author,

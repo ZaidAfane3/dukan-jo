@@ -624,7 +624,7 @@ export type SavedNoteState = { id: string; text: string; step: 0 | 1 | 2; n: num
     lit for a moment (`ring`, on an element with id `row-<id>`), brought into view if the closed form left it off screen,
     and a line above the list (SavedNote) says what happened. `data` is the list's useApi data. */
 export function useJustSaved<D, R extends { id: string }>(data: D | null) {
-  const [fresh, setFresh] = useState<{ base: D | null; row: R; names?: Record<string, { name: string; email: string }> } | null>(null);
+  const [fresh, setFresh] = useState<{ base: D | null; row: R; names?: Record<string, { name: string; slug?: string | null }> } | null>(null);
   const [note, setNote] = useState<SavedNoteState | null>(null);
   const n = note?.n;
   const id = note?.id;
@@ -648,7 +648,7 @@ export function useJustSaved<D, R extends { id: string }>(data: D | null) {
   const now = fresh && fresh.base === data ? fresh : null;
   return {
     /** the saved row, the confirmation's words, and the names of shops chosen in it that the list may not know yet */
-    show: (row: R, text: string, names?: Record<string, { name: string; email: string }>) => {
+    show: (row: R, text: string, names?: Record<string, { name: string; slug?: string | null }>) => {
       setFresh({ base: data, row, names });
       setNote((x) => ({ id: row.id, text, step: 0, n: (x?.n ?? 0) + 1 }));
     },
@@ -660,7 +660,7 @@ export function useJustSaved<D, R extends { id: string }>(data: D | null) {
       return order ? out.sort(order) : out;
     },
     /** the list's shop names with the saved row's */
-    names: <N extends Record<string, { name: string; email: string }>>(base: N): N => (now?.names ? { ...base, ...now.names } : base),
+    names: <N extends Record<string, { name: string; slug?: string | null }>>(base: N): N => (now?.names ? { ...base, ...now.names } : base),
     /** the classes of a row: a soft ring while it is lit, fading in and out (no fade with reduced motion) */
     ring: (rowId: string) => `transition-shadow duration-700 motion-reduce:transition-none ${note?.id === rowId && note.step === 0 ? "!ring-2 !ring-primary/45" : ""}`,
     note,

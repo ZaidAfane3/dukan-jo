@@ -35,8 +35,7 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
   const { rows } = await pool.query(
     `SELECT d.id, d.public_id, d.account_id, d.kind, d.name, d.seq, (d.data IS NOT NULL OR d.file_key IS NOT NULL) AS has_file, d.mime, d.bytes,
             d.partner, d.partner_kind, d.status, d.note, d.created_at, d.removed_at,
-            st.name AS reviewer, COALESCE(s.name, '') AS shop_name, a.name AS owner_name, s.slug AS shop_slug, a.email AS shop_email,
-            a.phone AS owner_phone, s.phone AS store_phone
+            st.name AS reviewer, COALESCE(s.name, '') AS shop_name, a.name AS owner_name, s.slug AS shop_slug, s.phone AS store_phone
        FROM documents d
        JOIN accounts a ON a.id = d.account_id LEFT JOIN shops s ON s.account_id = d.account_id
        LEFT JOIN staff st ON st.id = d.reviewed_by
@@ -63,13 +62,12 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
     documents: rows.map((r) => ({
       id: String(r.public_id),
       shopId: String(r.account_id),
-      /* the store's own name ("" while it has none) and its owner's; the contact details are for the card's Contact
-         pop-up only (components/diwan/Contact.tsx), never printed on the card */
+      /* the store's own name ("" while it has none) and its owner's. The owner's email and mobile are not in the list
+         (security F08): the card's Contact button asks for them with the staff member's password
+         (app/api/diwan/shops/[id]/contacts). The store's phone is the one its public page shows. */
       shopName: r.shop_name,
       ownerName: r.owner_name,
       shopSlug: r.shop_slug ?? null,
-      shopEmail: r.shop_email,
-      ownerPhone: r.owner_phone ?? "",
       storePhone: r.store_phone ?? "",
       kind: r.kind,
       /* this store's first, second... document of this kind, for the card's title ("Proof of delivery #001"); kept for
