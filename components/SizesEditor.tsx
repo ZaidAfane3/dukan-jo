@@ -10,7 +10,7 @@ import { readPhoto } from "./designer/image";
 import { keepPicture } from "./media";
 import { kindWords, productsCopy, sizePresets } from "./productsContent";
 import { RequiredMark } from "./Required";
-import { SIZE_MAX, type ProductKind } from "./safeOrder";
+import { SIZE_MAX, sizeTwice, type ProductKind } from "./safeOrder";
 
 /** The sizes of a piece of clothing or a pair of shoes: one press adds a usual size, each size has its own quantity.
     Without `onChart` the size chart part is left out (setup leaves it for the Products page). */
@@ -32,6 +32,8 @@ export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart
   };
   const has = (n: string) => sizes.some((z) => z.name.trim().toLowerCase() === n.toLowerCase());
   const presets = (sizePresets[kind] ?? sizePresets.clothing ?? []).filter((n) => !has(n));
+  /* two sizes with the same name (only capitals or spaces apart): said at once, and the form refuses to save it */
+  const twice = sizeTwice(sizes);
   const total = sizes.reduce((n, z) => n + Math.max(0, Math.floor(Number(z.quantity) || 0)), 0);
   const edit = (i: number, patch: Partial<{ name: string; quantity: string }>) => onChange(sizes.map((z, j) => (j === i ? { ...z, ...patch } : z)));
   return (
@@ -72,7 +74,7 @@ export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart
         <button type="button" onClick={() => onChange([...sizes, { name: "", quantity: "0" }])} className="text-sm font-semibold text-primary hover:underline">{w.addSize}</button>
       )}
       {sizes.length > 0 && <p className="text-xs font-semibold">{w.total}: {productsCopy[lang].pieces(total)}</p>}
-      {error && <p role="alert" className="text-xs font-semibold text-rose-600">{error}</p>}
+      {(error || twice) && <p role="alert" className="text-xs font-semibold text-rose-600">{error || w.errSizesTwice(twice)}</p>}
       {/* the size chart: optional, a picture customers open from the product page beside the sizes */}
       {onChart && (
       <div className="rounded-xl bg-soft/70 p-3">

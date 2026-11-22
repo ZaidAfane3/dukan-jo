@@ -207,6 +207,38 @@ export type SizeStock = { name: string; quantity: number };
 export const SIZE_MAX = { name: 12, count: 30 };
 /** A size's name as it is saved: one short line, or "" */
 export const sizeName = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, SIZE_MAX.name) : "");
+/** Two sizes are the same size when their names differ only in capitals or spaces ("M", "m", " M ", "X L" and "XL"):
+    a product can't have both, or one of them would lose its stock */
+export const sizeKey = (v: unknown) => sizeName(v).toLowerCase().replace(/\s/g, "");
+/** The first size named twice in a list (see sizeKey), as he typed it, or "" when each size has its own name */
+export function sizeTwice(sizes: unknown): string {
+  if (!Array.isArray(sizes)) return "";
+  const seen = new Set<string>();
+  for (const x of sizes) {
+    const name = x && typeof x === "object" ? sizeName((x as { name?: unknown }).name) : "";
+    if (!name) continue;
+    if (seen.has(sizeKey(name))) return name;
+    seen.add(sizeKey(name));
+  }
+  return "";
+}
+/** A save of the products (`incoming`) that names a size twice in a product sold in sizes, where the server's copy of
+    that product (`stored`) does not already have exactly those sizes (an old product saved that way before this rule is
+    not held against a save that leaves it as it is). The server refuses such a save. */
+export function newSizeTwice(incoming: unknown[], stored: unknown[]): boolean {
+  const before = new Map<number, string>();
+  for (const s of stored) {
+    const id = s && typeof s === "object" && !Array.isArray(s) ? productId((s as Record<string, unknown>).id) : null;
+    if (id !== null) before.set(id, JSON.stringify((s as Record<string, unknown>).sizes ?? null));
+  }
+  return incoming.some((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+    const p = raw as Record<string, unknown>;
+    if (!kindHasSizes(productKind(p.kind)) || !sizeTwice(p.sizes)) return false;
+    const id = productId(p.id);
+    return id === null || before.get(id) !== JSON.stringify(p.sizes ?? null);
+  });
+}
 /** The sizes of a product (only a kind sold in sizes has them): each named once, with a whole stock */
 export function productSizes(p: { kind?: unknown; sizes?: unknown }): SizeStock[] {
   if (!kindHasSizes(productKind(p.kind)) || !Array.isArray(p.sizes)) return [];

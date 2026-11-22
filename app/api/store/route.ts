@@ -6,7 +6,7 @@ import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
-import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, type OnlineKey } from "@/server/storeOrders";
+import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, sizesNamedTwice, type OnlineKey } from "@/server/storeOrders";
 import { readyToSell, type SellNeed } from "@/components/safeOrder";
 import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership";
 import { stripPaidLooks } from "@/components/themeLooks";
@@ -289,6 +289,12 @@ export const PUT = guarded(async (req: NextRequest) => {
     if (online.length) {
       for (const entry of online) {
         if (Object.hasOwn(stale, entry[0])) continue;
+        /* a product with two sizes of the same name ("M" and "m") is not kept: one of them would lose its stock. The page
+           says it was not saved (the product form refuses it before it is sent) */
+        if (entry[0] === "seen-products" && (await sizesNamedTwice(client, a.id, entry[1] as string))) {
+          await client.query("ROLLBACK");
+          return answer({ result: "invalid", why: "size-twice" }, 400);
+        }
         const kept = await mergeOnlineSales(client, a.id, entry[0] as OnlineKey, entry[1] as string);
         if (kept !== entry[1]) {
           entry[1] = kept;

@@ -4,7 +4,7 @@ import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as rec
 import { cleanLine, safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import {
-  checkCheckout, checkoutShipMode, mergeSoldOnline, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productShips, productSizes, salePrice, sellableStock, stockNotBack, stockTaken, takeStock, toFils, money,
+  checkCheckout, checkoutShipMode, mergeSoldOnline, newSizeTwice, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productShips, productSizes, salePrice, sellableStock, stockNotBack, stockTaken, takeStock, toFils, money,
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
 import { highestOrderNumber, lastOrderNumber, ORDER_NUMBER_KEY, ORDER_NUMBER_START } from "@/components/orderNumbers";
@@ -575,6 +575,17 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
 export async function onlineRev(q: { query: PoolClient["query"] }, accountId: string): Promise<number> {
   const { rows } = await q.query(`SELECT COALESCE(MAX(id), 0) AS rev FROM store_orders WHERE account_id = $1`, [accountId]);
   return Number(rows[0].rev);
+}
+
+/** A save of the products that names a size twice in a product (safeOrder.ts newSizeTwice): refused, since one of the
+    two sizes would lose its stock. A product already saved that way and left as it is does not stop the save. Run inside
+    the save's transaction, before mergeOnlineSales. */
+export async function sizesNamedTwice(c: { query: PoolClient["query"] }, accountId: string, value: string): Promise<boolean> {
+  const incoming = parse(value);
+  if (!Array.isArray(incoming)) return false;
+  const { rows } = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-products'`, [accountId]);
+  const stored = parse(rows[0]?.value as string | undefined);
+  return newSizeTwice(incoming, Array.isArray(stored) ? stored : []);
 }
 
 /** A merchant's save of his products or coupons: the online sales (or coupon uses) his copy has not seen yet are taken

@@ -32,7 +32,7 @@ import { dropUndos, offerUndo } from "./undo";
 import { PRODUCT_MAX, typedMoney } from "./records";
 import { kindWords } from "./productsContent";
 import { SizesEditor } from "./SizesEditor";
-import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, type ProductKind, type SizeStock } from "./safeOrder";
+import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, sizeTwice, type ProductKind, type SizeStock } from "./safeOrder";
 import { RudeNote } from "./RudeNote";
 import { usePageTitle } from "./pageTitle";
 
@@ -1036,6 +1036,8 @@ function ProductStep({ store, onSave }: StepProps) {
     const savedSizes = sizes.map((z) => ({ name: sizeName(z.name), quantity: Math.max(0, Math.floor(Number(z.quantity) || 0)) })).filter((z) => z.name);
     if (sized) {
       if (!savedSizes.length) next.sizes = kw.errSizes;
+      /* two sizes with the same name would leave one of them without its stock */
+      else if (sizeTwice(savedSizes)) next.sizes = kw.errSizesTwice(sizeTwice(savedSizes));
     } else if (!unlimited && quantity === "") next.quantity = p.errQuantity;
     /* above the most that can be saved: the stock box says so itself (with "Make it unlimited"); this only stops the save */
     else if (stockOverMax(unlimited, quantity)) next.quantity = p.errQuantity;

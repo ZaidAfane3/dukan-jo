@@ -21,7 +21,7 @@ import { StockChoice, stockNeedsAnswer, stockOverMax } from "./StockChoice";
 import { Blocked } from "./designer/controls";
 import { CardPeek, type PeekField } from "./CardPeek";
 import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
-import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, type ProductKind } from "./safeOrder";
+import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, sizeTwice, type ProductKind } from "./safeOrder";
 import type { Lang } from "./content";
 import { dropUndos, listUndo, offerUndo } from "./undo";
 import { usePageTitle } from "./pageTitle";
@@ -581,6 +581,8 @@ export function Products() {
     if (bad.includes("price")) next.price = p.errPrice;
     if (bad.includes("sale")) next.sale = p.errSale;
     if (bad.includes("sizes")) next.sizes = kw.errSizes;
+    /* two sizes with the same name would leave one of them without its stock: each size needs its own name */
+    else if (sized && sizeTwice(sizes)) next.sizes = kw.errSizesTwice(sizeTwice(sizes));
     /* above the limit the stock box says so itself (with "Make it unlimited"); the error only stops the save */
     if (!sized && stockOverMax(draft.unlimited, draft.quantity)) next.quantity = p.errQuantity;
     else if (bad.includes("quantity")) next.quantity = p.errQuantity;
