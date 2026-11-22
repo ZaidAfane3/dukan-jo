@@ -165,10 +165,12 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
        marked is undone or changed to "not delivered" (so a cash order no longer reads as paid either: paidSet) */
     const status = state === "delivered" ? "delivered" : o.ship_state === "delivered" && o.status === "delivered" ? "shipping" : o.status;
     /* a cash order the merchant never confirmed takes its stock once Dukkan delivered it (safeOrder holdsStockAfter; a
-       mark never gives stock back). It was delivered, so this is never refused: each line takes what there is, never
-       below 0, and a cancel gives back exactly that. */
+       mark never gives stock back). A card or CliQ order whose payment he has not marked received yet takes it too: the
+       pieces left with the courier (nothing is marked paid: "Payment received" on his Orders page then takes nothing
+       again). It was delivered, so this is never refused: each line takes what there is, never below 0, and a cancel
+       gives back exactly that. */
     const held = holdsStockNow(o);
-    const holds = holdsStockAfter({ pay: o.payment_method, paid: o.payment_method !== "cash" && o.payment_status === "paid" }, held, o.status, status) || held;
+    const holds = holdsStockAfter({ pay: o.payment_method, paid: o.payment_method !== "cash" && o.payment_status === "paid" }, held, o.status, status) || held || status === "delivered";
     let items: string | null = null;
     if (holds && !held) {
       const m = await moveOrderStock(c, String(o.account_id), o.items, true, false);

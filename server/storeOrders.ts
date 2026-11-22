@@ -420,7 +420,8 @@ export type MerchantStoreOrder = {
   coupon?: { code: string; discount: number };
   delivery: number;
   created: number;
-  /* "paid": a cash order marked delivered; "test": nothing paid yet (cash still to come, or card/CliQ: nothing charged) */
+  /* "paid": a cash order marked delivered, or a card/CliQ order he marked "Payment received"; "test": nothing paid yet
+     (cash still to come, or card/CliQ: nothing charged online and no payment marked received) */
   payment: "test" | "unpaid" | "paid";
   /* only on an order Dukkan Ship delivers: where its delivery is (staff mark it in Diwan), why not delivered, and when */
   ship?: { state: ShipState; note?: string; at?: number };
@@ -449,7 +450,8 @@ function merchantRow(r: Record<string, any>): MerchantStoreOrder {
     delivery: Number(r.delivery_fee),
     created: new Date(r.created_at).getTime(),
     /* worked out from the status and the way to pay, so a cash order delivered before 'paid' was kept reads paid too */
-    payment: r.payment_method === "cash" && r.status === "delivered" ? "paid" : r.payment_status === "unpaid" ? "unpaid" : "test",
+    /* a card or CliQ order is paid once he marked its payment received (confirmStoreOrderPayment) */
+    payment: (r.payment_method === "cash" ? r.status === "delivered" : r.payment_status === "paid") ? "paid" : r.payment_status === "unpaid" ? "unpaid" : "test",
     ...(r.ship_by === "dukkan"
       ? { ship: { state: (SHIP_STATES.includes(r.ship_state) ? r.ship_state : "waiting") as ShipState, ...(r.ship_state === "failed" && r.ship_note ? { note: String(r.ship_note) } : {}), ...(r.ship_at ? { at: new Date(r.ship_at).getTime() } : {}) } }
       : {}),
@@ -623,8 +625,9 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
 /** Confirms that a card or CliQ store order was paid: its stock is taken then (the top of this file), and the
     confirmation is refused ("no-stock", nothing changes) when a product still in the shop no longer has enough for it.
     "invalid" for a cash order (it is paid on delivery) or one cancelled or refunded; "ok" again for one already paid.
-    Nothing calls it yet: no payment is taken online, so every card and CliQ order is a test order (nothing charged) and
-    takes no stock. A payment provider's confirmation, or a "payment received" button, would call this. */
+    No payment is taken online yet, so the merchant's "Payment received" on the Orders page calls it
+    (POST /api/orders/<id>/paid) once the customer paid him; a payment provider's confirmation would call it too. Until
+    then a card or CliQ order takes no stock, whatever status he moves it to. */
 export async function confirmStoreOrderPayment(accountId: string, serverId: string): Promise<StatusResult> {
   if (!/^\d{1,18}$/.test(serverId)) return { result: "none" };
   return inTransaction(undefined, async (c): Promise<StatusResult> => {

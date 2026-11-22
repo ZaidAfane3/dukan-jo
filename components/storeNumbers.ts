@@ -17,24 +17,29 @@ const NOT_SALES: readonly StatusKey[] = ["cancelled", "refunded"];
 export const isSale = (o: Pick<Order, "status">) => !NOT_SALES.includes(o.status);
 
 /** An order as the merchant's pages count it: kept in his browser, or placed on his public store and kept on the server
-    (`payment` "test": placed while payment is not open, so nothing was charged). */
-export type CountedOrder = Order & { payment?: "test" | "unpaid" };
+    (`payment` "test": placed while payment is not open, so nothing was charged; "paid": a card or CliQ store order whose
+    payment he marked received on the Orders page). */
+export type CountedOrder = Order & { payment?: "test" | "unpaid" | "paid" };
 
 /** What an order is worth to the sales numbers (the home page and Reports share this):
     - "none": cancelled or refunded; or placed on the store and paid by card or CliQ, which no payment takes yet (a test
-      order: nothing was charged), so no money came in and none is coming
-    - "sale": a store order delivered (or picked up): the money is in; an order he added himself as soon as the Orders
-      page calls it "Paid" (any status after pending), so the two pages agree
+      order: nothing was charged), so no money came in and none is coming, until he marks its payment received
+    - "sale": a store order delivered (or picked up): the money is in; a card or CliQ store order he marked "Payment
+      received" (whatever its status); an order he added himself as soon as the Orders page calls it "Paid" (any status
+      after pending), so the two pages agree
     - "expected": a store order still on its way (pending, in review, being prepared, out for delivery: cash on
       delivery), or an order he added himself that is still pending */
 export type SaleState = "sale" | "expected" | "none";
 /** A test order: placed on the store (or its preview) and paid by card or CliQ, which no payment takes yet, so nothing
-    was charged. Never a sale, never "expected", never in a money total; counted apart only ("test orders not counted"). */
+    was charged, and he has not marked its payment received. Never a sale, never "expected", never in a money total;
+    counted apart only ("test orders not counted"). */
 export const isTestOrder = (o: Pick<CountedOrder, "channel" | "pay" | "payment">) =>
-  (o.channel === 1 || o.payment === "test") && (o.pay === "card" || o.pay === "cliq");
+  (o.channel === 1 || o.payment === "test") && (o.pay === "card" || o.pay === "cliq") && o.payment !== "paid";
 export function saleState(o: Pick<CountedOrder, "status" | "channel" | "pay" | "payment">): SaleState {
   if (!isSale(o)) return "none";
   if (isTestOrder(o)) return "none";
+  /* a card or CliQ order whose payment he marked received: the money is in */
+  if (o.payment === "paid" && (o.pay === "card" || o.pay === "cliq")) return "sale";
   /* added by hand: the Orders page shows it "Paid" from the first status after pending (Orders.tsx payment line) */
   if (o.channel === 0 && o.payment === undefined) return o.status === "pending" ? "expected" : "sale";
   return o.status === "delivered" ? "sale" : "expected";
