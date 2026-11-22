@@ -88,7 +88,40 @@ export function safeImage(src: unknown): string {
 export const MAX_SIDE = 10_000;
 export const MAX_PIXELS = 40_000_000;
 
-/** The width and height written at the start of a picture, read without opening the picture. */
+/** A GIF's size: its "screen", or more when a frame reaches past it (a browser draws such a frame whole, so a tiny GIF
+    whose screen says 1x1 can open as 12000x12000: testing FZ-04). Every frame's place and size is read by walking the
+    blocks, the way the server's stripGif walks them. Null when the blocks don't read to the end mark. */
+function gifSize(b: Uint8Array): { w: number; h: number } | null {
+  const le16 = (i: number) => b[i] | (b[i + 1] << 8);
+  let w = le16(6);
+  let h = le16(8);
+  /* the length of the little blocks from k, up to and with the 0 that ends them, or -1 */
+  const blocks = (k: number): number => {
+    for (;;) {
+      if (k >= b.length) return -1;
+      const n = b[k];
+      k += 1 + n;
+      if (n === 0) return k;
+    }
+  };
+  let i = 13 + (b[10] & 0x80 ? 3 * 2 ** ((b[10] & 7) + 1) : 0);
+  for (;;) {
+    if (i >= b.length) return null;
+    const t = b[i];
+    if (t === 0x3b) return { w, h };
+    if (t === 0x2c) {
+      if (i + 10 > b.length) return null;
+      w = Math.max(w, le16(i + 1) + le16(i + 5));
+      h = Math.max(h, le16(i + 3) + le16(i + 7));
+      const table = b[i + 9] & 0x80 ? 3 * 2 ** ((b[i + 9] & 7) + 1) : 0;
+      i = blocks(i + 10 + table + 1);
+    } else if (t === 0x21 && i + 2 <= b.length) i = blocks(i + 2);
+    else return null;
+    if (i < 0) return null;
+  }
+}
+
+/** The width and height written at the start of a picture, read without opening the picture (a GIF's: see gifSize). */
 export function imageSize(b: Uint8Array): { w: number; h: number } | null {
   const u16 = (i: number) => (b[i] << 8) | b[i + 1];
   const u32 = (i: number) => ((b[i] << 24) >>> 0) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3];
@@ -96,7 +129,7 @@ export function imageSize(b: Uint8Array): { w: number; h: number } | null {
   const le24 = (i: number) => b[i] | (b[i + 1] << 8) | (b[i + 2] << 16);
   const at = (i: number, s: string) => s.split("").every((ch, k) => b[i + k] === ch.charCodeAt(0));
   if (b.length >= 24 && b[0] === 0x89 && at(12, "IHDR")) return { w: u32(16), h: u32(20) };
-  if (b.length >= 10 && at(0, "GIF8")) return { w: le16(6), h: le16(8) };
+  if (b.length >= 13 && at(0, "GIF8")) return gifSize(b);
   if (b.length >= 30 && at(0, "RIFF") && at(8, "WEBP")) {
     if (at(12, "VP8X")) return { w: le24(24) + 1, h: le24(27) + 1 };
     if (at(12, "VP8L")) return { w: (le16(21) & 0x3fff) + 1, h: (((b[22] >> 6) | (b[23] << 2) | (b[24] << 10)) & 0x3fff) + 1 };
