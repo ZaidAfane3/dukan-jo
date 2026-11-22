@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { latin } from "@/components/digits";
 import { answer, countTry, limitReached, sameOrigin, tooMany, readJsonOr, unreadable } from "@/server/auth";
-import { findStoreAttempt, placeStoreOrder } from "@/server/storeOrders";
+import { findStoreAttempt, placeStoreOrder, previousAttempts } from "@/server/storeOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
        sending empty or broken orders can't use up a store's allowance and lock its real customers out */
     /* a checkout sent again (its answer was lost, or the page was reloaded): its order, if it got in, comes back before
        any limit, and doesn't count again */
-    for (const key of [body.attempt, body.previous]) {
+    for (const key of [body.attempt, ...previousAttempts(body.previous, body.attempt)]) {
       if (typeof key !== "string") continue;
       const before = await findStoreAttempt(p.slug, key);
       if (before.status === 200 && before.body.result === "ok") return answer(before.body, 200);

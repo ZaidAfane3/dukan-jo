@@ -668,6 +668,29 @@ function takeBackRefused(held: Record<string, Held> | undefined, sent: Record<st
   if (notReady) refused("not-ready");
 }
 
+/* A setup refused for its store link (taken by another store, or a reserved name): this browser takes the server's link
+   back into it (none on the server: no link), unless the page changed the setup again since, and the rest of the setup
+   goes again. Left as it was, the refused link would stay in his saved setup, and every later save of the setup would be
+   refused for it (testing S-3). */
+const SETUP = "seen-setup";
+async function takeBackSlug(owner: string | null, mine: string) {
+  const theirs = await serverValue(SETUP);
+  if (theirs === undefined || halted || signedInAs() !== follow(owner)) return;
+  try {
+    const setup = JSON.parse(mine) as Record<string, unknown>;
+    const server = theirs === null ? null : (JSON.parse(theirs) as Record<string, unknown> | null);
+    const slug = server && typeof server.slug === "string" ? server.slug : "";
+    if (!setup || typeof setup !== "object" || setup.slug === slug) return;
+    const back = JSON.stringify({ ...setup, slug });
+    if (!replaceAccountValue(SETUP, back, mine)) return;
+    showAgain(SETUP);
+    window.dispatchEvent(new Event(SETUP));
+    queueSave(SETUP, back);
+  } catch {
+    /* not a setup: the pages read it back as none */
+  }
+}
+
 /* `keep` gets the keys that must stay waiting in the outbox although the server answered (a "changed elsewhere" answer
    that came after this tab's account signed out); `removed`: the keys the save removed */
 function outcome(r: Reply, sent: Record<string, string>, owner: string | null = signedInAs(), keep?: Set<string>, removed: string[] = []): Outcome {
@@ -728,6 +751,7 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
      would not help, so the page says it was not kept (SaveNotice.tsx) */
   if (r.status === 403 || r.status === 409 || r.status === 423 || r.status === 400 || r.status === 413) {
     refused(r.status === 413 ? "too-big" : r.status === 400 ? "invalid" : r.result);
+    if (r.status === 409 && (r.result === "slug-taken" || r.result === "slug-reserved") && typeof sent[SETUP] === "string") void takeBackSlug(owner, sent[SETUP]);
     return "stop";
   }
   /* too many tries, or the server is not ready: later */

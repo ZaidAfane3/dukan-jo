@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { demoOff, demoOffText, useDemo } from "./demoSandbox";
 import { usePrefs } from "./Prefs";
 import { isNewSlug, isPlatformPage, isSlug, reservedForNew, slugDropped, slugDroppedText, SLUG_RULE, typedSlug } from "./safe";
 import { reservedSlugError } from "./safeAccount";
-import { loadSetup, saveSetup } from "./setup";
+import { loadSetup, saveSetup, SETUP_KEY } from "./setup";
+import { SAVE_REFUSED, saveNow } from "./serverSync";
 import { merchantCall, onServer } from "./merchantApi";
 import { STORE_PREFIX, storeUrl } from "./siteAddress";
 import { ShareMenu } from "./ShareMenu";
@@ -39,6 +40,7 @@ const copy = {
     cancel: "Cancel",
     invalid: "Use 3 to 30 letters (a to z), numbers or hyphens. It can't start or end with a hyphen.",
     taken: "This link is taken by another store. Choose another one.",
+    failed: "Couldn't save your store link. Check your connection and try again.",
     saved: "Store link updated",
     noSlug: "You haven't chosen a store link yet. Finish setting up your store to pick one.",
     setup: "Choose link",
@@ -58,6 +60,7 @@ const copy = {
     cancel: "إلغاء",
     invalid: "استخدم من 3 إلى 30 حرفًا لاتينيًا (a-z) أو أرقامًا أو شرطات، ولا يبدأ أو ينتهي بشرطة.",
     taken: "هذا الرابط مستخدم لمتجر آخر. اختر رابطًا غيره.",
+    failed: "تعذّر حفظ رابط متجرك. تحقق من اتصالك وحاول مرة أخرى.",
     saved: "تم تحديث رابط المتجر",
     noSlug: "لم تختر رابط متجرك بعد. أكمل إعداد متجرك لاختياره.",
     setup: "اختيار الرابط",
@@ -109,7 +112,18 @@ export function StoreLink() {
 
   /* only this page shows the link: its undo goes when it closes */
   useEffect(() => () => dropUndos("store-link"), []);
+  /* a save on its way: a second press (Enter, then Save) waits for it */
+  const busy = useRef(false);
   const saveSlug = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      await trySaveSlug();
+    } finally {
+      busy.current = false;
+    }
+  };
+  const trySaveSlug = async () => {
     const v = draft.trim();
     const was = slug;
     /* keeping the link the store already has is always allowed; a different one must be free to choose now */
@@ -118,15 +132,39 @@ export function StoreLink() {
       return;
     }
     /* a store link belongs to one store: a signed-in account asks Dukkan first (the save is refused anyway if taken) */
-    if (onServer() && v !== slug) {
+    const server = onServer() && v !== slug;
+    if (server) {
       const r = await merchantCall(`/api/shop/slug?slug=${encodeURIComponent(v)}`, "GET");
-      if (r?.data.result === "taken") {
-        setSlugError(c.taken);
+      const why = r?.data.result;
+      if (why === "taken" || why === "reserved" || why === "invalid") {
+        setSlugError(why === "taken" ? c.taken : why === "reserved" ? reservedSlugError[lang] : c.invalid);
         return;
       }
     }
     const s = loadSetup();
-    if (s) saveSetup({ ...s, slug: v });
+    if (s) {
+      let before: string | null = null;
+      try {
+        before = localStorage.getItem(SETUP_KEY);
+      } catch {
+        before = null;
+      }
+      saveSetup({ ...s, slug: v });
+      /* on Dukkan's server: sent at once, and "updated" only once the server kept it. Not kept (another store took it
+         meanwhile, a reserved name, no connection): this browser has the server's setup back (saveNow), the page keeps
+         the link it had and says why, so no refused link is left in his saved setup to refuse his later saves (testing S-3) */
+      if (server && before !== null) {
+        let refusedWhy = "";
+        const hear = (e: Event) => (refusedWhy = String((e as CustomEvent<unknown>).detail ?? ""));
+        window.addEventListener(SAVE_REFUSED, hear);
+        const kept = await saveNow(SETUP_KEY, before).finally(() => window.removeEventListener(SAVE_REFUSED, hear));
+        if (!kept) {
+          setSlug(loadSetup()?.slug ?? was);
+          setSlugError(refusedWhy === "slug-taken" ? c.taken : refusedWhy === "slug-reserved" ? reservedSlugError[lang] : c.failed);
+          return;
+        }
+      }
+    }
     setSlug(v);
     setEditing(false);
     setSlugError("");

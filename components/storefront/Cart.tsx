@@ -347,19 +347,22 @@ const SEND_TIMEOUT = 20_000;
    for, so a reload in the middle finds both again: the checkout takes back the details, the way to pay and the coupon
    of that order, and the same order sent again after the reload gets the order already placed, not a second one. */
 const attemptStore = (slug: string) => `dukkan-checkout:${slug.trim().toLowerCase()}`;
-function keptAttempt(slug: string): { key: string; fp: string } | null {
+const ATTEMPT_KEY = /^[A-Za-z0-9-]{16,64}$/;
+function keptAttempt(slug: string): { key: string; fp: string; prev: string[] } | null {
   try {
-    const v = JSON.parse(sessionStorage.getItem(attemptStore(slug)) ?? "null") as { key?: unknown; fp?: unknown } | null;
-    return v && typeof v.key === "string" && /^[A-Za-z0-9-]{16,64}$/.test(v.key) && typeof v.fp === "string" ? { key: v.key, fp: v.fp } : null;
+    const v = JSON.parse(sessionStorage.getItem(attemptStore(slug)) ?? "null") as { key?: unknown; fp?: unknown; prev?: unknown } | null;
+    const prev = Array.isArray(v?.prev) ? v.prev.filter((k): k is string => typeof k === "string" && ATTEMPT_KEY.test(k)).slice(-5) : [];
+    return v && typeof v.key === "string" && ATTEMPT_KEY.test(v.key) && typeof v.fp === "string" ? { key: v.key, fp: v.fp, prev } : null;
   } catch {
     return null;
   }
 }
-/* `fp` is the order as sent (JSON), so it is the order to take back too */
-function keepAttempt(slug: string, v: { key: string; fp: string } | null) {
+/* `fp` is the order as sent (JSON), so it is the order to take back too; `prev`: the keys of the sends before it that
+   got no answer (see previousKey) */
+function keepAttempt(slug: string, v: { key: string; fp: string } | null, prev: string[] = []) {
   if (!slug) return;
   try {
-    if (v) sessionStorage.setItem(attemptStore(slug), JSON.stringify(v));
+    if (v) sessionStorage.setItem(attemptStore(slug), JSON.stringify({ ...v, prev: prev.filter((k) => k !== v.key) }));
     else sessionStorage.removeItem(attemptStore(slug));
   } catch {
     /* storage turned off: the key still holds until the page is left */
@@ -436,17 +439,19 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
      or the details since makes a new key, so the edited order is not answered with the first one. Kept in this tab's
      storage too while it waits, so a reload during the send cannot place a second order (keptAttempt). */
   const attemptKey = useRef<{ key: string; fp: string } | null>(null);
-  /* the key of the order that was on its way when the page was reloaded: sent along (`previous`) until the server has
-     answered once, so if that order got in it is the answer even when the basket changed since (the stock it took makes
-     the reloaded page cut it, which gives this checkout a new key) */
-  const previousKey = useRef<string | null>(null);
+  /* the keys of the earlier sends of this checkout that got no answer: the order that was on its way when the page was
+     reloaded, and a send that timed out (both tries) before he changed something small and pressed Place again. Sent
+     along (`previous`) until an order is in, so if one of them got in it is the answer even when the order changed
+     since (the stock it took makes the reloaded page cut it, an edit gives it a new key), never a second order. A send
+     the server answered (refused, changed) is not kept: it is known not to be in (testing C-1). */
+  const previousKey = useRef<string[]>([]);
   /* asked once the page opens: did it get in? Then the thank-you shows at once (lookedUp) instead of a cut basket */
   const [lookedUp, setLookedUp] = useState<{ order: PlacedAnswer; phone: string; email: string; pay: Pay | null } | null>(null);
   useEffect(() => {
     if (!orderTo) return;
     const kept = keptAttempt(orderTo);
-    attemptKey.current = kept;
-    previousKey.current = kept?.key ?? null;
+    attemptKey.current = kept && { key: kept.key, fp: kept.fp };
+    previousKey.current = kept ? [...kept.prev, kept.key] : [];
     if (!kept) {
       /* his details from his last visit to this store, in this browser (a reload no longer loses what he typed) */
       const d = keptDetails(orderTo);
@@ -464,19 +469,22 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       if (c.pay === "cliq" || c.pay === "cash" || c.pay === "card") setPay(c.pay);
       if (typeof o.coupon === "string" && o.coupon) void applyRemoteCoupon(o.coupon, true);
       const pay0 = c.pay === "cliq" || c.pay === "cash" || c.pay === "card" ? c.pay : null;
-      void fetch(`/api/public/store/${encodeURIComponent(orderTo)}/orders`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lookup: kept.key }),
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((j: { result?: string; order?: PlacedAnswer } | null) => {
-          if (j?.result === "ok" && j.order && typeof j.order.number === "number") setLookedUp({ order: j.order, phone: str(c.phone, 20), email: str(c.email, ORDER_LIMITS.email), pay: pay0 });
-        })
-        .catch(() => {
-          /* no answer: Place still sends `previous`, so the order is found then */
-        });
+      /* each send that got no answer, the latest first: the first one that got in is the thank-you */
+      const ask = (key: string) =>
+        fetch(`/api/public/store/${encodeURIComponent(orderTo)}/orders`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lookup: key }),
+        }).then((r) => (r.ok ? r.json() : null)) as Promise<{ result?: string; order?: PlacedAnswer } | null>;
+      void (async () => {
+        for (const key of [...previousKey.current].reverse()) {
+          const j = await ask(key);
+          if (j?.result === "ok" && j.order && typeof j.order.number === "number") return setLookedUp({ order: j.order, phone: str(c.phone, 20), email: str(c.email, ORDER_LIMITS.email), pay: pay0 });
+        }
+      })().catch(() => {
+        /* no answer: Place still sends `previous`, so the order is found then */
+      });
     } catch {
       /* a damaged entry: a new checkout */
     }
@@ -632,7 +640,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       ships: items.length ? items.some((it) => !products.find((p) => p.id === it.id)?.noShip) : ships,
     });
     attemptKey.current = null;
-    previousKey.current = null;
+    previousKey.current = [];
     keepAttempt(orderTo ?? "", null);
     setTermsFix(null);
     setStep("done");
@@ -672,7 +680,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     };
     const fp = JSON.stringify(order);
     if (attemptKey.current?.fp !== fp) attemptKey.current = { key: checkoutKey(), fp };
-    keepAttempt(orderTo ?? "", attemptKey.current);
+    const prev = previousKey.current.filter((k) => k !== attemptKey.current?.key);
+    keepAttempt(orderTo ?? "", attemptKey.current, prev);
     /* one send, given up after a while; with no answer at all it is sent once more with the same key (if the first one
        got in, the server answers with that order, never a second one) */
     let timedOut = false;
@@ -684,7 +693,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...order, expect: shown, attempt: attemptKey.current?.key, ...(previousKey.current ? { previous: previousKey.current } : {}) }),
+          body: JSON.stringify({ ...order, expect: shown, attempt: attemptKey.current?.key, ...(prev.length ? { previous: prev } : {}) }),
           signal: stop.signal,
         });
         status = r.status;
@@ -704,8 +713,10 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     }
     placing.current = false;
     setSending(false);
-    /* the server answered: it has looked for the reloaded page's order already */
-    if (status) previousKey.current = null;
+    /* no answer to either try, or only a server error (a gateway that gave up waiting): the order may have got in all
+       the same, so its key goes along with the next send even if he changes something before it (a new key then) */
+    const sentKey = attemptKey.current?.key;
+    if ((!status || status >= 500) && sentKey && !previousKey.current.includes(sentKey)) previousKey.current = [...previousKey.current, sentKey].slice(-5);
     if (j.result === "ok" && j.order) {
       shownPlaced(j.order, form.phone, form.email, pay);
       return;
