@@ -7,7 +7,7 @@ import { db } from "@/server/db";
 import { endCodes } from "@/server/emailVerify";
 import { audit, staffRoute } from "@/server/staff";
 import { tellOtherStaff } from "@/server/staffNotice";
-import { emailChangeRef, forgetDevices } from "@/server/staffSignin";
+import { emailApproveRef, emailChangeRef, forgetDevices } from "@/server/staffSignin";
 import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
@@ -98,6 +98,7 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
     await c.query("COMMIT");
     if (action === "email") {
       /* their own email change waiting for a code (if one was started) is given up too */
+      await endCodes(emailApproveRef(id), true);
       await endCodes(emailChangeRef(id), true);
       target = { id, name: String(s.name ?? ""), email: newEmail };
     } else {

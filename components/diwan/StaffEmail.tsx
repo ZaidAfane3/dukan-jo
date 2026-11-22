@@ -7,14 +7,16 @@ import { OwnPasswordField, passwordAgainWords } from "./passwordAgain";
 import { Btn, field, send, useT } from "./ui";
 
 /* A staff member changes their own email (the Staff page, their own row). Their sign-in codes go to it, so the new one
-   counts only once the code sent to it is typed (app/api/diwan/account/email); until then the old one stays, and the
-   old address is told afterwards. Two steps in one dialog: the new email with their own password, then the code. */
+   counts only once two codes are typed (app/api/diwan/account/email): first the one sent to the CURRENT address, which
+   approves the change to that new address, then the one sent to the new address. Until then the old one stays, and the
+   old address is told afterwards. Three steps in one dialog: the new email with their own password, the current
+   address's code, the new address's code. */
 
 const RESEND_SECONDS = 60;
 
 export function ChangeEmailDialog({ current, onClose, onDone }: { current: string; onClose: () => void; onDone: (email: string) => void }) {
   const t = useT();
-  const [step, setStep] = useState<"email" | "code">("email");
+  const [step, setStep] = useState<"email" | "old" | "code">("email");
   const [email, setEmail] = useState("");
   const [myPassword, setMyPassword] = useState("");
   const [code, setCode] = useState("");
@@ -34,7 +36,7 @@ export function ChangeEmailDialog({ current, onClose, onDone }: { current: strin
     /* "slow-down" can be about the password or about sending codes: said for both below */
     const again = r === "password" ? passwordAgainWords(t, data) : null;
     if (again) return again;
-    if (r === "invalid") return step === "code" ? t("Type the 6 digits from the email.", "اكتب الأرقام الستة الموجودة في الرسالة.") : t("Check the email address.", "تحقّق من البريد الإلكتروني.");
+    if (r === "invalid") return step !== "email" ? t("Type the 6 digits from the email.", "اكتب الأرقام الستة الموجودة في الرسالة.") : t("Check the email address.", "تحقّق من البريد الإلكتروني.");
     if (r === "same") return t("This is already your email.", "هذا بريدك الحالي.");
     if (r === "taken") return t("Someone on the staff already has this email.", "يوجد عضو في الفريق بهذا البريد.");
     if (r === "send-failed") return t("We couldn't send the code to this email. Check the address, or try again later.", "تعذّر إرسال الرمز إلى هذا البريد. تحقّق من العنوان، أو حاول مرة أخرى لاحقًا.");
@@ -56,12 +58,25 @@ export function ChangeEmailDialog({ current, onClose, onDone }: { current: strin
       const r = await send("/api/diwan/account/email", "POST", { newEmail: email, myPassword });
       setBusy(false);
       if (!r.ok) return setErr(why(r.data));
-      setStep("code");
+      setMyPassword("");
+      setStep("old");
       setWait(RESEND_SECONDS);
       return;
     }
     const six = code.replace(/\s/g, "");
     if (six.length !== 6) return setErr(t("Type the 6 digits from the email.", "اكتب الأرقام الستة الموجودة في الرسالة."));
+    if (step === "old") {
+      setBusy(true);
+      const r = await send("/api/diwan/account/email", "POST", { oldCode: six, email });
+      setBusy(false);
+      if (!r.ok) return setErr(why(r.data));
+      setCode("");
+      setStep("code");
+      setWait(RESEND_SECONDS);
+      /* approved, but the code to the new address could not go out yet: "Send a new code" tries again */
+      if (r.data?.sent && r.data.sent !== "sent") setErr(why({ result: r.data.sent === "failed" ? "send-failed" : r.data.sent }));
+      return;
+    }
     setBusy(true);
     const r = await send("/api/diwan/account/email", "POST", { code: six });
     setBusy(false);
@@ -82,9 +97,9 @@ export function ChangeEmailDialog({ current, onClose, onDone }: { current: strin
     } else setErr(why(r.data));
   };
 
-  /* closing before the code is typed gives the change up: the email stays as it is */
+  /* closing before the codes are typed gives the change up: the email stays as it is */
   const close = () => {
-    if (step === "code") void send("/api/diwan/account/email", "POST", { cancel: true });
+    if (step !== "email") void send("/api/diwan/account/email", "POST", { cancel: true });
     onClose();
   };
 
@@ -95,11 +110,16 @@ export function ChangeEmailDialog({ current, onClose, onDone }: { current: strin
         step === "email" ? (
           <>
             {t("Your sign-in codes go to your email. Now:", "تصل رموز الدخول إلى بريدك. الآن:")} <bdi dir="ltr">{current}</bdi>.{" "}
-            {t("We send a code to the new address; it counts once you type that code, and your current address is told.", "نرسل رمزًا إلى البريد الجديد، ولا يُعتمد إلا بعد كتابة الرمز، ونخبر بريدك الحالي بالتغيير.")}
+            {t("First we send a code to your current address to approve the change, then a code to the new address. It counts once you type both, and your current address is told.", "نرسل أولًا رمزًا إلى بريدك الحالي للموافقة على التغيير، ثم رمزًا إلى البريد الجديد. لا يُعتمد إلا بعد كتابة الرمزين، ونخبر بريدك الحالي بالتغيير.")}
+          </>
+        ) : step === "old" ? (
+          <>
+            {t("Step 1 of 2: we sent a 6-digit code to your current address", "الخطوة 1 من 2: أرسلنا رمزًا من 6 أرقام إلى بريدك الحالي")} <bdi dir="ltr">{current}</bdi>.{" "}
+            {t("Typing it approves the change to", "كتابته توافق على التغيير إلى")} <bdi dir="ltr">{email.trim()}</bdi>{t(" only. It works for 10 minutes.", " فقط. وهو صالح لمدة 10 دقائق.")}
           </>
         ) : (
           <>
-            {t("We sent a 6-digit code to", "أرسلنا رمزًا من 6 أرقام إلى")} <bdi dir="ltr">{email.trim()}</bdi>.{" "}
+            {t("Step 2 of 2: we sent a 6-digit code to the new address", "الخطوة 2 من 2: أرسلنا رمزًا من 6 أرقام إلى البريد الجديد")} <bdi dir="ltr">{email.trim()}</bdi>.{" "}
             {t("It works for 10 minutes. Until you type it, your email stays as it is.", "وهو صالح لمدة 10 دقائق. يبقى بريدك كما هو حتى تكتبه.")}
           </>
         )
@@ -112,7 +132,7 @@ export function ChangeEmailDialog({ current, onClose, onDone }: { current: strin
         <>
           <Btn type="button" kind="ghost" disabled={busy} onClick={close}>{t("Cancel", "إلغاء")}</Btn>
           <Btn type="submit" disabled={busy}>
-            {busy ? t("Working…", "جارٍ العمل…") : step === "email" ? t("Send the code", "إرسال الرمز") : t("Confirm the new email", "تأكيد البريد الجديد")}
+            {busy ? t("Working…", "جارٍ العمل…") : step === "email" ? t("Send the code", "إرسال الرمز") : step === "old" ? t("Approve the change", "الموافقة على التغيير") : t("Confirm the new email", "تأكيد البريد الجديد")}
           </Btn>
         </>
       }
@@ -129,6 +149,7 @@ export function ChangeEmailDialog({ current, onClose, onDone }: { current: strin
         <>
           <label htmlFor="st-email-code" className="mb-1.5 block text-sm font-medium">{t("6-digit code", "الرمز المكوّن من 6 أرقام")}</label>
           <input
+            key={step}
             id="st-email-code"
             className={`${field} text-center text-xl font-semibold tracking-[0.4em] tabular-nums`}
             dir="ltr"

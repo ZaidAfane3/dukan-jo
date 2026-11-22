@@ -16,10 +16,11 @@ import { cookieLang } from "./lang";
    - "change": a new email in Settings. The account keeps its old email until the new one's code is typed
      (app/api/account/email), so a mistyped address never becomes the account's.
 
-   - "staff-login" / "staff-change": the same for Diwan's staff, every sign-in and a new email (server/staffSignin.ts).
+   - "staff-login" / "staff-change": the same for Diwan's staff, every sign-in and a new email (server/staffSignin.ts);
+     "staff-change-old": a staff member's new email approved first from the current one, as "change-old" is for merchants.
 
    One table, email_codes. `ref` names what a code is for: "s:<signup_pending id>", "l:<session token hash>" or
-   "c:<account id>" (staff: "sl:<waiting sign-in token hash>", "sc:<staff id>"). A code is kept only as an HMAC with
+   "c:<account id>" (staff: "sl:<waiting sign-in token hash>", "sco:<staff id>" then "sc:<staff id>"). A code is kept only as an HMAC with
    the server's key (crypto.ts blind) of its ref, the address it went to and the code (and, for a "change-old" approval,
    the new address it approves); it lives CODE_MINUTES, takes CODE_TRIES tries and works once, and a new code for the same ref ends
    the ones before it once its email went out (so only the newest email's code works; if the new email can't be sent,
@@ -49,7 +50,9 @@ export const SEND_PER_IP = { max: 20, minutes: 60 };
    "staff-login" / "staff-change": Diwan staff's sign-in code and a new email in Diwan (server/staffSignin.ts); their
    words come with them (CodeEmailWords), in the member's saved language or both. */
 export type MerchantCodePurpose = "signup" | "login" | "change" | "twostep" | "change-old";
-export type CodePurpose = MerchantCodePurpose | "staff-login" | "staff-change";
+export type CodePurpose = MerchantCodePurpose | "staff-login" | "staff-change" | "staff-change-old";
+/** The approvals from the current email (merchants' and staff's): each code row names the new address it approves */
+const isApproval = (purpose: string) => purpose === "change-old" || purpose === "staff-change-old";
 /** An email's own words, for codes whose words aren't in codeWords (parts: both languages, server/emailWords.ts bothLangs) */
 export type CodeEmailWords = { subject: string; heading: string; text: string; parts?: EmailPart[] };
 export type CodeLang = "ar" | "en";
@@ -99,7 +102,7 @@ If it wasn't you, don't share this code, and change your password now.`],
 
 /* a "change-old" code also covers the new address it approves (`approves`: its emailKey), so it approves that one only */
 const codeHash = (ref: string, emailHash: string, code: string, approves = "") => blind(`email-code:${ref}:${emailHash}${approves ? `>${approves}` : ""}:${code}`);
-const approvesOf = (purpose: string, newEmail: string | null | undefined) => (purpose === "change-old" && newEmail ? emailKey(newEmail) : "");
+const approvesOf = (purpose: string, newEmail: string | null | undefined) => (isApproval(purpose) && newEmail ? emailKey(newEmail) : "");
 /** The hash a code row must have for `code`: its ref, its address and, for an approval, the address it approves */
 const rowHash = (ref: string, row: { purpose: string; email_hash: string; new_email: string | null }, code: string) =>
   codeHash(ref, row.email_hash, code, approvesOf(row.purpose, row.new_email));
@@ -180,13 +183,13 @@ export async function sendCodeEmail(req: NextRequest, purpose: CodePurpose, ref:
           AND created_at > now() - make_interval(secs => $3) ORDER BY id DESC LIMIT 1`,
       [ref, emailKey(email), RESEND_SECONDS],
     );
-    const want = purpose === "change-old" ? emailKey(approves) : "";
+    const want = isApproval(purpose) ? emailKey(approves) : "";
     /* an approval is reused only for the same new address */
     if (rows[0] && approvesOf(String(rows[0].purpose), rows[0].new_email) === want) return "sent";
     /* an approval asked for another new address: the codes still good for the one before end as soon as the new one is
        written (even if its email can't be sent), so no code approves an address the page no longer shows */
     let endOthers = false;
-    if (purpose === "change-old") {
+    if (isApproval(purpose)) {
       const { rows: live } = await pool.query(`SELECT purpose, new_email FROM email_codes WHERE ${LIVE}`, [ref]);
       endOthers = live.some((x) => approvesOf(String(x.purpose), x.new_email) !== want);
     }
@@ -231,8 +234,8 @@ async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, 
       ref,
       purpose,
       key,
-      purpose === "change" || purpose === "staff-change" ? seal(email) : purpose === "change-old" ? seal(approves) : null,
-      codeHash(ref, key, code, purpose === "change-old" ? emailKey(approves) : ""),
+      purpose === "change" || purpose === "staff-change" ? seal(email) : isApproval(purpose) ? seal(approves) : null,
+      codeHash(ref, key, code, isApproval(purpose) ? emailKey(approves) : ""),
       CODE_MINUTES,
     ],
   );

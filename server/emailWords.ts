@@ -10,7 +10,7 @@ import { moneyText } from "@/components/moneyText";
    - the merchant notices  server/notify.ts, next to the bell's message of the same kind (the bell's own words are in
                            components/content.ts, notifications.server)
    - staffChangeEmail      the Diwan staff routes (app/api/diwan/staff), to the other owners
-   - staffSigninCodeEmail, staffEmailCodeEmail, staffEmailChangedEmail   a staff member's own codes (server/staffSignin.ts)
+   - staffSigninCodeEmail, staffEmailApproveEmail, staffEmailCodeEmail, staffEmailChangedEmail   a staff member's own codes (server/staffSignin.ts)
 
    Notices go out in the language the reader uses Dukkan in (accounts.lang / staff.lang, server/lang.ts): wordsIn. Someone
    whose language isn't saved yet (they haven't signed in since it was) gets both: bothLangs puts the Arabic first and
@@ -313,6 +313,21 @@ export const staffEmailCodeEmail = (lang: EmailLang, minutes: number): EmailWord
         subject: "Confirm your new Diwan email",
         heading: "Confirm your new email",
         text: `Here is the code to confirm your new email address in Diwan.\nType it on the Staff page. It expires in ${minutes} minutes.\nIf you didn't ask for it, you can ignore this email.`,
+      };
+
+/** To a staff member's CURRENT address, to approve a change to a new one (`to`: the new address, partly hidden): the code
+    approves that address only */
+export const staffEmailApproveEmail = (lang: EmailLang, minutes: number, to: string): EmailWords =>
+  lang === "ar"
+    ? {
+        subject: "رمز الموافقة على تغيير بريدك في ديوان",
+        heading: "الموافقة على تغيير البريد",
+        text: `طُلب تغيير بريد حسابك في ديوان إلى ${line(to, 120)}. هذا رمز الموافقة على التغيير، وهو لهذا البريد وحده.\nاكتبه في صفحة الفريق، وينتهي خلال ${minutes} دقائق.\nإذا لم تطلبه فلا تكتبه لأحد، وأخبر مالكًا آخر في الفريق فورًا.`,
+      }
+    : {
+        subject: "Approve the change of your Diwan email",
+        heading: "Approve the email change",
+        text: `Someone asked to change the email of your Diwan account to ${line(to, 120)}. Here is the code to approve it, for that address only.\nType it on the Staff page. It expires in ${minutes} minutes.\nIf it wasn't you, don't share this code, and tell another owner on the team right away.`,
       };
 
 /** To a staff member's OLD address once their email changed (`to`: the new one, partly hidden) */
