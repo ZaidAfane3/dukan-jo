@@ -72,6 +72,15 @@ function decryptRaw(all: Buffer): string | null {
   }
 }
 
+/** What a read gives back for a stored text that starts with the mark, without ever stopping: the opened text, the text
+    itself when it is too short to be a sealed one (open() gives those back as they are), or null when it does not open
+    with this key (open() would stop a production read there). For checks over stored rows (server/orderItemsRepair.ts). */
+export function openedAs(value: string): string | null {
+  const all = Buffer.from(value.slice(MARK.length), "base64");
+  if (all.length < 28) return value;
+  return decryptRaw(all);
+}
+
 /** Decrypts a value from the database (plain old values come back unchanged) */
 export function open(value: string): string;
 export function open(value: string | null | undefined): string | null;

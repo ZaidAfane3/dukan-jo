@@ -3,6 +3,7 @@ import { Pool, type PoolClient } from "pg";
 import { isSealed, open, OPEN_DEPTH } from "./crypto";
 import { ENCRYPT_PLAN, encryptOldRows } from "./encryptData";
 import { cleanOldFiles, moveOldPictures } from "./media";
+import { repairOrderItems } from "./orderItemsRepair";
 import { DIWAN_SCHEMA } from "./schema";
 import { recordSavedThemes } from "./themeOwnership";
 
@@ -139,7 +140,10 @@ export async function db(): Promise<Pool> {
     /* pictures saved inside the stores' data before files existed become files (server/media.ts). In the background:
        requests don't wait for it, and a failure only means it runs again on the next start. */
     .then(() => void moveOldPictures(pool).catch((e) => console.error("[media] moving old pictures", e)))
-    .then(() => void cleanOldFiles(pool).catch((e) => console.error("[media] cleaning old files", e)));
+    .then(() => void cleanOldFiles(pool).catch((e) => console.error("[media] cleaning old files", e)))
+    /* store orders whose lines an undone cancel kept unprotected get them sealed, once (server/orderItemsRepair.ts). In
+       the background too: a failure only means it runs again on the next start. */
+    .then(() => void repairOrderItems(pool).catch((e) => console.error("[orders] repairing order lines", e)));
   try {
     await g.dukkanReady;
   } catch (e) {

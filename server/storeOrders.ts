@@ -569,7 +569,9 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
             const t = taken.lines.find((x) => x.at === at);
             return t && isObj(it) ? { ...it, took: t.took } : it;
           });
-          await c.query(`UPDATE store_orders SET items = $3 WHERE id = $1 AND account_id = $2`, [serverId, accountId, JSON.stringify(next)]);
+          /* the lines came back opened (db.ts), so they are made safe again before they are kept, as when the order was
+             placed: a name typed as "e1:..." is sealed, and reads back exactly as typed (F06) */
+          await c.query(`UPDATE store_orders SET items = $3 WHERE id = $1 AND account_id = $2`, [serverId, accountId, JSON.stringify(plainDeep(next))]);
         } else {
           /* given back with a quantity below zero (safeOrder takeStock): exactly what each line took */
           notBack = stockNotBack(products, lines).map((it) => told({ ...it, qty: it.took }));
