@@ -24,6 +24,8 @@ export type Detail = {
   titles?: { en: string; ar: string };
   /* a document review: the status it left (said even when only the note changed) and the document, when it is still known */
   status?: string; document?: DocumentFacts;
+  /* a staff sign-in: with the emailed code, or the password alone on a remembered browser */
+  via?: "email" | "remembered";
 };
 export type ActivityRow = {
   id: string;
@@ -254,6 +256,9 @@ export function ActivityText({ row }: { row: ActivityRow }) {
     ...(more ? [more] : []),
   ];
   if (typeof d.count === "number" && (row.action === "shops.export" || row.action === "payments.export")) said.push(f.count(d.count, ["row", "rows"], { one: "صف واحد", two: "صفّان", few: "صفوف", many: "صفًا" }));
+  if (row.action === "staff.login" && d.via === "remembered") said.push(t("with the password, on a remembered browser (no code)", "بكلمة المرور، من متصفح محفوظ (دون رمز)"));
+  if (row.action === "staff.login" && d.via === "email") said.push(t("with the password and the emailed code", "بكلمة المرور ورمز البريد"));
+  if (typeof d.count === "number" && row.action === "staff.devices_forgotten") said.push(f.count(d.count, ["browser", "browsers"], { one: "متصفح واحد", two: "متصفحان", few: "متصفحات", many: "متصفحًا" }));
   if (typeof d.count === "number" && row.action === "tickets.canned.save") said.push(f.count(d.count, ["ready reply", "ready replies"], { one: "رد جاهز واحد", two: "ردّان جاهزان", few: "ردود جاهزة", many: "ردًا جاهزًا" }));
   return (
     <>

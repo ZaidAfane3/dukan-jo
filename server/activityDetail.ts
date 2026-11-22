@@ -18,6 +18,8 @@ export type Detail = {
   titles?: { en: string; ar: string };
   /* a document review: the status it left (said even when only the note changed) and the document, when it is still known */
   status?: string; document?: DocumentFacts;
+  /* a staff sign-in: with the emailed code, or the password alone on a remembered browser */
+  via?: "email" | "remembered";
 };
 export type ActivityRow = {
   id: string;
@@ -89,6 +91,10 @@ function detailOf(action: string, meta: Record<string, unknown> | null, staffNam
     }
     case "shop.payment":
       return { amount: str(m.amount) ?? undefined, method: str(m.method) ?? undefined };
+    case "staff.login":
+      return m.twoStep === "remembered" ? { via: "remembered" } : m.twoStep === "email" ? { via: "email" } : null;
+    case "staff.devices_forgotten":
+      return typeof m.count === "number" ? { count: m.count } : null;
     case "staff.email_changed":
       return { changes: [{ field: "email", from: str(m.from), to: str(m.to) }] };
     case "staff.add":

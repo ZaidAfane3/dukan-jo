@@ -5,13 +5,15 @@ import { answer, hashPassword, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { tellOtherStaff } from "@/server/staffNotice";
+import { forgetDevices } from "@/server/staffSignin";
 import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
 /* One change to a staff member, sent as { action, ... } (every staff member is an owner: Diwan has no roles):
-     active    { active: boolean }              deactivate (signs them out everywhere) or bring back
-     password  { password }                     a new temporary password; they choose their own at the next sign-in
+     active    { active: boolean }              deactivate (signs them out everywhere, forgets their browsers) or bring back
+     password  { password }                     a new temporary password (signs them out, forgets their browsers); they
+                                                choose their own at the next sign-in
    Diwan always keeps one staff member who can sign in, and nobody can take away their own access here.
    (The 2-step reset is gone since 2026-11-22: the codes come by email, with nothing to reset.)
    Taking access away and the password reset need the acting member's own password with them ({ myPassword }), so nobody can
@@ -54,7 +56,11 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
       const others = await c.query(`SELECT id FROM staff WHERE active AND id <> $1 FOR UPDATE`, [id]);
       return others.rowCount === 0;
     };
-    const signOutEverywhere = () => c.query(`DELETE FROM staff_sessions WHERE staff_id = $1`, [id]);
+    /* every session ends, and every remembered browser asks for the emailed code again (server/staffSignin.ts) */
+    const signOutEverywhere = async () => {
+      await c.query(`DELETE FROM staff_sessions WHERE staff_id = $1`, [id]);
+      await forgetDevices(id, { q: c });
+    };
 
     if (action === "active") {
       if (typeof body?.active !== "boolean") throw new Bad("invalid");

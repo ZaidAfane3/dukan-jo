@@ -963,4 +963,19 @@ export const DIWAN_SCHEMA = `
     expires_at    TIMESTAMPTZ NOT NULL
   );
   CREATE INDEX IF NOT EXISTS staff_signins_staff ON staff_signins (staff_id);
+  /* ---------- Diwan: remembered browsers (server/staffSignin.ts, owner decision 2026-11-22) ----------
+     staff_devices: a browser where the member typed the emailed code; there the password alone signs them in later.
+     The browser holds the token (cookie dukkan-diwan-device, sent only to the /api/diwan/auth routes); only its hash is kept.
+     password_hash / email_hash: the account's when it was remembered; the row works only while the account still has
+     both. A password change, an email change and taking access away delete the member's rows. 365 days, 10 a member. */
+  CREATE TABLE IF NOT EXISTS staff_devices (
+    token_hash    TEXT PRIMARY KEY,
+    staff_id      BIGINT NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL,
+    email_hash    TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at    TIMESTAMPTZ NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS staff_devices_staff ON staff_devices (staff_id, last_used_at DESC);
 `;

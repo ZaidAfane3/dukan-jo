@@ -6,13 +6,14 @@ import { emailKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { checkCodeFor } from "@/server/emailVerify";
 import { audit, startStaffSession } from "@/server/staff";
-import { endSignin, sendSigninCode, staffCodesOn, waitingSignin } from "@/server/staffSignin";
+import { endSignin, forgetDevices, rememberDevice, sendSigninCode, staffCodesOn, waitingSignin } from "@/server/staffSignin";
 
 export const dynamic = "force-dynamic";
 
 /* The second step of a staff sign-in (after app/api/diwan/auth/login answered step "code"): the 6-digit code emailed to
    the member (server/staffSignin.ts). Only the browser holding the waiting sign-in's cookie gets here.
-   - POST { code, newPassword? }: right: the staff session starts (signed in) and the email counts as confirmed. With a
+   - POST { code, newPassword? }: right: the staff session starts (signed in), the email counts as confirmed and this
+     browser is remembered (server/staffSignin.ts rememberDevice: next time here, the password alone). With a
      temporary password, the member's own new password comes with the code (checked first, so a typo in it costs no code
      try). Answers "ok", "wrong", "expired" (send a new code / use the newest email), "too-many" (this code's 5 tries:
      send a new one), "locked" (too many wrong codes this hour), "weak" / "same" (the new password), "gone" (no sign-in
@@ -80,8 +81,10 @@ export const POST = guarded(async (req: NextRequest) => {
        keeps nothing (none of them was ever signed in: a temporary password never opened Diwan without this step) */
     await pool.query(`DELETE FROM staff_sessions WHERE staff_id = $1`, [w.staffId]);
     await pool.query(`DELETE FROM staff_signins WHERE staff_id = $1`, [w.staffId]);
+    await forgetDevices(w.staffId);
   }
   if (!(await startStaffSession(res, req, w.staffId, hash, true))) return gone();
+  await rememberDevice(res, req, w.staffId, hash);
   await pool.query(`UPDATE staff SET last_login_at = now() WHERE id = $1`, [w.staffId]);
   /* the code reached this address: it is confirmed now (an owner typed it when adding the member) */
   const confirmed = await pool.query(
