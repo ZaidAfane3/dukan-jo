@@ -3,7 +3,7 @@ import { db } from "./db";
 import { emailOn, sendEmailSoon } from "./email";
 import {
   documentStatusEmail, type EmailLang, type EmailWords, orderPlacedEmail, shipFailedEmail, shopReactivatedEmail, shopSuspendedEmail,
-  ticketRepliedEmail, wordsIn,
+  ticketRepliedEmail, twoStepOffEmail, wordsIn,
 } from "./emailWords";
 
 /* Puts a message in a merchant's bell (the notifications table). The bell shows it in their language from the kind and
@@ -20,12 +20,13 @@ import {
      shipCityGone    { city }                   Dukkan Ship no longer picks up from the store's pickup city (Diwan took
                                                 it off the list: app/api/diwan/settings)
      payOff          {}                         Diwan switched off the last way to pay the store had on
+     twoStepOff      {}                         Diwan turned the merchant's 2-step sign-in off (app/api/diwan/shops/[id]/totp)
    Dukkan has no plans or free trial, so the old planChanged kind is no longer sent, and "Log in as merchant" was removed
    on 2026-11-16, so neither is the old supportViewed kind (the bell still words both for older messages). Announcements are not sent with
    this: they are rows in announcements, shown to whoever they are for. */
 export type NotifyKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "paymentReceived" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff";
+  | "paymentReceived" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff" | "twoStepOff";
 
 /* the free-text details (a ticket's subject, a staff note, a suspension reason) are stored encrypted; numbers, kinds
    and statuses stay plain so the bell can find a ticket's notices. db() opens them again on the way out. */
@@ -51,7 +52,7 @@ export function emailNotice(accountId: string | number, kind: NotifyKind, params
 /* The kinds that also go to the owner's email (their words: server/emailWords.ts). The others stay in the bell only.
    Each email is in the owner's saved language (accounts.lang, server/lang.ts), or in Arabic then English while none is saved.
    Sent with sendEmailSoon: never waited for and never thrown, so an email can't slow down or undo what caused it. */
-const EMAILED = new Set<NotifyKind>(["orderPlaced", "ticketReplied", "documentStatus", "shopSuspended", "shopReactivated", "shipFailed"]);
+const EMAILED = new Set<NotifyKind>(["orderPlaced", "ticketReplied", "documentStatus", "shopSuspended", "shopReactivated", "shipFailed", "twoStepOff"]);
 
 type Params = Record<string, string | number>;
 
@@ -72,6 +73,8 @@ function wordsFor(kind: NotifyKind, p: Params): Words | null {
       return (l) => shopReactivatedEmail(l);
     case "shipFailed":
       return (l) => shipFailedEmail(l, { number: p.number, note: String(p.note ?? "") });
+    case "twoStepOff":
+      return (l) => twoStepOffEmail(l);
     default:
       return null;
   }

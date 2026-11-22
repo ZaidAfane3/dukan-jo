@@ -6,7 +6,7 @@ import { field } from "./ui";
 
 /* The staff member's own password, typed again with a change that needs it (server/staffConfirm.ts passwordAgain):
    another member's password or 2-step code reset, a member's access taken away, a member added, a store suspended or
-   reactivated, a payment recorded, a merchant's 2-step code turned off, the store list exported. The page sends it with
+   reactivated, a payment recorded, a merchant's 2-step code turned off, the store list or the payments exported. The page sends it with
    the change as { myPassword }; it is never kept. */
 
 type T = (en: string, ar: string) => string;

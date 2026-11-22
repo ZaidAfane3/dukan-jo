@@ -10,8 +10,9 @@ import { usePrefs } from "@/components/Prefs";
 import { arCount } from "@/components/undo";
 import { ContactButton } from "@/components/diwan/Contact";
 import { ShopAndOwner } from "@/components/diwan/shopBits";
-import { area, Badge, Btn, card, field, Loaded, send, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { area, Badge, Btn, card, field, Loaded, refusedWords, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { ChatSkeleton } from "@/components/diwan/skeletons";
+import { BACKGROUND, toSignIn } from "@/components/diwan/signInAgain";
 import { ticketPicture } from "@/components/diwan/TicketBits";
 import { CATEGORY, KIND, PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER, systemLine, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 
@@ -102,9 +103,11 @@ function TicketView({ first }: { first: Data }) {
   const refresh = useCallback(async () => {
     const n = ++asked.current;
     try {
-      const r = await fetch(`/api/diwan/tickets/${first.ticket.number}`, { credentials: "same-origin", cache: "no-store" });
+      /* a load the page makes by itself, not something the staff member did: it does not keep the session from
+         ending after 60 minutes with nothing done (server/staff.ts staffFromToken) */
+      const r = await fetch(`/api/diwan/tickets/${first.ticket.number}`, { credentials: "same-origin", cache: "no-store", headers: BACKGROUND });
       if (r.status === 401) {
-        window.location.href = "/diwan/login";
+        toSignIn();
         return;
       }
       const j = r.ok ? await r.json() : null;
@@ -178,11 +181,10 @@ function TicketView({ first }: { first: Data }) {
       /* back to what is really saved */
       setPending((p) => ({ ...p, [k]: undefined }));
       setErr(
-        r.status === 403
-          ? t("Your role can't change this, or the page is out of date. Reload it and try again.", "دورك لا يسمح بهذا التغيير، أو الصفحة قديمة. أعد تحميلها وحاول مجددًا.")
-          : offline(r.status) || r.ok
+        refusedWords(t, r) ??
+          (offline(r.status) || r.ok
             ? t("It could not be saved. Check the connection and try again.", "تعذّر الحفظ. تحقّق من الاتصال وحاول مرة أخرى.")
-            : t("The change was not saved. Try again.", "لم يُحفظ التغيير. حاول مجددًا."),
+            : t("The change was not saved. Try again.", "لم يُحفظ التغيير. حاول مجددًا.")),
       );
     } else {
       setSaved(k);

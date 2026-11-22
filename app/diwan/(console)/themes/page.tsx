@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { askConfirm } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { THEME_CHECKOUT_CHARGES } from "@/components/diwan/platformSettings";
 import { ThemesSkeleton } from "@/components/diwan/skeletons";
 import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
 import { ThemePreview } from "@/components/ThemePreview";
@@ -290,7 +291,8 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
               <div className="grid grid-cols-3 gap-2">
                 <Num label={t("Stores using it", "متاجر تستخدمه")} value={f.num(n.stores)} />
                 <Num label={t("Bought", "مرات الشراء")} value={f.num(n.bought)} />
-                <Num label={t("Money in", "الدخل")} value={f.jod(n.revenue)} />
+                {/* the theme checkout takes no money yet (THEME_CHECKOUT_CHARGES): a theme bought brought nothing in */}
+                <Num label={t("Money in", "الدخل")} value={THEME_CHECKOUT_CHARGES ? f.jod(n.revenue) : t("Not charged", "لم يُدفع")} />
               </div>
               <div className="space-y-2">
                 <p className="text-sm font-bold">{t("Where it is", "أين هو الآن")}</p>

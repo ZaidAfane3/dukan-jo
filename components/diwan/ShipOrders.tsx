@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { askConfirm, Dialog } from "./dialogs";
-import { area, Badge, Btn, card, Empty, field, Loaded, LoadMore, send, useFmt, useMore, useT, type Tone } from "./ui";
+import { area, Badge, Btn, card, Empty, field, Loaded, LoadMore, refusedWords, send, useFmt, useMore, useT, type Tone } from "./ui";
 
 /* Dukkan Ship's orders: every customer order of a store that delivers with Dukkan Ship, for Dukkan's staff to pick up
    at the store and deliver. Staff mark each one delivered or not delivered (with the reason). Marking it delivered
@@ -330,7 +330,8 @@ function useWhy() {
     const res = r.data?.result;
     if (res === "cancelled" || r.status === 409) return t("Not saved: the store cancelled or refunded this order.", "لم يُحفظ: ألغى المتجر هذا الطلب أو استرجعه.");
     if (res === "none" || r.status === 404) return t("Not saved: this order is no longer there.", "لم يُحفظ: هذا الطلب لم يعد موجودًا.");
-    if (res === "not-allowed" || r.status === 403) return t("Your role can't mark deliveries. Ask an owner if you need it.", "دورك لا يسمح بتعليم التوصيل. اطلب من المالك إن احتجت إليه.");
+    const refused = refusedWords(t, r);
+    if (refused) return `${t("Not saved:", "لم يُحفظ:")} ${refused}`;
     if (res === "invalid" || r.status === 400) return t("Not saved: the server refused this. Check the reason.", "لم يُحفظ: رفض الخادم هذا. تحقق من السبب.");
     return t("Not saved. Try again.", "لم يُحفظ. حاول مجددًا.");
   };

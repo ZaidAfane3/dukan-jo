@@ -8,6 +8,7 @@ import { LangSwitch, ThemeToggle } from "../Prefs";
 import { DiwanMark, GROUP_ICON, Icon, iconForPath } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS, type NavGroup } from "./nav";
 import { can, type Role } from "./perms";
+import { DraftsBack, forgetDrafts } from "./signInAgain";
 import { send, StaffContext, useT } from "./ui";
 
 export type ShellStaff = { name: string; email: string; role: Role };
@@ -55,6 +56,7 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
 
   const signOut = async () => {
     await send("/api/diwan/auth/logout", "POST");
+    forgetDrafts();
     window.location.href = "/diwan/login";
   };
 
@@ -264,6 +266,8 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
             </div>
           )}
           <main className="min-w-0 flex-1 px-4 pb-16 pt-8 sm:px-8 lg:px-12">{children}</main>
+          {/* the text typed before the session ended, put back after signing in again */}
+          <DraftsBack page={path} />
         </div>
       </div>
     </StaffContext.Provider>

@@ -73,7 +73,7 @@ export async function forgetConfirmation(req: NextRequest): Promise<void> {
 /* Changes that could let one staff member act as another, or that reach a merchant or every merchant's contacts, need the
    acting staff member's own password typed again with them, sent in the same request as { myPassword }: resetting
    another member's password or 2-step code, taking a member's access away, adding a member, suspending or reactivating
-   a store, recording a payment, turning a merchant's 2-step code off and exporting the store list. Nothing is kept on
+   a store, recording a payment, turning a merchant's 2-step code off and exporting the store list or the payments. Nothing is kept on
    the session (unlike the legal pages' unlock above): each change asks again. Five wrong passwords per staff member
    (or ten per address) and that member waits 15 minutes before the next try; a right one forgets them, so a staff member
    doing many of these changes in a row is never slowed down. */

@@ -8,6 +8,7 @@ import { ArchOutline, type IconName } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS } from "./nav";
 import type { Role } from "./perms";
 import { timeoutSignal } from "../timeoutSignal";
+import { toSignIn } from "./signInAgain";
 
 /* Diwan's shared building blocks, so every page looks and behaves the same. Every page reads live data from
    /api/diwan/... with useApi; there is no sample data anywhere in Diwan. Merchant text is always shown as plain text
@@ -26,7 +27,8 @@ export function useT() {
 
 export type ApiState<T> = { data: T | null; error: string | null; loading: boolean; reload: () => void };
 
-/** Loads JSON from a Diwan API route. A signed-out answer sends the page to the sign-in. */
+/** Loads JSON from a Diwan API route. A signed-out answer sends the page to the sign-in, keeping the text typed on it
+    and coming back here afterwards (signInAgain.tsx toSignIn). */
 export function useApi<T>(url: string | null): ApiState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export function useApi<T>(url: string | null): ApiState<T> {
     fetch(url, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000, stop.signal) })
       .then(async (r) => {
         if (r.status === 401) {
-          window.location.href = "/diwan/login";
+          toSignIn();
           return;
         }
         const j = await r.json().catch(() => null);
@@ -105,8 +107,19 @@ export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELE
   } catch {
     return { ok: false, status: 0, data: null };
   }
-  if (r.status === 401) window.location.href = "/diwan/login";
+  if (r.status === 401) toSignIn();
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
+}
+
+/** What a refusal of the sign-in or of the request itself means, in words (null for any other answer). Diwan has no
+    roles, so a 403 is not about what someone may do: "forbidden" is a change sent from a page opened at another address
+    or left open from before (server/auth.ts sameOrigin), "not-allowed" what the account can't do; a 401 is a session
+    that ended (the page is on its way to the sign-in). */
+export function refusedWords(t: (en: string, ar: string) => string, r: { status: number; data: any }): string | null {
+  if (r.status === 401) return t("You were signed out. Sign in again and try once more.", "انتهت جلستك. سجّل الدخول مجددًا وحاول مرة أخرى.");
+  if (r.status !== 403) return null;
+  if (r.data?.result === "not-allowed") return t("This account can't do this.", "لا يستطيع هذا الحساب القيام بذلك.");
+  return t("This page is out of date or was opened from another address. Reload it from Dukkan's own address and try again.", "هذه الصفحة قديمة أو فُتحت من عنوان آخر. أعد تحميلها من عنوان دكّان نفسه وحاول مجددًا.");
 }
 
 /* ---------------- formatting ---------------- */
@@ -550,7 +563,7 @@ export function useMore<T extends { rows: unknown[] }>(url: string | null, nextO
     fetch(`${url}${url.includes("?") ? "&" : "?"}${next}`, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000) })
       .then(async (r) => {
         if (r.status === 401) {
-          window.location.href = "/diwan/login";
+          toSignIn();
           return;
         }
         const j = (await r.json().catch(() => null)) as T | null;

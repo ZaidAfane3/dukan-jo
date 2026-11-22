@@ -56,8 +56,10 @@ export async function verifyStaffSession(req: NextRequest): Promise<void> {
   if (token) await (await db()).query(`UPDATE staff_sessions SET verified = true WHERE token_hash = $1`, [tokenHash(token)]);
 }
 
-/** The staff member behind a cookie token, and whether the 2-step code was given. Also usable from server components. */
-export async function staffFromToken(token: string | undefined): Promise<(Staff & { verified: boolean }) | null> {
+/** The staff member behind a cookie token, and whether the 2-step code was given. Also usable from server components.
+    `touch: false` for a page's own background load (a ticket looked at again every few seconds): it is answered, but
+    it is not counted as use, so a page left open still ends the session after IDLE_MIN with nothing done. */
+export async function staffFromToken(token: string | undefined, { touch = true }: { touch?: boolean } = {}): Promise<(Staff & { verified: boolean }) | null> {
   if (!token || token.length > 100) return LOCAL_DEV ? devOwner() : null;
   const pool = await db();
   /* read first; the last use is written only when it is more than a minute old, so a console page's many requests
@@ -69,7 +71,7 @@ export async function staffFromToken(token: string | undefined): Promise<(Staff 
         AND ss.expires_at > now() AND ss.last_used_at > now() - make_interval(mins => $2)`,
     [tokenHash(token), IDLE_MIN],
   );
-  if (rows[0]?.stale) await pool.query(`UPDATE staff_sessions SET last_used_at = now() WHERE token_hash = $1`, [tokenHash(token)]);
+  if (touch && rows[0]?.stale) await pool.query(`UPDATE staff_sessions SET last_used_at = now() WHERE token_hash = $1`, [tokenHash(token)]);
   const s = rows[0];
   /* locally, a sign-in left halfway (no code given yet) doesn't stop the dev owner either */
   if (!s || (LOCAL_DEV && !s.verified)) return LOCAL_DEV ? devOwner() : null;
@@ -106,7 +108,9 @@ function devOwner(): Promise<Staff & { verified: boolean }> {
   return gDev.diwanDevOwner;
 }
 
-export const currentStaff = (req: NextRequest) => staffFromToken(req.cookies.get(STAFF_COOKIE)?.value);
+/* a load the page made by itself sends X-Diwan-Background: 1 (components/diwan/signInAgain.tsx BACKGROUND) */
+export const currentStaff = (req: NextRequest) =>
+  staffFromToken(req.cookies.get(STAFF_COOKIE)?.value, { touch: req.headers.get("x-diwan-background") !== "1" });
 
 /* ---------------- routes ---------------- */
 

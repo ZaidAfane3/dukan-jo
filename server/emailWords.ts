@@ -215,6 +215,25 @@ export const shipFailedEmail = (lang: EmailLang, p: { number: number | string; n
       };
 };
 
+/** Dukkan's team turned the merchant's 2-step sign-in off (they could no longer get its codes): a safety notice, so a
+    merchant who never asked for it knows at once */
+export const twoStepOffEmail = (lang: EmailLang): EmailWords => {
+  const button = { label: lang === "ar" ? "افتح الإعدادات" : "Open Settings", url: link("/settings#two-step") };
+  return lang === "ar"
+    ? {
+        subject: "أوقف دكّان التحقق بخطوتين في حسابك",
+        heading: "أُوقف التحقق بخطوتين",
+        text: "أوقف فريق دكّان التحقق بخطوتين في حسابك، فصار الدخول بكلمة المرور وحدها.\nيمكنك تشغيله من جديد من الإعدادات.\nإذا لم تطلب هذا، فغيّر كلمة المرور الآن وتواصل مع دعم دكّان.",
+        button,
+      }
+    : {
+        subject: "Dukkan turned off 2-step sign-in on your account",
+        heading: "2-step sign-in is off",
+        text: "Dukkan's team turned off 2-step sign-in on your account, so you now sign in with your password alone.\nYou can turn it on again in Settings.\nIf you did not ask for this, change your password now and contact Dukkan support.",
+        button,
+      };
+};
+
 /* ---------------- Diwan: a change to the staff, to the other owners ---------------- */
 
 export type StaffChange = "added" | "deactivated" | "reactivated" | "passwordReset" | "twoStepReset";
