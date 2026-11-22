@@ -12,6 +12,7 @@ import { ContactButton } from "@/components/diwan/Contact";
 import { ShopAndOwner } from "@/components/diwan/shopBits";
 import { area, Badge, Btn, card, field, Loaded, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { ChatSkeleton } from "@/components/diwan/skeletons";
+import { BACKGROUND, toSignIn } from "@/components/diwan/signInAgain";
 import { ticketPicture } from "@/components/diwan/TicketBits";
 import { CATEGORY, KIND, PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER, systemLine, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 
@@ -102,9 +103,11 @@ function TicketView({ first }: { first: Data }) {
   const refresh = useCallback(async () => {
     const n = ++asked.current;
     try {
-      const r = await fetch(`/api/diwan/tickets/${first.ticket.number}`, { credentials: "same-origin", cache: "no-store" });
+      /* a load the page makes by itself, not something the staff member did: it does not keep the session from
+         ending after 60 minutes with nothing done (server/staff.ts staffFromToken) */
+      const r = await fetch(`/api/diwan/tickets/${first.ticket.number}`, { credentials: "same-origin", cache: "no-store", headers: BACKGROUND });
       if (r.status === 401) {
-        window.location.href = "/diwan/login";
+        toSignIn();
         return;
       }
       const j = r.ok ? await r.json() : null;

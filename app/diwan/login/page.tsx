@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { safeNext } from "@/components/diwan/safeNext";
 import { STAFF_COOKIE, staffFromToken } from "@/server/staff";
 import { LoginForm } from "./LoginForm";
 
@@ -12,9 +13,11 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/* Staff sign-in, outside the console's frame. Someone already signed in (with the 2-step code) goes straight in. */
-export default async function DiwanLoginPage() {
+/* Staff sign-in, outside the console's frame. Someone already signed in (with the 2-step code) goes straight in, to the
+   page they were sent here from (?next=, a Diwan page only: components/diwan/safeNext.ts). */
+export default async function DiwanLoginPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const s = await staffFromToken((await cookies()).get(STAFF_COOKIE)?.value).catch(() => null);
-  if (s?.verified) redirect("/diwan");
+  const next = (await searchParams).next;
+  if (s?.verified) redirect(safeNext(typeof next === "string" ? next : null));
   return <LoginForm />;
 }

@@ -6,6 +6,7 @@ import { LangSwitch, ThemeToggle } from "@/components/Prefs";
 import { DiwanMark } from "@/components/diwan/icons";
 import { PAPER } from "@/components/diwan/Shell";
 import { passwordWords, STAFF_2FA_REQUIRED, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
+import { nextPage } from "@/components/diwan/signInAgain";
 import { Btn, field, useT } from "@/components/diwan/ui";
 import { latin } from "@/components/digits";
 
@@ -81,7 +82,7 @@ export function LoginForm() {
       setMustChange(!!r.data.mustChange);
       setCode("");
       if (r.data.step === "done") {
-        window.location.href = "/diwan";
+        window.location.href = nextPage();
         return;
       }
       if (r.data.step === "new-password") setStep("new-password");
@@ -105,7 +106,7 @@ export function LoginForm() {
     setBusy(true);
     const r = await post("/api/diwan/auth/totp", { ...(step === "new-password" ? {} : { code: code.replace(/\s/g, "") }), ...(mustChange ? { newPassword } : {}) });
     if (r.data?.result === "ok") {
-      window.location.href = "/diwan";
+      window.location.href = nextPage();
       return;
     }
     setBusy(false);

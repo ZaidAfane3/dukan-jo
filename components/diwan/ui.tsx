@@ -8,6 +8,7 @@ import { ArchOutline, type IconName } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS } from "./nav";
 import type { Role } from "./perms";
 import { timeoutSignal } from "../timeoutSignal";
+import { toSignIn } from "./signInAgain";
 
 /* Diwan's shared building blocks, so every page looks and behaves the same. Every page reads live data from
    /api/diwan/... with useApi; there is no sample data anywhere in Diwan. Merchant text is always shown as plain text
@@ -26,7 +27,8 @@ export function useT() {
 
 export type ApiState<T> = { data: T | null; error: string | null; loading: boolean; reload: () => void };
 
-/** Loads JSON from a Diwan API route. A signed-out answer sends the page to the sign-in. */
+/** Loads JSON from a Diwan API route. A signed-out answer sends the page to the sign-in, keeping the text typed on it
+    and coming back here afterwards (signInAgain.tsx toSignIn). */
 export function useApi<T>(url: string | null): ApiState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export function useApi<T>(url: string | null): ApiState<T> {
     fetch(url, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000, stop.signal) })
       .then(async (r) => {
         if (r.status === 401) {
-          window.location.href = "/diwan/login";
+          toSignIn();
           return;
         }
         const j = await r.json().catch(() => null);
@@ -105,7 +107,7 @@ export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELE
   } catch {
     return { ok: false, status: 0, data: null };
   }
-  if (r.status === 401) window.location.href = "/diwan/login";
+  if (r.status === 401) toSignIn();
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
 }
 
@@ -550,7 +552,7 @@ export function useMore<T extends { rows: unknown[] }>(url: string | null, nextO
     fetch(`${url}${url.includes("?") ? "&" : "?"}${next}`, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000) })
       .then(async (r) => {
         if (r.status === 401) {
-          window.location.href = "/diwan/login";
+          toSignIn();
           return;
         }
         const j = (await r.json().catch(() => null)) as T | null;
