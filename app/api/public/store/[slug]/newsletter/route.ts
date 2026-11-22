@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { answer, limitReached, countTry, sameOrigin, tooMany, readJsonOr, unreadable } from "@/server/auth";
+import { answer, reserveTry, sameOrigin, tooMany, readJsonOr, unreadable } from "@/server/auth";
 import { newsletterSignup } from "@/server/storeSignups";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +25,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     if (!("body" in read)) return unreadable(read.why);
     /* per store, from every visitor together: only sign-ups that went through count */
     const shopKey = `store-newsletter-shop:${String(p.slug ?? "").toLowerCase().slice(0, 64)}`;
-    if (limitReached(shopKey, 300, 60)) return answer({ result: "slow-down" }, 429);
-    const r = await newsletterSignup(p.slug, read.body);
-    if (r.status === 200) countTry(shopKey, 60);
-    return answer(r.body, r.status);
+    /* taken before the database wait, so requests sent at the same moment can't all pass the look; given back when
+       nothing was kept (as store orders, F10) */
+    const back = reserveTry(shopKey, 300, 60);
+    if (!back) return answer({ result: "slow-down" }, 429);
+    let r: Awaited<ReturnType<typeof newsletterSignup>> | null = null;
+    try {
+      r = await newsletterSignup(p.slug, read.body);
+      return answer(r.body, r.status);
+    } finally {
+      if (r?.status !== 200) back();
+    }
   } catch (e) {
     console.error("[store newsletter]", p.slug, e);
     return answer({ result: "error" }, 503);

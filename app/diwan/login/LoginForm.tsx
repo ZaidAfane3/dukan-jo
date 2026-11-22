@@ -12,7 +12,8 @@ import { latin } from "@/components/digits";
 
 /* The staff sign-in: email and password, then the 6-digit code Diwan emails to the member's address on file
    (server/staffSignin.ts), with "Send a new code" (a minute between codes). A temporary password given by an owner is
-   replaced in the same step as the code. Nobody is signed in before the code is right.
+   replaced in the same step as the code. Nobody is signed in before the code is right. A browser where the code was
+   typed is remembered: there, next time, the password alone signs in (the server answers step "done").
    While Diwan has no staff at all, the first owner can be made here with the server's setup key.
    The look is kept quiet on purpose: Diwan's mark and name, one card with a title and a line under it, plain labels
    over plain fields, one button. */
@@ -90,6 +91,10 @@ export function LoginForm() {
     setBusy(true);
     setError("");
     const r = await post("/api/diwan/auth/login", { email, password });
+    if (r.data?.result === "ok" && r.data.step === "done") {
+      window.location.href = nextPage();
+      return;
+    }
     setBusy(false);
     if (r.data?.result === "ok" && r.data.step === "code") {
       setMustChange(!!r.data.mustChange);
@@ -245,7 +250,7 @@ export function LoginForm() {
     step === "setup" ? t("Diwan has no staff yet. The setup key is in the server's settings.", "لا يوجد فريق في الديوان بعد. مفتاح الإعداد موجود في إعدادات الخادم.")
       : step === "code" ? (
           <>
-            {t("Diwan asks for a code sent to your email every time you sign in. We sent a 6-digit code to", "يطلب الديوان رمزًا يُرسل إلى بريدك في كل مرة تدخل فيها. أرسلنا رمزًا من 6 أرقام إلى")}{" "}
+            {t("We sent a 6-digit code to", "أرسلنا رمزًا من 6 أرقام إلى")}{" "}
             <bdi dir="ltr" className="font-medium text-fg">{to}</bdi>
             {t(". It works for 10 minutes.", "، وهو صالح لمدة 10 دقائق.")}
           </>
@@ -297,6 +302,7 @@ export function LoginForm() {
           {step === "code" && (
             <form onSubmit={verify} className="mt-6 space-y-5">
               {codeField}
+              <p className="-mt-2 text-xs leading-relaxed text-muted">{t("This browser will be remembered, so next time only your password is needed.", "سيتذكّر ديوان هذا المتصفح، فلن تحتاج في المرة القادمة إلا كلمة المرور.")}</p>
               {newPasswordSection}
               {problem}
               <Submit busy={busy} busyText={t("Checking…", "جارٍ التحقق…")}>{t("Sign in", "دخول")}</Submit>

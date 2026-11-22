@@ -9,8 +9,8 @@ import { passwordWords, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { StaffSkeleton } from "@/components/diwan/skeletons";
 
-/* Dukkan's staff: who they are, whether they can sign in and whether their email is confirmed (every sign-in asks for a
-   code sent to it). Every staff member is an owner and may do everything (Diwan has no roles). They add staff with a
+/* Dukkan's staff: who they are, whether they can sign in and whether their email is confirmed (a sign-in on a browser not
+   remembered yet asks for a code sent to it; "Forget my other browsers" makes all but this one ask again). Every staff member is an owner and may do everything (Diwan has no roles). They add staff with a
    temporary password, take access away (which signs them out everywhere) or reset a forgotten password, and change their
    own email. Diwan always keeps one staff member who can sign in; the server refuses anything that would leave none. */
 
@@ -61,6 +61,17 @@ export default function StaffPage() {
       setMsg({ ok: true, text: t("Saved.", "تم الحفظ.") });
       s.reload();
     } else setMsg({ ok: false, text: why(r) });
+  };
+
+  /* every browser remembered for me except this one asks for the emailed code again (app/api/diwan/auth/devices) */
+  const forgetOthers = async (m: Member) => {
+    setBusy(m.id);
+    setMsg(null);
+    const r = await send("/api/diwan/auth/devices", "POST");
+    setBusy(null);
+    setMsg(r.ok
+      ? { ok: true, text: t("Done. Your other browsers will ask for the emailed code at their next sign-in.", "تم. ستطلب متصفحاتك الأخرى رمز البريد عند الدخول القادم.") }
+      : { ok: false, text: why(r) });
   };
 
   return (
@@ -171,6 +182,11 @@ export default function StaffPage() {
                         {self && (
                           <Btn kind="ghost" className="h-8 px-3 text-xs" onClick={() => setEmailFor(m)}>
                             {t("Change my email", "تغيير بريدي")}
+                          </Btn>
+                        )}
+                        {self && (
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => forgetOthers(m)}>
+                            {t("Forget my other browsers", "نسيان متصفحاتي الأخرى")}
                           </Btn>
                         )}
                         <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => setPwFor(m)}>

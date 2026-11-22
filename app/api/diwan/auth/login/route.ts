@@ -5,8 +5,8 @@ import { emailKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { dataKeyWorks } from "@/server/dataKey";
 import { maskEmail } from "@/server/emailVerify";
-import { audit } from "@/server/staff";
-import { sendSigninCode, staffCodesOn, startSignin } from "@/server/staffSignin";
+import { audit, startStaffSession } from "@/server/staff";
+import { deviceRemembered, sendSigninCode, staffCodesOn, startSignin } from "@/server/staffSignin";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,9 @@ const dummyHash = () => (dummy ??= hashPassword("diwan-no-such-staff"));
 
 /* The first step of a staff sign-in: email and password. A right password starts a sign-in that waits for the 6-digit
    code emailed to the member's address on file (server/staffSignin.ts): no staff session exists until the code is given
-   to POST /api/diwan/auth/code. Answers:
+   to POST /api/diwan/auth/code, except on a browser remembered for this member (server/staffSignin.ts, where the code
+   was typed before): there the right password signs in at once. Answers:
+   - "ok" with step "done": signed in (a remembered browser), the staff cookie is set;
    - "ok" with step "code": `to` (the address, partly hidden), `mustChange` (a temporary password, replaced with the code),
      `sent` (false when the code could not go out this time, with `why`: "failed" the email failed, "slow-down" too many
      codes lately, "locked" too many wrong codes this hour: the code page says so and can ask for a new one);
@@ -55,6 +57,17 @@ export const POST = guarded(async (req: NextRequest) => {
   gate.passed();
 
   const id = String(s.id);
+  /* a browser remembered for THIS member, with the account's current password and email: signed in now, no code */
+  if (await deviceRemembered(req, id, s.password_hash)) {
+    const done = answer({ result: "ok", step: "done" });
+    if (!(await startStaffSession(done, req, id, s.password_hash, true))) {
+      await audit(req, id, "staff.login_failed", { type: "staff", id }, null, { changedDuringCheck: true });
+      return answer({ result: "wrong" }, 401);
+    }
+    await pool.query(`UPDATE staff SET last_login_at = now() WHERE id = $1`, [id]);
+    await audit(req, id, "staff.login", { type: "staff", id }, null, { twoStep: "remembered" });
+    return done;
+  }
   /* no way to send the code (the live server without an email provider): nobody gets in without one */
   if (!staffCodesOn()) {
     await audit(req, id, "staff.login_failed", { type: "staff", id }, null, { noEmail: true });

@@ -17,6 +17,8 @@ const W: Record<string, [en: string, ar: string]> = {
   "staff.email_changed": ["Changed their email", "غيّر بريده الإلكتروني"],
   "staff.2step_on": ["Turned on 2-step sign-in", "فعّل التحقق بخطوتين"],
   "staff.password_changed": ["Changed their password", "غيّر كلمة المرور"],
+  /* remembered browsers (since 2026-11-22): a sign-in there says so in its details (server/activityDetail.ts) */
+  "staff.devices_forgotten": ["Made their other browsers ask for a code again", "جعل متصفحاته الأخرى تطلب الرمز من جديد"],
   "staff.setup": ["Created the first owner", "أنشأ المالك الأول"],
   "staff.setup_wrong_key": ["Wrong setup key", "مفتاح إعداد خاطئ"],
   "staff.password_again_failed": ["Typed a wrong password to confirm a change", "كتب كلمة مرور خاطئة لتأكيد تغيير"],
@@ -144,4 +146,4 @@ export const documentKindWords = (t: (en: string, ar: string) => string, kind: s
 export const documentNumber = (seq: number) => `#${String(seq).padStart(3, "0")}`;
 
 /** Sign-in lines, for the "Sign-ins only" filter */
-export const SIGN_IN_ACTIONS = ["staff.login", "staff.logout", "staff.login_failed", "staff.code_failed", "staff.email_confirmed", "staff.setup_wrong_key"];
+export const SIGN_IN_ACTIONS = ["staff.login", "staff.logout", "staff.login_failed", "staff.code_failed", "staff.email_confirmed", "staff.setup_wrong_key", "staff.devices_forgotten"];
