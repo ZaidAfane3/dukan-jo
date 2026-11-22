@@ -20,6 +20,11 @@ export const ORDER_LIMITS = {
   price: 100_000,
 };
 
+/** Whether the store's free delivery offer covers an order: it is on, and what the products come to AFTER the coupon's
+    discount (`discount`) reaches its amount. The checkout (storefront/Cart.tsx), the server (server/storeOrders.ts) and
+    the Orders page all decide with this, so they agree. */
+export const freeDeliveryFor = (fd: { on: boolean; min: number }, subtotal: number, discount = 0): boolean => fd.on && toFils(subtotal - discount) >= fd.min;
+
 /** The cities orders are delivered to today. Anything else sent as a city for a new order is refused. */
 export const CITIES = {
   ar: ["إربد", "عمّان", "السلط"],

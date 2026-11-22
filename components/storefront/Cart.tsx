@@ -6,7 +6,7 @@ import type { FreeDelivery } from "../freeDeliveryStore";
 import { pushNotification } from "../notifications";
 import { payNote, shipCityLists, storePayKey, storePays, usePublicSettings } from "../platformPublic";
 import { jordanMobile } from "../phone";
-import { checkCheckout, orderPays, ORDER_LIMITS, savedPays, storeDelivery, storeFulfils, type Payment, priceCart, productSizes, sellableStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
+import { checkCheckout, freeDeliveryFor, orderPays, ORDER_LIMITS, savedPays, storeDelivery, storeFulfils, type Payment, priceCart, productSizes, sellableStock, toFils, type CheckoutField, type Fulfil, type PricedLine, type Sellable } from "../safeOrder";
 import { checkCoupon, cleanCoupon, countCouponUse, parseList, type Coupon, type CouponRefusal } from "../records";
 import { nextOrderNumber } from "../orderNumbers";
 import type { CartStyle } from "./config";
@@ -561,12 +561,14 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   /* kept to the fils like the server's (safeOrder priceCart), so the coupon's minimum, its percent and the free delivery
      amount are tested on the same number on both sides (3 x 5.35 adds up to 16.049999… unrounded) */
   const subtotal = toFils(lines.reduce((s, l) => s + l.qty * priceAt(l.p), 0));
-  const freeNow = fd.on && subtotal >= fd.min;
   /* the coupons: the merchant's own as saved in his browser, or on the public store only the one the server accepted */
   const couponList = (): Coupon[] => (orderTo ? (remoteCoupon ? [remoteCoupon] : []) : storeCoupons());
   /* the coupon taken is checked again whenever the basket changes (it may fall under its minimum) */
   const cp = coupon ? checkCoupon(coupon, couponList(), subtotal) : null;
   const discount = cp?.ok ? cp.discount : 0;
+  /* the free delivery amount counts what the products come to after the coupon, as the server does (freeDeliveryFor) */
+  const afterCoupon = toFils(subtotal - discount);
+  const freeNow = freeDeliveryFor(fd, subtotal, discount);
   const delivery = !ships || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery) ? 0 : DELIVERY_FEE;
   /* a delivery that is not free by an offer, a coupon or pickup, with no fee set: the store confirms the fee */
   const feeOpen = feeAsk && !(!ships || freeNow || fulfil === "pickup" || (cp?.ok && cp.freeDelivery));
@@ -746,7 +748,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       const newShips = items.some((it) => !products.find((p) => p.id === it.id)?.noShip);
       const cNow = c ?? (cp?.ok ? cp.coupon : null);
       const cpNew = cNow ? checkCoupon(cNow.code, [cNow], newSub) : null;
-      const deliveryWith = (fee: number, free: FreeDelivery) => (!newShips || (free.on && newSub >= free.min) || fulfil === "pickup" || (cpNew?.ok && cpNew.freeDelivery) ? 0 : fee);
+      const deliveryWith = (fee: number, free: FreeDelivery) => (!newShips || freeDeliveryFor(free, newSub, cpNew?.ok ? cpNew.discount : 0) || fulfil === "pickup" || (cpNew?.ok && cpNew.freeDelivery) ? 0 : fee);
       const termsNow = t && (typeof t.fee === "number" || t.fee === null) && t.freeDelivery && typeof t.freeDelivery.min === "number" ? { fee: t.fee, fd: { on: t.freeDelivery.on === true, min: t.freeDelivery.min } } : null;
       const feeNow = termsNow ? deliveryWith(termsNow.fee ?? 0, termsNow.fd) : null;
       /* the store now confirms the fee itself (none set any more), on a delivery that is not free anyway */
@@ -866,7 +868,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
       return;
     }
     const off = used?.ok ? used.discount : 0;
-    const fee = !ships || (fd.on && priced.subtotal >= fd.min) || checked.value.fulfil === "pickup" || (used?.ok && used.freeDelivery) ? 0 : DELIVERY_FEE;
+    const fee = !ships || freeDeliveryFor(fd, priced.subtotal, off) || checked.value.fulfil === "pickup" || (used?.ok && used.freeDelivery) ? 0 : DELIVERY_FEE;
     const sum = toFils(priced.subtotal - off + fee);
     placing.current = true;
     const id = saveOrder({
@@ -896,7 +898,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   const s = skins[look] ?? skins.drawer;
   const luxe = look === "luxe";
   const count = lines.reduce((n, l) => n + l.qty, 0);
-  const progress = fd.on && fd.min > 0 ? Math.min(100, (subtotal / fd.min) * 100) : 100;
+  const progress = fd.on && fd.min > 0 ? Math.min(100, (afterCoupon / fd.min) * 100) : 100;
   const next = () => (step === "cart" ? setStep("details") : place());
   /* every way to pay is off (Dukkan's settings in Diwan, or none he chose), or no delivery set up and no pickup: no
      order can be placed, and the button shows it */
@@ -910,7 +912,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     <div className={s.free}>
       <p className="flex items-center gap-2">
         {look !== "editorial" && <span aria-hidden className="shrink-0">{truck}</span>}
-        <span>{freeNow ? w.gotFree : w.leftForFree.replace("{n}", amount(fd.min - subtotal))}</span>
+        <span>{freeNow ? w.gotFree : w.leftForFree.replace("{n}", amount(toFils(fd.min - afterCoupon)))}</span>
       </p>
       <div className={s.track}>
         <div className={s.fill} style={{ width: `${progress}%` }} />

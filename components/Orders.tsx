@@ -10,7 +10,7 @@ import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, jordanNumber, phoneError, savedMobile, typedAnyPhone } from "./phone";
 import { ORDER_MAX, cleanOrder, countCouponUse, money, orderMatches, parseList, typedMoney, type Order, type OrderItem } from "./records";
 import { cleanLine, visibleLength } from "./safe";
-import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, holdsStockAfter, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
+import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, freeDeliveryFor, holdsStockAfter, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
 import { nextOrderNumber } from "./orderNumbers";
 import { shipCityLists, usePublicSettings } from "./platformPublic";
 import { loadSetup } from "./setup";
@@ -1013,7 +1013,7 @@ export function Orders() {
                         const ship = current.delivery === 0 ? loadSetup()?.shipping : null;
                         const fd = ship ? loadFreeDelivery() : null;
                         const sub = (current.items ?? []).reduce((n, it) => n + it.qty * it.price, 0);
-                        const open = !!ship && ship.mode === "own" && ship.fee === undefined && !(current.coupon && current.coupon.discount === 0) && !(fd?.on && sub >= fd.min);
+                        const open = !!ship && ship.mode === "own" && ship.fee === undefined && !(current.coupon && current.coupon.discount === 0) && !(fd && freeDeliveryFor(fd, sub, current.coupon?.discount ?? 0));
                         return (
                           <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold">
                             <span>{lang === "ar" ? "التوصيل" : "Delivery"}</span>

@@ -4,7 +4,7 @@ import { checkCoupon, cleanCoupon, countCouponUse, mergeUsedOnline, money as rec
 import { cleanLine, safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import {
-  checkCheckout, checkoutShipMode, holdsStockAfter, mergeSoldOnline, newSizeTwice, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productShips, productSizes, salePrice, sellableStock, stockNotBack, stockTaken, takeStock, toFils, money,
+  checkCheckout, checkoutShipMode, freeDeliveryFor, holdsStockAfter, mergeSoldOnline, newSizeTwice, orderPays, storeDelivery, ORDER_LIMITS, priceCart, productId, productShips, productSizes, salePrice, sellableStock, stockNotBack, stockTaken, takeStock, toFils, money,
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
 import { highestOrderNumber, lastOrderNumber, ORDER_NUMBER_KEY, ORDER_NUMBER_START } from "@/components/orderNumbers";
@@ -269,8 +269,9 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     const checked = checkCheckout(customer, { pickup, delivery: !!offer, pays, cities: offer?.cities, ships });
     if (!checked.ok) return { status: 400, body: { result: "invalid", fields: checked.errors, ...(checked.errors.some((f) => f === "city" || f === "pay" || f === "fulfil") ? { choices } : {}) } };
 
-    /* delivery: free above the store's free delivery amount, for pickup and with a free delivery coupon; otherwise the
-       merchant's own fee (his own courier) or Dukkan Ship's price from Diwan */
+    /* delivery: free from the store's free delivery amount (counted after the coupon's discount, safeOrder
+       freeDeliveryFor), for pickup and with a free delivery coupon; otherwise the merchant's own fee (his own courier) or
+       Dukkan Ship's price from Diwan */
     const fd = parse(data.get("seen-freedelivery"));
     const fdMin = isObj(fd) ? recordMoney(fd.min) : null;
     const freeDelivery = { on: isObj(fd) && fd.on === true, min: fdMin !== null && fdMin > 0 ? fdMin : 25 };
@@ -298,7 +299,8 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     } else terms.coupon = null;
 
     const v = checked.value;
-    const delivery = !ships || (freeDelivery.on && priced.subtotal >= freeDelivery.min) || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
+    const freeByOffer = freeDeliveryFor(freeDelivery, priced.subtotal, discount);
+    const delivery = !ships || freeByOffer || v.fulfil === "pickup" || freeByCoupon ? 0 : fee ?? 0;
     const total = toFils(priced.subtotal - discount + delivery);
     /* the customer was shown another total (a price or the delivery changed since the page opened): he looks again */
     const expect = typeof body.expect === "number" && Number.isFinite(body.expect) ? body.expect : null;
@@ -350,7 +352,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);
     after.notice = () => emailNotice(id, "orderPlaced", { number, total: total.toFixed(3) });
 
-    const feeOpen = ships && fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !(freeDelivery.on && priced.subtotal >= freeDelivery.min);
+    const feeOpen = ships && fee === null && delivery === 0 && v.fulfil === "delivery" && !freeByCoupon && !freeByOffer;
     return { status: 200, body: { result: "ok", order: { number, items: priced.items, subtotal: priced.subtotal, discount, delivery, total, coupon: couponUsed, fulfil: v.fulfil, pay: v.pay, feeOpen, ...(big ? { review: true } : {}) } } };
   });
   if (!client && placed.status === 200) after.notice?.();
