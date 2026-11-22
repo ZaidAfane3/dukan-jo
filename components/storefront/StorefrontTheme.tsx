@@ -557,9 +557,15 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   const sellsKey = `${sellsNow.pays.join()}|${sellsNow.delivers}`;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const sells = useMemo(() => sellsNow, [sellsKey]);
+  /* the public store only: where its newsletter block sends a visitor's email (POST /api/public/store/<link>/newsletter),
+     and on which of its pages he signed up */
+  const signSlug = visitor && !design ? visitor.setup.slug : "";
+  const signPage = ownProduct !== null ? null : ownPage;
+  const signProduct = ownProduct !== null;
+  const signupTo = useMemo(() => (signSlug ? { slug: signSlug, page: signPage, product: signProduct } : undefined), [signSlug, signPage, signProduct]);
   const ctx: Ctx = useMemo(
-    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS, sells }),
-    [lang, compact, goods, look, shop, design, owner, visitor, interactive, qty, setQty, openPageS, openProductS, showSectionS, sells],
+    () => ({ lang, compact, data: goods, config: look, shop, design, owner, visitor: !!visitor, signupTo, interactive, qty, setQty, openPage: openPageS, openProduct: openProductS, showSection: showSectionS, sells }),
+    [lang, compact, goods, look, shop, design, owner, visitor, signupTo, interactive, qty, setQty, openPageS, openProductS, showSectionS, sells],
   );
 
   /* his text and title colors, unless they vanish on his background (the same color, or too close): then automatic ones that read */
