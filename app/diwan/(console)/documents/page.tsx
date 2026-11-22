@@ -145,7 +145,8 @@ function DocCard({ row, statusName, kindName, onDone, onGone }: {
     if (!next) return;
     if (next === "rejected" && !note.trim()) return setErr(t("Say why: the merchant reads this note.", "اكتب السبب: يقرأ التاجر هذه الملاحظة."));
     setBusy(true);
-    const r = await send(`/api/diwan/documents/${row.id}`, "POST", { status: next, note });
+    /* from: the status this card shows, so a document someone else reviewed meanwhile isn't changed a second time */
+    const r = await send(`/api/diwan/documents/${row.id}`, "POST", { status: next, note, from: row.status });
     setBusy(false);
     if (r.ok) {
       setNext(null);
@@ -154,6 +155,10 @@ function DocCard({ row, statusName, kindName, onDone, onGone }: {
       /* trying again can't work: the merchant removed it meanwhile, so say so and show the list as it is now */
       setNext(null);
       onGone(t("The merchant removed this document, so it can't be approved or rejected.", "حذف التاجر هذا المستند، فلا يمكن قبوله أو رفضه."));
+    } else if (r.status === 409 && r.data?.result === "reviewed") {
+      /* another staff member got there first: nothing was changed, and the list shows the document as it is now */
+      setNext(null);
+      onGone(t("Someone else already reviewed this document, so your change wasn't saved. The list is up to date now.", "راجع شخص آخر هذا المستند قبلك، فلم يُحفظ تغييرك. القائمة محدَّثة الآن."));
     } else setErr(t("That didn't work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
   };
 
