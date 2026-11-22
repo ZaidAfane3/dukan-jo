@@ -132,14 +132,20 @@ export const ticketRepliedEmail = (lang: EmailLang, p: { number: number | string
       };
 };
 
-/** A document the merchant sent was approved or not accepted (`note`: why, when Dukkan gave a reason) */
+/** A document the merchant sent was approved or not accepted (`note`: why it was not accepted, or the note staff
+    added to an approval, when Dukkan wrote one) */
 export const documentStatusEmail = (lang: EmailLang, p: { name: string; approved: boolean; note?: string }): EmailWords => {
   const name = line(p.name, 120);
   const note = line(p.note);
   const button = { label: lang === "ar" ? "افتح دكّان" : "Open Dukkan", url: link("/dashboard") };
   if (lang === "ar")
     return p.approved
-      ? { subject: "تمت الموافقة على مستندك", heading: "تمت الموافقة على المستند", text: `تمت الموافقة على مستندك «${name}».`, button }
+      ? {
+          subject: "تمت الموافقة على مستندك",
+          heading: "تمت الموافقة على المستند",
+          text: `تمت الموافقة على مستندك «${name}».${note ? `\nملاحظة من دكّان: ${note}` : ""}`,
+          button,
+        }
       : {
           subject: "لم يُقبل مستندك",
           heading: "لم يُقبل المستند",
@@ -147,7 +153,12 @@ export const documentStatusEmail = (lang: EmailLang, p: { name: string; approved
           button,
         };
   return p.approved
-    ? { subject: "Your document was approved", heading: "Document approved", text: `Your document “${name}” was approved.`, button }
+    ? {
+        subject: "Your document was approved",
+        heading: "Document approved",
+        text: `Your document “${name}” was approved.${note ? `\nNote from Dukkan: ${note}` : ""}`,
+        button,
+      }
     : {
         subject: "Your document was not accepted",
         heading: "Document not accepted",
