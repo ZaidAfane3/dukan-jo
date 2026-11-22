@@ -554,7 +554,7 @@ export const content: Record<Lang, Content> = {
       errServerDown: "Dukkan has a problem on its side right now. Your password was not checked. Please try again later.",
       errWrongPassword: "The email, number or password is not right. Try again.",
       errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
-      errSignupMany: "Too many accounts were created from this connection in the last hour. Wait an hour and try again.",
+      errSignupMany: "Too many sign-up tries from this connection in the last hour. Wait an hour and try again.",
       terms: {
         before: "By creating an account, you agree to Dukkan's ",
         terms: "Terms of Service",
@@ -1146,7 +1146,7 @@ export const content: Record<Lang, Content> = {
       errServerDown: "يواجه دكّان مشكلة من جهته الآن، ولم تُفحص كلمة المرور. حاول مرة أخرى لاحقًا.",
       errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
       errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
-      errSignupMany: "أُنشئت حسابات كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
+      errSignupMany: "محاولات تسجيل كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
       terms: {
         before: "بإنشائك حسابًا، فإنك توافق على ",
         terms: "شروط الاستخدام",
