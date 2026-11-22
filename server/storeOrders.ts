@@ -135,6 +135,12 @@ const couponTerms = (c: Coupon): Coupon => ({ id: "x", type: c.type, name: "", c
 /* a checkout's own key: letters, digits and dashes (a random UUID in the cart) */
 const ATTEMPT = /^[A-Za-z0-9-]{16,64}$/;
 
+/** The keys of the checkout's earlier sends that got no answer (`previous`: one key, or a list of up to 5): a page
+    reloaded while its order was on its way, or a send that timed out and was then changed a little (a typo in the
+    address) and sent again with a new key. Whichever of them got in is the answer, never a second order (testing C-1). */
+export const previousAttempts = (v: unknown, attempt: unknown): string[] =>
+  [...new Set((Array.isArray(v) ? v : [v]).filter((k): k is string => typeof k === "string" && ATTEMPT.test(k) && k !== attempt))].slice(-5);
+
 /** The store's delivery cities (null: no home delivery), pickup and ways to pay now, sent with a refusal so the cart can offer them */
 export type StoreChoices = { cities: { en: readonly string[]; ar: readonly string[] } | null; pickup: boolean; pays: Payment[] };
 
@@ -205,7 +211,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
   /* the key of an order that was on its way when the page was reloaded (Cart keptAttempt). The basket may have changed
      since (the stock it took makes the reloaded page cut it), so this send has a new key: if that earlier order got in,
      it is the answer, never a second order */
-  const previous = typeof body.previous === "string" && ATTEMPT.test(body.previous) && body.previous !== attempt ? body.previous : null;
+  const previous = previousAttempts(body.previous, attempt);
   const settings = await readSettings(["payment_methods", "dukkan_ship"] as const);
 
   /* the owner's email about the order: sent once the order is committed (on a caller's client, the caller's COMMIT
@@ -221,7 +227,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     if (!shop) return { status: 404, body: { result: "none" } };
     const id = shop.account_id;
     /* this checkout's order is already in (its answer was lost): the same order again, whatever changed since */
-    for (const key of [attempt, previous]) {
+    for (const key of [attempt, ...previous]) {
       const o = key ? await orderByAttempt(c, id, key) : null;
       if (o) return { status: 200, body: { result: "ok", order: o } };
     }
