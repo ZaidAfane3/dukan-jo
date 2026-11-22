@@ -1138,7 +1138,7 @@ export function Orders() {
                   </select>
                 </div>
                 {/* moved on before its payment was marked received: it takes no stock until then */}
-                {canMarkPaid(current) && CONFIRMED_STATUSES.includes(current.status) && <p role="status" className="mt-3 text-sm font-semibold text-amber-700 dark:text-amber-400">{o.payNotYet}</p>}
+                {canMarkPaid(current) && CONFIRMED_STATUSES.includes(current.status) && current.ship?.state !== "delivered" && <p role="status" className="mt-3 text-sm font-semibold text-amber-700 dark:text-amber-400">{o.payNotYet}</p>}
                 {askStatus && (
                   <div role="alert" className="mt-3 flex flex-wrap items-center gap-3">
                     <p className="text-sm text-rose-600">{o.statusAsk.replace("{status}", o.statuses[askStatus])}</p>

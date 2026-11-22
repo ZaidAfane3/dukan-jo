@@ -68,6 +68,9 @@ export async function repairOrderItems(pool: Pool): Promise<{ checked: number; r
        that have a text starting with the mark somewhere in them */
     const { rows } = await pool.query(`SELECT id, items::text AS raw FROM store_orders WHERE items::text LIKE '%"e1:%' ORDER BY id`);
     let repaired = 0;
+    /* orders that changed between the read and the write: not repaired now, so the repair is not marked done and looks
+       again at the next start */
+    let missed = 0;
     for (const r of rows) {
       let items: unknown;
       try {
@@ -80,8 +83,10 @@ export async function repairOrderItems(pool: Pool): Promise<{ checked: number; r
       /* only while the order still has the lines read here */
       const up = await pool.query(`UPDATE store_orders SET items = $2::jsonb WHERE id = $1 AND items = $3::jsonb`, [r.id, JSON.stringify(fixed), r.raw]);
       repaired += up.rowCount ?? 0;
+      if (!up.rowCount) missed += 1;
     }
-    await pool.query(`INSERT INTO start_seeds (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`, [DONE]);
+    if (!missed) await pool.query(`INSERT INTO start_seeds (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`, [DONE]);
+    else console.log(`[orders] order lines repair: ${missed} orders changed while being repaired, looked at again at the next start`);
     console.log(`[orders] order lines repair: ${repaired} of ${rows.length} orders with a marked text needed it`);
     return { checked: rows.length, repaired };
   } finally {

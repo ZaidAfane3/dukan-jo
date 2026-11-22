@@ -1,7 +1,7 @@
 import { cleanSetting, SETTING_DEFAULTS, type DukkanShip } from "@/components/diwan/platformSettings";
 import { answer } from "@/server/auth";
 import { db } from "@/server/db";
-import { ORDERS_SQL, prepareShops, shopListSql, STATUS_SQL } from "@/server/shops";
+import { ORDERS_SQL, prepareShops, REAL_STORE_ORDER, shopListSql, STATUS_SQL } from "@/server/shops";
 import { staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export const GET = staffRoute("shops.read", async (req) => {
     pool.query(
       `SELECT s.account_id AS id, s.name, s.slug, a.name AS owner, s.pickup_city AS city, (${STATUS_SQL}) AS status, s.published, ${ORDERS_SQL} AS order_count,
               (SELECT count(*)::int FROM store_orders o
-                WHERE o.account_id = s.account_id AND o.ship_by = 'dukkan' AND o.payment_method NOT IN ('card', 'cliq')) AS ship_orders
+                WHERE o.account_id = s.account_id AND o.ship_by = 'dukkan' AND ${REAL_STORE_ORDER()}) AS ship_orders
        ${sql} ORDER BY s.created_at DESC, s.account_id DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`,
       params,
     ),

@@ -804,7 +804,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     setSendErr(
       status === 429 ? w.errSlow
       : j.result === "closed" ? w.errClosed
-      : j.result === "too-big" ? w.errTooBig
+      : status === 409 && j.result === "too-big" ? w.errTooBig
       : status === 404 ? w.errGone
       : status === 403 ? w.errForbidden
       : status === 413 ? w.errBig

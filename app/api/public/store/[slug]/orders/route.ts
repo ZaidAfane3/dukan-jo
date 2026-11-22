@@ -7,13 +7,14 @@ export const dynamic = "force-dynamic";
 
 /* A customer places an order on a store's public page: POST /api/public/store/<link name>/orders, without a session.
    server/storeOrders.ts checks the store is open, prices everything again from the store's own saved products, checks
-   the stock, the coupon and the customer's details, takes the stock and saves the order for the merchant. No payment is
+   the stock, the coupon and the customer's details, and saves the order for the merchant (it takes no stock: that happens when the merchant confirms it or marks its payment received, server/storeOrders.ts). No payment is
    taken: every order is a test order.
 
    Limits: only from Dukkan's own pages (the same origin check as the other routes), a small body, and at most a few
    orders per visitor and per store in a while, so a script can't fill a store with orders or empty its stock.
    Answers: 200 { result: "ok", order }, 400 "invalid" (with the fields), 404 "none", 409 "closed" / "no-delivery" (no delivery choice and no pickup) / "changed" (with the
-   cart priced again) / "coupon" (with why), 403 "forbidden", 413 "too-big", 429 "slow-down". */
+   cart priced again) / "coupon" (with why) / "too-big" (the order comes to more than a store amount can be), 403 "forbidden", 413 "too-big"
+   (the request itself), 429 "slow-down". */
 
 const MAX_BODY = 16_000;
 

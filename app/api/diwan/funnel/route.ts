@@ -1,6 +1,6 @@
 import { answer } from "@/server/auth";
 import { db } from "@/server/db";
-import { prepareShops } from "@/server/shops";
+import { prepareShops, REAL_STORE_ORDER } from "@/server/shops";
 import { staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export const GET = staffRoute("shops.read", async (req) => {
             /* a platform figure: only an order a customer placed on its page that is not a card/CliQ test order (the
                merchant's own rule, server/shops.ts STORE_ORDERS_SQL); orders he added himself are not counted here
                (STORE_PAGE_SQL) */
-            count(*) FILTER (WHERE EXISTS (SELECT 1 FROM store_orders o WHERE o.account_id = shops.account_id AND o.payment_method NOT IN ('card', 'cliq')))::int AS ordered
+            count(*) FILTER (WHERE EXISTS (SELECT 1 FROM store_orders o WHERE o.account_id = shops.account_id AND ${REAL_STORE_ORDER()}))::int AS ordered
        FROM shops WHERE $1::int IS NULL OR created_at > now() - make_interval(days => $1::int)`,
     [days],
   );

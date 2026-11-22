@@ -288,12 +288,15 @@ export const likeText = (s: string) => `%${s.replace(/[\u0000-\u001f\u007f]/g, "
 
 /** The orders customers placed on the store's page (store_orders) of the shop `s`, as a LATERAL subquery: counted the
     way the merchant's Home counts them (components/storeNumbers.ts). Every one is a store order, so one paid by card or
-    CliQ is a test order (no payment is taken yet: isTestOrder) and is not counted; a cash one is an order whatever its
-    status, and a sale once delivered (saleState). n: its orders; test: the test orders left out; sales: what the
-    delivered ones brought in. Only counts and a total leave the database, never the orders. */
-export const STORE_ORDERS_SQL = (s = "s") => `(SELECT count(*) FILTER (WHERE o.payment_method NOT IN ('card', 'cliq'))::int AS n,
-         count(*) FILTER (WHERE o.payment_method IN ('card', 'cliq'))::int AS test,
-         COALESCE(sum(o.total) FILTER (WHERE o.payment_method NOT IN ('card', 'cliq') AND o.status = 'delivered'), 0) AS sales
+    CliQ is a test order (no payment is taken online yet: isTestOrder) and is not counted, until the merchant marks its
+    payment received (payment_status 'paid'): then it is an order, and a sale while not cancelled or refunded; a cash one
+    is an order whatever its status, and a sale once delivered (saleState). n: its orders; test: the test orders left
+    out; sales: what the sales brought in. Only counts and a total leave the database, never the orders. */
+export const REAL_STORE_ORDER = (o = "o") => `(${o}.payment_method NOT IN ('card', 'cliq') OR ${o}.payment_status = 'paid')`;
+export const STORE_ORDERS_SQL = (s = "s") => `(SELECT count(*) FILTER (WHERE ${REAL_STORE_ORDER()})::int AS n,
+         count(*) FILTER (WHERE NOT ${REAL_STORE_ORDER()})::int AS test,
+         COALESCE(sum(o.total) FILTER (WHERE (o.payment_method NOT IN ('card', 'cliq') AND o.status = 'delivered')
+           OR (o.payment_method IN ('card', 'cliq') AND o.payment_status = 'paid' AND o.status NOT IN ('cancelled', 'refunded'))), 0) AS sales
     FROM store_orders o WHERE o.account_id = ${s}.account_id)`;
 /** A shop's orders and sales as the merchant's Home shows them: the shops row's (the orders kept in store_data) and its
     store page's (STORE_ORDERS_SQL, joined as `so`) together */
