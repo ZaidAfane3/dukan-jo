@@ -283,8 +283,18 @@ export function InfoPages() {
         window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
       }
     });
+    /* His save was merged with another device's pages (serverSync.ts mergeStale), or another tab changed them: take that
+       list, so this page never writes its older one back over it */
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== pagesScope()) return;
+      const list = load();
+      loadedList.current = list;
+      setPages(list);
+    };
+    window.addEventListener("storage", onStorage);
     return () => {
       gone = true;
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
