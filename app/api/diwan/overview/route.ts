@@ -22,7 +22,9 @@ export const GET = staffRoute("shops.read", async () => {
              count(*) FILTER (WHERE s.published)::int AS published
         FROM shops s`),
     pool.query(`
-      SELECT (SELECT count(*) FROM tickets WHERE status NOT IN ('resolved', 'closed'))::int AS tickets,
+      /* tickets: the support tickets that wait on Dukkan, the same kind the Tickets page lists (bug reports and ideas
+         have their own board), and not the ones already answered that wait for the merchant, solved or closed */
+      SELECT (SELECT count(*) FROM tickets WHERE kind = 'support' AND status IN ('new', 'open', 'waiting_dukkan'))::int AS tickets,
              (SELECT count(*) FROM store_reports WHERE status = 'new')::int AS reports,
              (SELECT count(*) FROM documents WHERE status = 'waiting' AND removed_at IS NULL AND NOT draft)::int AS documents`),
     pool.query(`
