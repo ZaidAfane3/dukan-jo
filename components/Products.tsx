@@ -13,7 +13,7 @@ import { FocusPicker } from "./FocusPicker";
 import { cutKeptAs, ImageCropper } from "./ImageCropper";
 import { keepPicture, uploadImage } from "./media";
 import { onServer } from "./merchantApi";
-import { PRODUCT_MAX, cleanCategory, cleanProduct, productCategories, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
+import { MAX_COUNT, PRODUCT_MAX, cleanCategory, cleanProduct, productCategories, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
 import { cleanLine, cleanLines, imageRules } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote } from "./Required";
 import { RudeNote } from "./RudeNote";
@@ -97,6 +97,28 @@ const num = (v: string) => (v.trim() === "" ? null : money(v) ?? NaN);
 const digits = (v: string) => typedMoney(v);
 /* A whole number as he types it: digits only, no extra zeros in front, and never above `max` */
 const whole = (v: string, max?: number) => typedCount(v, max);
+
+/** The stock to save for a product he edited: what he changed in the editor (each size on its own), added to the stock
+    the product has now. Pieces sold (or given back) since the editor was opened, on the store or in another tab, stay
+    counted, so his save never puts sold pieces back on sale. A size that is new or renamed gets what he typed, and a
+    product that had no limit, or now has none, gets what he typed too. */
+function stockSince(typed: { quantity: number; sizes: { name: string; quantity: number }[] }, opened: Product | null, now: Product | undefined) {
+  if (!opened || !now) return typed;
+  const keep = (n: number) => Math.max(0, Math.min(MAX_COUNT, n));
+  if (typed.sizes.length) {
+    const was = opened.sizes ?? [];
+    const has = now.sizes ?? [];
+    const key = (n: string) => n.toLowerCase();
+    const sizes = typed.sizes.map((z) => {
+      const a = was.find((x) => key(x.name) === key(z.name));
+      const b = has.find((x) => key(x.name) === key(z.name));
+      return a && b ? { ...z, quantity: keep(b.quantity + z.quantity - a.quantity) } : z;
+    });
+    return { quantity: sizes.reduce((n, z) => n + z.quantity, 0), sizes };
+  }
+  if (opened.unlimited || now.unlimited || (opened.sizes ?? []).length || (now.sizes ?? []).length) return typed;
+  return { ...typed, quantity: keep(now.quantity + typed.quantity - opened.quantity) };
+}
 
 /* What is saved is checked again when it is read: storage can hold old, broken or hand-changed products */
 function load(): Product[] {
@@ -337,6 +359,8 @@ export function Products() {
   const [photoLive, setPhotoLive] = useState<string | null>(null);
   const [focus, setFocus] = useState({ x: 50, y: 50 });
   const fileInput = useRef<HTMLInputElement>(null);
+  /* the product as it was when the editor opened (null for a new one): its stock then, so a save keeps what sold since */
+  const opened = useRef<Product | null>(null);
   /* The editor as it was when opened or last saved, to know if there are unsaved changes */
   const [clean, setClean] = useState("");
   const snapshot = (d: Draft, imgs: string[], f: { x: number; y: number }) => JSON.stringify([d, imgs, f]);
@@ -436,6 +460,7 @@ export function Products() {
       restockPct: String(x.restockPct),
     };
     setEditing(x.id);
+    opened.current = x;
     /* photos still on their way belong to the product they were picked for, never to this one */
     photoRound.current++;
     setUploading(0);
@@ -455,6 +480,7 @@ export function Products() {
 
   const openNew = () => {
     setEditing("new");
+    opened.current = null;
     photoRound.current++;
     setUploading(0);
     setDraft(blank);
@@ -609,9 +635,12 @@ export function Products() {
       const id = nextProductId(list);
       change([{ id, created: Date.now(), ...base }, ...list], (l) => productsCopy[l].undoAdded(name));
     } else {
+      /* the stock he typed, as a change from what the editor opened with: what sold meanwhile is not put back */
+      const now = list.find((x) => x.id === editing);
+      if (!base.unlimited) Object.assign(base, stockSince({ quantity: base.quantity, sizes: base.sizes }, opened.current, now));
       /* if the product was removed meanwhile (in another tab), his edits bring it back instead of being lost */
       change(
-        list.some((x) => x.id === editing) ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list],
+        now ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list],
         (l) => productsCopy[l].undoEdited(name),
       );
     }
