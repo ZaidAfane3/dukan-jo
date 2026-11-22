@@ -520,6 +520,32 @@ export function adoptVersions(data: Record<string, string>, versions: unknown, k
 
 const staleTries = new Map<string, number>();
 
+/* The marks of the list items this tab sent that the server has not confirmed yet, per account and list. A save whose
+   answer was lost may still have been kept, so the server's list can hold this tab's own copy of an item: that copy is
+   what this tab's newer one goes on from (its base), not another device's change. Without this, an item added and then
+   edited before the answer came would be kept twice, and one edited and then removed would come back (mergeStale). */
+const sentItems = new Map<string, Map<string, Set<number>>>();
+const sentKey = (owner: string, k: string) => `${owner}\n${k}`;
+function noteSent(owner: string, set: Record<string, string>) {
+  for (const [k, v] of Object.entries(set)) {
+    if (!LIST_KEYS.has(k)) continue;
+    const m = listMarks(v);
+    if (!m) continue;
+    const ids = sentItems.get(sentKey(owner, k)) ?? new Map<string, Set<number>>();
+    for (const [id, h] of Object.entries(m)) ids.set(id, (ids.get(id) ?? new Set<number>()).add(h));
+    sentItems.set(sentKey(owner, k), ids);
+  }
+}
+/* the base marks, with each server item that is a copy this tab sent counted as the base */
+function withOwnCopies(owner: string, k: string, base: ItemMarks, theirs: string | null): ItemMarks {
+  const ids = sentItems.get(sentKey(owner, k));
+  const now = ids && listMarks(theirs);
+  if (!ids || !now) return base;
+  const out = { ...base };
+  for (const [id, h] of Object.entries(now)) if (ids.get(id)?.has(h)) out[id] = h;
+  return out;
+}
+
 /* The server's list changed since this copy (another device saved it): merged item by item with this browser's newest
    copy, shown, and sent again with the server's version. A list that can not be merged goes whole, as before.
    False when this tab is no longer that account's (signed out while the save was on its way): the change is not
@@ -543,7 +569,7 @@ function mergeStale(who: string | null, k: string, sent: string, theirs: Stale):
   staleTries.set(k, tries);
   const mine = accountValue(k) ?? sent;
   const base = readBases(owner)[k];
-  const next = (base && mergeList(k, base.m, mine, theirs.value)) ?? mine;
+  const next = (base && mergeList(k, withOwnCopies(owner, k, base.m, theirs.value), mine, theirs.value)) ?? mine;
   if (next === mine || replaceAccountValue(k, next, mine)) {
     writeBases(owner, { [k]: { v: theirs.v, m: listMarks(theirs.value) ?? {} } });
     /* the pages showing it read it again: the other device's items appear */
@@ -590,6 +616,7 @@ async function request(set: Record<string, string>, remove: string[], owner: str
   const based = (k: string) => !!bases[k] && (LIST_KEYS.has(k) || (VERSION_KEYS.has(k) && replay.has(k)));
   const base = Object.fromEntries(Object.keys(set).filter(based).map((k) => [k, bases[k].v]));
   const body = JSON.stringify(Object.keys(base).length ? { set, remove, base } : { set, remove });
+  noteSent(me, set);
   /* keepalive lets the request finish if the tab closes while it is on its way. Browsers allow it only while all such
      requests still on their way carry at most 64 KiB together, counted in bytes (an Arabic letter takes 2): one that
      does not fit goes the normal way (cut off by the closing tab, it stays in the outbox for the next load) */
@@ -702,6 +729,7 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
     for (const [k, v] of Object.entries(r.versions ?? {})) {
       if (typeof v !== "string" || typeof sent[k] !== "string") continue;
       staleTries.delete(k);
+      if (me) sentItems.delete(sentKey(me, k));
       kept[k] = { v, m: (LIST_KEYS.has(k) && listMarks(r.rewritten?.[k] ?? sent[k])) || {} };
     }
     /* removed on the server: a later save of it must find none there */
