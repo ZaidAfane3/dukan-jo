@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { latin } from "@/components/digits";
-import { answer, countTry, limitReached, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { answer, countTry, limitReached, sameOrigin, tooMany, readJsonOr, unreadable } from "@/server/auth";
 import { findStoreAttempt, placeStoreOrder } from "@/server/storeOrders";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
     /* per visitor: enough for a team testing from one office, too few to empty a store */
     if (tooMany(req, "store-order", 20, 15)) return answer({ result: "slow-down" }, 429);
-    const body = await readJson(req, MAX_BODY);
-    if (!body) return answer({ result: "too-big" }, 413);
+    const read = await readJsonOr(req, MAX_BODY);
+    if (!("body" in read)) return unreadable(read.why);
+    const body = read.body;
     /* { lookup: <key> }: only asks whether the order sent with that key got in (a reloaded checkout), places nothing */
     if (typeof body.lookup === "string") {
       const r = await findStoreAttempt(p.slug, body.lookup);

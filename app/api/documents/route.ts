@@ -1,4 +1,4 @@
-import { answer, readJson, tooManyFor } from "@/server/auth";
+import { answer, readJson, tooManyFor, readJsonOr, unreadable } from "@/server/auth";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal, sealBytes } from "@/server/crypto";
 import { db } from "@/server/db";
@@ -31,8 +31,9 @@ export const GET = documentsRoute(async (_req, me) => {
     partner (who delivers), partnerKind (0 company, 1 person) } */
 export const POST = documentsRoute(async (req, me) => {
   if (tooManyFor(`document:${me.id}`, 30, 10)) return answer({ result: "too-many-tries" }, 429);
-  const body = await readJson(req, BODY_MAX);
-  if (!body) return answer({ result: "too-big" }, 413);
+  const read = await readJsonOr(req, BODY_MAX);
+  if (!("body" in read)) return unreadable(read.why);
+  const body = read.body;
   const kind = MERCHANT_KINDS.includes(body.kind as MerchantKind) ? (body.kind as MerchantKind) : null;
   const file = checkUpload(body.data, body.type);
   if (!kind || !file) return answer({ result: "invalid" }, 400);

@@ -24,7 +24,21 @@ export function cleanWords(v: unknown, max: number): string | undefined {
   if (typeof v === "number" && Number.isFinite(v)) v = String(v);
   if (typeof v !== "string") return undefined;
   // eslint-disable-next-line no-control-regex
-  return v.replace(/\r\n?/g, "\n").replace(/\t/g, " ").replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b\u2028\u2029\u202a-\u202e\ufeff]/g, "").slice(0, max);
+  return withoutTags(v.replace(/\r\n?/g, "\n").replace(/\t/g, " ").replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b\u2028\u2029\u202a-\u202e\ufeff]/g, "")).slice(0, max);
+}
+
+/* Text shaped like an HTML tag (<script>, <img onerror=...>, </b>, <!-- -->) is taken out of the store's words. Every
+   page shows them as plain text (React escapes them), so this changes nothing on screen; it keeps markup from ever being
+   stored, in case a later page or email puts these words in as HTML (testing round NF-1). A "<" that does not open a
+   tag ("<3", "a < b") stays. Repeated until nothing is left, so "<scr<b>ipt>" can't become "<script>". */
+const TAG = /<\/?[A-Za-z!][^<>]*>/g;
+export function withoutTags(s: string): string {
+  for (let i = 0; i < 10 && TAG.test(s); i++) {
+    TAG.lastIndex = 0;
+    s = s.replace(TAG, "");
+  }
+  TAG.lastIndex = 0;
+  return s;
 }
 
 const text = (max: number): Spec => (v) => cleanWords(v, max);

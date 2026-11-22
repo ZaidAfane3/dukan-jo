@@ -435,9 +435,16 @@ export function signInTries(req: NextRequest, key: string, max: number, minutes:
 /** Reads a JSON object body of at most `max` bytes, or null. The body is read piece by piece and dropped as soon as it
     is longer than `max`, so a huge body (sent without a Content-Length, or with a false one) is never held in memory. */
 export async function readJson(req: NextRequest, max: number): Promise<Record<string, unknown> | null> {
-  if (Number(req.headers.get("content-length") ?? 0) > max) return null;
+  const r = await readJsonOr(req, max);
+  return "body" in r ? r.body : null;
+}
+
+/** readJson, telling a body over the limit ("too-big") from one that is not a JSON object ("invalid"), so a route can
+    answer each for what it is (a broken body was answered "too-big", testing round NF-2) */
+export async function readJsonOr(req: NextRequest, max: number): Promise<{ body: Record<string, unknown> } | { why: "too-big" | "invalid" }> {
+  if (Number(req.headers.get("content-length") ?? 0) > max) return { why: "too-big" };
   const reader = req.body?.getReader();
-  if (!reader) return null;
+  if (!reader) return { why: "invalid" };
   const parts: Uint8Array[] = [];
   let size = 0;
   for (;;) {
@@ -446,18 +453,21 @@ export async function readJson(req: NextRequest, max: number): Promise<Record<st
     size += value.byteLength;
     if (size > max) {
       await reader.cancel().catch(() => {});
-      return null;
+      return { why: "too-big" };
     }
     parts.push(value);
   }
   const text = Buffer.concat(parts).toString("utf8");
   try {
     const v = JSON.parse(text);
-    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+    return v && typeof v === "object" && !Array.isArray(v) ? { body: v } : { why: "invalid" };
   } catch {
-    return null;
+    return { why: "invalid" };
   }
 }
+
+/** The answer for a body readJsonOr could not take: 413 "too-big" or 400 "invalid" */
+export const unreadable = (why: "too-big" | "invalid") => answer({ result: why }, why === "too-big" ? 413 : 400);
 
 export const answer = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 

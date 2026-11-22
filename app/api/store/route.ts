@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { answer, currentAccount, guarded, otherAccount, readJson, sameOrigin, tooManyFor } from "@/server/auth";
+import { answer, currentAccount, guarded, otherAccount, sameOrigin, tooManyFor, readJsonOr, unreadable } from "@/server/auth";
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
@@ -117,8 +117,9 @@ export const PUT = guarded(async (req: NextRequest) => {
   if (a.suspended) return answer({ result: "suspended" }, 423);
   /* the heaviest write (up to 8 MB): the pages save at most every few seconds */
   if (tooManyFor(`store-save:${a.id}`, 120, 10)) return answer({ result: "slow-down" }, 429);
-  const body = await readJson(req, MAX_BODY);
-  if (!body) return answer({ result: "too-big" }, 413);
+  const read = await readJsonOr(req, MAX_BODY);
+  if (!("body" in read)) return unreadable(read.why);
+  const body = read.body;
   const set = body.set && typeof body.set === "object" && !Array.isArray(body.set) ? Object.entries(body.set as Record<string, unknown>) : [];
   const remove = Array.isArray(body.remove) ? body.remove : [];
   if (set.length + remove.length > 500) return answer({ result: "invalid" }, 400);
