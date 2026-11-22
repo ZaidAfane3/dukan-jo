@@ -144,7 +144,7 @@ export async function sendEmail(e: Email): Promise<void> {
      domain).
    Only codes really sent count (noteCodeMail), so asking again while refused never uses the allowance up. Password reset
    codes are not counted here: they keep their own limits (passwordReset.ts). */
-export type CodeKind = "signup" | "login" | "change" | "twostep" | "change-old";
+export type CodeKind = "signup" | "login" | "change" | "twostep" | "change-old" | "staff-login" | "staff-change";
 export const CODE_LIMITS: Record<CodeKind, { visitorHour: number; hour: number; day: number }> = {
   /* every sign-in with 2-step on sends one */
   login: { visitorHour: 8, hour: 20, day: 60 },
@@ -152,6 +152,9 @@ export const CODE_LIMITS: Record<CodeKind, { visitorHour: number; hour: number; 
   change: { visitorHour: 5, hour: 8, day: 20 },
   twostep: { visitorHour: 5, hour: 8, day: 20 },
   "change-old": { visitorHour: 5, hour: 8, day: 20 },
+  /* Diwan staff (server/staffSignin.ts): every staff sign-in sends one; a new email in Diwan as "change" */
+  "staff-login": { visitorHour: 8, hour: 20, day: 60 },
+  "staff-change": { visitorHour: 5, hour: 8, day: 20 },
 };
 
 const mailKeys = (to: string, kind: CodeKind, visitor: string) => {

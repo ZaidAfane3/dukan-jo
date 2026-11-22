@@ -11,6 +11,6 @@ export const GET = guarded(async (req: NextRequest) => {
   if (!s) return answer({ result: "none" }, 401);
   return answer({
     result: "ok",
-    staff: { name: s.name, email: s.email, role: s.role, verified: s.verified, totpOn: s.totpOn, settings: s.verified && can(s, "settings") },
+    staff: { name: s.name, email: s.email, role: s.role, verified: s.verified, settings: s.verified && can(s, "settings") },
   });
 });

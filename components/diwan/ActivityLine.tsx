@@ -45,6 +45,7 @@ const FIELD: Record<string, [string, string]> = {
   priority: ["priority", "الأولوية"],
   assignee: ["assigned to", "مسندة إلى"],
   role: ["role", "الدور"],
+  email: ["email", "البريد"],
   active: ["access", "الدخول"],
   notes: ["notes", "الملاحظات"],
   note: ["note", "الملاحظة"],

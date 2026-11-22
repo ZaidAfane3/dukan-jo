@@ -918,4 +918,23 @@ export const DIWAN_SCHEMA = `
   CREATE OR REPLACE FUNCTION merchant_log_frozen() RETURNS trigger AS $f$ BEGIN RAISE EXCEPTION 'merchant_log is append-only'; END $f$ LANGUAGE plpgsql;
   DROP TRIGGER IF EXISTS merchant_log_frozen ON merchant_log;
   CREATE TRIGGER merchant_log_frozen BEFORE UPDATE ON merchant_log FOR EACH ROW EXECUTE FUNCTION merchant_log_frozen();
+
+  /* ---------- Diwan: 2-step sign-in by emailed code (server/staffSignin.ts) ----------
+     Since 2026-11-22 every staff sign-in asks, after the password, for a 6-digit code sent to the member's email
+     (email_codes, refs "sl:" and "sc:"). The authenticator app is gone for staff: staff.totp_on, totp_secret and
+     totp_last_step stay but are no longer read or written.
+     email_confirmed_at: when the member typed a code sent to their email (at a sign-in, or when they changed it). NULL:
+     not confirmed yet (an owner typed it when adding them, or they haven't signed in since this came).
+     staff_signins: a password that was right, waiting for its emailed code. No staff session (no dukkan-diwan cookie)
+     exists until the code is typed; the browser holds this row's token (cookie dukkan-diwan-wait). password_hash: the
+     hash the password matched; the sign-in finishes only while the account still has it. Kept 15 minutes. */
+  ALTER TABLE staff ADD COLUMN IF NOT EXISTS email_confirmed_at TIMESTAMPTZ;
+  CREATE TABLE IF NOT EXISTS staff_signins (
+    token_hash    TEXT PRIMARY KEY,
+    staff_id      BIGINT NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at    TIMESTAMPTZ NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS staff_signins_staff ON staff_signins (staff_id);
 `;

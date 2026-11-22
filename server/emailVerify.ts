@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 import { countTry, limitReached, tooMany, visitorIp } from "./auth";
 import { blind, emailKey, seal } from "./crypto";
 import { db } from "./db";
-import { codeMailLimited, emailOn, freshCodeMail, noteCodeMail, sendEmail } from "./email";
+import { codeMailLimited, type EmailPart, emailOn, freshCodeMail, noteCodeMail, sendEmail } from "./email";
 import { cookieLang } from "./lang";
 
 /* 6-digit codes sent by email, for three things (while Dukkan can send email, server/email.ts emailOn):
@@ -16,9 +16,11 @@ import { cookieLang } from "./lang";
    - "change": a new email in Settings. The account keeps its old email until the new one's code is typed
      (app/api/account/email), so a mistyped address never becomes the account's.
 
+   - "staff-login" / "staff-change": the same for Diwan's staff, every sign-in and a new email (server/staffSignin.ts).
+
    One table, email_codes. `ref` names what a code is for: "s:<signup_pending id>", "l:<session token hash>" or
-   "c:<account id>". A code is kept only as an HMAC with the server's key (crypto.ts blind) of its ref, the address it went
-   to and the code; it lives CODE_MINUTES, takes CODE_TRIES tries and works once, and a new code for the same ref ends
+   "c:<account id>" (staff: "sl:<waiting sign-in token hash>", "sc:<staff id>"). A code is kept only as an HMAC with
+   the server's key (crypto.ts blind) of its ref, the address it went to and the code; it lives CODE_MINUTES, takes CODE_TRIES tries and works once, and a new code for the same ref ends
    the ones before it once its email went out (so only the newest email's code works; if the new email can't be sent,
    the code before it keeps working). Typing the code of an earlier email answers "expired" and costs no try: the
    person only has to look at the newest email.
@@ -42,8 +44,13 @@ export const REF_TRIES = 10;
 export const SEND_PER_REF = { max: 3, minutes: 15 };
 export const SEND_PER_IP = { max: 20, minutes: 60 };
 
-/* "change-old": with 2-step sign-in on, a new email is first approved from the current one (app/api/account/email) */
-export type CodePurpose = "signup" | "login" | "change" | "twostep" | "change-old";
+/* "change-old": with 2-step sign-in on, a new email is first approved from the current one (app/api/account/email).
+   "staff-login" / "staff-change": Diwan staff's sign-in code and a new email in Diwan (server/staffSignin.ts); their
+   words come with them (CodeEmailWords), in the member's saved language or both. */
+export type MerchantCodePurpose = "signup" | "login" | "change" | "twostep" | "change-old";
+export type CodePurpose = MerchantCodePurpose | "staff-login" | "staff-change";
+/** An email's own words, for codes whose words aren't in codeWords (parts: both languages, server/emailWords.ts bothLangs) */
+export type CodeEmailWords = { subject: string; heading: string; text: string; parts?: EmailPart[] };
 export type CodeLang = "ar" | "en";
 
 /** The language of the email: what the page asked for, else the page's saved language (server/lang.ts), else the
@@ -57,7 +64,7 @@ export function verifyLang(req: NextRequest, asked?: unknown): CodeLang {
 }
 
 /** The words of each email */
-export function codeWords(purpose: CodePurpose, lang: CodeLang) {
+export function codeWords(purpose: MerchantCodePurpose, lang: CodeLang) {
   const m = CODE_MINUTES;
   if (lang === "ar") {
     const w = {
@@ -147,8 +154,8 @@ export async function freshSignInCodes(accountId: string | number): Promise<void
 export type SendResult = "sent" | "failed" | "slow-down" | "locked" | "off";
 
 /** Makes a new code for `ref` (the ones before it end once it went out) and emails it to `email`, waiting for the send. `newEmail`: the
-    address a "change" code moves the account to (the same as `email`). */
-export async function sendCodeEmail(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang): Promise<SendResult> {
+    address a "change" code moves the account to (the same as `email`). `words`: the email's own words (staff codes). */
+export async function sendCodeEmail(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang, words?: CodeEmailWords): Promise<SendResult> {
   /* one at a time for each ref, each address and each connection: many clicks at the same moment (or many sign-ups with
      one address) wait for each other instead of all passing the caps before the first send is counted. Always taken in
      this order (ref, address, connection), so two sends can never each wait for the other. */
@@ -163,7 +170,7 @@ export async function sendCodeEmail(req: NextRequest, purpose: CodePurpose, ref:
       [ref, emailKey(email), RESEND_SECONDS],
     );
     if (rows.length) return "sent";
-    return sendNewCode(req, purpose, ref, email, lang);
+    return sendNewCode(req, purpose, ref, email, lang, words);
   });
 }
 
@@ -184,7 +191,7 @@ async function oneAtATime<T>(key: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang): Promise<SendResult> {
+async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang, words?: CodeEmailWords): Promise<SendResult> {
   /* without an email provider nothing can be confirmed, except on the dev server, where the code is shown in its console */
   const devConsole = !emailOn() && process.env.NODE_ENV === "development";
   if (!emailOn() && !devConsole) return "off";
@@ -200,15 +207,16 @@ async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, 
   const { rows } = await pool.query(
     `INSERT INTO email_codes (ref, purpose, email_hash, new_email, code_hash, expires_at, used_at)
      VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6), now()) RETURNING id`,
-    [ref, purpose, key, purpose === "change" ? seal(email) : null, codeHash(ref, key, code), CODE_MINUTES],
+    [ref, purpose, key, purpose === "change" || purpose === "staff-change" ? seal(email) : null, codeHash(ref, key, code), CODE_MINUTES],
   );
   const id = String(rows[0].id);
   /* now and then, clear out what ran out more than a day ago */
   if (Math.random() < 0.05) pool.query(`DELETE FROM email_codes WHERE expires_at < now() - interval '1 day'`).catch(() => {});
-  const w = codeWords(purpose, lang);
+  /* the staff codes always bring their words (server/staffSignin.ts) */
+  const w = words ?? codeWords(purpose as MerchantCodePurpose, lang);
   try {
     if (devConsole) console.info(`[email] (dev, no email provider) the ${purpose} code for ${email}: ${code}`);
-    else await sendEmail({ to: email, subject: w.subject, heading: w.heading, text: w.text, lang, code });
+    else await sendEmail({ to: email, subject: w.subject, heading: w.heading, text: w.text, lang, code, parts: words?.parts });
   } catch (e) {
     /* logged without the code. Nobody got this code, so it stays ended. The ones before it stay good when they went to
        this same address (the person still has that email); one sent to another address ends, since the person moved on

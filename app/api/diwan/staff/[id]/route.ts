@@ -11,10 +11,10 @@ export const dynamic = "force-dynamic";
 
 /* One change to a staff member, sent as { action, ... } (every staff member is an owner: Diwan has no roles):
      active    { active: boolean }              deactivate (signs them out everywhere) or bring back
-     reset2step                                 forget their 2-step code: they set up a new one at the next sign-in
      password  { password }                     a new temporary password; they choose their own at the next sign-in
    Diwan always keeps one staff member who can sign in, and nobody can take away their own access here.
-   Taking access away and both resets need the acting member's own password with them ({ myPassword }), so nobody can
+   (The 2-step reset is gone since 2026-11-22: the codes come by email, with nothing to reset.)
+   Taking access away and the password reset need the acting member's own password with them ({ myPassword }), so nobody can
    give himself another member's sign-in without it (server/staffConfirm.ts passwordAgain).
    Answers: "ok", "invalid", "self", "last-owner", "missing", "weak", "password" (403), "slow-down" (429). */
 export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }) => {
@@ -30,7 +30,7 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
     const problem = staffPasswordProblem(body?.password);
     if (problem) return answer({ result: "weak", problem }, 400);
   }
-  if (action === "password" || action === "reset2step" || (action === "active" && body?.active === false)) {
+  if (action === "password" || (action === "active" && body?.active === false)) {
     const refused = await passwordAgain(req, me, body?.myPassword, `staff.${action}`);
     if (refused) return refused;
   }
@@ -62,9 +62,6 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
       await c.query(`UPDATE staff SET active = $2 WHERE id = $1`, [id, body.active]);
       if (!body.active) await signOutEverywhere();
       meta = { before: s.active, after: body.active };
-    } else if (action === "reset2step") {
-      await c.query(`UPDATE staff SET totp_on = false, totp_secret = NULL WHERE id = $1`, [id]);
-      await signOutEverywhere();
     } else if (action === "password") {
       await c.query(`UPDATE staff SET password_hash = $2, must_change_password = true WHERE id = $1`, [id, hash]);
       await signOutEverywhere();
@@ -79,11 +76,11 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
   } finally {
     c.release();
   }
-  const names: Record<string, string> = { active: body!.active ? "staff.reactivate" : "staff.deactivate", reset2step: "staff.reset_2step", password: "staff.reset_password" };
+  const names: Record<string, string> = { active: body!.active ? "staff.reactivate" : "staff.deactivate", password: "staff.reset_password" };
   await audit(req, me.id, names[action], { type: "staff", id }, reason, meta);
   /* the other owners hear of it by email: what changed, by whom and when (never the new password). Bringing back a
      member who was already active changes nothing, so it tells nobody. */
-  const change = action === "active" ? (body!.active ? (meta.before ? null : "reactivated") : meta.before ? "deactivated" : null) : action === "reset2step" ? "twoStepReset" : "passwordReset";
+  const change = action === "active" ? (body!.active ? (meta.before ? null : "reactivated") : meta.before ? "deactivated" : null) : "passwordReset";
   if (change) tellOtherStaff(me, change, target);
   return answer({ result: "ok" });
 });

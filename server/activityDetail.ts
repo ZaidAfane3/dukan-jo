@@ -89,6 +89,8 @@ function detailOf(action: string, meta: Record<string, unknown> | null, staffNam
     }
     case "shop.payment":
       return { amount: str(m.amount) ?? undefined, method: str(m.method) ?? undefined };
+    case "staff.email_changed":
+      return { changes: [{ field: "email", from: str(m.from), to: str(m.to) }] };
     case "staff.add":
       return { member: str(m.name) ?? undefined, changes: str(m.role) ? [{ field: "role", from: null, to: str(m.role) }] : undefined };
     case "staff.role":
