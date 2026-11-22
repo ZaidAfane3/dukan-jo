@@ -248,7 +248,8 @@ export async function listTickets(sp: URLSearchParams, kinds: string[], staffId:
   const { rows } = await pool.query(
     `SELECT t.number, t.kind, t.category, t.subject, t.status, t.priority, t.assignee_id, st.name AS assignee_name, t.where_text,
             t.account_id, COALESCE(s.name, '') AS shop, a.name AS owner, a.email, t.created_at, t.updated_at,
-            (SELECT m.author FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author <> 'system' ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author,
+            /* who wrote last to the other side: an internal note isn't a message the merchant got, so it doesn't count */
+            (SELECT m.author FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author <> 'system' AND NOT m.internal ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author,
             (SELECT m.body FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author = 'merchant' ORDER BY m.created_at, m.id LIMIT 1) AS first,
             (SELECT count(*)::int FROM ticket_messages m WHERE m.ticket_id = t.id AND m.author <> 'system') AS messages,
             (SELECT array_agg(x.id) FROM (SELECT pp.id FROM ticket_pictures pp WHERE pp.ticket_id = t.id ORDER BY pp.id LIMIT 4) x) AS pictures
