@@ -25,7 +25,7 @@ import { onServer } from "./merchantApi";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { ShareMenu } from "./ShareMenu";
 import { usePageTitle } from "./pageTitle";
-import { moneyText } from "./moneyText";
+import { merchantMoney } from "./moneyText";
 
 const TOTAL_TASKS = 6;
 
@@ -336,9 +336,9 @@ export function Dashboard() {
   const lost = sample ? Math.round(abandoned * (18 + rndSmall() * 14) * 100) / 100 : 0;
   const latest: { name: string; total: string; status: string; id?: number }[] =
     tour && tourOrders.length
-      ? tourOrders.map((x) => ({ ...x, status: ordersCopy[lang].statuses[x.status] }))
+      ? tourOrders.map((x) => ({ ...x, total: sampleMoney(x.total), status: ordersCopy[lang].statuses[x.status] }))
       : sample
-        ? h.latestSample
+        ? h.latestSample.map((x) => ({ ...x, total: sampleMoney(x.total) }))
         : latestOrders(data.orders).map((o) => ({ id: o.id, name: o.customer, total: fmt(o.total), status: ordersCopy[lang].statuses[o.status] }));
 
   const goalProgress = goal > 0 ? Math.min((netSales / goal) * 100, 100) : 0;
@@ -739,4 +739,6 @@ export function Dashboard() {
   );
 }
 
-const fmt = moneyText;
+const fmt = merchantMoney;
+/* a sample order's total (written as a plain number in content.ts) as the real ones are shown */
+const sampleMoney = (t: string) => (/^\d+(\.\d+)?$/.test(t) ? fmt(Number(t)) : t);

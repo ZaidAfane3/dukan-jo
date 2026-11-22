@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { isJordanMobile, savedMobile } from "@/components/phone";
 import { cleanLine, emailOf, passwordProblem, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS } from "@/components/safeAccount";
-import { answer, guarded, hashPassword, readJson, sameOrigin, tooMany } from "@/server/auth";
+import { answer, countTry, guarded, hashPassword, limitReached, readJson, sameOrigin, tooMany, visitorIp } from "@/server/auth";
 import { emailKey, phoneKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { emailOn } from "@/server/email";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 /* Signing up, step 1. The same rules as the sign-up form (SignupForm.tsx), checked again here because anything in the
    browser can be skipped. Answers "taken" (the email has an account), "taken-phone" (the mobile has one), "invalid",
-   "slow-down" (too many sign-ups from here).
+   "slow-down" (too many sign-ups from here, or too many different emails and mobiles tried from here: CONTACTS).
    While Dukkan can send email (server/email.ts emailOn; on the dev server the code is shown in its console) nothing is
    made yet: the sign-up waits (server/signup.ts) and a 6-digit code goes to the email (in `lang`, else the page's
    language). Answers "code" with the address; step 2 is app/api/auth/signup/code. "email-slow-down": too many codes
@@ -21,6 +21,26 @@ export const dynamic = "force-dynamic";
    many wrong codes from this visitor in the last hour, so no code is sent (server/emailVerify.ts). All three leave
    nothing waiting.
    On a live server without email the account is made at once and signed in ("ok"), since nothing could confirm it. */
+/* How many different emails and mobiles one visitor can have checked here in an hour (AT2-01). The answer says plainly
+   when an email or a mobile already has an account (a sign-up form has to), so this keeps anyone from testing a long
+   list of them: the same email or mobile typed again doesn't count again, a new one does, and once 10 were checked
+   the next new one is answered "slow-down". Someone signing up with their own email and mobile uses 2. */
+const CONTACTS = { max: 10, minutes: 60 };
+function tooManyContacts(req: NextRequest, hashes: string[]): boolean {
+  const ip = visitorIp(req);
+  const seen = (h: string) => `signup-seen:${ip}|${h}`;
+  const fresh = hashes.filter((h) => h && !limitReached(seen(h), 1, CONTACTS.minutes));
+  if (!fresh.length) return false;
+  const all = `signup-contacts@visitor:${ip}`;
+  /* the new ones together would go over the limit */
+  if (limitReached(all, CONTACTS.max - fresh.length + 1, CONTACTS.minutes)) return true;
+  for (const h of fresh) {
+    countTry(seen(h), CONTACTS.minutes);
+    countTry(all, CONTACTS.minutes);
+  }
+  return false;
+}
+
 export const POST = guarded(async (req: NextRequest) => {
   if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
   if (tooMany(req, "signup", 10, 60)) return answer({ result: "slow-down" }, 429);
@@ -38,6 +58,7 @@ export const POST = guarded(async (req: NextRequest) => {
   const pool = await db();
   const emailHash = emailKey(email);
   const phoneHash = phoneKey(phone) ?? "";
+  if (tooManyContacts(req, [emailHash, phoneHash])) return answer({ result: "slow-down" }, 429);
   /* told before any code is sent, as before: the form shows it under the field */
   const { rows: taken } = await pool.query(`SELECT email_hash = $1 AS email FROM accounts WHERE email_hash = $1 OR phone_hash = $2 LIMIT 1`, [emailHash, phoneHash]);
   if (taken[0]) return answer({ result: taken[0].email ? "taken" : "taken-phone" }, 409);

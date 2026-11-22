@@ -1,7 +1,7 @@
 import { content, type Lang } from "./content";
 import { demoActive, signedInAs } from "./demoSandbox";
 import { bounceIfSuspended } from "./suspended";
-import { moneyText } from "./moneyText";
+import { merchantMoney } from "./moneyText";
 
 /* The bell's list. Two sources, shown as one list:
    - this browser session: pages add to it when something happens here (a task is finished, a coupon is created, ...).
@@ -195,8 +195,9 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
   const fill = (t: string, extra: Record<string, string> = {}) =>
     Object.entries({ ...p, ...extra }).reduce((s, [k, v]) => s.split(`{${k}}`).join(v), t);
   const note = p.note ? `${w.sep}${p.note}` : "";
-  /* an amount the server sent ("14.475", or "22.000" in older notices) written as everywhere else ("14.475", "22") */
-  const amount = (v: string | undefined) => (v !== undefined && /^\d+(\.\d+)?$/.test(v) ? moneyText(Number(v)) : v ?? "");
+  /* an amount the server sent ("14.475", or "22.000" in older notices) written as on the merchant's other pages ("14.475",
+     "22.00") */
+  const amount = (v: string | undefined) => (v !== undefined && /^\d+(\.\d+)?$/.test(v) ? merchantMoney(Number(v)) : v ?? "");
   switch (item.kind) {
     case "announcement":
       return (lang === "ar" ? p.titleAr : p.titleEn) || p.titleEn || p.titleAr || "";

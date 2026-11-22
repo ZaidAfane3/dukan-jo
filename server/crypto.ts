@@ -13,11 +13,49 @@ import { savedMobile } from "@/components/phone";
                     or a mobile at sign-in): equal texts give equal fingerprints, and it can't be reversed without the key.
 
    The key: 32 random bytes in base64, e.g. `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
-   LOSING IT LOSES THE DATA: keep a copy somewhere safe, outside the server. In production the app refuses to read or
-   write private data without it. In development a fixed key is used (with a warning), so local databases still work. */
+   LOSING IT LOSES THE DATA: keep a copy somewhere safe, outside the server. In production the app refuses to start
+   without it, or with a weak one (dataKeyProblem, instrumentation.ts), and never reads or writes private data with
+   either. In development a fixed key is used when none is set, and a weak one only gives a warning, so local databases
+   still work. */
 
 const MARK = "e1:";
 let keys: { enc: Buffer; idx: Buffer } | null = null;
+
+/** What is wrong with a data key, in a few words for the log, or null when it looks like what it must be: 32 random bytes
+    written in base64 (`openssl rand -base64 32`). Never says anything about the key itself. Weak:
+    - it is missing, or isn't 32 bytes once read as base64;
+    - one byte repeated, or a short pattern repeated (fewer than 16 different bytes);
+    - it reads as plain text (typed words put through base64: 30 or more of the 32 bytes are letters, digits, spaces...);
+    - it is typed words itself (fewer than 20 different characters; or no digit and no + / _ - with fewer than 22; or 36
+      or more small letters).
+    32 truly random bytes meet none of these: 3 million made with randomBytes(32) were all "strong" (the closest came to
+    21 different characters, 26 text-like bytes and 33 small letters). The one-line check the owner runs on the live
+    server before a deploy repeats these rules: change both together. */
+export function dataKeyProblem(raw: string | undefined): string | null {
+  const text = (raw ?? "").trim();
+  if (!text) return "it is missing";
+  const bytes = Buffer.from(text, "base64");
+  if (bytes.length !== 32) return "it is not 32 bytes of base64";
+  if (bytes.every((b) => b === bytes[0])) return "it is one byte repeated";
+  if (new Set(bytes).size < 16) return "it is a short pattern repeated";
+  if (bytes.filter((b) => (b >= 0x20 && b < 0x7f) || b === 9 || b === 10 || b === 13).length >= 30) return "it is plain text put through base64";
+  const body = text.replace(/=+$/, "");
+  const kinds = new Set(body).size;
+  if (kinds < 20 || (!/[0-9+/_-]/.test(body) && kinds < 22) || (body.match(/[a-z]/g) ?? []).length >= 36) return "it looks typed rather than random";
+  return null;
+}
+
+/** On the live server's start (instrumentation.ts): a missing or weak key stops the server, with one clear line in the
+    log and never the key itself */
+export function stopOnWeakKey(): void {
+  const weak = dataKeyProblem(process.env.DUKKAN_DATA_KEY);
+  if (!weak) return;
+  console.error(
+    `[start-up] REFUSING TO START: DUKKAN_DATA_KEY is weak (${weak}). It must be 32 random bytes in base64 (openssl rand -base64 32). ` +
+      "Never replace the key of a database that already has data saved with it: that data could not be read any more.",
+  );
+  process.exit(1);
+}
 
 function loadKeys() {
   if (keys) return keys;
@@ -27,9 +65,12 @@ function loadKeys() {
     if (process.env.NODE_ENV === "production") throw new Error("DUKKAN_DATA_KEY is missing or not 32 bytes of base64: private data can't be read or written");
     console.warn("[crypto] DUKKAN_DATA_KEY is not set: using the development key. Never run production like this.");
     master = Buffer.alloc(32, 7);
-  } else if (master.every((b) => b === master[0]) || master.every((b) => b >= 0x20 && b < 0x7f)) {
-    /* 32 bytes, but not random ones (all the same byte, or typed text): it still works, so only a warning */
-    console.warn("[crypto] DUKKAN_DATA_KEY does not look random (one repeated byte, or plain text). Make it with randomBytes(32).");
+  } else {
+    const weak = dataKeyProblem(raw);
+    /* 32 bytes, but not random ones: the live server refuses it (and doesn't start: instrumentation.ts), a development
+       copy only warns */
+    if (weak && process.env.NODE_ENV === "production") throw new Error(`DUKKAN_DATA_KEY is weak (${weak}): private data can't be read or written. Make it with openssl rand -base64 32.`);
+    if (weak) console.warn(`[crypto] DUKKAN_DATA_KEY is weak (${weak}). Make it with openssl rand -base64 32. The live server refuses such a key.`);
   }
   /* two separate keys from the one secret, so the fingerprints never reuse the encryption key */
   keys = {

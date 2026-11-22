@@ -35,7 +35,7 @@ import { SizesEditor } from "./SizesEditor";
 import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, sizeTwice, type ProductKind, type SizeStock } from "./safeOrder";
 import { RudeNote } from "./RudeNote";
 import { usePageTitle } from "./pageTitle";
-import { moneyText } from "./moneyText";
+import { merchantMoney } from "./moneyText";
 
 /* ====================================================================
    Types and constants
@@ -1255,7 +1255,7 @@ function ProductStep({ store, onSave }: StepProps) {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-lg font-bold">{shownName}</p>
                         <p className="mt-2 text-sm font-semibold">
-                          {priceNumber > 0 ? <span dir="ltr">{moneyText(priceNumber)} {p.currency}</span> : <span className="text-muted">-</span>}
+                          {priceNumber > 0 ? <span dir="ltr">{merchantMoney(priceNumber)} {p.currency}</span> : <span className="text-muted">-</span>}
                         </p>
                         <div className="mt-4 flex gap-2">
                           <span className="flex-1 rounded-md border border-fg/30 px-2 py-2 text-center text-[11px] font-semibold">{p.addToCart}</span>

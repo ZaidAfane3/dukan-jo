@@ -2,7 +2,8 @@ import type { Pool } from "pg";
 import { blind, isSealed } from "./crypto";
 
 /* Whether DUKKAN_DATA_KEY can really be used: it is there (32 bytes) and it opens the data saved with it. A missing or
-   mistyped key does not stop the site from starting, and with a wrong key nothing fails loudly: every email's
+   weak key stops the live server from starting (instrumentation.ts), but a WRONG one (strong, just not the one the data
+   was saved with) does not, and with it nothing fails loudly: every email's
    fingerprint comes out different, so each sign-in finds no account and would be told "wrong password". The health check
    (app/api/health) and the sign-ins ask this first, so the deploy sees the problem and people are told the server has
    one, rather than that their password is wrong.

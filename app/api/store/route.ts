@@ -1,5 +1,5 @@
-import type { NextRequest } from "next/server";
-import { answer, currentAccount, guarded, otherAccount, sameOrigin, tooManyFor, readJsonOr, unreadable } from "@/server/auth";
+import type { NextRequest, NextResponse } from "next/server";
+import { answer, currentAccount, guarded, otherAccount, sameOrigin, startRunning, tooManyFor, readJsonOr, unreadable, type SessionAccount } from "@/server/auth";
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
@@ -117,8 +117,27 @@ export const PUT = guarded(async (req: NextRequest) => {
   /* a tab still on the account signed in before must not save its data under this one */
   if (otherAccount(req, a)) return answer({ result: "other-account" }, 409);
   if (a.suspended) return answer({ result: "suspended" }, 423);
-  /* the heaviest write (up to 8 MB): the pages save at most every few seconds */
-  if (tooManyFor(`store-save:${a.id}`, 120, 10)) return answer({ result: "slow-down" }, 429);
+  /* the heaviest write (up to 8 MB): at most SAVES_AT_ONCE of one account's saves run at the same time (security audit
+     N01). Each holds its body in memory and, while it waits for the account's save lock, one of the server's few
+     database connections, so one account sending many at once would hold up every other store. The others are told
+     at once to wait ("slow-down"); the pages send their saves one after the other and try a refused one again a few
+     seconds later (components/serverSync.ts). */
+  const done = startRunning(`store-save:${a.id}`, SAVES_AT_ONCE);
+  if (!done) return answer({ result: "slow-down" }, 429);
+  try {
+    /* and the pages save at most every few seconds */
+    if (tooManyFor(`store-save:${a.id}`, 120, 10)) return answer({ result: "slow-down" }, 429);
+    return await save(req, a);
+  } finally {
+    done();
+  }
+});
+
+/* one account's saves running at the same time, at most (PUT) */
+const SAVES_AT_ONCE = 2;
+
+/* PUT's save itself, once it may run */
+async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> {
   const read = await readJsonOr(req, MAX_BODY);
   if (!("body" in read)) return unreadable(read.why);
   const body = read.body;
@@ -399,4 +418,4 @@ export const PUT = guarded(async (req: NextRequest) => {
     ...(Object.keys(stale).length ? { stale } : {}),
     ...(Object.keys(refused).length ? { refused } : {}),
   });
-});
+}

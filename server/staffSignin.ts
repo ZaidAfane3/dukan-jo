@@ -202,6 +202,21 @@ export async function deviceRemembered(req: NextRequest, staffId: string, passwo
   return r.rowCount === 1;
 }
 
+/** True when this browser is remembered for this member and still could sign in there (not run out, the account's
+    current password and email, active), before the password is checked: it only lets the sign-in through a hold on
+    wrong passwords (server/auth.ts signInTries held), the password is checked after it as always. Changes nothing. */
+export async function deviceKnown(req: NextRequest, staffId: string): Promise<boolean> {
+  const hash = deviceHash(req);
+  if (!hash) return false;
+  const { rows } = await (await db()).query(
+    `SELECT 1 FROM staff_devices d JOIN staff s ON s.id = d.staff_id
+      WHERE d.token_hash = $1 AND d.staff_id = $2 AND d.expires_at > now()
+        AND d.password_hash = s.password_hash AND d.email_hash = s.email_hash AND s.active`,
+    [hash, staffId],
+  );
+  return rows.length > 0;
+}
+
 /** Forgets the member's remembered browsers (all, or all but this one). `q`: a transaction's client, else the pool.
     The number forgotten. */
 export async function forgetDevices(

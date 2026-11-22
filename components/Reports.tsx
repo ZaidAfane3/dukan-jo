@@ -31,7 +31,7 @@ import {
 import { useStoreOrders } from "./useStoreOrders";
 import { usePageTitle } from "./pageTitle";
 import { AnimatedNumber, Money, mulberry32, pctDecimals, RefreshButton } from "./reportBits";
-import { moneyText } from "./moneyText";
+import { merchantMoney } from "./moneyText";
 
 /* the small pieces the home page and Abandoned carts share with Reports live in reportBits.tsx, so those pages load
    without the rest of this file */
@@ -863,7 +863,7 @@ function RealReport({ section, data, span, prev, busy, refresh, signedIn }: { se
   const r = content[lang].reports;
   const cur = r.currency;
   const grid = "grid gap-6 md:grid-cols-2 lg:grid-cols-3";
-  const money2 = (n: number) => `${moneyText(n)} ${cur}`;
+  const money2 = (n: number) => `${merchantMoney(n)} ${cur}`;
   const card = (id: string, info: HelpInfo, body: React.ReactNode, wide?: boolean) => (
     <RealCard key={id} id={id} info={info} busy={busy} refresh={refresh} wide={wide}>
       {body}
@@ -1055,7 +1055,7 @@ export function Reports() {
   const realPrev = sample ? null : salesFigures(data.orders, data.products, prevSpan);
   /* the reports worked out from the orders wait for them (Visitors and abandoned carts don't) */
   const needsOrders = !sample && section !== 3 && section !== 4;
-  const money2 = (n: number) => `${moneyText(n)} ${cur}`;
+  const money2 = (n: number) => `${merchantMoney(n)} ${cur}`;
 
   /* only this page made its reports: its undo goes when it closes */
   useEffect(() => () => dropUndos("reports"), []);

@@ -37,6 +37,10 @@ export async function startStaffSession(res: NextResponse, req: NextRequest, sta
     [tokenHash(token), staffId, ipOf(req), verified, HOURS, passwordHash],
   );
   if (!r.rowCount) return false;
+  /* the session this browser held before ends: its cookie is replaced now, so a token the browser brought never lives on
+     beside the new one */
+  const brought = req.cookies.get(STAFF_COOKIE)?.value;
+  if (brought && brought.length <= 100) await pool.query(`DELETE FROM staff_sessions WHERE token_hash = $1`, [tokenHash(brought)]);
   /* the language the sign-in page is in, for the staff emails (server/lang.ts) */
   const lang = cookieLang(req);
   if (lang) await pool.query(`UPDATE staff SET lang = $2 WHERE id = $1 AND lang IS DISTINCT FROM $2`, [staffId, lang]);

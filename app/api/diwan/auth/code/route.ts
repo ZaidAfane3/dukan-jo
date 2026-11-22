@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { latin } from "@/components/digits";
 import { staffPasswordProblem } from "@/components/diwan/staffRules";
-import { answer, checkPassword, guarded, hashPassword, readJson, sameOrigin, signInTries, tooMany, tooManyFor } from "@/server/auth";
+import { answer, checkPassword, guarded, hashPassword, noteSigninPlace, readJson, sameOrigin, signInTries, tooMany, tooManyFor } from "@/server/auth";
 import { emailKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { checkCodeFor } from "@/server/emailVerify";
@@ -86,6 +86,7 @@ export const POST = guarded(async (req: NextRequest) => {
   if (!(await startStaffSession(res, req, w.staffId, hash, true))) return gone();
   await rememberDevice(res, req, w.staffId, hash);
   await pool.query(`UPDATE staff SET last_login_at = now() WHERE id = $1`, [w.staffId]);
+  await noteSigninPlace(req, `s:${w.staffId}`);
   /* the code reached this address: it is confirmed now (an owner typed it when adding the member) */
   const confirmed = await pool.query(
     `UPDATE staff SET email_confirmed_at = now() WHERE id = $1 AND email_confirmed_at IS NULL AND email_hash = $2`,

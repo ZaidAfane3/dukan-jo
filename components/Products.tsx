@@ -27,7 +27,7 @@ import { dropUndos, listUndo, offerUndo } from "./undo";
 import { usePageTitle } from "./pageTitle";
 import { Skeleton } from "./Skeleton";
 import { leaveUnasked } from "./serverSync";
-import { moneyText } from "./moneyText";
+import { merchantMoney } from "./moneyText";
 
 
 
@@ -424,7 +424,7 @@ export function Products() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, filter, query, sort, lang]);
 
-  const fmt = moneyText;
+  const fmt = merchantMoney;
 
   /* Unsaved changes are only thrown away after he says so, in the page's own box (never the browser's window): what he
      was about to do waits in `discardThen` until he answers */
