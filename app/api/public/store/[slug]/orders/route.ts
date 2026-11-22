@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { latin } from "@/components/digits";
-import { answer, countTry, limitReached, sameOrigin, tooMany, readJsonOr, unreadable } from "@/server/auth";
-import { findStoreAttempt, placeStoreOrder } from "@/server/storeOrders";
+import { answer, reserveTry, sameOrigin, tooMany, readJsonOr, unreadable } from "@/server/auth";
+import { findStoreAttempt, placeStoreOrder, reserveCouponGuess, type PlaceResult } from "@/server/storeOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -44,13 +44,32 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     const customer = body.customer && typeof body.customer === "object" ? (body.customer as Record<string, unknown>) : {};
     const mobile = typeof customer.phone === "string" ? latin(customer.phone).replace(/\D/g, "").slice(-9) : "";
     const phoneKey = mobile ? `${shopKey}:${mobile}` : null;
-    if (limitReached(shopKey, 200, 60) || (phoneKey && limitReached(phoneKey, 5, 60))) return answer({ result: "slow-down" }, 429);
-    const r = await placeStoreOrder(p.slug, body);
-    if (r.status === 200) {
-      countTry(shopKey, 60);
-      if (phoneKey) countTry(phoneKey, 60);
+    /* each allowance is taken before the order is placed, so orders sent at the same moment can't all pass the look while
+       the first ones are still being written, and given back below when the order didn't go in. A coupon code also
+       takes one try of the store's allowance for wrong codes, the same one as the cart's coupon box (server/storeOrders.ts
+       COUPON_GUESSES): placing orders can't be used to go on guessing codes once it is used up. */
+    const nothing = () => {};
+    const hasCoupon = typeof body.coupon === "string" && body.coupon.slice(0, 40).trim() !== "";
+    const backShop = reserveTry(shopKey, 200, 60);
+    const backPhone = backShop && (phoneKey ? reserveTry(phoneKey, 5, 60) : nothing);
+    const backCoupon = backPhone && (hasCoupon ? reserveCouponGuess(p.slug) : nothing);
+    if (!backShop || !backPhone || !backCoupon) {
+      backShop?.();
+      backPhone?.();
+      return answer({ result: "slow-down" }, 429);
     }
-    return answer(r.body, r.status);
+    let r: PlaceResult | null = null;
+    try {
+      r = await placeStoreOrder(p.slug, body);
+      return answer(r.body, r.status);
+    } finally {
+      if (r?.status !== 200) {
+        backShop();
+        backPhone();
+      }
+      /* only a wrong code counts (a code that works but needs a bigger basket, "min", is not a guess) */
+      if (!(r?.status === 409 && r.body.result === "coupon" && r.body.why === "unknown")) backCoupon();
+    }
   } catch (e) {
     console.error("[store order]", p.slug, e);
     return answer({ result: "error" }, 503);

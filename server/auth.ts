@@ -394,6 +394,30 @@ export function countTry(key: string, minutes: number): void {
   windowOf(key, minutes, Date.now()).n++;
 }
 
+/** limitReached and countTry in one step, for a limit that counts only what went through when that is known only after
+    a wait (the database): null when `max` tries are used already, else one try is counted at once, before anything is
+    waited for, so tries sent at the same moment can't all pass the look while the first ones are still waiting. Call
+    the function it gives when the try turned out not to count: the try is given back (and a key left with nothing
+    counted is dropped, so failed tries leave no keys behind). */
+export function reserveTry(key: string, max: number, minutes: number): (() => void) | null {
+  const now = Date.now();
+  if (usedNow(key, minutes, now) >= max) return null;
+  const w = windowOf(key, minutes, now);
+  w.n++;
+  const start = w.start;
+  let back = false;
+  return () => {
+    if (back) return;
+    back = true;
+    const list = tries.get(kindOf(key));
+    if (!list || list.get(key) !== w) return;
+    /* counted in this window, or in the one before if the window moved on meanwhile */
+    if (w.start === start) w.n = Math.max(0, w.n - 1);
+    else if (w.start === start + w.ms) w.prev = Math.max(0, w.prev - 1);
+    if (!w.n && !w.prev) list.delete(key);
+  };
+}
+
 /** Forgets what was counted for this key */
 export function forgetTries(key: string): void {
   tries.get(kindOf(key))?.delete(key);

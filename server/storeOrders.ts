@@ -8,6 +8,7 @@ import {
   type CheckoutField, type Payment, type PricedLine, type Sellable,
 } from "@/components/safeOrder";
 import { highestOrderNumber, lastOrderNumber, ORDER_NUMBER_KEY, ORDER_NUMBER_START } from "@/components/orderNumbers";
+import { reserveTry } from "./auth";
 import { plainDeep, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { emailNotice, notify } from "./notify";
@@ -358,6 +359,16 @@ async function writeKey(c: PoolClient, accountId: string, key: string, value: st
 function publicRefusal(why: CouponRefusal): CouponRefusal {
   return why === "min" ? "min" : "unknown";
 }
+
+/* Wrong coupon codes per store, from every visitor together: many addresses can't share out the guessing. Both places
+   that tell whether a code exists draw on this one allowance: the cart's coupon box (app/api/public/store/<slug>/coupon)
+   and placing an order with a code (…/orders). */
+export const COUPON_GUESSES = { max: 300, minutes: 15 };
+/** Takes one try of the store's allowance for wrong coupon codes, before the code is checked: null when it is used up
+    (answer "slow-down"), else the function to call when the code turned out not to be a wrong one (the try is given
+    back) */
+export const reserveCouponGuess = (slug: unknown) =>
+  reserveTry(`store-coupon-shop:${String(slug ?? "").toLowerCase().slice(0, 64)}`, COUPON_GUESSES.max, COUPON_GUESSES.minutes);
 
 /** A coupon code a customer types on the store's page, checked against the shop's coupons (switched on, inside its
     dates, not used up). Its minimum order is not checked here: the cart checks it against the basket as it changes,
