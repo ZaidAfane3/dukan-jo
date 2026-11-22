@@ -35,10 +35,22 @@ export async function boughtThemes(q: Query, accountId: string | number): Promis
    held back: a store must never lose a theme because that one-time step has not run. */
 let recorded = false;
 
+/* The start-up code and the routes/pages are bundled apart, each with its own copy of this module (as server/shops.ts
+   prep), so the copy that ran recordSavedThemes is not the one that serves merchants. Whether the step ran is therefore
+   kept on the process, and a copy that has not seen it asks the database (its start_seeds mark): every copy agrees, and
+   the rule is never off merely because this copy did not run the step. */
+const shared = ((globalThis as { __dukkanThemesRecorded?: { done: boolean } }).__dukkanThemesRecorded ??= { done: false });
+async function purchasesRecorded(q: Query): Promise<boolean> {
+  if (recorded || shared.done) return true;
+  const { rows } = await q.query(`SELECT 1 FROM start_seeds WHERE key = $1`, [DONE]);
+  if (rows.length) shared.done = true;
+  return shared.done;
+}
+
 /** The themes held back from stores that did not buy them: the paid ones (paidThemes), or none until the one-time
     recording below has run */
 export async function enforcedPaidThemes(q: Query): Promise<Set<string>> {
-  return recorded ? paidThemes(q) : new Set();
+  return (await purchasesRecorded(q)) ? paidThemes(q) : new Set();
 }
 
 /** THE RULE (owner's decision, QA 94), for one account, read once and asked as often as needed (one call per request):
@@ -47,7 +59,7 @@ export async function enforcedPaidThemes(q: Query): Promise<Set<string>> {
     the save of the merchant's data (app/api/store PUT, through cleanThemeState), the public store
     (server/publicStore.ts), the merchant pages (app/api/themes/access) and Diwan's "theme in use". */
 export async function themeOwner(q: Query, accountId: string | number): Promise<(themeId: string) => boolean> {
-  if (!recorded) return () => true;
+  if (!(await purchasesRecorded(q))) return () => true;
   const [paid, bought] = await Promise.all([paidThemes(q), boughtThemes(q, accountId)]);
   return (id) => !paid.has(id) || bought.has(id);
 }
