@@ -1,3 +1,4 @@
+import { fullNotifyPrefs, type NotifyEvent, type NotifyPrefs } from "@/components/notifyPrefs";
 import { PRIVATE_PARAMS, seal } from "./crypto";
 import { db } from "./db";
 import { emailOn, sendEmailSoon } from "./email";
@@ -5,6 +6,8 @@ import {
   documentStatusEmail, type EmailLang, type EmailWords, orderPlacedEmail, shipFailedEmail, shopReactivatedEmail, shopSuspendedEmail,
   ticketRepliedEmail, twoStepOffEmail, wordsIn,
 } from "./emailWords";
+import { stockAlertEmail } from "./emailWords";
+import type { StockAlert } from "./stockAlerts";
 
 /* Puts a message in a merchant's bell (the notifications table). The bell shows it in their language from the kind and
    its params (components/notifications.ts holds the wording). Kinds Dukkan's side sends:
@@ -21,12 +24,15 @@ import {
                                                 it off the list: app/api/diwan/settings)
      payOff          {}                         Diwan switched off the last way to pay the store had on
      twoStepOff      {}                         Diwan turned the merchant's 2-step sign-in off (app/api/diwan/shops/[id]/totp)
+     lowStock        { id, name, left }         an order took a product down to its "warn me at" number or below
+     outOfStock      { id, name }               an order took a product's last piece (server/stockAlerts.ts)
    Dukkan has no plans or free trial, so the old planChanged kind is no longer sent, and "Log in as merchant" was removed
    on 2026-11-16, so neither is the old supportViewed kind (the bell still words both for older messages). Announcements are not sent with
    this: they are rows in announcements, shown to whoever they are for. */
 export type NotifyKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "paymentReceived" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff" | "twoStepOff";
+  | "paymentReceived" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff" | "twoStepOff"
+  | "lowStock" | "outOfStock";
 
 /* the free-text details (a ticket's subject, a staff note, a suspension reason) are stored encrypted; numbers, kinds
    and statuses stay plain so the bell can find a ticket's notices. db() opens them again on the way out. */
@@ -50,6 +56,8 @@ export function emailNotice(accountId: string | number, kind: NotifyKind, params
 /* ---------------- the same notice by email ---------------- */
 
 /* The kinds that also go to the owner's email (their words: server/emailWords.ts). The others stay in the bell only.
+   A new order's email goes only while the merchant has "New orders" on by email on Settings, Customize notifications
+   (PREF_OF below). The stock notices (lowStock, outOfStock) are emailed together by emailStockNotices, not from here.
    Each email is in the owner's saved language (accounts.lang, server/lang.ts), or in Arabic then English while none is saved.
    Sent with sendEmailSoon: never waited for and never thrown, so an email can't slow down or undo what caused it. */
 const EMAILED = new Set<NotifyKind>(["orderPlaced", "ticketReplied", "documentStatus", "shopSuspended", "shopReactivated", "shipFailed", "twoStepOff"]);
@@ -80,18 +88,37 @@ function wordsFor(kind: NotifyKind, p: Params): Words | null {
   }
 }
 
-/* the account owner's email (sealed in accounts: db() opens it) and saved language, or null. Every account's address was
-   confirmed by a code (at sign-up, or before an email change took effect: server/emailVerify.ts). */
-async function owner(accountId: string): Promise<{ to: string; lang: unknown } | null> {
-  const { rows } = await (await db()).query(`SELECT email, lang FROM accounts WHERE id = $1`, [accountId]);
+/* the account owner's email (sealed in accounts: db() opens it), saved language and Customize notifications choices
+   (notification_prefs: the default, every email on, while he never chose), or null. Every account's address was
+   confirmed by a code (at sign-up, or before an email change took effect: server/emailVerify.ts), so there is no
+   unconfirmed address to hold back. */
+async function owner(accountId: string): Promise<{ to: string; lang: unknown; prefs: NotifyPrefs } | null> {
+  const { rows } = await (await db()).query(
+    `SELECT a.email, a.lang, p.prefs FROM accounts a LEFT JOIN notification_prefs p ON p.account_id = a.id WHERE a.id = $1`,
+    [accountId],
+  );
   const to = String(rows[0]?.email ?? "").trim();
-  return to.includes("@") ? { to, lang: rows[0].lang } : null;
+  return to.includes("@") ? { to, lang: rows[0].lang, prefs: fullNotifyPrefs(rows[0].prefs) } : null;
 }
 
-function sendToOwner(accountId: string, words: Words, what: string) {
+/* The notices a merchant can switch off by email on Settings, Customize notifications (components/notifyPrefs.ts
+   LIVE_EMAIL), by the event they belong to. Read when the email goes, so a switch turned off a moment ago (while new
+   orders were being grouped, say) already counts. The bell gets every notice whatever he chose: it is his record. The
+   others (a ticket answered, a paper checked, the store suspended...) are about his account and are always emailed. */
+const PREF_OF: Partial<Record<NotifyKind, NotifyEvent>> = { orderPlaced: "newOrder", lowStock: "lowStock", outOfStock: "outOfStock" };
+
+/* only when the email switch of `kind`'s event is on (a kind with no switch: always) */
+const allowed = (kind: NotifyKind, words: Words) => (prefs: NotifyPrefs): Words | null => {
+  const event = PREF_OF[kind];
+  return !event || prefs[event].email ? words : null;
+};
+
+/* `pick`: the words to send, from what he chose on Customize notifications, or null to send nothing */
+function sendToOwner(accountId: string, pick: (prefs: NotifyPrefs) => Words | null, what: string) {
   void owner(accountId)
     .then((o) => {
-      if (!o) return;
+      const words = o ? pick(o.prefs) : null;
+      if (!o || !words) return;
       const w = wordsIn(o.lang, words);
       sendEmailSoon({ to: o.to, lang: w.lang, help: "dashboard", ...w.words }, what);
     })
@@ -101,7 +128,7 @@ function sendToOwner(accountId: string, words: Words, what: string) {
 function emailOwner(accountId: string, kind: NotifyKind, p: Params) {
   if (kind === "orderPlaced") return orderPlaced(accountId, Number(p.number), String(p.total ?? "0"));
   const words = wordsFor(kind, p);
-  if (words) sendToOwner(accountId, words, `the ${kind} email`);
+  if (words) sendToOwner(accountId, allowed(kind, words), `the ${kind} email`);
 }
 
 /* New orders are grouped so a busy store doesn't flood its owner: the first order is emailed at once, and the orders
@@ -114,7 +141,7 @@ const g = globalThis as unknown as { dukkanOrderEmails?: Map<string, OrderBatch>
 const batches = (g.dukkanOrderEmails ??= new Map());
 
 const sendOrders = (accountId: string, b: { number: number; total: string; count: number }) =>
-  sendToOwner(accountId, (l) => orderPlacedEmail(l, b), "the orderPlaced email");
+  sendToOwner(accountId, allowed("orderPlaced", (l) => orderPlacedEmail(l, b)), "the orderPlaced email");
 
 function orderPlaced(accountId: string, number: number, total: string) {
   if (!Number.isFinite(number)) return;
@@ -138,4 +165,22 @@ function orderPlaced(accountId: string, number: number, total: string) {
     if (count > 0) sendOrders(accountId, { number: b.number, total: b.total, count });
   }, Math.max(0, b.lastSent + ORDER_GAP_MS - now));
   b.timer.unref?.();
+}
+
+/* ---------------- stock running low or out (server/stockAlerts.ts) ---------------- */
+
+/** One email for the stock notices one change wrote (a confirmed order can take several products down at once), after
+    that change's COMMIT: the products that ran out while "Products have run out" is on by email, and those that ran low
+    while "A product is almost out of stock" is. Nothing when neither is left. Never waits and never throws. */
+export function emailStockNotices(accountId: string | number, alerts: readonly StockAlert[]): void {
+  if (!emailOn() || !alerts.length) return;
+  sendToOwner(
+    String(accountId),
+    (prefs) => {
+      const out = alerts.filter((a) => a.kind === "outOfStock" && prefs.outOfStock.email);
+      const low = alerts.filter((a) => a.kind === "lowStock" && prefs.lowStock.email);
+      return out.length || low.length ? (l) => stockAlertEmail(l, { out, low }) : null;
+    },
+    "the stock email",
+  );
 }

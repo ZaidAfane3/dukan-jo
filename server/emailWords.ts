@@ -8,7 +8,8 @@ import { moneyText } from "@/components/moneyText";
    Who reads them:
    - resetCodeEmail        server/sendCode.ts (a forgotten password's code; the code itself is shown large by email.ts)
    - the merchant notices  server/notify.ts, next to the bell's message of the same kind (the bell's own words are in
-                           components/content.ts, notifications.server)
+                           components/content.ts, notifications.server); stockAlertEmail groups the stock notices
+                           of one change (notify.ts emailStockNotices)
    - staffChangeEmail      the Diwan staff routes (app/api/diwan/staff), to the other owners
    - staffSigninCodeEmail, staffEmailApproveEmail, staffEmailCodeEmail, staffEmailChangedEmail   a staff member's own codes (server/staffSignin.ts)
 
@@ -343,3 +344,62 @@ export const staffEmailChangedEmail = (lang: EmailLang, to: string): EmailWords 
         heading: "Your Diwan email was changed",
         text: `The email of your Diwan account was changed to ${line(to, 120)}.\nFrom now on, Diwan's sign-in codes go to the new address, not to this one.\nIf it wasn't you, tell another owner on the team right away.`,
       };
+
+/* ---------------- stock running low or out (server/notify.ts emailStockNotices) ---------------- */
+
+/** Products an order took down: `out` ran out (none left), `low` reached the number the merchant set on them ("Warn me
+    when the quantity reaches") with `left` still in stock. One product: about it, with a button to it; several: a
+    line each, with a button to Products. Product names are the merchant's own words. */
+export function stockAlertEmail(lang: EmailLang, p: { out: readonly { id: number; name: string }[]; low: readonly { id: number; name: string; left: number }[] }): EmailWords {
+  const ar = lang === "ar";
+  const one = p.out.length + p.low.length === 1 ? (p.out[0] ?? p.low[0]) : null;
+  const name = (n: string) => line(n, 80);
+  const button = one
+    ? { label: ar ? "افتح المنتج" : "Open the product", url: link(`/products?open=${one.id}`) }
+    : { label: ar ? "افتح المنتجات" : "Open your products", url: link("/products") };
+  if (one && p.out.length)
+    return ar
+      ? {
+          subject: `نفدت كمية «${name(one.name)}»`,
+          heading: "نفدت كمية منتج",
+          text: `نفدت كمية «${name(one.name)}» في متجرك، فلن يستطيع العملاء طلبه حتى تضيف كمية جديدة.`,
+          button,
+        }
+      : {
+          subject: `“${name(one.name)}” is out of stock`,
+          heading: "A product ran out",
+          text: `“${name(one.name)}” has run out in your store, so customers can't order it until you add more.`,
+          button,
+        };
+  if (one)
+    return ar
+      ? {
+          subject: `قاربت كمية «${name(one.name)}» على النفاد`,
+          heading: "كمية منتج قاربت على النفاد",
+          text: `بقي ${p.low[0].left} فقط من «${name(one.name)}» في متجرك.\nأضف كمية جديدة قبل أن تنفد.`,
+          button,
+        }
+      : {
+          subject: `“${name(one.name)}” is running low`,
+          heading: "A product is almost out of stock",
+          text: `Only ${p.low[0].left} of “${name(one.name)}” left in your store.\nAdd more before it runs out.`,
+          button,
+        };
+  const lines = [
+    ...p.out.map((x) => (ar ? `«${name(x.name)}»: نفدت الكمية` : `“${name(x.name)}”: out of stock`)),
+    ...p.low.map((x) => (ar ? `«${name(x.name)}»: بقي ${x.left} فقط` : `“${name(x.name)}”: only ${x.left} left`)),
+  ];
+  return ar
+    ? {
+        subject: "منتجات في متجرك تحتاج إلى كمية جديدة",
+        heading: "تنبيه الكميات",
+        text: `بعد تأكيد طلب، صارت كمية هذه المنتجات في متجرك كما يلي:\n${lines.join("\n")}\nأضف كمية جديدة من صفحة المنتجات.`,
+        button,
+      }
+    : {
+        subject: "Products in your store need more stock",
+        heading: "Stock alert",
+        text: `An order was confirmed, and these products in your store are now low or out:\n${lines.join("\n")}\nAdd more stock on your Products page.`,
+        button,
+      };
+}

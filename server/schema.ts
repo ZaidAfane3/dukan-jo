@@ -437,8 +437,8 @@ export const DIWAN_SCHEMA = `
   /* What the merchant chose on Settings, Customize notifications (app/api/notification-prefs/route.ts):
      prefs = { "<event>": { "whatsapp": true|false, "email": true|false } } for the events in components/notifyPrefs.ts
      (newOrder, storeRating, productRating, shippingRating, customerQuestion, lowStock, outOfStock). No row, or an event
-     missing from prefs: the default, both on. Nothing sends WhatsApp or email messages yet: this is what a future sender
-     reads before it sends one. The bell does not use it. */
+     missing from prefs: the default, both on. server/notify.ts reads the email choice of the events it emails
+     (notifyPrefs.ts LIVE_EMAIL); WhatsApp is not sent yet. The bell does not use it. */
   CREATE TABLE IF NOT EXISTS notification_prefs (
     account_id BIGINT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
     prefs      JSONB NOT NULL,
