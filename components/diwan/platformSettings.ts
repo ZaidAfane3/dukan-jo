@@ -122,10 +122,18 @@ export function starterLegalPages(t: StoreLegalTemplates) {
   ];
   return list.map(({ type, page }, i) => ({ id: i + 1, type, published: true, footer: true, title: { ...page.title }, content: { ...page.body }, created: STARTER_MADE - i * 1000 }));
 }
-/** Which legal template a starting page (ids 1 to 3, of the matching type) came from, or null for any other page */
-export function legalTemplateOf(page: { id: number; type: number }): LegalPage | null {
-  const k = (["returns", "terms", "privacy"] as const)[page.id - 1];
-  return k && page.type === (k === "returns" ? 1 : 2) ? k : null;
+/* Until 23 Nov 2026 (PR #21) the starting pages took the time the list was first made as their "created" time, and a
+   new page could take a deleted page's id (so a page the merchant added could have id 3). A page with id 1 to 3 made
+   after that is a starting page only when it carries the fixed time; one made before it can't be told apart, so it
+   still counts (as it did). */
+const FIXED_STARTERS_SINCE = Date.UTC(2026, 10, 23, 18, 30);
+/** Which legal template a starting page (ids 1 to 3, of the matching type, made as a starting page: its "created" time)
+    came from, or null for any other page. A page the merchant added himself never gets the template's text. */
+export function legalTemplateOf(page: { id: number; type: number; created: number }): LegalPage | null {
+  const i = page.id - 1;
+  const k = (["returns", "terms", "privacy"] as const)[i];
+  if (!k || page.type !== (k === "returns" ? 1 : 2)) return null;
+  return page.created === STARTER_MADE - i * 1000 || page.created < FIXED_STARTERS_SINCE ? k : null;
 }
 
 export const LIMITS = {

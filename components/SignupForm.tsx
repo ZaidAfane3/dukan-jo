@@ -623,15 +623,8 @@ export function SignupForm() {
             {c.guest}
           </button>
           {out.dialog}
-
-          {tab === "create" && (
-            <p className="mt-6 text-center text-xs leading-relaxed text-muted">
-              {c.terms.before}
-              <a href="#" className="font-semibold text-fg hover:underline">{c.terms.terms}</a>
-              {c.terms.and}
-              <a href="#" className="font-semibold text-fg hover:underline">{c.terms.privacy}</a>
-            </p>
-          )}
+          {/* No "you agree to Dukkan's Terms and Privacy Policy" line: Dukkan has no such pages of its own yet (the landing
+              footer hides those links too), so agreeing to them meant nothing. Bring it back with real links once they exist. */}
           </>
           )}
         </div>

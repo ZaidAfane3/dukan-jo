@@ -26,6 +26,9 @@ const notices = {
 /* A short, polite page in place of a store that can't be shown: suspended by Dukkan, or not open yet */
 export function Notice({ kind, name, lang }: { kind: keyof typeof notices; name?: string; lang: "en" | "ar" }) {
   const w = notices[kind][lang];
+  /* the tab says what happened in the visitor's language ("This store is unavailable · Dukkan"), like the missing and
+     moved pages; a store not open yet keeps its own name there */
+  usePageTitle(name?.trim() || `${w.title} · ${brandName(lang)}`);
   return (
     <div dir={lang === "ar" ? "rtl" : "ltr"} className="flex min-h-screen flex-col bg-[#f6f5f2] text-brand-ink">
       <main className="grid flex-1 place-items-center px-5 py-16">
