@@ -17,6 +17,7 @@ import { useStoreOrders } from "./useStoreOrders";
 import { AnnouncementBanner } from "./AnnouncementBanner";
 import { ThemeAccessNotice } from "./ThemeAccessNotice";
 import { useStoreVisits } from "./storeVisits";
+import { useCartSums } from "./storeCartsSummary";
 import { dropUndos, offerUndo } from "./undo";
 import { storeIsLive } from "./storefront/storage";
 import { loadMaintenance, MAINTENANCE_KEY } from "./maintenance";
@@ -43,10 +44,11 @@ const icon = {
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
 
 /* A real store's home page: what Dukkan does not count yet says so, instead of showing a 0 that looks like a fact. A
-   signed-in store's visitors are counted by Dukkan's server (components/storeVisits.ts). */
+   signed-in store's visitors and abandoned carts are kept by Dukkan's server (components/storeVisits.ts, storeCartsSummary.ts). */
 const words = {
   en: {
-    notTracked: "Not tracked yet", visitsNote: "{brand} counts the visitors of a store that is signed in and open at its link.", cartsNote: "{brand} does not keep the carts customers leave yet.", avgOrder: "Average order", open: "Open order {id}",
+    notTracked: "Not tracked yet", visitsNote: "{brand} counts the visitors of a store that is signed in and open at its link.", cartsNote: "{brand} keeps the carts customers leave on a store that is signed in and open at its link.",
+    cartsMonth: "This month", cartsFailed: "Your abandoned carts couldn't be loaded.", cartsOpen: "See your abandoned carts", avgOrder: "Average order", open: "Open order {id}",
     visitors: "Visitors", lastHour: "Visitors in the last hour", visitsViews: "{visits} visits · {views} page views",
     noVisitors: "No visitors yet", shareHint: "Share your store's link on WhatsApp or Instagram. Visitors show here within a minute.",
     /* the server leaves out the merchant's own visits (signed in on that browser), Dukkan's staff and programs */
@@ -59,7 +61,8 @@ const words = {
     liveTitle: "Your store is live", liveSub: "Customers can visit it now at", liveOpen: "Open your store", liveShare: "Share the link", liveHide: "Hide",
   },
   ar: {
-    notTracked: "لا يُتتبّع بعد", visitsNote: "يحسب {brand} زوار المتجر المسجّل الدخول والمفتوح على رابطه.", cartsNote: "لا يحفظ {brand} السلات التي يتركها العملاء بعد.", avgOrder: "متوسط الطلب", open: "فتح الطلب {id}",
+    notTracked: "لا يُتتبّع بعد", visitsNote: "يحسب {brand} زوار المتجر المسجّل الدخول والمفتوح على رابطه.", cartsNote: "يحفظ {brand} السلات التي يتركها العملاء في المتجر المسجّل الدخول والمفتوح على رابطه.",
+    cartsMonth: "هذا الشهر", cartsFailed: "تعذّر تحميل السلات المتروكة.", cartsOpen: "عرض السلات المتروكة", avgOrder: "متوسط الطلب", open: "فتح الطلب {id}",
     visitors: "الزوار", lastHour: "الزوار في آخر ساعة", visitsViews: "{visits} زيارة · {views} مشاهدة صفحة",
     noVisitors: "لا زوار بعد", shareHint: "شارك رابط متجرك على واتساب أو إنستغرام. يظهر الزوار هنا خلال دقيقة.",
     ownVisits: "زياراتك أنت لا تُحتسب",
@@ -182,6 +185,8 @@ export function Dashboard() {
   /* A signed-in store's visitors, from Dukkan's server (read again every minute); the tour keeps its made-up ones */
   const visitors = useStoreVisits();
   const realVisits = visitors.on && !sample ? visitors.stats : null;
+  /* A signed-in store's abandoned carts this month (the month the page's other figures are for), from Dukkan's server */
+  const carts = useCartSums(2);
   /* A real store's orders (his browser's and, signed in, the ones customers placed on his store: the same list the
      Orders page shows) and products: read when the page opens, every minute, when he comes back to the tab and by
      each refresh button (useStoreOrders.ts) */
@@ -244,10 +249,11 @@ export function Dashboard() {
   /* The tour draws a fresh set of sample numbers; a real store reads its orders (and its visitors) again */
   const reloadVisits = visitors.reload;
   const reloadOrders = data.reload;
+  const reloadCarts = carts.reload;
   const refresh = useCallback((id: string) => {
     setBusy((b) => ({ ...b, [id]: true }));
     if (!demoActive()) {
-      void Promise.all([reloadVisits(), reloadOrders()]).finally(() => {
+      void Promise.all([reloadVisits(), reloadOrders(), reloadCarts()]).finally(() => {
         setNow(new Date());
         setBusy((b) => ({ ...b, [id]: false }));
       });
@@ -257,7 +263,7 @@ export function Dashboard() {
       setSeed((s) => s + 1);
       setBusy((b) => ({ ...b, [id]: false }));
     }, 900);
-  }, [reloadOrders, reloadVisits]);
+  }, [reloadOrders, reloadVisits, reloadCarts]);
 
   /* the goal as it is now, for an undo (it checks the goal was not changed again since) */
   const goalNow = useRef(0);
@@ -713,12 +719,41 @@ export function Dashboard() {
 
           <section className={`${card} flex flex-col`}>
             <div className="flex items-center justify-between gap-2">
-              <h2 className="font-bold">{h.cartsTitle}</h2>
-              {sample && <RefreshButton busy={!!busy.carts} onClick={() => refresh("carts")} label={r.refresh} />}
+              <h2 className="font-bold">
+                {h.cartsTitle}
+                {!sample && carts.on && <span className="ms-2 text-xs font-medium text-muted">{w.cartsMonth}</span>}
+              </h2>
+              {(sample || carts.on) && <RefreshButton busy={!!busy.carts} onClick={() => refresh("carts")} label={r.refresh} />}
             </div>
-            {/* the carts customers leave are not kept for a real store yet */}
-            {!sample ? (
+            {/* the carts customers leave are kept only for a signed-in store (server/storeCarts.ts): its open carts this
+                month, what is left in them and how many an order ended; a store kept only in this browser has none */}
+            {!sample && !carts.on ? (
               <NotTracked title={w.notTracked} note={w.cartsNote.replace("{brand}", brandName(lang))} />
+            ) : !sample && carts.failed && !carts.sums ? (
+              <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 py-8 text-center">
+                <p className="max-w-[16rem] text-sm text-rose-600 dark:text-rose-400">{w.cartsFailed}</p>
+                <button type="button" onClick={() => refresh("carts")} disabled={!!busy.carts} className="rounded-lg border border-fg/15 px-3 py-1.5 text-xs font-semibold transition hover:bg-soft disabled:opacity-60">{w.retry}</button>
+              </div>
+            ) : !sample && !carts.sums ? (
+              <div aria-busy="true" className="mt-4 flex flex-1 flex-col justify-center gap-5">
+                <Skeleton className="h-9 w-16" />
+                <Skeleton className="h-9 w-28" />
+              </div>
+            ) : !sample && carts.sums ? (
+              <div className={`mt-4 flex flex-1 flex-col justify-center gap-5 transition-opacity duration-300 ${busy.carts ? "opacity-40" : ""}`}>
+                <div>
+                  <p className="text-sm text-muted">{h.cartsCount}</p>
+                  <p className="text-3xl font-bold text-primary"><AnimatedNumber value={carts.sums.open} /></p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted">{h.cartsLost}</p>
+                  <p className="text-3xl font-bold text-rose-500"><Money value={carts.sums.openValue} currency={cur} /></p>
+                </div>
+                <p className="text-sm text-muted">
+                  {r.abandoned.rows[0]}: <span className="font-bold text-fg"><AnimatedNumber value={carts.sums.recoveredCarts} /></span>
+                </p>
+                <a href="/marketing/abandoned-carts" className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">{w.cartsOpen}<svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg></a>
+              </div>
             ) : (
             <div className={`mt-4 flex flex-1 flex-col justify-center gap-5 transition-opacity duration-300 ${busy.carts ? "opacity-40" : ""}`}>
               <div>
