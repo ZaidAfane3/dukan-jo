@@ -1254,7 +1254,7 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
           {sampleProduct && (
             <p data-sample-product className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 text-center text-xs font-medium`} style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)" }}>
               {lang === "ar" ? "منتج تجريبي: أضف منتجاتك لترى منتجك هنا" : "A sample product: add your products to see yours here"}
-              <a href="/products" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-bold text-[var(--sf-primary)] underline underline-offset-2">{lang === "ar" ? "أضف منتجًا" : "Add a product"}</a>
+              <a href="/products" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-bold text-[var(--sf-primarytext,var(--sf-primary))] underline underline-offset-2">{lang === "ar" ? "أضف منتجًا" : "Add a product"}</a>
             </p>
           )}
           <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} sections={config.sections} ask={whatsappHref(config.footer.whatsapp?.trim() || data.whatsapp)} />
@@ -1280,14 +1280,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             {/* The elements of the page, built in the designer like the home page */}
             {shownPage.sections.map((s) => renderSection(s, ctx))}
             {design && shownPage.sections.length === 0 && (
-              <p className="mx-8 mb-10 mt-4 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 py-10 text-center text-sm font-semibold text-[var(--sf-primary)]">
+              <p className="mx-8 mb-10 mt-4 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 py-10 text-center text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
                 {lang === "ar" ? "الصفحة فارغة: أضف عناصر من القائمة الجانبية" : "The page is empty: add elements from the side panel"}
               </p>
             )}
           </>
         ) : design && !config.sections.length ? (
           /* the home page with every block taken off: only the designer sees where blocks would go */
-          <p className={`${compact ? "mx-4" : "mx-8"} my-10 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 px-4 py-14 text-center text-sm font-semibold text-[var(--sf-primary)]`}>
+          <p className={`${compact ? "mx-4" : "mx-8"} my-10 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 px-4 py-14 text-center text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]`}>
             {lang === "ar" ? "الصفحة فارغة: أضف أول عنصر من «عناصر الصفحة» في القائمة الجانبية" : "This page is empty: add your first block from Page elements in the side panel"}
           </p>
         ) : (
