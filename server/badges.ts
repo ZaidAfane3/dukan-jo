@@ -8,7 +8,8 @@ import { can, type Staff } from "./staff";
    What counts on each page:
      shops:      stores made (a new merchant account)
      payments:   themes bought with a price, and payments another staff member marked as received
-     ship:       orders for Dukkan Ship to deliver (not the ones the merchant still has to confirm, nor cancelled ones)
+     ship:       orders for Dukkan Ship to deliver (not the ones the merchant still has to confirm, nor cancelled ones),
+                 from when they became Dukkan's to deliver (a big order: when the merchant confirmed it)
      tickets:    support tickets opened, or that the merchant wrote in again (a ticket counts once however many messages)
      complaints: reports a customer sent about a store
      documents:  papers sent for checking and still waiting (a courier proof from when it reached Diwan)
@@ -33,7 +34,7 @@ const COUNT_SQL: Record<BadgeTab, string> = {
   payments: `SELECT (SELECT count(*) FROM payments p WHERE p.created_at > seen.at AND p.marked_by IS DISTINCT FROM $1)
                   + (SELECT count(*) FROM theme_purchases tp WHERE tp.price > 0 AND tp.paid_at > seen.at)`,
   /* as the Orders list's "Waiting" (server/shipOrders.ts) */
-  ship: `SELECT count(*) FROM store_orders o WHERE o.ship_by = 'dukkan' AND o.created_at > seen.at
+  ship: `SELECT count(*) FROM store_orders o WHERE o.ship_by = 'dukkan' AND o.ship_ready_at > seen.at
            AND o.ship_state = 'waiting' AND o.status NOT IN ('review', 'cancelled', 'refunded')`,
   /* a new ticket's first message is the merchant's, so new tickets and replies are both "a merchant wrote" */
   tickets: TICKETS_SQL(`'support'`),

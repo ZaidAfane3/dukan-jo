@@ -2,7 +2,7 @@
 
 import { ShopAndOwner, ShopLink, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { useState } from "react";
-import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { area, Badge, Btn, card, field, Loaded, LoadMore, PageHead, send, useFmt, useMore, useT, type Tone } from "@/components/diwan/ui";
 import { ComplaintsSkeleton } from "@/components/diwan/skeletons";
 import { FilterBar } from "@/components/diwan/Filters";
 import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
@@ -33,7 +33,8 @@ type Row = {
   createdAt: string;
   updatedAt: string;
 };
-type Data = { counts: Partial<Record<Status, number>>; reports: Row[] };
+/* rows: the reports loaded so far ("Load more" asks for the ones before the last, next) */
+type Data = { counts: Partial<Record<Status, number>>; rows: Row[]; next: string | null };
 
 const tone: Record<Status, Tone> = { new: "red", checking: "amber", closed: "grey" };
 const FILTERS = ["open", "new", "checking", "closed", "all"] as const;
@@ -53,7 +54,7 @@ export default function ComplaintsPage() {
   const setReason = (x: string) => setList({ reason: x });
   const setFrom = (x: string) => setList({ from: x });
   const [adding, setAdding] = useState(false);
-  const s = useApi<Data>(`/api/diwan/complaints?${new URLSearchParams({ status, ...(reason ? { reason } : {}), ...(from ? { from } : {}), ...(shop ? { shop } : {}) })}`);
+  const s = useMore<Data>(`/api/diwan/complaints?${new URLSearchParams({ status, ...(reason ? { reason } : {}), ...(from ? { from } : {}), ...(shop ? { shop } : {}) })}`, (d) => (d.next ? `before=${d.next}` : null));
   useListScroll(s);
 
   const statusName = (x: (typeof FILTERS)[number]) =>
@@ -66,7 +67,7 @@ export default function ComplaintsPage() {
         sub={t("Reports about stores from customers and staff. Check each one; suspend a store from its store page.", "بلاغات عن المتاجر من العملاء والفريق. تحقّق من كل بلاغ، وأوقف المتجر من صفحته.")}
         actions={!adding && <Btn onClick={() => setAdding(true)}>{t("Add a report", "إضافة بلاغ")}</Btn>}
       />
-      <ShopOnly id={shop} name={s.data?.reports[0] ? s.data.reports[0].shopName || s.data.reports[0].ownerName : null} onClear={() => setShop("")} />
+      <ShopOnly id={shop} name={s.data?.rows[0] ? s.data.rows[0].shopName || s.data.rows[0].ownerName : null} onClear={() => setShop("")} />
       {adding && <AddReport onDone={(added) => { setAdding(false); if (added) s.reload(); }} />}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -99,10 +100,13 @@ export default function ComplaintsPage() {
 
       <Loaded s={s} skeleton={<ComplaintsSkeleton />}>
         {(d) =>
-          d.reports.length === 0 ? (
+          d.rows.length === 0 ? (
             <p className={`${card} text-center text-sm text-muted`}>{t("No reports here.", "لا توجد بلاغات هنا.")}</p>
           ) : (
-            <StoreGroups reports={d.reports} statusName={statusName} onDone={s.reload} />
+            <>
+              <StoreGroups reports={d.rows} statusName={statusName} onDone={s.reload} />
+              <LoadMore s={s} />
+            </>
           )
         }
       </Loaded>

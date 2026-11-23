@@ -639,8 +639,12 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
       const list = parse(kept.rows[0]?.value as string | undefined);
       if (Array.isArray(list)) await writeKey(c, accountId, "seen-coupons", JSON.stringify(countCouponUse(list, o.coupon, { online: true, by: holdsStock(status) ? 1 : -1 })));
     }
+    /* moved on from waiting for him (a big order) or brought back from cancelled or refunded: it is Dukkan Ship's to
+       deliver from now (Diwan's red number, server/badges.ts). In SET, status is still the one it had. */
     await c.query(
-      `UPDATE store_orders SET status = $3, ${PAID_SET}, stock_taken = $4${items !== null ? ", items = $5" : ""}, updated_at = now() WHERE id = $1 AND account_id = $2`,
+      `UPDATE store_orders SET status = $3, ${PAID_SET}, stock_taken = $4${items !== null ? ", items = $5" : ""}, updated_at = now(),
+              ship_ready_at = CASE WHEN status IN ('review', 'cancelled', 'refunded') AND $3 NOT IN ('review', 'cancelled', 'refunded') THEN now() ELSE ship_ready_at END
+        WHERE id = $1 AND account_id = $2`,
       items !== null ? [serverId, accountId, status, holds, items] : [serverId, accountId, status, holds],
     );
     return { result: "ok", notBack, moved: held !== holds };

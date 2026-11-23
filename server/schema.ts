@@ -742,6 +742,10 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
   ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
   ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+  /* restarted_at: when "Start again" last sent an ended announcement out again. Its start stays as it was (so "new
+     stores" still means the stores made since it first went out); the bell dates it from this instead, so it is at the
+     top again. Null: never started again. */
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS restarted_at TIMESTAMPTZ;
 
   /* ---------- store files: the platform's own, the way their bytes are kept, and files taken down ----------
      A file with no account (account_id NULL) is the platform's: a picture of a theme store design or of the starter
@@ -948,6 +952,14 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
   CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';
   CREATE INDEX IF NOT EXISTS store_orders_ship_new ON store_orders (created_at) WHERE ship_by = 'dukkan';
+  /* ship_ready_at: when a store order became Dukkan Ship's to deliver: when it was placed, or for a big order that waited
+     for the merchant ("review"), or one brought back from cancelled or refunded, when he moved it on (server/storeOrders.ts
+     setStoreOrderStatus). Diwan's red number beside Dukkan Ship counts from it, so an order confirmed after staff last
+     opened the page is still new to them. Orders from before it was kept take the time they were placed. */
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_ready_at TIMESTAMPTZ;
+  ALTER TABLE store_orders ALTER COLUMN ship_ready_at SET DEFAULT now();
+  UPDATE store_orders SET ship_ready_at = created_at WHERE ship_ready_at IS NULL;
+  CREATE INDEX IF NOT EXISTS store_orders_ship_ready ON store_orders (ship_ready_at) WHERE ship_by = 'dukkan';
   CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at);
   CREATE INDEX IF NOT EXISTS store_reports_created ON store_reports (created_at);
   CREATE INDEX IF NOT EXISTS payments_created ON payments (created_at);
