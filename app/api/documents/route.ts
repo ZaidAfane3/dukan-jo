@@ -1,11 +1,12 @@
 import { answer, readJson, tooManyFor, readJsonOr, unreadable } from "@/server/auth";
-import { cleanSetup } from "@/components/safeAccount";
 import { seal, sealBytes } from "@/server/crypto";
 import { db } from "@/server/db";
 import { ACCOUNT_BYTES, ACTIVE, BODY_MAX, checkUpload, documentName, documentsRoute, MERCHANT_KINDS, merchantDocument, partnerKind, partnerName, PER_ACCOUNT, PER_PARTNER, REJECTED_SHOWN, type MerchantKind } from "@/server/documents";
 import { storageFull } from "@/server/media";
 import { inTransaction } from "@/server/tickets";
 import { logMerchant } from "@/server/merchantLog";
+import { ownCourierPhone } from "@/server/courierProof";
+import { savedMobile } from "@/components/phone";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 /* seq: this account's first, second... document of its kind (its title: "Proof of delivery #001"), kept from when it
    was sent (schema.ts documents.seq), so removing one never renumbers the others */
 const SELECT = `SELECT id, public_id, kind, name, partner, partner_kind, status, note, mime, bytes, data IS NOT NULL AS has_file, created_at,
-  rejection_seen, seq FROM documents`;
+  rejection_seen, seq, approved_phone FROM documents`;
 
 /** My documents, oldest first (the order they were added): every one still in play (at most what an account can keep,
     though staff turning a rejected one back to approved can add a few) and the latest REJECTED_SHOWN rejected ones,
@@ -35,7 +36,7 @@ export const GET = documentsRoute(async (_req, me) => {
 });
 
 /** Sends one file: { kind: "courier_proof", data (base64), type (the browser's type, may be ""), name (the file's name),
-    partner (who delivers), partnerKind (0 company, 1 person) } */
+    partner (who delivers), partnerKind (0 company, 1 person), partnerPhone (their phone as the page has it) } */
 export const POST = documentsRoute(async (req, me) => {
   if (tooManyFor(`document:${me.id}`, 30, 10)) return answer({ result: "too-many-tries" }, 429);
   const read = await readJsonOr(req, BODY_MAX);
@@ -54,19 +55,28 @@ export const POST = documentsRoute(async (req, me) => {
     if (kind === "courier_proof") await c.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [me.id]);
     await c.query(`SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE`, [me.id]);
     /* a courier proof is a draft (Diwan doesn't see it) until his delivery choice is saved with his own courier: already
-       saved so (the Delivery page of a store that uses its courier), it goes to Diwan at once. Read under the account's
-       save lock (app/api/store PUT takes it to save the setup, and hands drafts over after): a save running now either
-       finished before this read (own: not a draft) or waits for this row and then hands it over. */
+       saved so (the Delivery page of a store that uses its courier), it goes to Diwan at once. So does one of a store
+       that is live (open, not paused): there a change to his own courier is held back until a proof for that courier is
+       approved (app/api/store PUT "not-ready", when pickup is off), so waiting for that save would keep the proof a
+       draft for good. Read under the account's save lock (app/api/store PUT takes it to save the setup, and hands
+       drafts over after): a save running now either finished before this read (own: not a draft) or waits for this row
+       and then hands it over. phone: the courier it is for (server/courierProof.ts), the saved one when he uses his own
+       courier, otherwise the one on his page; a save of his choice sets it again (handOverProofs). */
     let draft = false;
+    let phone: string | null = null;
     if (kind === "courier_proof") {
-      const r = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [me.id]);
-      let mode: string | null | undefined = null;
+      const r = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [me.id, ["seen-setup", "seen-storefront", "seen-maintenance"]]);
+      const value = (k: string) => (r.rows.find((x) => x.key === k)?.value ?? null) as string | null;
+      phone = ownCourierPhone(value("seen-setup"));
+      let paused = false;
       try {
-        mode = r.rows[0] ? cleanSetup(JSON.parse(r.rows[0].value as string))?.shipping?.mode : null;
+        paused = (JSON.parse(value("seen-maintenance") ?? "null") as { on?: unknown } | null)?.on === true;
       } catch {
-        mode = null;
+        paused = false;
       }
-      draft = mode !== "own";
+      const live = value("seen-storefront") !== null && !paused;
+      draft = phone === null && !live;
+      if (phone === null) phone = savedMobile(typeof body.partnerPhone === "string" ? body.partnerPhone : "") || null;
     }
     /* the counts are of what the merchant still keeps in play: a rejected file never counts (server/documents.ts
        ACTIVE), so he can send again however many times he was rejected. The bytes also count a removed file whose bytes
@@ -88,10 +98,10 @@ export const POST = documentsRoute(async (req, me) => {
     /* the platform's own ceiling, shared by every account's files (server/media.ts storageFull) */
     if (await storageFull(c, file.size)) return "storage-full" as const;
     const ins = await c.query(
-      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, draft)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10)
+      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, draft, partner_phone)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10, $11)
        RETURNING id, public_id, rejection_seen, seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
-      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, draft],
+      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, draft, seal(phone)],
     );
     return ins.rows[0] as Record<string, unknown>;
   });

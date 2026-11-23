@@ -105,8 +105,8 @@ export async function publicStore(slug: string): Promise<PublicStore | null> {
     },
     /* asked only for a store that is open and has a design of its own */
     () => themeOwner(pool, shop.account_id),
-    /* asked only for an open store that delivers with its own courier */
-    () => courierApproved(pool, shop.account_id),
+    /* asked only for an open store that delivers with its own courier: approved for that courier (its phone) */
+    (phone) => courierApproved(pool, shop.account_id, phone),
   );
 }
 
@@ -117,7 +117,7 @@ export async function shapePublicStore(
   data: Map<string, string>,
   starter: () => Promise<unknown>,
   owner?: () => Promise<(themeId: string) => boolean>,
-  courierOk?: () => Promise<boolean>,
+  courierOk?: (phone: string) => Promise<boolean>,
 ): Promise<PublicStore> {
   if (shop.status === "suspended") return { status: "unavailable" };
   const setup = cleanSetup(parse(data.get("seen-setup")));
@@ -153,7 +153,7 @@ export async function shapePublicStore(
        then, pickup on or off (safeOrder checkoutShipMode): the checkout offers what the server will accept for its orders */
     /* his own courier is offered only once Dukkan's team approved its proof (server/courierProof.ts): until then no
        delivery choice is sent, so the checkout offers pickup only (when he allows it), as the server accepts */
-    shipping: setup?.shipping?.mode === "own" && courierOk && !(await courierOk())
+    shipping: setup?.shipping?.mode === "own" && courierOk && !(await courierOk(setup.shipping.phone))
       ? null
       : setup?.shipping
       ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}), ...(setup.shipping.cities ? { cities: setup.shipping.cities } : {}) }

@@ -347,6 +347,11 @@ export const DIWAN_SCHEMA = `
   );
   CREATE UNIQUE INDEX IF NOT EXISTS media_account_sha ON media (account_id, sha256);
   CREATE INDEX IF NOT EXISTS media_account_created ON media (account_id, created_at);
+  /* unused_since: when the sweep (server/media.ts sweepUnusedMedia) first found no saved page using the file, NULL
+     while one uses it. A file goes only once it was unused that long (UNUSED_DAYS), not just once it is that old: a
+     photo removed and brought back by Undo, or a picture re-used, stays. Files kept before this column start unmarked,
+     so none goes sooner than it would have. */
+  ALTER TABLE media ADD COLUMN IF NOT EXISTS unused_since TIMESTAMPTZ;
 
   /* ---------- messages to merchants ---------- */
   CREATE TABLE IF NOT EXISTS announcements (
@@ -948,6 +953,13 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
   UPDATE documents SET sent_at = created_at WHERE sent_at IS NULL;
   ALTER TABLE documents ALTER COLUMN sent_at SET DEFAULT now();
+  /* Which courier a courier proof is for, by phone (sealed; server/courierProof.ts): partner_phone is the courier the
+     merchant's delivery choice had when the proof reached Diwan, and follows his courier while the proof waits for a
+     check (as partner does); approved_phone is the one Diwan approved it for, kept from the approval on. A different
+     courier (another phone) needs a new proof (owner decision 2026-11-23). Rows from before have neither: an approval
+     without approved_phone counts for whichever courier he has, so no store loses its delivery with this change. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner_phone TEXT;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_phone TEXT;
   /* the numbers look only at what came in lately, so each count goes through a short index rather than the whole table */
   CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
   CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';

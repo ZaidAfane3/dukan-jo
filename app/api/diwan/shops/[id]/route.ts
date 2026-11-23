@@ -11,7 +11,7 @@ import { FREE_THEME_IDS } from "@/components/platformDefaults";
 import { CODE_THEME_IDS, type Bi } from "@/components/themeListing";
 import { themePrice } from "@/components/themePrices";
 import { enforcedPaidThemes } from "@/server/themeOwnership";
-import { courierApproved } from "@/server/courierProof";
+import { approvedFor, courierApprovals } from "@/server/courierProof";
 import { sellPlatform } from "@/server/storeOrders";
 import { cleanSetup } from "@/components/safeAccount";
 import { readyToSell, type SellNeed } from "@/components/safeOrder";
@@ -170,7 +170,7 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
     shop[0] ? shopVisitors30(pool, id) : 0,
     shop[0] ? q(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`) : [],
-    shop[0] ? Promise.all([sellPlatform(), courierApproved(pool, id)]).then(([p, courier]) => ({ ...p, courierApproved: courier })) : null,
+    shop[0] ? Promise.all([sellPlatform(), courierApprovals(pool, id)]).then(([p, approvals]) => ({ ...p, approvals })) : null,
     /* what the merchant did with the account and the store (server/merchantLog.ts): the newest lines and how many */
     Promise.all([
       q(`${MERCHANT_LOG_SELECT} WHERE l.account_id = $1 ORDER BY l.id DESC LIMIT ${FEW}`),
@@ -189,7 +189,8 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     } catch {
       setup = null;
     }
-    notReady = readyToSell(setup, platform).missing;
+    /* his own courier delivers once Diwan approved a proof for that courier (server/courierProof.ts) */
+    notReady = readyToSell(setup, { ...platform, courierApproved: approvedFor(platform.approvals, setup?.shipping?.mode === "own" ? setup.shipping.phone : null) }).missing;
     /* a live store with no delivery choice saved delivers with Dukkan Ship by default while it serves a city (safeOrder
        checkoutShipMode): it is not "without delivery"; its Delivery line says "Dukkan Ship (default, not chosen)" */
     if (shop[0].published && !setup?.shipping && platform.shipCities.en.length > 0) notReady = notReady.filter((m) => m !== "delivery");

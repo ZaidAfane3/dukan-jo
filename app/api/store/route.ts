@@ -3,7 +3,7 @@ import { answer, currentAccount, guarded, otherAccount, sameOrigin, startRunning
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
-import { courierApproved } from "@/server/courierProof";
+import { approvedFor, courierApprovals, handOverProofs, ownCourierPhone, pinLegacyApprovals } from "@/server/courierProof";
 import { db } from "@/server/db";
 import { movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
@@ -221,8 +221,9 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
      this save leaves them: two devices saving at once (one taking away the last way to pay of a paused store, the other
      reopening it) are checked one after the other, so the second sees what the first kept. */
   const touchesLive = [...set.map(([k]) => k), ...(remove as string[])].some((k) => LIVE_KEYS.includes(k));
-  /* with whether Diwan approved his own courier's proof: until then that courier does not deliver (safeOrder readyToSell) */
-  const platform = touchesLive ? { ...(await sellPlatform()), courierApproved: await courierApproved(await db(), a.id) } : null;
+  /* what Dukkan has on; whether Diwan approved his own courier's proof is asked under the save lock below, for each
+     setup checked (an approval is for one courier: server/courierProof.ts) */
+  const platform = touchesLive ? await sellPlatform() : null;
 
   /* a store link belongs to one shop only */
   const setup = set.find(([k]) => k === "seen-setup");
@@ -256,6 +257,14 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
   if (tooLong) return answer({ result: "too-big", key: tooLong[0] }, 413);
 
   const stale: Record<string, { value: string | null; v: string }> = {};
+  /* his delivery choice saved with his own courier, or held back only because it can't sell yet (a live store without
+     pickup whose new courier has no approved proof): the courier proofs he sent for it go to Diwan to be checked
+     (server/courierProof.ts handOverProofs). Run once the save is answered (kept or refused). */
+  const handOver = async () => {
+    if (!setup || !(set.some(([k]) => k === "seen-setup") || refused["seen-setup"]?.result === "not-ready")) return;
+    const phone = ownCourierPhone(setup[1] as string);
+    if (phone !== null) await handOverProofs(await db(), a.id, phone).catch((e) => console.error("[documents] hand over", a.id, e));
+  };
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
@@ -291,8 +300,15 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
       const before = (k: string) => was.get(k) ?? null;
       const isLive = (get: (k: string) => string | null) => get("seen-storefront") !== null && !pausedIn(get("seen-maintenance"));
       const afterSetup = setupIn(after("seen-setup"));
-      const now = readyToSell(afterSetup, platform);
-      const then = readyToSell(setupIn(before("seen-setup")), platform);
+      const beforeSetup = setupIn(before("seen-setup"));
+      /* an approval from before approvals kept their courier is tied to the courier saved until now, so a setup changing
+         to another courier is checked as needing a new proof */
+      if (set.some(([k]) => k === "seen-setup")) await pinLegacyApprovals(client, a.id, ownCourierPhone(before("seen-setup")));
+      /* until Diwan approved a proof for the courier a setup names, that courier does not deliver (safeOrder readyToSell) */
+      const approvals = await courierApprovals(client, a.id);
+      const sellFor = (st: typeof afterSetup) => ({ ...platform, courierApproved: approvedFor(approvals, st?.shipping?.mode === "own" ? st.shipping.phone : null) });
+      const now = readyToSell(afterSetup, sellFor(afterSetup));
+      const then = readyToSell(beforeSetup, sellFor(beforeSetup));
       /* a store that was live and is paused opens again by the rule that keeps a live store selling (safeOrder
          liveMissing: setup steps left, or Dukkan Ship by default, don't stop it); only going live the first time needs
          every setup step (testing S-1) */
@@ -314,6 +330,7 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
         /* nothing else in it (a list sent back "stale" is something: it is answered as usual, for the browser to merge) */
         if (!set.length && !remove.length && !Object.keys(stale).length) {
           await client.query("ROLLBACK");
+          await handOver();
           return answer({ result: "not-ready", missing, refused }, 409);
         }
       }
@@ -417,20 +434,8 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
     if (rows.some((r) => r.key === "seen-storefront") && !rows.some((r) => r.key === "seen-pages"))
       await keepLegalPages(pool, a.id).catch((e) => console.error("[pages] keeping legal pages", a.id, e));
   }
-  /* his delivery choice saved with his own courier: the courier proofs he sent for it go to Diwan to be checked */
-  const savedSetup = set.find(([k]) => k === "seen-setup");
-  if (savedSetup) {
-    let mode: string | null | undefined = null;
-    try {
-      mode = cleanSetup(JSON.parse(savedSetup[1] as string))?.shipping?.mode;
-    } catch {
-      /* not JSON: nothing to hand over */
-    }
-    if (mode === "own")
-      await (await db())
-        .query(`UPDATE documents SET draft = false, sent_at = now() WHERE account_id = $1 AND draft AND kind = 'courier_proof'`, [a.id])
-        .catch((e) => console.error("[documents] hand over", a.id, e));
-  }
+  /* his delivery choice with his own courier, kept or held back: the courier proofs he sent for it go to Diwan */
+  await handOver();
   /* a picture the pages no longer use doesn't stay public for long */
   sweepSoon(await db(), a.id);
   /* the new version of each list saved, for the browser's next save of it */
