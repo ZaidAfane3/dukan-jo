@@ -49,6 +49,8 @@ export function useBadges(path: string, items: NavItem[]) {
         body: JSON.stringify({ tab }),
         signal: timeoutSignal(15_000),
       });
+      /* signed in again (in another tab): the numbers start asking again */
+      if (r.ok) stopped.current = false;
       const j = r.ok ? await r.json().catch(() => null) : null;
       if (n === asked.current && j?.counts) setCounts(j.counts);
     } catch {
@@ -60,11 +62,18 @@ export function useBadges(path: string, items: NavItem[]) {
      changes at once ask once) */
   useEffect(() => {
     let soon: ReturnType<typeof setTimeout> | undefined;
+    /* a change that worked, or the window coming back, means the staff member may be signed in again after a 401 stopped
+       the numbers (signed in again in another tab): they ask once more, and stop again if still signed out */
     const later = () => {
+      stopped.current = false;
       clearTimeout(soon);
       soon = setTimeout(load, 400);
     };
-    const back = () => document.visibilityState === "visible" && load();
+    const back = () => {
+      if (document.visibilityState !== "visible") return;
+      stopped.current = false;
+      load();
+    };
     const timer = setInterval(load, EVERY_MS);
     window.addEventListener("focus", back);
     document.addEventListener("visibilitychange", back);
