@@ -1252,9 +1252,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         {shownProduct ? (
           <>
           {sampleProduct && (
-            <p data-sample-product className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 text-center text-xs font-medium`} style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)" }}>
+            <p data-sample-product className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 text-center text-xs font-medium`} style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)", color: "#1c1917" }}>
+              {/* the strip is nearly white whatever the page's colours, so its words are dark and the link is the store
+                  colour darkened by half: readable even on a dark page or with a pale store colour (review: sample-product
+                  link vanishes on dark pages) */}
               {lang === "ar" ? "منتج تجريبي: أضف منتجاتك لترى منتجك هنا" : "A sample product: add your products to see yours here"}
-              <a href="/products" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-bold text-[var(--sf-primarytext,var(--sf-primary))] underline underline-offset-2">{lang === "ar" ? "أضف منتجًا" : "Add a product"}</a>
+              <a href="/products" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-bold underline underline-offset-2" style={{ color: "color-mix(in srgb, var(--sf-primary) 50%, #111)" }}>{lang === "ar" ? "أضف منتجًا" : "Add a product"}</a>
             </p>
           )}
           <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} sections={config.sections} ask={whatsappHref(config.footer.whatsapp?.trim() || data.whatsapp)} />
