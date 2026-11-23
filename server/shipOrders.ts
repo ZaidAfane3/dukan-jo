@@ -2,10 +2,11 @@ import type { NextRequest } from "next/server";
 import { cleanLine, visibleLength } from "@/components/safe";
 import { seal } from "./crypto";
 import { db } from "./db";
-import { emailNotice, notify } from "./notify";
+import { emailNotice, emailStockNotices, notify } from "./notify";
 import { audit, type Staff } from "./staff";
 import { holdsStockAfter } from "@/components/safeOrder";
 import { holdsStockNow, moveOrderStock, paidSet, shopLock, type ShipState } from "./storeOrders";
+import type { StockAlert } from "./stockAlerts";
 
 /* Diwan > Dukkan Ship > Orders: the store orders Dukkan Ship takes to the customer (store_orders.ship_by = 'dukkan',
    set when the order is placed, server/storeOrders.ts). Unlike the rest of Diwan, these show the customer's name,
@@ -146,6 +147,7 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
 
   const c = await (await db()).connect();
   let done: { account: string; number: number; from: string } | null = null;
+  let alerts: StockAlert[] = [];
   try {
     await c.query("BEGIN");
     /* the shop's order lock first, as the merchant's status changes take it (a delivery may take the order's stock) */
@@ -174,7 +176,11 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
     let items: string | null = null;
     if (holds && !held) {
       const m = await moveOrderStock(c, String(o.account_id), o.items, true, false);
-      if (m.ok) items = m.items;
+      if (m.ok) {
+        items = m.items;
+        /* a product it took down to its low-stock number or to none: emailed to the merchant after the COMMIT */
+        alerts = m.alerts;
+      }
     }
     await c.query(
       `UPDATE store_orders SET ship_state = $2, ship_note = $3, ship_at = $4, ship_staff = $5, status = $6, ${paidSet("$6")}, stock_taken = $7${items !== null ? ", items = $8" : ""}, updated_at = now() WHERE id = $1`,
@@ -184,6 +190,7 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
     if (state === "failed") await notify(o.account_id, "shipFailed", { number: o.number, note }, c);
     await c.query("COMMIT");
     if (state === "failed") emailNotice(o.account_id, "shipFailed", { number: o.number, note });
+    emailStockNotices(o.account_id, alerts);
     done = { account: o.account_id, number: Number(o.number), from: o.ship_state };
   } catch (e) {
     await c.query("ROLLBACK").catch(() => {});

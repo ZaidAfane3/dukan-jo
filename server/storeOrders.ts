@@ -12,8 +12,9 @@ import { reserveTry } from "./auth";
 import { courierApproved } from "./courierProof";
 import { plainDeep, plainText, seal } from "./crypto";
 import { db } from "./db";
-import { emailNotice, notify } from "./notify";
+import { emailNotice, emailStockNotices, notify } from "./notify";
 import { readSettings } from "./settings";
+import { noteStockAlerts, stockCrossings, type StockAlert } from "./stockAlerts";
 
 /* Orders customers place on a store's public page (app/[slug], POST /api/public/store/<slug>/orders), kept in
    store_orders so they reach the merchant (GET /api/orders) wherever he signs in.
@@ -553,8 +554,10 @@ export const holdsStockNow = (o: { status: string; stock_taken?: unknown }) => o
     enough (per size), otherwise each line takes what there is (never below 0) and keeps that. Giving back: exactly what
     each line took; a size renamed or removed since can't take it back, so nothing is added anywhere and those lines are
     named (`notBack`) for the merchant to put right by hand. `items`: the order's lines to keep after a take (each with
-    what it took), already made safe for the column, or null when they stay as they are. */
-export async function moveOrderStock(c: PoolClient, accountId: string, rawItems: unknown, take: boolean, strict = true): Promise<{ ok: true; items: string | null; notBack: StockLine[] } | { ok: false; short: StockLine[] }> {
+    what it took), already made safe for the column, or null when they stay as they are. `alerts`: the products a take
+    brought down to their low-stock number or to none (server/stockAlerts.ts), already in the merchant's bell in this
+    transaction; the caller emails them after its COMMIT (notify.ts emailStockNotices). */
+export async function moveOrderStock(c: PoolClient, accountId: string, rawItems: unknown, take: boolean, strict = true): Promise<{ ok: true; items: string | null; notBack: StockLine[]; alerts: StockAlert[] } | { ok: false; short: StockLine[] }> {
   const items: unknown[] = Array.isArray(rawItems) ? rawItems : [];
   const lines = items.flatMap((it: unknown, at: number) => {
     if (!isObj(it)) return [];
@@ -566,11 +569,15 @@ export async function moveOrderStock(c: PoolClient, accountId: string, rawItems:
   const told = (it: { name: string; qty: number; size?: string }): StockLine => ({ name: it.name, qty: it.qty, ...(it.size ? { size: it.size } : {}) });
   const saved = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-products' FOR UPDATE`, [accountId]);
   const products = parse(saved.rows[0]?.value as string | undefined);
-  if (!Array.isArray(products) || !lines.length) return { ok: true, items: null, notBack: [] };
+  if (!Array.isArray(products) || !lines.length) return { ok: true, items: null, notBack: [], alerts: [] };
   if (take) {
     const taken = stockTaken(products, lines);
     if (strict && taken.short.length) return { ok: false, short: taken.short.map(told) };
-    await writeKey(c, accountId, "seen-products", JSON.stringify(takeStock(products, taken.lines.map((it) => ({ ...it, qty: it.took })), { online: true })));
+    const after = takeStock(products, taken.lines.map((it) => ({ ...it, qty: it.took })), { online: true });
+    await writeKey(c, accountId, "seen-products", JSON.stringify(after));
+    /* a product this order took down to its low-stock number or to none: the merchant's bell, kept only with the order */
+    const alerts = stockCrossings(products, after, lines.map((it) => it.id));
+    await noteStockAlerts(c, accountId, alerts);
     /* each line keeps what it took this time, for the next cancel */
     const next = items.map((it: unknown, at: number) => {
       const t = taken.lines.find((x) => x.at === at);
@@ -578,12 +585,12 @@ export async function moveOrderStock(c: PoolClient, accountId: string, rawItems:
     });
     /* the lines came back opened (db.ts), so they are made safe again before they are kept, as when the order was placed:
        a name typed as "e1:..." is sealed, and reads back exactly as typed (F06) */
-    return { ok: true, items: JSON.stringify(plainDeep(next)), notBack: [] };
+    return { ok: true, items: JSON.stringify(plainDeep(next)), notBack: [], alerts };
   }
   /* given back with a quantity below zero (safeOrder takeStock): exactly what each line took */
   const notBack = stockNotBack(products, lines).map((it) => told({ ...it, qty: it.took }));
   await writeKey(c, accountId, "seen-products", JSON.stringify(takeStock(products, lines.map((it) => ({ ...it, qty: -it.took })), { online: true })));
-  return { ok: true, items: null, notBack };
+  return { ok: true, items: null, notBack, alerts: [] };
 }
 
 /** Changes the status of one of the shop's store orders. "none" when the shop has no such order.
@@ -601,7 +608,9 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
   if (!/^\d{1,18}$/.test(serverId)) return { result: "none" };
   if (typeof status !== "string" || !STATUS_KEYS.includes(status as StatusKey)) return { result: "invalid" };
   if (from !== undefined && (typeof from !== "string" || !STATUS_KEYS.includes(from as StatusKey))) return { result: "invalid" };
-  return inTransaction(undefined, async (c): Promise<StatusResult> => {
+  /* the products this confirmation took down to their low-stock number or to none: emailed once it is committed */
+  const alerts: StockAlert[] = [];
+  const done = await inTransaction(undefined, async (c): Promise<StatusResult> => {
     await shopLock(c, accountId);
     const cur = await c.query(`SELECT status, items, coupon, payment_method, payment_status, stock_taken FROM store_orders WHERE id = $1 AND account_id = $2 FOR UPDATE`, [serverId, accountId]);
     const o = cur.rows[0] as { status: string; items: unknown; coupon: string | null; payment_method: string; payment_status: string; stock_taken: boolean } | undefined;
@@ -616,6 +625,7 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
       if (!m.ok) return { result: "no-stock", short: m.short };
       notBack = m.notBack;
       items = m.items;
+      alerts.push(...m.alerts);
     }
     /* the coupon's use goes with the order being on or off (it was counted when the order was placed) */
     if (o.coupon && holdsStock(o.status) !== holdsStock(status)) {
@@ -629,6 +639,8 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
     );
     return { result: "ok", notBack, moved: held !== holds };
   });
+  if (done.result === "ok") emailStockNotices(accountId, alerts);
+  return done;
 }
 
 /** Confirms that a card or CliQ store order was paid: its stock is taken then (the top of this file), and the
@@ -639,7 +651,8 @@ export async function setStoreOrderStatus(accountId: string, serverId: string, s
     then a card or CliQ order takes no stock, whatever status he moves it to. */
 export async function confirmStoreOrderPayment(accountId: string, serverId: string): Promise<StatusResult> {
   if (!/^\d{1,18}$/.test(serverId)) return { result: "none" };
-  return inTransaction(undefined, async (c): Promise<StatusResult> => {
+  const alerts: StockAlert[] = [];
+  const done = await inTransaction(undefined, async (c): Promise<StatusResult> => {
     await shopLock(c, accountId);
     const cur = await c.query(`SELECT status, items, payment_method, payment_status, stock_taken FROM store_orders WHERE id = $1 AND account_id = $2 FOR UPDATE`, [serverId, accountId]);
     const o = cur.rows[0] as { status: string; items: unknown; payment_method: string; payment_status: string; stock_taken: boolean } | undefined;
@@ -652,6 +665,7 @@ export async function confirmStoreOrderPayment(accountId: string, serverId: stri
       const m = await moveOrderStock(c, accountId, o.items, true);
       if (!m.ok) return { result: "no-stock", short: m.short };
       items = m.items;
+      alerts.push(...m.alerts);
     }
     await c.query(
       `UPDATE store_orders SET payment_status = 'paid', stock_taken = true${items !== null ? ", items = $3" : ""}, updated_at = now() WHERE id = $1 AND account_id = $2`,
@@ -659,6 +673,8 @@ export async function confirmStoreOrderPayment(accountId: string, serverId: stri
     );
     return { result: "ok", notBack: [], moved: !held };
   });
+  if (done.result === "ok") emailStockNotices(accountId, alerts);
+  return done;
 }
 
 /** The newest store order of the shop (0 for none): the merchant's browser keeps the number its copy of the products
