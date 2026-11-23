@@ -52,29 +52,32 @@ export const GET = staffRoute("complaints", async (req: NextRequest, me) => {
   const one = /^\d{1,18}$/.test(shop);
   const counts = await pool.query(`SELECT status, count(*)::int AS n FROM store_reports ${one ? "WHERE account_id = $1" : ""} GROUP BY status`, one ? [shop] : []);
   const page = rows.slice(0, PAGE);
+  const list = page.map((r) => ({
+    id: String(r.id),
+    shopId: String(r.account_id),
+    /* the store's own name ("" while it has none) and its owner's, shown together (ShopAndOwner) */
+    shopName: r.shop_name,
+    ownerName: r.owner_name,
+    shopSlug: r.shop_slug,
+    shopStatus: r.shop_status,
+    shopReports: r.shop_reports,
+    from: r.reporter_kind,
+    contact: r.reporter_contact,
+    reason: r.reason,
+    body: r.body,
+    status: r.status,
+    notes: r.notes,
+    handler: r.handler,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
   return answer({
     result: "ok",
     counts: Object.fromEntries(counts.rows.map((r) => [r.status, r.n])),
     next: rows.length > PAGE ? String(page[page.length - 1].id) : null,
-    rows: page.map((r) => ({
-      id: String(r.id),
-      shopId: String(r.account_id),
-      /* the store's own name ("" while it has none) and its owner's, shown together (ShopAndOwner) */
-      shopName: r.shop_name,
-      ownerName: r.owner_name,
-      shopSlug: r.shop_slug,
-      shopStatus: r.shop_status,
-      shopReports: r.shop_reports,
-      from: r.reporter_kind,
-      contact: r.reporter_contact,
-      reason: r.reason,
-      body: r.body,
-      status: r.status,
-      notes: r.notes,
-      handler: r.handler,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    })),
+    rows: list,
+    /* the same list under its old name: a Diwan tab opened before the rename reads `reports` */
+    reports: list,
   });
 });
 

@@ -224,9 +224,11 @@ export async function putMedia(pool: Pool, accountId: string, kind: MediaKind, d
   if (first.ok && !first.existed) sweepSoon(pool, accountId);
   if (first.ok || first.problem !== "full") return first;
   /* full: files no saved page uses any more (a replaced photo, a cut picture tried before the last one) are cleared,
-     at most every few minutes (otherwise each next picture of a full store reads all its saved data again) */
+     at most every few minutes (otherwise each next picture of a full store reads all its saved data again). Here the
+     wait is FULL_UNUSED_HOURS, not UNUSED_DAYS: a store at its limit that removed photos to make room would otherwise
+     be refused for two days. An hour is still longer than any Undo keeps a removed photo to bring back. */
   if (!sweepDue(accountId, FULL_SWEEP_EVERY)) return first;
-  return (await sweepUnusedMedia(pool, accountId)) > 0 ? attempt() : first;
+  return (await sweepUnusedMedia(pool, accountId, FULL_UNUSED_HOURS)) > 0 ? attempt() : first;
 }
 
 /** What a file is (not its bytes), or null */
@@ -321,13 +323,16 @@ function givenAgainNow(accountId: string, id: string) {
   m.set(id, Date.now());
   givenAgain.set(accountId, m);
 }
-function givenAgainSince(accountId: string, days: number): string[] {
+function givenAgainSince(accountId: string, hours: number): string[] {
   const m = givenAgain.get(accountId);
   if (!m) return [];
-  const since = Date.now() - days * 86_400_000;
-  for (const [id, t] of Array.from(m)) if (t < since) m.delete(id);
+  /* forgotten only after the longest wait (UNUSED_DAYS), so a full store's shorter sweep doesn't drop what a normal one
+     still keeps */
+  const now = Date.now();
+  for (const [id, t] of Array.from(m)) if (t < now - UNUSED_DAYS * 86_400_000) m.delete(id);
   if (!m.size) givenAgain.delete(accountId);
-  return Array.from(m.keys());
+  const since = now - hours * 3_600_000;
+  return Array.from(m).filter(([, t]) => t >= since).map(([id]) => id);
 }
 
 /* When each account was last swept, on this server: a sweep reads all of an account's saved data */
@@ -357,13 +362,16 @@ export function sweepSoon(pool: Pool, accountId: string): void {
 /* How long a file no saved page mentions is kept before it is cleared: time for a picture just sent whose page has not
    been saved yet (a product being written, a design being made). It used to be a week. */
 export const UNUSED_DAYS = 2;
+/* the same wait for a store that is full and is sending a file (putMedia): it can't send anything until room is made */
+export const FULL_UNUSED_HOURS = 1;
 
 /** Clears an account's files that none of its saved data mentions any more (a photo replaced or removed, a picture cut
-    again), once they have gone unused for `days` and are at least that old. Each sweep marks when a file was first
+    again), once they have gone unused for `hours` (UNUSED_DAYS, or FULL_UNUSED_HOURS for a full store) and are at
+    least that old. Each sweep marks when a file was first
     found unused (media.unused_since) and unmarks one used again, so a photo removed and then brought back (the
     Products Undo, the designer's Ctrl+Z, saved later) is not cleared just because it was sent long ago. The age wait
     leaves time for a file just sent whose page has not been saved yet. Gives how many files went. */
-export async function sweepUnusedMedia(pool: Pool, accountId: string, days = UNUSED_DAYS): Promise<number> {
+export async function sweepUnusedMedia(pool: Pool, accountId: string, hours = UNUSED_DAYS * 24): Promise<number> {
   /* every saved key, not only the picture keys: an address copied anywhere keeps its file */
   const { rows } = await pool.query(`SELECT value FROM store_data WHERE account_id = $1`, [accountId]);
   const used = new Set<string>();
@@ -379,16 +387,16 @@ export async function sweepUnusedMedia(pool: Pool, accountId: string, days = UNU
   );
   for (const r of platform.rows) mediaIdsIn(String(r.v)).forEach((id) => used.add(id));
   /* and a file just given again for a picture sent once more, whose page is not saved yet */
-  givenAgainSince(accountId, days).forEach((id) => used.add(id));
+  givenAgainSince(accountId, hours).forEach((id) => used.add(id));
   const ids = Array.from(used);
   /* used again: no longer counting toward being cleared */
   await pool.query(`UPDATE media SET unused_since = NULL WHERE account_id = $1 AND unused_since IS NOT NULL AND id = ANY($2::text[])`, [accountId, ids]);
   /* found unused now: the wait starts here (a file already marked keeps its first date) */
   await pool.query(`UPDATE media SET unused_since = now() WHERE account_id = $1 AND unused_since IS NULL AND NOT (id = ANY($2::text[]))`, [accountId, ids]);
   const gone = await pool.query(
-    `DELETE FROM media WHERE account_id = $1 AND created_at < now() - make_interval(days => $2::int)
-        AND unused_since < now() - make_interval(days => $2::int) AND NOT (id = ANY($3::text[])) RETURNING id, backend`,
-    [accountId, days, ids],
+    `DELETE FROM media WHERE account_id = $1 AND created_at < now() - make_interval(hours => $2::int)
+        AND unused_since < now() - make_interval(hours => $2::int) AND NOT (id = ANY($3::text[])) RETURNING id, backend`,
+    [accountId, hours, ids],
   );
   await removeBlobs(gone.rows);
   if (gone.rows.length) console.log(`[media] account ${accountId}: cleared ${gone.rows.length} unused files`);

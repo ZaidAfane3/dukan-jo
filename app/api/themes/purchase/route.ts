@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
    A theme that costs nothing needs no way to pay (none is kept for it).
    `price` is the price the checkout showed him: a purchase is only recorded at the price he agreed to. When staff changed it
    in Diwan meanwhile (or the page still had the list from before, kept up to a minute), nothing is recorded and the answer
-   is 409 "price-changed" with the price now, so the checkout shows it and he decides again.
+   is 409 "price-changed" with the price now, so the checkout shows it and he decides again. (A page from before this check
+   sends no price and is not checked.)
    The page names the account it is for (components/serverSync.ts accountHeader): when the browser's session is now another
    account's (signed in from another tab), the purchase is refused with 409 "other-account" rather than recorded on it.
    Answers "ok", "invalid" (not a theme in the store), "price-changed", "method-off" (that way to pay is not open). */
@@ -33,10 +34,11 @@ export const POST = guarded(async (req: NextRequest) => {
   const listed = await livePrice(themeId);
   if (listed === null) return answer({ result: "invalid" }, 400);
   const price = (FREE_THEME_IDS as readonly unknown[]).includes(themeId) ? 0 : listed;
-  /* prices are in JOD with 3 decimals (fils): anything under half a fils apart is the same price. One not sent (a tab
-     opened before this check) counts as changed too, so it is never recorded at a price nobody saw. */
+  /* prices are in JOD with 3 decimals (fils): anything under half a fils apart is the same price. A tab opened before this
+     check sends no price: it is let through unchecked as before, since refusing it would fail every try until a reload
+     (its page reads "price-changed" as a plain failure). Only a price sent that differs is refused. */
   const shown = body?.price;
-  if (typeof shown !== "number" || !Number.isFinite(shown) || Math.abs(shown - price) >= 0.0005) return answer({ result: "price-changed", price }, 409);
+  if (shown !== undefined && shown !== null && (typeof shown !== "number" || !Number.isFinite(shown) || Math.abs(shown - price) >= 0.0005)) return answer({ result: "price-changed", price }, 409);
   const s = await readSettings(["payment_methods"] as const);
   const method = THEME_PAYS.find((m) => m === body?.method) as ThemePay | undefined;
   if (price > 0 && (!method || !s.payment_methods[method].on)) return answer({ result: "method-off" }, 400);

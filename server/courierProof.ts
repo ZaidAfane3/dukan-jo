@@ -7,7 +7,9 @@
    app/api/diwan/documents/[id]), and a different courier (another phone number) needs a new proof (owner decision
    2026-11-23). The phone decides, not the name, so fixing a typo in the name keeps the approval. An approval from before
    (no phone kept) counts for whichever courier he has, so no store lost its delivery with this change; the first save
-   of his setup ties it to the courier saved then (pinLegacyApprovals). */
+   of his setup ties it to the courier saved then (pinLegacyApprovals), or, when he had no own courier saved then
+   (Dukkan Ship or pickup), to none at all (NO_COURIER): an old approval only counts for the courier he had at the time
+   (owner default 2026-11-23). */
 
 import { cleanSetup } from "@/components/safeAccount";
 import { jordanMobile } from "@/components/phone";
@@ -17,6 +19,10 @@ type Query = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]
 
 /** A courier phone in the one form two numbers are compared in (the 9 digits of a Jordan mobile); "" for none */
 export const courierPhoneKey = (phone: string | null | undefined): string => (phone ? jordanMobile(phone) || phone.replace(/\D/g, "") : "");
+
+/** approved_phone of an old approval pinned while the store had no own courier saved: it is for no courier, so it never
+    matches a phone (courierPhoneKey of it is "" and courierApprovals skips it rather than reading it as "any") */
+export const NO_COURIER = "none";
 
 /* The account's approved courier proofs: `any` when one was approved before approvals kept their courier, and the
    phones the others were approved for */
@@ -30,6 +36,7 @@ export async function courierApprovals(q: Query, accountId: string | number): Pr
   );
   const out: CourierApprovals = { any: false, phones: new Set() };
   for (const r of rows) {
+    if (r.approved_phone === NO_COURIER) continue;
     const key = courierPhoneKey(r.approved_phone);
     if (key) out.phones.add(key);
     else out.any = true;
@@ -58,14 +65,18 @@ export function ownCourierPhone(setupJson: string | null | undefined): string | 
 }
 
 /** Ties the approvals from before approvals kept their courier to the courier his setup has now (`phone`, from the
-    setup as saved before a change), so changing to another courier later needs a new proof. Called inside a setup
-    save, under the account's save lock. */
+    setup as saved before a change), so changing to another courier later needs a new proof. With no own courier saved
+    (Dukkan Ship, pickup, no setup yet: `phone` null, as ownCourierPhone gives) they are tied to no courier
+    (NO_COURIER), so a later own courier needs a new proof too rather than the old approval following any courier he
+    picks. An own courier saved without a usable phone leaves them as they are (nothing to tie them to, and tying them
+    to none would stop a store delivering with it). Called inside a setup save, under the account's save lock. */
 export async function pinLegacyApprovals(q: Query, accountId: string | number, phone: string | null | undefined): Promise<void> {
-  if (!courierPhoneKey(phone)) return;
+  if (phone != null && !courierPhoneKey(phone)) return;
+  const pin = phone == null ? NO_COURIER : phone;
   await q.query(
     `UPDATE documents SET approved_phone = $2
       WHERE account_id = $1 AND kind = 'courier_proof' AND status = 'approved' AND approved_phone IS NULL AND removed_at IS NULL AND NOT draft`,
-    [accountId, seal(phone as string)],
+    [accountId, seal(pin)],
   );
 }
 

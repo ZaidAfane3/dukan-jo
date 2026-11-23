@@ -95,7 +95,8 @@ export function merchantDocument(r: Record<string, any>) {
     rejectionSeen: !!r.rejection_seen,
     /* an approved courier proof: the phone of the courier it was approved for (his own courier's number, which he
        entered), so his Delivery page can tell an approval for an earlier courier (server/courierProof.ts); null for an
-       approval from before that was kept (it counts for any courier) */
+       approval from before that was kept (it counts for any courier); "none" (server/courierProof.ts NO_COURIER) for an
+       old one tied to no courier, which matches no phone on his page */
     approvedPhone: r.status === "approved" ? ((r.approved_phone ?? null) as string | null) : null,
   };
 }

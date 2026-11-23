@@ -301,8 +301,8 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
       const isLive = (get: (k: string) => string | null) => get("seen-storefront") !== null && !pausedIn(get("seen-maintenance"));
       const afterSetup = setupIn(after("seen-setup"));
       const beforeSetup = setupIn(before("seen-setup"));
-      /* an approval from before approvals kept their courier is tied to the courier saved until now, so a setup changing
-         to another courier is checked as needing a new proof */
+      /* an approval from before approvals kept their courier is tied to the courier saved until now (or to none when he
+         had no own courier saved), so a setup changing to another courier is checked as needing a new proof */
       if (set.some(([k]) => k === "seen-setup")) await pinLegacyApprovals(client, a.id, ownCourierPhone(before("seen-setup")));
       /* until Diwan approved a proof for the courier a setup names, that courier does not deliver (safeOrder readyToSell) */
       const approvals = await courierApprovals(client, a.id);

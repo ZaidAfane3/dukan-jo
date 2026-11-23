@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { answer } from "@/server/auth";
 import { db } from "@/server/db";
+import { NO_COURIER } from "@/server/courierProof";
 import { staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +35,7 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
   const pool = await db();
   const { rows } = await pool.query(
     `SELECT d.id, d.public_id, d.account_id, d.kind, d.name, d.seq, (d.data IS NOT NULL OR d.file_key IS NOT NULL) AS has_file, d.mime, d.bytes,
-            d.partner, d.partner_kind, d.status, d.note, d.created_at, d.removed_at,
+            d.partner, d.partner_kind, d.partner_phone, d.approved_phone, d.status, d.note, d.created_at, d.removed_at,
             st.name AS reviewer, COALESCE(s.name, '') AS shop_name, a.name AS owner_name, s.slug AS shop_slug, s.phone AS store_phone
        FROM documents d
        JOIN accounts a ON a.id = d.account_id LEFT JOIN shops s ON s.account_id = d.account_id
@@ -76,6 +77,10 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
       name: r.name,
       partner: r.partner ?? "",
       partnerKind: r.partner_kind ?? null,
+      /* a courier proof's courier, by phone (server/courierProof.ts), so staff see which courier they approve it for: the
+         phone it was approved for once approved, otherwise the one it was sent for (opened from its sealed value by
+         db.ts); "" when none is known (a proof from before phones were kept) */
+      courierPhone: r.kind === "courier_proof" ? ((r.status === "approved" && r.approved_phone && r.approved_phone !== NO_COURIER ? r.approved_phone : r.partner_phone) ?? "") : "",
       hasFile: r.has_file,
       mime: r.mime ?? null,
       bytes: r.bytes ?? null,

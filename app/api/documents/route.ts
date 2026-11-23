@@ -60,14 +60,16 @@ export const POST = documentsRoute(async (req, me) => {
        approved (app/api/store PUT "not-ready", when pickup is off), so waiting for that save would keep the proof a
        draft for good. Read under the account's save lock (app/api/store PUT takes it to save the setup, and hands
        drafts over after): a save running now either finished before this read (own: not a draft) or waits for this row
-       and then hands it over. phone: the courier it is for (server/courierProof.ts), the saved one when he uses his own
-       courier, otherwise the one on his page; a save of his choice sets it again (handOverProofs). */
+       and then hands it over. phone: the courier it is for (server/courierProof.ts): the one on his page when it is a Jordan
+       mobile (he may be sending the proof for a new courier he typed and has not saved yet, which must not be tied to
+       the saved one), otherwise the saved one when he uses his own courier; a save of his choice sets it again
+       (handOverProofs). */
     let draft = false;
     let phone: string | null = null;
     if (kind === "courier_proof") {
       const r = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [me.id, ["seen-setup", "seen-storefront", "seen-maintenance"]]);
       const value = (k: string) => (r.rows.find((x) => x.key === k)?.value ?? null) as string | null;
-      phone = ownCourierPhone(value("seen-setup"));
+      const saved = ownCourierPhone(value("seen-setup"));
       let paused = false;
       try {
         paused = (JSON.parse(value("seen-maintenance") ?? "null") as { on?: unknown } | null)?.on === true;
@@ -75,8 +77,8 @@ export const POST = documentsRoute(async (req, me) => {
         paused = false;
       }
       const live = value("seen-storefront") !== null && !paused;
-      draft = phone === null && !live;
-      if (phone === null) phone = savedMobile(typeof body.partnerPhone === "string" ? body.partnerPhone : "") || null;
+      draft = saved === null && !live;
+      phone = savedMobile(typeof body.partnerPhone === "string" ? body.partnerPhone : "") || saved;
     }
     /* the counts are of what the merchant still keeps in play: a rejected file never counts (server/documents.ts
        ACTIVE), so he can send again however many times he was rejected. The bytes also count a removed file whose bytes
