@@ -158,7 +158,12 @@ export async function currentAccount(req: NextRequest): Promise<SessionAccount |
   if (!r || r.a.pending_totp) return null;
   const { a, token, pool } = r;
   /* used again: the session runs for another 60 days, and so does the cookie (see renewCookie) */
-  if (a.stale) pool.query(`UPDATE sessions SET expires_at = now() + make_interval(days => $2) WHERE token_hash = $1`, [tokenHash(token), DAYS]).catch(() => {});
+  if (a.stale) {
+    pool.query(`UPDATE sessions SET expires_at = now() + make_interval(days => $2) WHERE token_hash = $1`, [tokenHash(token), DAYS]).catch(() => {});
+    /* and the address it is used from, if the owner signed in from it before, stays known (it would age out after
+       PLACE_DAYS for an owner who never signs in again) */
+    void refreshSigninPlace(req, `m:${a.id}`);
+  }
   return {
     id: String(a.id),
     email: a.email,
@@ -203,8 +208,10 @@ export async function pendingAccount(req: NextRequest): Promise<{ id: string; em
 
 /** The code was right: the waiting session ends and a full one (60 days) starts in its place, with a brand-new token
     and cookie. The waiting session's token is never made the signed-in one: a token the browser brought (which someone
-    else could have planted there, or seen while it waited) never becomes a signed-in session. */
-export async function finishPendingSession(res: NextResponse, req: NextRequest): Promise<boolean> {
+    else could have planted there, or seen while it waited) never becomes a signed-in session.
+    `spend`: what the sign-in uses up (a recovery code), done in the same transaction once the waiting session is found:
+    false from it, or no waiting session, and nothing changes (the code stays unused). */
+export async function finishPendingSession(res: NextResponse, req: NextRequest, spend?: (c: PoolClient) => Promise<boolean>): Promise<boolean> {
   const old = req.cookies.get(COOKIE)?.value;
   if (!old) return false;
   /* whose session it is, to take that account's sign-in lock (see underAccountLock) */
@@ -212,21 +219,29 @@ export async function finishPendingSession(res: NextResponse, req: NextRequest):
   if (!owner[0]) return false;
   const token = randomBytes(32).toString("base64url");
   let made = false;
-  await underAccountLock(String(owner[0].account_id), async (c) => {
-    const { rows } = await c.query(
-      `DELETE FROM sessions WHERE token_hash = $1 AND pending_totp AND replaced_at IS NULL AND expires_at > now() RETURNING account_id`,
-      [tokenHash(old)],
-    );
-    if (!rows[0]) return;
-    const accountId = String(rows[0].account_id);
-    await c.query(
-      `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(days => $3), false)`,
-      [tokenHash(token), accountId, DAYS],
-    );
-    /* the sign-in is complete now: it is the account's only session (see ONE DEVICE AT A TIME) */
-    await onlyThisSession(c, accountId, tokenHash(token));
-    made = true;
-  });
+  const refused = new Error("not spent");
+  try {
+    await underAccountLock(String(owner[0].account_id), async (c) => {
+      const { rows } = await c.query(
+        `DELETE FROM sessions WHERE token_hash = $1 AND pending_totp AND replaced_at IS NULL AND expires_at > now() RETURNING account_id`,
+        [tokenHash(old)],
+      );
+      if (!rows[0]) return;
+      /* rolled back: the waiting session stays as it was */
+      if (spend && !(await spend(c))) throw refused;
+      const accountId = String(rows[0].account_id);
+      await c.query(
+        `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(days => $3), false)`,
+        [tokenHash(token), accountId, DAYS],
+      );
+      /* the sign-in is complete now: it is the account's only session (see ONE DEVICE AT A TIME) */
+      await onlyThisSession(c, accountId, tokenHash(token));
+      made = true;
+    });
+  } catch (e) {
+    if (e !== refused) throw e;
+    return false;
+  }
   if (made) res.cookies.set(COOKIE, token, cookieOptions(req, DAYS * 86400));
   return made;
 }
@@ -570,6 +585,19 @@ export async function noteSigninPlace(req: NextRequest, who: string): Promise<vo
     if (Math.random() < 0.02) pool.query(`DELETE FROM signin_places WHERE last_at < now() - make_interval(days => $1)`, [PLACE_DAYS]).catch(() => {});
   } catch (e) {
     console.error("[sign-in] noting the address", (e as Error)?.message ?? e);
+  }
+}
+
+/** Keeps an address `who` already signed in from known for another PLACE_DAYS, while a session made there is still in
+    use. Never adds a new one: only a sign-in does (noteSigninPlace). Never throws. */
+export async function refreshSigninPlace(req: NextRequest, who: string): Promise<void> {
+  try {
+    await (await db()).query(
+      `UPDATE signin_places SET last_at = now() WHERE who = $1 AND place = $2 AND last_at > now() - make_interval(days => $3)`,
+      [who, placeOf(req), PLACE_DAYS],
+    );
+  } catch (e) {
+    console.error("[sign-in] refreshing the address", (e as Error)?.message ?? e);
   }
 }
 

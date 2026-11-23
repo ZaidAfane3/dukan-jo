@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import type { PoolClient } from "pg";
 import { emailKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { sendEmailSoon } from "@/server/email";
@@ -38,9 +39,10 @@ export async function sendOldStep(req: NextRequest, accountId: string, current: 
 
 /** The waiting approval was given with a recovery code instead of the emailed one: its row is marked approved, so it is
     no longer waiting and its code can't be used any more. Only while it still approves `newEmail` (the address the page
-    showed): the new email it approved, or null when another address is waiting by now (nothing is approved). */
-export async function approveOldStep(accountId: string, newEmail: string): Promise<string | null> {
-  const pool = await db();
+    showed): the new email it approved, or null when another address is waiting by now (nothing is approved). `c`: the
+    transaction the recovery code is spent in, so both happen or neither. */
+export async function approveOldStep(accountId: string, newEmail: string, c?: PoolClient): Promise<string | null> {
+  const pool = c ?? (await db());
   const { rows } = await pool.query(
     `SELECT id, new_email FROM email_codes WHERE ref = $1 ORDER BY id DESC LIMIT 1`,
     [oldRef(accountId)],
