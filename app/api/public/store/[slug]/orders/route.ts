@@ -22,8 +22,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
   const p = await ctx.params;
   try {
     if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
-    /* per visitor: enough for a team testing from one office, too few to empty a store */
-    if (tooMany(req, "store-order", 20, 15)) return answer({ result: "slow-down" }, 429);
+    /* looking up whether a checkout got in (below) only reads: it has its own, looser limit per visitor, so a customer
+       whose order went in gets his thank-you even after trying many times, while a script still can't read without end */
+    if (tooMany(req, "store-order-lookup", 120, 15)) return answer({ result: "slow-down" }, 429);
     const read = await readJsonOr(req, MAX_BODY);
     if (!("body" in read)) return unreadable(read.why);
     const body = read.body;
@@ -32,15 +33,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
       const r = await findStoreAttempt(p.slug, body.lookup);
       return answer(r.body, r.status);
     }
-    /* per store, from every visitor together, and per customer mobile: only orders that went in count, so a stranger
-       sending empty or broken orders can't use up a store's allowance and lock its real customers out */
     /* a checkout sent again (its answer was lost, or the page was reloaded): its order, if it got in, comes back before
-       any limit, and doesn't count again */
+       the order limits below, and doesn't count again */
     for (const key of [body.attempt, ...previousAttempts(body.previous, body.attempt)]) {
       if (typeof key !== "string") continue;
       const before = await findStoreAttempt(p.slug, key);
       if (before.status === 200 && before.body.result === "ok") return answer(before.body, 200);
     }
+    /* per visitor, for placing an order: enough for a team testing from one office, too few to empty a store */
+    if (tooMany(req, "store-order", 20, 15)) return answer({ result: "slow-down" }, 429);
+    /* per store, from every visitor together, and per customer mobile: only orders that went in count, so a stranger
+       sending empty or broken orders can't use up a store's allowance and lock its real customers out */
     const shopKey = `store-order-shop:${String(p.slug ?? "").toLowerCase().slice(0, 64)}`;
     const customer = body.customer && typeof body.customer === "object" ? (body.customer as Record<string, unknown>) : {};
     const mobile = typeof customer.phone === "string" ? latin(customer.phone).replace(/\D/g, "").slice(-9) : "";
