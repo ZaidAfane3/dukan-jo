@@ -273,6 +273,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   };
   const openPage = (id: number) => {
     if (design) return design.openPage?.(id);
+    /* a link to a page visitors cannot see (a draft, a deleted page, a theme's sample page left in a page's own blocks,
+       which relinkPages does not reach) never puts ?page=N in the address over the home page, nor counts a page visit:
+       like relinkPages, it leads to the products instead (nowhere when the store shows none) */
+    if (!data.pages.some((p) => p.id === id)) {
+      const shop = shopTarget(config);
+      if (shop) showSection(shop);
+      return;
+    }
     /* a page of the store is not part of the search: the box empties (Back still comes back to the results) */
     if (queryNow.current) endSearch(false);
     setOwnProduct(null);
@@ -917,7 +925,11 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
   };
   /* From a page of the store back to the home page, then to its part */
   const showSection = (to: string) => {
-    const scroll = () => root.current?.querySelector(`[data-sf="${CSS.escape(to)}"]`)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    const find = () => root.current?.querySelector(`[data-sf="${CSS.escape(to)}"]`);
+    const scroll = () => find()?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    /* a block of the open page itself (a page button that leads further down the same page, or the footer): the page
+       stays open and scrolls to it. Only a block the page does not have takes him back to the home page. */
+    if (pageId !== null && productId === null && find()) return scroll();
     /* a part of the home page: a search showing gives way to the home page first */
     const searching = !!queryNow.current.trim();
     if (searching) endSearch(pageId === null && productId === null);

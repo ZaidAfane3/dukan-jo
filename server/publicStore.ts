@@ -4,7 +4,7 @@ import { money, PRODUCT_MAX } from "@/components/records";
 import { cleanLine, cleanLines, safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { checkoutShipMode } from "@/components/safeOrder";
-import { sanitizeDesign, sanitizePages } from "@/components/safeDesign";
+import { safePicture, sanitizeDesign, sanitizePages } from "@/components/safeDesign";
 import { defaultConfig, type PageRef } from "@/components/storefront/config";
 import { stripPaidLooks, withLookOf } from "@/components/themeLooks";
 import { db } from "./db";
@@ -127,8 +127,17 @@ export async function shapePublicStore(
 
   if (!shop.published) return { status: "soon", name: storeName };
   if (shop.paused) {
+    /* the logo his open store and his own preview of the paused page show (resolveLogo, app/store/StorePreview.tsx): the
+       designer's choice of logo, read from his saved design and nothing else of it. "auto" is the setup logo, a picture
+       of his own is that picture (cleaned like every picture of a design), a letter or a sample mark is no picture (the
+       page draws the first letter on the store colour). */
+    const saved = parse(data.get("seen-storefront"));
+    const id = isObj(saved) ? saved.identity : null;
+    const lg = isObj(id) && isObj(id.logo) ? id.logo : null;
+    const kind = lg && typeof lg.kind === "string" ? lg.kind : "auto";
+    const pausedLogo = kind === "image" ? safeStoredImage(safePicture(lg?.image) ?? "") : kind === "letter" || kind === "sample" ? "" : logo;
     /* always Dukkan's own "under maintenance" words: a message an older version let the merchant write is not shown */
-    return { status: "paused", name: storeName, logo, color, message: { en: "", ar: "" } };
+    return { status: "paused", name: storeName, logo: pausedLogo, color, message: { en: "", ar: "" } };
   }
 
   const publicSetup: PublicSetup = {
