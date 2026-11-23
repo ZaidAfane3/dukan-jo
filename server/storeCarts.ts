@@ -45,8 +45,10 @@ const CARTS_MAX = 20_000;
 /* the most reminders one store can send in a day, and one email address can get from all stores together */
 const SHOP_MAILS_DAY = 100;
 const ADDRESS_MAILS_DAY = 3;
-/* the newest carts the merchant's list shows */
-const LIST_MAX = 500;
+/* one page of the merchant's list (the next ones come with "Show more") */
+const LIST_PAGE = 100;
+/* where a page ends: the last cart's change time as Postgres writes it (to the microsecond) and its id */
+const CURSOR = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?[+-]\d{2}(?::\d{2})?)\|(\d{1,18})$/;
 
 /* the browser's key for its basket: letters, digits and dashes (a random UUID), as a checkout's key */
 const KEY = /^[A-Za-z0-9-]{16,64}$/;
@@ -209,19 +211,27 @@ const ABANDONED = `(reminders > 0 OR (recovered_at IS NULL AND updated_at < now(
 const SINCE = `CASE $2::int WHEN 0 THEN now() - interval '7 days' WHEN 1 THEN now() - interval '30 days'
                ELSE date_trunc('month', now() AT TIME ZONE 'Asia/Amman') AT TIME ZONE 'Asia/Amman' END`;
 
-/** The store's abandoned carts with their last change in the range (0, 1 or 2, as above), newest first (at most
-    LIST_MAX), and for all of them in the range: how many, the share recovered by an order and their average value. */
-export async function listStoreCarts(accountId: string, range: number): Promise<{ carts: CartRow[]; count: number; recovered: number; average: number }> {
+/** The store's abandoned carts with their last change in the range (0, 1 or 2, as above), newest first, a page of
+    LIST_PAGE at a time (`before`: where the page before ended, the `next` it gave; null for the first page), and for
+    all of them in the range: how many, the share recovered by an order and their average value. */
+export async function listStoreCarts(accountId: string, range: number, before: string | null = null): Promise<{ carts: CartRow[]; next: string | null; count: number; recovered: number; average: number }> {
   const pool = await db();
   const r = range === 1 || range === 2 ? range : 0;
   const where = `account_id = $1 AND updated_at >= ${SINCE} AND jsonb_array_length(items) > 0 AND ${ABANDONED}`;
   const sums = await pool.query(`SELECT count(*)::int AS n, count(recovered_at)::int AS back, COALESCE(avg(subtotal), 0) AS avg FROM store_carts WHERE ${where}`, [accountId, r]);
+  /* a cursor (time and id) rather than an offset, so a cart that changed meanwhile never shows twice or pushes one out */
+  const cut = before ? CURSOR.exec(before) : null;
   const { rows } = await pool.query(
-    `SELECT id, name, email, phone, items, subtotal, created_at, updated_at, recovered_at, order_number, reminders, reminded_at, now() AS at
-       FROM store_carts WHERE ${where} ORDER BY updated_at DESC, id DESC LIMIT ${LIST_MAX}`,
-    [accountId, r],
+    `SELECT id, name, email, phone, items, subtotal, created_at, updated_at, updated_at::text AS at_text, recovered_at, order_number, reminders, reminded_at, now() AS at
+       FROM store_carts WHERE ${where} ${cut ? "AND (updated_at, id) < ($3::timestamptz, $4::bigint)" : ""}
+      ORDER BY updated_at DESC, id DESC LIMIT ${LIST_PAGE + 1}`,
+    cut ? [accountId, r, cut[1], cut[2]] : [accountId, r],
   );
-  const carts = rows.map((x: Record<string, unknown>): CartRow => {
+  const more = rows.length > LIST_PAGE;
+  const page = more ? rows.slice(0, LIST_PAGE) : rows;
+  const last = page[page.length - 1] as Record<string, unknown> | undefined;
+  const next = more && last ? `${String(last.at_text)}|${String(last.id)}` : null;
+  const carts = page.map((x: Record<string, unknown>): CartRow => {
     const items = (Array.isArray(x.items) ? x.items : []).filter(isObj);
     const now = new Date(x.at as string).getTime();
     const reminders = Number(x.reminders) || 0;
@@ -253,7 +263,7 @@ export async function listStoreCarts(accountId: string, range: number): Promise<
   });
   const s = sums.rows[0] ?? {};
   const count = Number(s.n) || 0;
-  return { carts, count, recovered: count ? Math.round((Number(s.back) / count) * 1000) / 10 : 0, average: Math.round(Number(s.avg) * 1000) / 1000 };
+  return { carts, next, count, recovered: count ? Math.round((Number(s.back) / count) * 1000) / 10 : 0, average: Math.round(Number(s.avg) * 1000) / 1000 };
 }
 
 /* ---------------- a reminder ---------------- */
