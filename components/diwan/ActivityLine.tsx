@@ -26,6 +26,8 @@ export type Detail = {
   status?: string; document?: DocumentFacts;
   /* a staff sign-in: with the emailed code, or the password alone on a remembered browser */
   via?: "email" | "remembered";
+  /* a Dukkan Ship mark: the store's order number (its delivery state is the "shipState" change) */
+  order?: string;
 };
 export type ActivityRow = {
   id: string;
@@ -73,6 +75,15 @@ const FIELD: Record<string, [string, string]> = {
   method: ["method", "الطريقة"],
   paidOn: ["paid on", "تاريخ الدفع"],
   reference: ["reference", "المرجع"],
+  /* a Dukkan Ship mark (ship.order.mark) */
+  shipState: ["delivery", "التوصيل"],
+};
+
+/* Dukkan Ship's delivery states, in the same words as Diwan's Dukkan Ship page (components/diwan/ShipOrders.tsx) */
+const SHIP_STATE: Record<string, [string, string]> = {
+  waiting: ["To deliver", "بانتظار التوصيل"],
+  delivered: ["Delivered", "تم التوصيل"],
+  failed: ["Not delivered", "لم يُسلَّم"],
 };
 
 /* statuses of the other things Diwan changes (store reports, documents, pop-ups, pages, themes, developers' work) */
@@ -105,6 +116,7 @@ function valueWords(t: T, action: string, field: string, v: string | null): stri
   if (field === "reason" && REASON_WORDS[v as ReportReason]) return t(REASON_WORDS[v as ReportReason].en, REASON_WORDS[v as ReportReason].ar);
   if (field === "active") return v === "true" ? t("has access", "له دخول") : t("no access", "بلا دخول");
   if (field === "featured") return v === "true" ? t("yes", "نعم") : t("no", "لا");
+  if (field === "shipState" && SHIP_STATE[v]) return t(SHIP_STATE[v][0], SHIP_STATE[v][1]);
   if (action === "shop.payment_edit" && field === "method") return methodText(t, v);
   if (action === "shop.payment_edit" && field === "amount") {
     /* written as Diwan writes an amount (ui.tsx f.jod): "30", "12.50", "4.125", not the stored "30.000" */
@@ -258,6 +270,8 @@ export function ActivityText({ row }: { row: ActivityRow }) {
   /* every other line: what was done, on what, then what changed */
   const bits: string[] = [];
   if (d.member) bits.push(d.member);
+  /* the Dukkan Ship order, by its number in its store */
+  if (d.order && /^\d+$/.test(d.order)) bits.push(`#${d.order}`);
   /* a page's title in the staff's language, else the other (server/activityDetail.ts withPageTitles) */
   if (d.titles) bits.push(`“${t(d.titles.en || d.titles.ar, d.titles.ar || d.titles.en)}”`);
   else if (d.title) bits.push(`“${d.title}”`);

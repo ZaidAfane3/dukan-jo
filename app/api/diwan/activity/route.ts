@@ -37,8 +37,9 @@ export const GET = staffRoute("audit.read", async (req: NextRequest) => {
   const from = q.get("from") ?? "";
   const to = q.get("to") ?? "";
   if ((from && !realDay(from)) || (to && !realDay(to))) return answer({ result: "invalid" }, 400);
-  if (from) add("a.at >= ?::date", from);
-  if (to) add("a.at < ?::date + 1", to);
+  /* days in Jordan time (Diwan's dates are Amman's), not the database's own time zone */
+  if (from) add("a.at >= ((?::date)::timestamp AT TIME ZONE 'Asia/Amman')", from);
+  if (to) add("a.at < ((?::date + 1)::timestamp AT TIME ZONE 'Asia/Amman')", to);
   /* one store's lines only: the store itself, its tickets, the reports about it and its documents (?shop=, its page's
      "See all") */
   const shop = q.get("shop") ?? "";

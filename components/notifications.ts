@@ -120,11 +120,14 @@ function markServer(body: { ids: string[] }) {
 
 /* ---------------- the list ---------------- */
 
-/** Everything the bell shows, newest first */
+/** Everything the bell shows, newest first: the newest 80 notices, and every live announcement however many notices
+    came after it (the server sends them all) */
 export function getNotifications(): AppNotification[] {
   const local = localList();
   if (!serverList.length) return local;
-  return [...local, ...serverList].sort((a, b) => b.ts - a.ts).slice(0, 80);
+  const all = [...local, ...serverList].sort((a, b) => b.ts - a.ts);
+  const notices = all.filter((n) => n.kind !== "announcement").slice(0, 80);
+  return [...all.filter((n) => n.kind === "announcement"), ...notices].sort((a, b) => b.ts - a.ts);
 }
 
 /** The live announcements from the server that are not read yet (the dashboard shows those with a banner) */
