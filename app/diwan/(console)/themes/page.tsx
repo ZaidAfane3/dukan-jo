@@ -374,6 +374,21 @@ function DetailsForm({ row, code, reload }: { row: ListingRow; code: ThemeInfo |
   const [sort, setSort] = useState(String(row.sort));
   const [featured, setFeatured] = useState(row.featured);
   const [demo, setDemo] = useState({ name: biText(row.demo?.name), about: biText(row.demo?.about), color: row.demo?.color ?? "#1c1a17" });
+  /* the theme's "last changed" this form was filled from: the server refuses the save when another staff member saved
+     it since (app/api/diwan/themes/[id] PATCH, "changed"), instead of this form putting back what they changed */
+  const [version, setVersion] = useState(row.updatedAt ?? "");
+  const fill = (r: ListingRow) => {
+    setName(biText(r.name));
+    setTagline(biText(r.tagline));
+    setAbout(biText(r.about));
+    setFeatures(linesOf(r.features));
+    setTags(linesOf(r.tags));
+    setPrice(String(r.price));
+    setSort(String(r.sort));
+    setFeatured(r.featured);
+    setDemo({ name: biText(r.demo?.name), about: biText(r.demo?.about), color: r.demo?.color ?? "#1c1a17" });
+    setVersion(r.updatedAt ?? "");
+  };
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   /* on a code theme an empty box keeps the code's own words: they show greyed in it */
@@ -387,11 +402,18 @@ function DetailsForm({ row, code, reload }: { row: ListingRow; code: ThemeInfo |
     const r = await send(`/api/diwan/themes/${row.id}`, "PATCH", {
       name, tagline, about, features: listOf(features), tags: listOf(tags), price, sort: Number(sort), featured,
       demo: row.source === "design" ? demo : undefined,
+      updatedAt: version,
     });
     setBusy(false);
     if (r.ok) {
+      if (typeof r.data?.updatedAt === "string") setVersion(r.data.updatedAt);
       setMsg({ ok: true, text: t("Saved.", "تم الحفظ.") });
       reload();
+    } else if (r.data?.result === "changed" && r.data?.row) {
+      /* someone else saved first: the form now shows the theme as it is, and nothing of this one was saved */
+      fill(r.data.row as ListingRow);
+      reload();
+      setMsg({ ok: false, text: t("Another staff member changed this theme meanwhile. The form now shows it as it is; check it and save again.", "عدّل عضو آخر هذا الثيم في هذه الأثناء. يعرض النموذج الآن قيمه الحالية؛ راجعها واحفظ مجددًا.") });
     } else {
       const fieldName = r.data?.field;
       setMsg({ ok: false, text: fieldName === "price" ? t(`The price must be 0 to ${LISTING_LIMITS.maxPrice} JOD.`, `يجب أن يكون السعر بين 0 و${LISTING_LIMITS.maxPrice} د.أ.`) : fieldName === "name" ? t("A theme made here needs a name.", "الثيم المصنوع هنا يحتاج اسمًا.") : fieldName === "sort" ? t("The place must be a whole number.", "يجب أن يكون الترتيب رقمًا صحيحًا.") : t("That did not work. Try again.", "لم ينجح ذلك. حاول مجددًا.") });
