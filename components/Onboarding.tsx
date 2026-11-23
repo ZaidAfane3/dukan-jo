@@ -24,7 +24,7 @@ import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
 import { keepPicture } from "./media";
 import { merchantCall, onServer } from "./merchantApi";
-import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
+import { MAX_PROOFS, ProofRows, proofsInPlay, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
 import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
 import { liveMissing, SellNeeds, sellWords, ShipDefaultNote, storeLiveNow, useSellReady } from "./ReadyToSell";
 import { ProductPhoto } from "./storefront/NoPhoto";
@@ -1333,7 +1333,7 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string; fee?: string; cities?: string; pays?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
 
-  /* Images and PDFs only, up to 5 files of 5 MB, checked from their bytes. Each one is sent with the partner as typed
+  /* Images and PDFs only, up to 5 files of 5 MB in play (rejected ones don't count), checked from their bytes. Each one is sent with the partner as typed
      now; saving the step tells the server the final name (syncProofPartner). */
   const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
@@ -1603,9 +1603,9 @@ function ShippingStep({ store, onSave }: StepProps) {
         <div>
           <Label title={s.proofLabel} hint={s.proofHint} optional={c.optional} />
           <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={onFiles} className="hidden" />
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !proofsReady || proofs.length >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !proofsReady || proofsInPlay(proofs) >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
             <span>
-              {busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofs.length}/{MAX_PROOFS})</span>
+              {busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofsInPlay(proofs)}/{MAX_PROOFS})</span>
             </span>
           </button>
           <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
