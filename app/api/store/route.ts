@@ -405,7 +405,7 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
     }
     if (mode === "own")
       await (await db())
-        .query(`UPDATE documents SET draft = false WHERE account_id = $1 AND draft AND kind = 'courier_proof'`, [a.id])
+        .query(`UPDATE documents SET draft = false, sent_at = now() WHERE account_id = $1 AND draft AND kind = 'courier_proof'`, [a.id])
         .catch((e) => console.error("[documents] hand over", a.id, e));
   }
   /* a picture the pages no longer use doesn't stay public for long */

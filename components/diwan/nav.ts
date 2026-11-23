@@ -5,18 +5,24 @@ import type { Perm } from "./perms";
    (components/diwan/Shell.tsx), so the menu stays short: the section of the page you are on opens by itself, and no more
    than two are open at once. */
 export type NavGroup = "stores" | "support" | "merchants" | "themes" | "admin" | "logs";
-export type NavItem = { href: string; en: string; ar: string; perm: Perm; group: NavGroup | null };
+/** The pages that show a red number of what is new to this staff member since they last opened the page (server/badges.ts
+    says what counts on each). Only where things come in from outside or from the rest of the team: no page of totals,
+    settings or logs, where "new" means nothing. */
+export const BADGE_TABS = ["shops", "payments", "ship", "tickets", "complaints", "documents", "feedback"] as const;
+export type BadgeTab = (typeof BADGE_TABS)[number];
+export const isBadgeTab = (v: unknown): v is BadgeTab => typeof v === "string" && (BADGE_TABS as readonly string[]).includes(v);
+export type NavItem = { href: string; en: string; ar: string; perm: Perm; group: NavGroup | null; badge?: BadgeTab };
 
 export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan", en: "Overview", ar: "نظرة عامة", perm: "shops.read", group: null },
-  { href: "/diwan/shops", en: "Stores", ar: "المتاجر", perm: "shops.read", group: "stores" },
-  { href: "/diwan/payments", en: "Payments", ar: "المدفوعات", perm: "billing", group: "stores" },
-  { href: "/diwan/ship", en: "Dukkan Ship", ar: "شحن دكّان", perm: "settings", group: "stores" },
+  { href: "/diwan/shops", en: "Stores", ar: "المتاجر", perm: "shops.read", group: "stores", badge: "shops" },
+  { href: "/diwan/payments", en: "Payments", ar: "المدفوعات", perm: "billing", group: "stores", badge: "payments" },
+  { href: "/diwan/ship", en: "Dukkan Ship", ar: "شحن دكّان", perm: "settings", group: "stores", badge: "ship" },
   { href: "/diwan/funnel", en: "Onboarding funnel", ar: "مراحل البدء", perm: "shops.read", group: "stores" },
-  { href: "/diwan/tickets", en: "Tickets", ar: "التذاكر", perm: "tickets", group: "support" },
-  { href: "/diwan/complaints", en: "Store reports", ar: "بلاغات المتاجر", perm: "complaints", group: "support" },
-  { href: "/diwan/documents", en: "Documents", ar: "المستندات", perm: "documents", group: "support" },
-  { href: "/diwan/feedback", en: "Bugs and ideas", ar: "الأخطاء والأفكار", perm: "tickets", group: "support" },
+  { href: "/diwan/tickets", en: "Tickets", ar: "التذاكر", perm: "tickets", group: "support", badge: "tickets" },
+  { href: "/diwan/complaints", en: "Store reports", ar: "بلاغات المتاجر", perm: "complaints", group: "support", badge: "complaints" },
+  { href: "/diwan/documents", en: "Documents", ar: "المستندات", perm: "documents", group: "support", badge: "documents" },
+  { href: "/diwan/feedback", en: "Bugs and ideas", ar: "الأخطاء والأفكار", perm: "tickets", group: "support", badge: "feedback" },
   /* marketing: what Dukkan's team sends to merchants' dashboards */
   { href: "/diwan/announcements", en: "Announcements", ar: "الإعلانات", perm: "announce", group: "merchants" },
   { href: "/diwan/popups", en: "Pop-ups", ar: "النوافذ المنبثقة", perm: "announce", group: "merchants" },

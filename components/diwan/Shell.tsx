@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../pageTitle";
 import { LangSwitch, ThemeToggle } from "../Prefs";
+import { NewBadge, useBadges, useNewWords } from "./badges";
 import { DiwanMark, GROUP_ICON, Icon, iconForPath } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS, type NavGroup } from "./nav";
 import { can, type Role } from "./perms";
@@ -38,6 +39,10 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
   const [open, setOpen] = useState(false);
   const items = DIWAN_NAV.filter((i) => can(staff, i.perm));
   const active = (href: string) => (href === "/diwan" ? path === "/diwan" : path === href || path.startsWith(href + "/"));
+  /* the red numbers: what is new to this staff member on each page since they last opened it (components/diwan/badges.tsx) */
+  const { counts, seen } = useBadges(path, items);
+  const newWords = useNewWords();
+  const newIn = (list: typeof items) => list.reduce((sum, i) => sum + ((i.badge && counts[i.badge]) || 0), 0);
   /* the phone menu closes with Escape, and on any page change */
   useEffect(() => {
     if (!open) return;
@@ -109,23 +114,29 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
       return !r;
     });
 
-  /* a page in the menu; in the slim sidebar only its icon shows, and its name is in the tooltip and for screen readers */
+  /* a page in the menu; in the slim sidebar only its icon shows, and its name is in the tooltip and for screen readers.
+     Its red number, when something is new there, sits at the end of the line (on the icon's corner when slim). */
   const link = (i: (typeof items)[number], slim = false) => {
     const on = active(i.href);
+    const n = (i.badge && counts[i.badge]) || 0;
     const label = t(i.en, i.ar);
+    const slimLabel = n ? t(`${label}, ${newWords(n)}`, `${label}، ${newWords(n)}`) : label;
     return (
       <Link
         key={i.href}
         href={i.href}
+        /* opening the page you are already on (its list) clears its number too */
+        onClick={() => i.badge && path === i.href && seen(i.badge)}
         aria-current={on ? "page" : undefined}
-        aria-label={slim ? label : undefined}
-        title={slim ? label : undefined}
+        aria-label={slim ? slimLabel : undefined}
+        title={slim ? slimLabel : undefined}
         className={`relative flex items-center rounded-lg py-2 text-[14px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
           slim ? "justify-center px-0" : "gap-3 pe-3 ps-3"
         } ${on ? "bg-card font-semibold text-fg shadow-[0_1px_0_rgba(0,0,0,0.04)] ring-1 ring-fg/[0.07]" : "text-fg/70 hover:bg-fg/[0.04] hover:text-fg"}`}
       >
         <Icon name={iconForPath(i.href)} className={`h-[18px] w-[18px] shrink-0 ${on ? "text-primary" : "text-fg/45"}`} strokeWidth={on ? 1.9 : 1.6} />
-        {!slim && <span className="truncate">{label}</span>}
+        {!slim && <span className="flex-1 truncate">{label}</span>}
+        <NewBadge n={n} corner={slim} quiet={slim} />
       </Link>
     );
   };
@@ -149,6 +160,8 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
           {groups.map((g) => {
             const list = items.filter((i) => i.group === g);
             const openG = isOpen(g);
+            /* closed: the red number of everything new in its pages, so nothing new hides in a folded section */
+            const fresh = openG ? 0 : newIn(list);
             return (
               <div key={g}>
                 <button
@@ -162,8 +175,10 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
                 >
                   <Icon name={GROUP_ICON[g]} className={`h-[18px] w-[18px] shrink-0 ${g === here ? "text-primary" : "text-fg/45"}`} strokeWidth={1.7} />
                   <span className="flex-1 truncate">{t(NAV_GROUPS[g].en, NAV_GROUPS[g].ar)}</span>
-                  {/* closed: an orange dot when the page you are on is one of them. No number beside it: a count of the
-                      pages inside read like work waiting (Diwan shows no numbers beside tabs) */}
+                  {/* closed: an orange dot when the page you are on is one of them. No count of the pages inside: that read
+                      like work waiting. The only numbers beside the menu are the red ones of what is new (the owner's
+                      ask, 2026-11-23), never totals. */}
+                  <NewBadge n={fresh} />
                   {!openG && g === here && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />}
                   <svg viewBox="0 0 24 24" className={`h-4 w-4 shrink-0 text-fg/40 transition-transform duration-200 ${openG ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="m6 9 6 6 6-6" />
@@ -182,6 +197,7 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
     </nav>
   );
 
+  const allNew = newIn(items);
   const railWord = rail ? t("Expand sidebar", "توسيع القائمة") : t("Collapse sidebar", "طيّ القائمة");
 
   return (
@@ -189,10 +205,19 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
       <div className={`min-h-screen text-fg ${PAPER}`}>
         <header className={`sticky top-0 z-30 border-b border-fg/[0.08] ${PAPER}`}>
           <div className="flex h-14 items-center gap-3 px-4">
-            <button className="rounded-lg p-2 text-fg/70 hover:bg-fg/[0.05] hover:text-fg lg:hidden" onClick={() => setOpen((v) => !v)} aria-label={t("Menu", "القائمة")} aria-expanded={open} aria-controls="diwan-menu">
+            {/* on a narrow screen the menu is behind this button: while it is closed, the button carries the red number of
+                everything new */}
+            <button
+              className="relative rounded-lg p-2 text-fg/70 hover:bg-fg/[0.05] hover:text-fg lg:hidden"
+              onClick={() => setOpen((v) => !v)}
+              aria-label={allNew && !open ? t(`Menu, ${newWords(allNew)}`, `القائمة، ${newWords(allNew)}`) : t("Menu", "القائمة")}
+              aria-expanded={open}
+              aria-controls="diwan-menu"
+            >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 6h16M4 12h16M4 18h16" />
               </svg>
+              {!open && <NewBadge n={allNew} corner quiet />}
             </button>
             <Link href="/diwan" className="flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
               <DiwanMark className="h-7 w-7 text-primary" />
