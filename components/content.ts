@@ -167,6 +167,7 @@ export type Content = {
       proofBusy: string;
       proofWaiting: string;
       proofApproved: string;
+      proofApprovedOther: string;
       proofRejected: string;
       remove: string;
       previewHint: string;
@@ -674,6 +675,7 @@ export const content: Record<Lang, Content> = {
         proofBusy: "Dukkan can't take new files right now. Try again later.",
         proofWaiting: "Waiting for the team to check",
         proofApproved: "Approved",
+        proofApprovedOther: "Approved for another partner. Send a new proof for this one.",
         proofRejected: "Not accepted",
         remove: "Remove",
         previewHint: "This is how your shipping partner will look in your account",
@@ -1269,6 +1271,7 @@ export const content: Record<Lang, Content> = {
         proofBusy: "لا تستطيع دكان استقبال ملفات جديدة الآن. حاول لاحقًا.",
         proofWaiting: "بانتظار مراجعة الفريق",
         proofApproved: "مقبول",
+        proofApprovedOther: "مقبول لجهة توصيل أخرى. أرسل إثباتًا جديدًا لهذه الجهة.",
         proofRejected: "غير مقبول",
         remove: "إزالة",
         previewHint: "هكذا سيظهر شريك الشحن في حسابك",

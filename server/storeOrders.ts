@@ -257,7 +257,7 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
     /* no delivery choice saved (a store from before one was asked for): Dukkan Ship, as it did then (checkoutShipMode) */
     /* his own courier delivers only once Dukkan's team approved its proof (server/courierProof.ts): until then no home
        delivery with it (pickup still works), as the public store offers */
-    const ownBlocked = checkoutShipMode(setup) === "own" && !(await courierApproved(c, id));
+    const ownBlocked = checkoutShipMode(setup) === "own" && !(await courierApproved(c, id, setup?.shipping?.phone));
     const offer = ownBlocked ? null : storeDelivery(checkoutShipMode(setup), { price: ship.price, cities: { en: ship.cities.map((x) => x.en), ar: ship.cities.map((x) => x.ar) } }, setup?.shipping ?? {});
     const pickup = setup?.pickup === true;
     const pays = orderPays(storePaysFrom(settings.payment_methods as unknown as Record<string, { on: boolean }>), setup?.pays);

@@ -93,6 +93,10 @@ export function merchantDocument(r: Record<string, any>) {
     seq: Number(r.seq) || 0,
     /* a rejection the merchant has already read in its pop-up */
     rejectionSeen: !!r.rejection_seen,
+    /* an approved courier proof: the phone of the courier it was approved for (his own courier's number, which he
+       entered), so his Delivery page can tell an approval for an earlier courier (server/courierProof.ts); null for an
+       approval from before that was kept (it counts for any courier) */
+    approvedPhone: r.status === "approved" ? ((r.approved_phone ?? null) as string | null) : null,
   };
 }
 

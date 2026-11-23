@@ -1338,7 +1338,7 @@ function ShippingStep({ store, onSave }: StepProps) {
   const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = "";
-    void addProofs(picked, { name: cleanLine(name, ACCOUNT_LIMITS.shipName), kind });
+    void addProofs(picked, { name: cleanLine(name, ACCOUNT_LIMITS.shipName), kind, phone });
   };
 
   const pickupBox = (
@@ -1611,7 +1611,7 @@ function ShippingStep({ store, onSave }: StepProps) {
           <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
           {error && <p role="alert" className="mt-1 text-xs text-rose-600">{error}</p>}
 
-          <ProofRows proofs={proofs} s={s} onRemove={(f) => void removeProof(f)} />
+          <ProofRows proofs={proofs} s={s} phone={phone} onRemove={(f) => void removeProof(f)} />
           <p className="mt-3 text-xs text-muted">{proofsSent ? s.serverNote : s.localNote}</p>
         </div>
 
