@@ -13,6 +13,7 @@ import { moneyText } from "@/components/moneyText";
    - staffChangeEmail      the Diwan staff routes (app/api/diwan/staff), to the other owners
    - staffSigninCodeEmail, staffEmailApproveEmail, staffEmailCodeEmail, staffEmailChangedEmail   a staff member's own codes (server/staffSignin.ts)
    - cartReminderEmail     server/storeCarts.ts, to a store's customer: the cart he left, when the merchant reminds him
+   - campaignFoot          server/campaigns.ts, the line under a store's campaign email (the rest is the merchant's words)
 
    Notices go out in the language the reader uses Dukkan in (accounts.lang / staff.lang, server/lang.ts): wordsIn. Someone
    whose language isn't saved yet (they haven't signed in since it was) gets both: bothLangs puts the Arabic first and
@@ -463,3 +464,21 @@ export function cartReminderEmail(lang: EmailLang, p: { store: string; count: nu
     button,
   };
 }
+
+/** The line under a store's campaign email (server/campaigns.ts), in the reader's language, with the words of its link
+    that stops the store's campaigns. The rest of the email is the merchant's own words. */
+export function campaignFoot(lang: EmailLang, store: string): { text: string; unsubscribe: string } {
+  const s = line(store, 80);
+  return lang === "ar"
+    ? {
+        text: `وصلتك هذه الرسالة من متجر ${s} لأنك طلبت منه أو اشتركت في نشرته البريدية. أُرسلت عبر دكان، ولا يُستقبل الرد عليها.`,
+        unsubscribe: "إلغاء الاشتراك في رسائل هذا المتجر",
+      }
+    : {
+        text: `You got this email from ${s} because you ordered from it or joined its newsletter. Sent with Dukkan; replies to it aren't read.`,
+        unsubscribe: "Unsubscribe from this store's emails",
+      };
+}
+
+/** A campaign's subject on the test the merchant sends himself */
+export const campaignTestSubject = (lang: EmailLang, subject: string) => (lang === "ar" ? `[تجربة] ${subject}` : `[Test] ${subject}`);

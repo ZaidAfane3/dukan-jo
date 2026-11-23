@@ -69,7 +69,9 @@ const W: Record<string, [en: string, ar: string]> = {
   "popup.status": ["Changed a pop-up's status", "غيّر حالة نافذة منبثقة"],
   "popup.restart": ["Started a pop-up again", "شغّل نافذة منبثقة مجددًا"],
   "popup.delete": ["Deleted a pop-up", "حذف نافذة منبثقة"],
-  "ship.order.mark": ["Marked a Dukkan Ship order", "علّم طلب شحن دكان"],
+  /* a store's marketing campaign stopped while sending (Diwan > Campaigns) */
+  "campaign.stop": ["Stopped a store's campaign", "أوقف حملة متجر"],
+  "ship.order.mark":["Marked a Dukkan Ship order", "علّم طلب شحن دكان"],
   "page.create": ["Created a page", "أنشأ صفحة"],
   "page.edit": ["Edited a page", "عدّل صفحة"],
   "page.status": ["Changed a page's status", "غيّر حالة صفحة"],

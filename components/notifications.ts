@@ -15,7 +15,7 @@ export type LocalKind = "taskDone" | "couponCreated" | "reminderSent" | "ticketC
 /* supportViewed is no longer sent ("Log in as merchant" was removed on 2026-11-16); kept so older messages still read */
 export type ServerKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "paymentReceived" | "supportViewed" | "announcement" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff" | "twoStepOff" | "lowStock" | "outOfStock";
+  | "paymentReceived" | "supportViewed" | "announcement" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff" | "twoStepOff" | "lowStock" | "outOfStock" | "campaignStopped";
 export type NotificationKind = LocalKind | ServerKind;
 
 /** Which filter tab a notification belongs to (matches the tab order in content.ts). */
@@ -39,6 +39,7 @@ export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
   twoStepOff: 1, /* his 2-step sign-in was turned off (by Dukkan, or by him in Settings) */
   lowStock: 1, /* an order took a product down to his low-stock number */
   outOfStock: 1, /* an order took a product's last piece */
+  campaignStopped: 1, /* Dukkan stopped one of his marketing campaigns */
   supportViewed: 1,
   announcement: 1,
 };
@@ -66,7 +67,7 @@ function localList(): AppNotification[] {
 
 /* ---------------- from the server ---------------- */
 
-const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "paymentReceived", "supportViewed", "announcement", "orderPlaced", "shipDelivered", "shipFailed", "shipCityGone", "payOff", "twoStepOff", "lowStock", "outOfStock"]);
+const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "paymentReceived", "supportViewed", "announcement", "orderPlaced", "shipDelivered", "shipFailed", "shipCityGone", "payOff", "twoStepOff", "lowStock", "outOfStock", "campaignStopped"]);
 let serverList: AppNotification[] = [];
 let loading: Promise<void> | null = null;
 
@@ -189,6 +190,8 @@ export function notificationLink(item: AppNotification): string | null {
   if (item.kind === "twoStepOff") return "/settings#two-step";
   /* a product running low or out: Products opens it, where he adds stock */
   if ((item.kind === "lowStock" || item.kind === "outOfStock") && /^-?\d+$/.test(item.params.id ?? "")) return `/products?open=${item.params.id}`;
+  /* one of his campaigns was stopped: his campaigns, where it shows as stopped */
+  if (item.kind === "campaignStopped") return "/marketing/campaigns";
   return null;
 }
 
@@ -235,6 +238,8 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
       return fill(w.lowStock);
     case "outOfStock":
       return fill(w.outOfStock);
+    case "campaignStopped":
+      return fill(w.campaignStopped);
     default:
       return "";
   }

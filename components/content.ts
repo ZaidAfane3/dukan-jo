@@ -400,6 +400,7 @@ export type Content = {
       /* an order took a product down to his low-stock number ({left} still there), or took its last piece */
       lowStock: string;
       outOfStock: string;
+      campaignStopped: string;
       /* he turned it off himself in Settings */
       twoStepOffSelf: string;
       statusWords: Record<string, string>;
@@ -861,7 +862,7 @@ export const content: Record<Lang, Content> = {
       cartsLink: "View the full report",
     },
     marketing: {
-      menu: ["Abandoned carts", "Coupons", "Repurchase reminders", "Free delivery", "Customer emails"],
+      menu: ["Abandoned carts", "Coupons", "Campaigns", "Repurchase reminders", "Free delivery", "Customer emails"],
       tabs: ["Abandoned carts", "Automatic reminders"],
       title: "Abandoned carts at a glance",
       sub: "Follow the key abandoned-cart numbers and how many you win back over the selected period.",
@@ -1001,6 +1002,7 @@ export const content: Record<Lang, Content> = {
         twoStepOff: "Dukkan's team turned off 2-step sign-in on your account. You can turn it on again in Settings. If you did not ask for this, change your password now.",
         lowStock: "“{name}” is almost out of stock: {left} left",
         outOfStock: "“{name}” has run out. Customers can't order it until you add more.",
+        campaignStopped: "Dukkan stopped your campaign “{subject}” while it was sending. Customers it hadn't reached yet won't get it. Contact support to know why.",
         twoStepOffSelf: "2-step sign-in was turned off on your account in Settings. You can turn it on again there. If this wasn't you, change your password now.",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
@@ -1454,7 +1456,7 @@ export const content: Record<Lang, Content> = {
       cartsLink: "عرض التقرير الكامل",
     },
     marketing: {
-      menu: ["السلات المتروكة", "الكوبونات", "تذكيرات إعادة الشراء", "التوصيل المجاني", "إيميلات العملاء"],
+      menu: ["السلات المتروكة", "الكوبونات", "حملات تسويقية", "تذكيرات إعادة الشراء", "التوصيل المجاني", "إيميلات العملاء"],
       tabs: ["السلات المتروكة", "التذكيرات التلقائية"],
       title: "نظرة سريعة على أداء السلات المتروكة",
       sub: "تتبّع أهم مؤشرات السلات المتروكة ومعدل استعادتها خلال الفترة المحددة.",
@@ -1594,6 +1596,7 @@ export const content: Record<Lang, Content> = {
         twoStepOff: "أوقف فريق دكان التحقق بخطوتين في حسابك. يمكنك تشغيله من جديد من الإعدادات. إذا لم تطلب هذا، فغيّر كلمة المرور الآن.",
         lowStock: "قاربت كمية «{name}» على النفاد: بقي {left}",
         outOfStock: "نفدت كمية «{name}». لن يستطيع العملاء طلبه حتى تضيف كمية جديدة.",
+        campaignStopped: "أوقف دكان حملتك «{subject}» أثناء إرسالها. لن تصل إلى العملاء الذين لم تصلهم بعد. تواصل مع الدعم لمعرفة السبب.",
         twoStepOffSelf: "أُوقف التحقق بخطوتين في حسابك من الإعدادات. يمكنك تشغيله من جديد من هناك. إذا لم تكن أنت، فغيّر كلمة المرور الآن.",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",

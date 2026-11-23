@@ -986,4 +986,69 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS store_carts_email ON store_carts (account_id, email_hash) WHERE recovered_at IS NULL;
   CREATE INDEX IF NOT EXISTS store_carts_phone ON store_carts (account_id, phone_hash) WHERE recovered_at IS NULL;
   CREATE INDEX IF NOT EXISTS store_carts_updated ON store_carts (updated_at);
+
+  /* ---------- marketing campaigns (server/campaigns.ts, Marketing > Campaigns) ----------
+     store_campaigns: one message a merchant writes once for his store's customers. channel 'email', or 'mobile' (SMS /
+     WhatsApp: written and saved only, until a provider is plugged in). status: 'draft' (being written), 'sending'
+     (started: its recipients are in store_campaign_recipients and go out in batches), 'sent' (all went out, or as many
+     as could), 'failed' (none could: note says why), 'stopped' (Dukkan's staff stopped it from Diwan, stopped_by; or the
+     store was suspended meanwhile, note 'suspended'). subject, heading, body, button_label, button_url: the merchant's
+     words, sealed like the store's other data. audience: who it is for (components/campaignRules.ts cleanAudience).
+     recipients, sent, failed, skipped: counts only (skipped: unsubscribed meanwhile, or never reached because it was
+     stopped). sender: the store's name when it started, the emails' sender (fixed, so a batch sent again is the very same
+     email). started_at counts towards the store's 3 campaigns a day. They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_campaigns (
+    id           BIGSERIAL PRIMARY KEY,
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    channel      TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email', 'mobile')),
+    status       TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'sending', 'sent', 'failed', 'stopped')),
+    subject      TEXT,
+    heading      TEXT,
+    body         TEXT,
+    button_label TEXT,
+    button_url   TEXT,
+    audience     JSONB NOT NULL DEFAULT '{}',
+    recipients   INTEGER NOT NULL DEFAULT 0,
+    sent         INTEGER NOT NULL DEFAULT 0,
+    failed       INTEGER NOT NULL DEFAULT 0,
+    skipped      INTEGER NOT NULL DEFAULT 0,
+    note         TEXT,
+    sender       TEXT,
+    stopped_by   BIGINT REFERENCES staff (id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at   TIMESTAMPTZ,
+    finished_at  TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS store_campaigns_account ON store_campaigns (account_id, id DESC);
+  CREATE INDEX IF NOT EXISTS store_campaigns_started ON store_campaigns (account_id, started_at) WHERE started_at IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS store_campaigns_sending ON store_campaigns (started_at) WHERE status = 'sending';
+  /* store_campaign_recipients: who a started campaign goes to, fixed when it starts, each address (or mobile) once
+     (contact_hash: a keyed fingerprint of it for this shop only). contact: the address itself, sealed, kept only until
+     its message went out (or failed, or was skipped), then emptied: afterwards only the fingerprint and the outcome stay.
+     lang: the reader's language (the newsletter's, else the campaign's). status: 'waiting', 'sending' (in a batch handed
+     to the email service, batch: that batch's key, claimed_at: when), 'sent', 'failed', 'skipped'. A batch left in
+     'sending' by a restart is sent again with the same key, which the email service answers without sending twice. */
+  CREATE TABLE IF NOT EXISTS store_campaign_recipients (
+    campaign_id  BIGINT NOT NULL REFERENCES store_campaigns (id) ON DELETE CASCADE,
+    contact_hash TEXT NOT NULL,
+    contact      TEXT,
+    lang         TEXT NOT NULL DEFAULT 'ar' CHECK (lang IN ('ar', 'en')),
+    status       TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'sending', 'sent', 'failed', 'skipped')),
+    batch        TEXT,
+    claimed_at   TIMESTAMPTZ,
+    sent_at      TIMESTAMPTZ,
+    PRIMARY KEY (campaign_id, contact_hash)
+  );
+  CREATE INDEX IF NOT EXISTS store_campaign_recipients_waiting ON store_campaign_recipients (campaign_id) WHERE status = 'waiting';
+  CREATE INDEX IF NOT EXISTS store_campaign_recipients_sending ON store_campaign_recipients (claimed_at) WHERE status = 'sending';
+  /* store_unsubscribes: the store's customers who asked for no more of its campaigns (the link in each campaign email,
+     or their mail app's own "Unsubscribe"): a keyed fingerprint of the address or mobile for this shop only, never the
+     address. Every later campaign of the store leaves them out. They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_unsubscribes (
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    contact_hash TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (account_id, contact_hash)
+  );
 `;

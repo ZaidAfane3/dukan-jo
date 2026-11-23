@@ -10,7 +10,8 @@ import { findShop, isOpen } from "./storeOrders";
    - "back_in_stock": "Remind me when it's back" on a product, or a size of it, that is sold out
      (POST /api/public/store/<link>/back-in-stock).
    Only the store's own merchant reads, exports and deletes them (GET /api/store-signups, DELETE /api/store-signups/<id>).
-   Dukkan sends them nothing: the lists are the merchant's to use.
+   Dukkan sends them nothing by itself: the lists are the merchant's to use, and his own
+   campaigns (server/campaigns.ts) reach the newsletter's emails.
 
    The email is sealed like every private contact (server/crypto.ts). It is kept once per shop (once per product and
    size for back in stock) by a keyed fingerprint made for that shop only, so a copy of the database can't tell that the

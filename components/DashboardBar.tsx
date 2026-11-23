@@ -97,7 +97,7 @@ export function menuEntries(lang: "en" | "ar", tour = false): MenuEntry[] {
       label: nav[4],
       icon: icons.marketing,
       section: "marketing",
-      sub: mk.map((label, i) => ({ label, href: ["/marketing/abandoned-carts", "/marketing/coupons", "/marketing/repurchase", "/marketing/free-delivery", "/marketing/emails"][i] ?? null })),
+      sub: mk.map((label, i) => ({ label, href: ["/marketing/abandoned-carts", "/marketing/coupons", "/marketing/campaigns", "/marketing/repurchase", "/marketing/free-delivery", "/marketing/emails"][i] ?? null })),
     },
     {
       key: "store",

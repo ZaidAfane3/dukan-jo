@@ -10,8 +10,8 @@ import { usePrefs } from "./Prefs";
 
 /* The emails visitors left on the merchant's live store (server/storeSignups.ts, GET /api/store-signups), in two
    lists: the newsletter block, and "Remind me when it's back" on sold-out products. Newest first, a page at a time;
-   each can be deleted, and each list downloaded as one CSV file. Dukkan sends these people nothing: the lists are
-   the merchant's to use. Signed out or in the tour there is nothing to read (nothing is saved there). */
+   each can be deleted, and each list downloaded as one CSV file. Dukkan sends these people nothing by itself: the
+   lists are the merchant's to use, and his own campaigns (Marketing > Campaigns, components/Campaigns.tsx) reach them. Signed out or in the tour there is nothing to read (nothing is saved there). */
 
 type Kind = "newsletter" | "back_in_stock";
 type Row = { id: string; email: string; lang: "ar" | "en"; source: "home" | "page" | "product"; pageId: number | null; productId: number | null; product: string; size: string; at: string };
@@ -20,7 +20,7 @@ const copy = {
   en: {
     title: "Customer emails",
     sub: "The emails visitors left on your store.",
-    noSend: "Nothing is sent to these emails automatically: Dukkan doesn't send emails to your customers yet. The lists are yours to use, for example download them and write to your customers yourself.",
+    noSend: "Nothing is sent to these emails automatically. To write to your newsletter subscribers and buyers, create a campaign in Marketing > Campaigns. You can also download the lists.",
     tabs: { newsletter: "Newsletter", back_in_stock: "Back-in-stock requests" } as Record<Kind, string>,
     tabHint: {
       newsletter: "Emails left in the newsletter block of your store.",
@@ -49,7 +49,7 @@ const copy = {
   ar: {
     title: "إيميلات العملاء",
     sub: "الإيميلات التي تركها الزوّار في متجرك.",
-    noSend: "لا يُرسل أي شيء إلى هذه الإيميلات تلقائيًا: دكان لا يرسل رسائل إلى عملائك حاليًا. القوائم لك لتستخدمها، مثلًا نزّلها وراسل عملاءك بنفسك.",
+    noSend: "لا يُرسل أي شيء إلى هذه الإيميلات تلقائيًا. لمراسلة المشتركين في نشرتك والمشترين منك، أنشئ حملة من التسويق > حملات تسويقية. ويمكنك أيضًا تنزيل القوائم.",
     tabs: { newsletter: "النشرة البريدية", back_in_stock: "طلبات التذكير عند التوفّر" } as Record<Kind, string>,
     tabHint: {
       newsletter: "الإيميلات التي تُركت في قسم النشرة البريدية في متجرك.",

@@ -9,6 +9,10 @@ export async function register() {
      unlock. The key itself is never written to the log. A development copy only warns (server/crypto.ts). */
   if (process.env.NODE_ENV === "production") (await import("./server/crypto")).stopOnWeakKey();
   if (!process.env.DATABASE_URL) return;
+  /* marketing campaigns that were sending when the server stopped go on (server/campaigns.ts); in a while, so the start
+     isn't held up, and it tries again by itself while the database can't be reached */
+  const { kickCampaigns } = await import("./server/campaigns");
+  setTimeout(kickCampaigns, 15_000);
   const { prepareShops } = await import("./server/shops");
   /* not awaited: the server takes requests meanwhile */
   void (async () => {

@@ -45,6 +45,7 @@ export function merchantActionWords(t: T, action: string): string {
     "theme.bought": ["Got a theme", "حصل على ثيم"],
     "ticket.opened": ["Opened a ticket", "فتح تذكرة"],
     "document.sent": ["Sent a document", "أرسل مستندًا"],
+    "campaign.sent": ["Sent a marketing campaign", "أرسل حملة تسويقية"],
   };
   const x = w[action];
   return x ? t(x[0], x[1]) : t("Something else", "شيء آخر");
@@ -109,6 +110,11 @@ export function MerchantLineText({ row, t, lang }: { row: MerchantLine; t: T; la
       break;
     case "ticket.opened":
       detail = m.number ? `#${str(m.number)}` : "";
+      break;
+    case "campaign.sent":
+      detail =
+        (m.channel === "mobile" ? t("by SMS / WhatsApp", "عبر الرسائل النصية / واتساب") : t("by email", "بالبريد الإلكتروني")) +
+        t(` to ${str(m.recipients)} customers`, ` إلى ${str(m.recipients)} عميل`);
       break;
   }
   return (
