@@ -232,7 +232,7 @@ export async function slugTaken(slug: string, accountId: string | number | null)
    when the server starts (instrumentation.ts), not inside staff requests: Diwan's pages still call prepareShops, which
    costs nothing once they are done, and runs them (once, shared) only when the start-up run has not finished or failed
    (the database was not reachable yet). Dukkan has no plans and no free trial, so nothing about a subscription is made
-   here (the old plans and subscriptions tables are unused). */
+   here. */
 /* kept on the process, not this module: the start-up code and the routes are bundled apart, each with its own copy */
 const prep = ((globalThis as { __dukkanShopsPrep?: { done: boolean; running: Promise<void> | null } }).__dukkanShopsPrep ??= { done: false, running: null });
 /** Gets the shops table ready for Diwan (see above) */
