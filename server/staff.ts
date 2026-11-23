@@ -16,7 +16,8 @@ export type Staff = { id: string; email: string; name: string; role: Role };
 
 export const STAFF_COOKIE = "dukkan-diwan";
 const HOURS = 12;
-const IDLE_MIN = 60;
+/** minutes without use after which a staff session counts as ended (staffFromToken) */
+export const IDLE_MIN = 60;
 const tokenHash = (t: string) => createHash("sha256").update(t).digest("hex");
 export const ipOf = (req: NextRequest) => visitorIp(req);
 

@@ -3,7 +3,7 @@ import { cleanStaff, staffPasswordProblem } from "@/components/diwan/staffRules"
 import { answer, hashPassword, readJson } from "@/server/auth";
 import { emailKey, plainText, seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { audit, staffRoute } from "@/server/staff";
+import { audit, IDLE_MIN, staffRoute } from "@/server/staff";
 import { tellOtherStaff } from "@/server/staffNotice";
 import { passwordAgain } from "@/server/staffConfirm";
 
@@ -14,8 +14,11 @@ export const dynamic = "force-dynamic";
 export const GET = staffRoute("staff", async (_req, me) => {
   const { rows } = await (await db()).query(
     `SELECT id, name, email, role, active, email_confirmed_at, must_change_password, last_login_at, created_at,
-            (SELECT count(*) FROM staff_sessions ss WHERE ss.staff_id = s.id AND ss.verified AND ss.expires_at > now())::int AS sessions
+            (SELECT count(*) FROM staff_sessions ss WHERE ss.staff_id = s.id AND ss.verified AND ss.expires_at > now()
+                AND ss.last_used_at > now() - make_interval(mins => $1))::int AS sessions
        FROM staff s ORDER BY active DESC, role, lower(name)`,
+    /* a session unused for IDLE_MIN is over (server/staff.ts staffFromToken refuses it), so it isn't counted as open */
+    [IDLE_MIN],
   );
   return answer({
     me: me.id,

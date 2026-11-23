@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { NextRequest, NextResponse } from "next/server";
-import { noteLogin, secureCookies, startSession } from "./auth";
+import { noteLogin, noteSigninPlace, secureCookies, startSession } from "./auth";
 import { NAME_KEYS_VERSION, nameKeys, seal } from "./crypto";
 import { db } from "./db";
 import { touchShop } from "./shops";
@@ -112,6 +112,9 @@ export async function makeAccount(p: Pending): Promise<MadeAccount> {
 export async function signInMade(res: NextResponse, req: NextRequest, id: string): Promise<void> {
   await startSession(res, req, id);
   await noteLogin(id, req);
+  /* this address counts as one the owner signed in from, as after a sign-in (app/api/auth/login): a new owner who
+     never signs in again is still let through here while a password-guessing flood holds the account */
+  await noteSigninPlace(req, `m:${id}`);
   touchShop(id);
   clearPendingCookie(res, req);
 }

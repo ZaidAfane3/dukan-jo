@@ -80,14 +80,19 @@ export const PUT = guarded(async (req: NextRequest) => {
     const { rows: other } = await pool.query(`SELECT 1 FROM accounts WHERE phone_hash = $1 AND id <> $2`, [phoneKey(phone), a.id]);
     return other.length ? answer({ result: "taken-phone" }, 409) : answer({ result: "ok", check: true });
   }
-  const kept = byCode ? String(cur.rows[0].email) : email;
   const newPhone = cur.rows[0].phone_hash !== phoneKey(phone);
+  /* the email is written only when it changes here and now (no code to wait for): a save that keeps it never writes
+     the email it read back, which could undo a new email confirmed meanwhile (app/api/account/email) */
+  const setEmail = newEmail && !byCode;
   try {
     const { rows } = await pool.query(
-      `UPDATE accounts SET name = $2, email = $3, phone = $4, dob = $5, gender = $6, city = $7, email_hash = $8, phone_hash = $9,
-              name_keys = $10, name_keys_v = $11
+      `UPDATE accounts SET name = $2, phone = $3, dob = $4, gender = $5, city = $6, phone_hash = $7, name_keys = $8, name_keys_v = $9
+              ${setEmail ? ", email = $10, email_hash = $11" : ""}
         WHERE id = $1 RETURNING ${PROFILE}`,
-      [a.id, seal(name), seal(kept), seal(phone), seal(dob || null), seal(gender), seal(city), emailKey(kept), phoneKey(phone), nameKeys(name), NAME_KEYS_VERSION],
+      [
+        a.id, seal(name), seal(phone), seal(dob || null), seal(gender), seal(city), phoneKey(phone), nameKeys(name), NAME_KEYS_VERSION,
+        ...(setEmail ? [seal(email), emailKey(email)] : []),
+      ],
     );
     /* a password reset asked for at the old email or mobile no longer works: whoever still has that mailbox can't use it
        (for an email waiting for its code this happens when it takes effect: app/api/account/email) */

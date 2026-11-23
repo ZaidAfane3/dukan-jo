@@ -83,10 +83,26 @@ export const POST = guarded(async (req: NextRequest) => {
     } else {
       /* a recovery code: a few wrong ones per account, then a wait (they are long, but nobody gets to try them all) */
       if (tooManyFor(`email-change-recovery:${a.id}`, 10, 60)) return answer({ result: "slow-down" }, 429);
-      if (!(await useRecoveryCode(a.id, typed))) return answer({ result: "wrong" }, 400);
-      logMerchant(a.id, "twostep.recovery-used", { for: "email-change" });
-      const approved = await approveOldStep(a.id, shown);
+      /* the code is spent and the approval given in one transaction: an approval that can't be given (another address
+         waits by now) leaves the recovery code unused */
+      const c = await (await db()).connect();
+      let approved: string | null = null;
+      try {
+        await c.query("BEGIN");
+        if (!(await useRecoveryCode(a.id, typed, c))) {
+          await c.query("ROLLBACK");
+          return answer({ result: "wrong" }, 400);
+        }
+        approved = await approveOldStep(a.id, shown, c);
+        await c.query(approved ? "COMMIT" : "ROLLBACK");
+      } catch (e) {
+        await c.query("ROLLBACK").catch(() => {});
+        throw e;
+      } finally {
+        c.release();
+      }
       if (!approved) return answer({ result: "expired" }, 410);
+      logMerchant(a.id, "twostep.recovery-used", { for: "email-change" });
       email = approved;
     }
     if (await emailTaken(email, a.id)) return answer({ result: "taken" }, 409);

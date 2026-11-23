@@ -1,4 +1,5 @@
 import { createHash, randomInt } from "node:crypto";
+import type { PoolClient } from "pg";
 import { db } from "./db";
 
 /* Recovery codes for a merchant's 2-step sign-in: 10 one-time codes given when 2-step sign-in is turned on, so losing
@@ -32,12 +33,13 @@ export function newRecoveryCodes(): { codes: string[]; hashes: string[] } {
   return { codes: codes.map((c) => `${c.slice(0, 4)}-${c.slice(4)}`), hashes: codes.map(hashOf) };
 }
 
-/** Uses up one recovery code of this account. True when it was one of its codes not used before (it can't be used again). */
-export async function useRecoveryCode(accountId: string, typed: unknown): Promise<boolean> {
+/** Uses up one recovery code of this account. True when it was one of its codes not used before (it can't be used again).
+    `q`: a transaction to spend it in, so it is given back when what it was typed for fails after it (and is rolled back). */
+export async function useRecoveryCode(accountId: string, typed: unknown, q?: PoolClient): Promise<boolean> {
   const c = typedRecovery(typed);
   if (!c) return false;
   const h = hashOf(c);
-  const { rowCount } = await (await db()).query(
+  const { rowCount } = await (q ?? (await db())).query(
     `UPDATE accounts SET totp_recovery = array_remove(totp_recovery, $2) WHERE id = $1 AND totp_on AND $2 = ANY(totp_recovery)`,
     [accountId, h],
   );

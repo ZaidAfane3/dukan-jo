@@ -4,6 +4,7 @@ import { staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, checkPassword, guarded, hashPassword, noteSigninPlace, readJson, sameOrigin, signInTries, tooMany, tooManyFor } from "@/server/auth";
 import { emailKey } from "@/server/crypto";
 import { db } from "@/server/db";
+import { freshCodeMail } from "@/server/email";
 import { checkCodeFor } from "@/server/emailVerify";
 import { audit, startStaffSession } from "@/server/staff";
 import { endSignin, forgetDevices, rememberDevice, sendSigninCode, staffCodesOn, waitingSignin } from "@/server/staffSignin";
@@ -82,6 +83,8 @@ export const POST = guarded(async (req: NextRequest) => {
     await pool.query(`DELETE FROM staff_sessions WHERE staff_id = $1`, [w.staffId]);
     await pool.query(`DELETE FROM staff_signins WHERE staff_id = $1`, [w.staffId]);
     await forgetDevices(w.staffId);
+    /* and the code emails asked for with the temporary password no longer count against the member's own sign-ins */
+    freshCodeMail(w.email, "staff-login");
   }
   if (!(await startStaffSession(res, req, w.staffId, hash, true))) return gone();
   await rememberDevice(res, req, w.staffId, hash);
