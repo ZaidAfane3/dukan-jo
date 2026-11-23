@@ -217,10 +217,24 @@ export const shipFailedEmail = (lang: EmailLang, p: { number: number | string; n
       };
 };
 
-/** Dukkan's team turned the merchant's 2-step sign-in off (they could no longer get its codes): a safety notice, so a
-    merchant who never asked for it knows at once */
-export const twoStepOffEmail = (lang: EmailLang): EmailWords => {
+/** The merchant's 2-step sign-in was turned off: by Dukkan's team (they could no longer get its codes), or by the
+    merchant in Settings (`self`). A safety notice, so a merchant who never asked for it knows at once */
+export const twoStepOffEmail = (lang: EmailLang, self = false): EmailWords => {
   const button = { label: lang === "ar" ? "افتح الإعدادات" : "Open Settings", url: link("/settings#two-step") };
+  if (self)
+    return lang === "ar"
+      ? {
+          subject: "أُوقف التحقق بخطوتين في حسابك على دكان",
+          heading: "أُوقف التحقق بخطوتين",
+          text: "أُوقف التحقق بخطوتين في حسابك من الإعدادات، بكلمة المرور ورمز التحقق، فصار الدخول بكلمة المرور وحدها.\nيمكنك تشغيله من جديد من الإعدادات.\nإذا لم تكن أنت، فغيّر كلمة المرور الآن وتواصل مع دعم دكان.",
+          button,
+        }
+      : {
+          subject: "2-step sign-in was turned off on your Dukkan account",
+          heading: "2-step sign-in is off",
+          text: "2-step sign-in was turned off on your account in Settings, with your password and a verification code, so you now sign in with your password alone.\nYou can turn it on again in Settings.\nIf this wasn't you, change your password now and contact Dukkan support.",
+          button,
+        };
   return lang === "ar"
     ? {
         subject: "أوقف دكّان التحقق بخطوتين في حسابك",

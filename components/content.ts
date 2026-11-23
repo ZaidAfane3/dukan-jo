@@ -400,6 +400,8 @@ export type Content = {
       /* an order took a product down to his low-stock number ({left} still there), or took its last piece */
       lowStock: string;
       outOfStock: string;
+      /* he turned it off himself in Settings */
+      twoStepOffSelf: string;
       statusWords: Record<string, string>;
       sep: string;
       announcement: string;
@@ -659,10 +661,10 @@ export const content: Record<Lang, Content> = {
         proofLabel: "Proof for this partner",
         proofHint: "Add any documents that show who they are, such as a commercial registration, ID, a contract or delivery receipts.",
         proofAdd: "Upload your documents",
-        proofLimit: "Up to 5 files, 5 MB each. PNG, JPG, WebP or PDF.",
+        proofLimit: "Up to 5 files, 5 MB each. PNG, JPG, WebP or PDF. Files that were not accepted don't count, so you can send new ones any time.",
         proofTooBig: "That file is larger than 5 MB.",
         proofType: "Only PNG, JPG, WebP or PDF files are allowed (not HEIC or GIF). Take a screenshot of it, or save it as JPG.",
-        proofMax: "You can add up to 5 files.",
+        proofMax: "You can have up to 5 files waiting or approved. Remove one to add another (files that were not accepted don't count).",
         localNote: "In this prototype your files stay on your device and are not uploaded.",
         serverNote: "Your files are sent to the Dukkan team to check. Only the team can see them.",
         proofSending: "Uploading…",
@@ -999,6 +1001,7 @@ export const content: Record<Lang, Content> = {
         twoStepOff: "Dukkan's team turned off 2-step sign-in on your account. You can turn it on again in Settings. If you did not ask for this, change your password now.",
         lowStock: "“{name}” is almost out of stock: {left} left",
         outOfStock: "“{name}” has run out. Customers can't order it until you add more.",
+        twoStepOffSelf: "2-step sign-in was turned off on your account in Settings. You can turn it on again there. If this wasn't you, change your password now.",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
@@ -1253,10 +1256,10 @@ export const content: Record<Lang, Content> = {
         proofLabel: "إثباتات هذه الجهة",
         proofHint: "أضف أي مستندات تثبت هويتهم، مثل السجل التجاري أو الهوية أو عقد التعاون أو إيصالات التسليم.",
         proofAdd: "ارفع مستنداتك",
-        proofLimit: "حتى 5 ملفات، 5 ميغابايت لكل ملف، بصيغة PNG أو JPG أو WebP أو PDF.",
+        proofLimit: "حتى 5 ملفات، 5 ميغابايت لكل ملف، بصيغة PNG أو JPG أو WebP أو PDF. الملفات غير المقبولة لا تُحسب، فيمكنك إرسال ملفات جديدة في أي وقت.",
         proofTooBig: "حجم الملف أكبر من 5 ميغابايت.",
         proofType: "يُسمح بملفات PNG وJPG وWebP وPDF فقط (لا HEIC ولا GIF). التقط صورة شاشة له أو احفظه بصيغة JPG.",
-        proofMax: "يمكنك إضافة 5 ملفات كحد أقصى.",
+        proofMax: "يمكن أن يكون لديك 5 ملفات كحد أقصى بانتظار المراجعة أو مقبولة. احذف ملفًا لتضيف غيره (الملفات غير المقبولة لا تُحسب).",
         localNote: "في هذا النموذج الأولي تبقى ملفاتك على جهازك ولا تُرفع.",
         serverNote: "تُرسَل ملفاتك إلى فريق دكان لمراجعتها، ولا يراها أحد غيرهم.",
         proofSending: "جارٍ الرفع…",
@@ -1591,6 +1594,7 @@ export const content: Record<Lang, Content> = {
         twoStepOff: "أوقف فريق دكّان التحقق بخطوتين في حسابك. يمكنك تشغيله من جديد من الإعدادات. إذا لم تطلب هذا، فغيّر كلمة المرور الآن.",
         lowStock: "قاربت كمية «{name}» على النفاد: بقي {left}",
         outOfStock: "نفدت كمية «{name}». لن يستطيع العملاء طلبه حتى تضيف كمية جديدة.",
+        twoStepOffSelf: "أُوقف التحقق بخطوتين في حسابك من الإعدادات. يمكنك تشغيله من جديد من هناك. إذا لم تكن أنت، فغيّر كلمة المرور الآن.",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
         announcement: "من دكّان",

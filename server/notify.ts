@@ -23,7 +23,9 @@ import type { StockAlert } from "./stockAlerts";
      shipCityGone    { city }                   Dukkan Ship no longer picks up from the store's pickup city (Diwan took
                                                 it off the list: app/api/diwan/settings)
      payOff          {}                         Diwan switched off the last way to pay the store had on
-     twoStepOff      {}                         Diwan turned the merchant's 2-step sign-in off (app/api/diwan/shops/[id]/totp)
+     twoStepOff      { by? }                    the merchant's 2-step sign-in was turned off: by Diwan (no `by`,
+                                                app/api/diwan/shops/[id]/totp) or by the merchant in Settings (by "self",
+                                                app/api/auth/totp/disable)
      lowStock        { id, name, left }         an order took a product down to its "warn me at" number or below
      outOfStock      { id, name }               an order took a product's last piece (server/stockAlerts.ts)
    Dukkan has no plans or free trial, so the old planChanged kind is no longer sent, and "Log in as merchant" was removed
@@ -82,7 +84,7 @@ function wordsFor(kind: NotifyKind, p: Params): Words | null {
     case "shipFailed":
       return (l) => shipFailedEmail(l, { number: p.number, note: String(p.note ?? "") });
     case "twoStepOff":
-      return (l) => twoStepOffEmail(l);
+      return (l) => twoStepOffEmail(l, p.by === "self");
     default:
       return null;
   }
