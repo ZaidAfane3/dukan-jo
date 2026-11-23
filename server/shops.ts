@@ -99,14 +99,16 @@ export function countShop(data: Map<string, string>): Counts {
 export const SHOP_COUNTS_VERSION = 1;
 
 /** Works the shops row out again from the account's saved data, and saves it. `fresh`: what a save just wrote (the
-    values, plain) and removed, so those keys are not read and opened again (the products and orders can be megabytes). */
+    values, plain) and removed, so those keys are not read and opened again (the products and orders can be megabytes).
+    Gives the saved setup (plain) when it took the store link out of it (another shop took that link in the same second:
+    dropSetupSlug), so the save's answer can hand the browser that setup at once; otherwise null. */
 export async function syncShop(
   accountId: string | number,
   q?: Q,
   fresh?: { set: Map<string, string>; removed: Set<string> },
   /* the merchant's own save: what changed goes to the merchant log (not a recount or Diwan opening the store) */
   opts?: { log?: boolean },
-): Promise<void> {
+): Promise<string | null> {
   const c: Q = q ?? (await db());
   const was = opts?.log
     ? ((await c.query(`SELECT name, slug, setup_done, published, paused, ship_mode, theme_id, product_count, order_count FROM shops WHERE account_id = $1`, [accountId])).rows[0] as ShopWas | undefined)
@@ -170,6 +172,7 @@ export async function syncShop(
       first_order_at = LEAST(shops.first_order_at, $15::timestamptz, CASE WHEN shops.order_count = 0 AND EXCLUDED.order_count > 0 THEN now() END),
       updated_at = now()`;
   let slugKept = values[2] as string | null;
+  let dropped: string | null = null;
   try {
     await c.query(sql, values);
   } catch (e) {
@@ -177,7 +180,10 @@ export async function syncShop(
     if ((e as { code?: string }).code !== "23505") throw e;
     await c.query(sql, [...values.slice(0, 2), null, ...values.slice(3)]);
     slugKept = null;
-    await dropSetupSlug(c, accountId, values[2] as string).catch((e) => console.error("[shops] dropping a taken link", accountId, e));
+    dropped = await dropSetupSlug(c, accountId, values[2] as string).catch((e) => {
+      console.error("[shops] dropping a taken link", accountId, e);
+      return null;
+    });
   }
   /* a live store's old link is held for it for a while (server/slugHolds.ts): a problem there never fails the save */
   if (was?.published && (was.slug ?? "").toLowerCase() !== (slugKept ?? "").toLowerCase())
@@ -195,25 +201,27 @@ export async function syncShop(
       product_count: Number(values[11]),
       order_count: Number(values[12]),
     });
+  return dropped;
 }
 
 /* The link went to another shop (two accounts chose it in the same second): it comes out of this account's saved setup
    too. Left there, the setup would name a link that is not its own: every later save of the setup would be refused
    "slug-taken", and his pages would show a link that opens another store. With none, his pages ask him for a new one
    (StoreLink.tsx, Onboarding.tsx). Only while the setup still names that link and no save changed it since it was read
-   (its row's xmin): a newer setup is never written over. */
-async function dropSetupSlug(c: Q, accountId: string | number, slug: string) {
+   (its row's xmin): a newer setup is never written over. Gives the setup written (plain), or null when none was. */
+async function dropSetupSlug(c: Q, accountId: string | number, slug: string): Promise<string | null> {
   const { rows } = await c.query(`SELECT value, xmin::text AS x FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [accountId]);
-  if (!rows[0] || typeof rows[0].value !== "string") return;
+  if (!rows[0] || typeof rows[0].value !== "string") return null;
   let setup: unknown;
   try {
     setup = JSON.parse(rows[0].value);
   } catch {
-    return;
+    return null;
   }
-  if (!isObj(setup) || typeof setup.slug !== "string" || setup.slug.toLowerCase() !== slug.toLowerCase()) return;
+  if (!isObj(setup) || typeof setup.slug !== "string" || setup.slug.toLowerCase() !== slug.toLowerCase()) return null;
   const next = JSON.stringify({ ...setup, slug: "" });
-  await c.query(`UPDATE store_data SET value = $3, plain_len = $4, updated_at = now() WHERE account_id = $1 AND key = 'seen-setup' AND xmin::text = $5`, [accountId, seal(next), next.length, rows[0].x]);
+  const done = await c.query(`UPDATE store_data SET value = $3, plain_len = $4, updated_at = now() WHERE account_id = $1 AND key = 'seen-setup' AND xmin::text = $5`, [accountId, seal(next), next.length, rows[0].x]);
+  return done.rowCount ? next : null;
 }
 
 type ShopWas = { name: string; slug: string | null; setup_done: number; published: boolean; paused: boolean; ship_mode: string; theme_id: string | null; product_count: number; order_count: number };

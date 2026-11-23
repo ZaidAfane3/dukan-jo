@@ -405,6 +405,7 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
   } finally {
     client.release();
   }
+  let lostLink: string | null = null;
   if ([...set.map(([k]) => k), ...(remove as string[])].some((k) => SHOP_KEYS.has(k))) {
     /* saved already: a problem here only leaves Diwan's numbers behind until the next save */
     /* read again as saved now, under the account's save lock (the one the save above takes), never from this save's own
@@ -417,7 +418,13 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
     try {
       await sc.query(`SELECT pg_advisory_lock(71004, ($1::bigint % 2147483647)::int)`, [a.id]);
       locked = true;
-      await syncShop(a.id, sc, undefined, { log: true });
+      /* the link was taken by another store in the same second (server/shops.ts dropSetupSlug): the setup kept without
+         it goes back in "rewritten" (and its version), so his pages stop showing the lost link now, not after a reload */
+      const dropped = await syncShop(a.id, sc, undefined, { log: true });
+      if (dropped !== null) {
+        rewritten["seen-setup"] = dropped;
+        lostLink = dropped;
+      }
     } catch (e) {
       console.error("[shops] sync", a.id, e);
     } finally {
@@ -440,7 +447,7 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
   sweepSoon(await db(), a.id);
   /* the new version of each list saved, for the browser's next save of it */
   const versions: Record<string, string> = {};
-  for (const [k, v] of set) if (VERSIONED(k)) versions[k] = valueVersion(v as string);
+  for (const [k, v] of set) if (VERSIONED(k)) versions[k] = valueVersion(k === "seen-setup" && lostLink !== null ? lostLink : (v as string));
   return answer({
     result: "ok",
     ...(Object.keys(rewritten).length ? { rewritten } : {}),

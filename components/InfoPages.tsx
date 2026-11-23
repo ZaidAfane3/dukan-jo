@@ -400,8 +400,15 @@ export function InfoPages() {
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
-    if (visibleLength(title) < 2) next.title = c.errTitle;
-    if (visibleLength(content) < 5) next.content = c.errContent;
+    /* A page written only in the other language can still be saved from this one (to hide it, say): with both of this
+       language's boxes empty they stay empty (the other language's text shows faded, above) and the page is checked by
+       the other language's text. Anything typed in this language is checked as usual. */
+    const saved = typeof editing === "number" ? pagesNow.current.find((p) => p.id === editing) : undefined;
+    const byOther = !!saved && visibleLength(title) === 0 && visibleLength(content) === 0 && visibleLength(saved.title[other] + saved.content[other]) > 0;
+    const checkTitle = byOther && saved ? saved.title[other] : title;
+    const checkContent = byOther && saved ? saved.content[other] : content;
+    if (visibleLength(checkTitle) < 2) next.title = c.errTitle;
+    if (visibleLength(checkContent) < 5) next.content = c.errContent;
     setErrors(next);
     if (Object.keys(next).length) return;
 

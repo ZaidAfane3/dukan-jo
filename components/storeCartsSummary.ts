@@ -27,9 +27,16 @@ export function useCartSums(range: number): { on: boolean; sums: CartSums | null
   const [failed, setFailed] = useState(false);
   /* the latest read wins: an older answer (another range) arriving late is dropped */
   const reading = useRef(0);
+  /* the range the shown sums are for: another range starts empty (loading), so a failed read never shows the previous
+     range's numbers under the new one */
+  const shownRange = useRef<number | null>(null);
   const reload = useCallback(async () => {
     if (!onServer()) return;
     const n = ++reading.current;
+    if (shownRange.current !== range) {
+      shownRange.current = range;
+      setSums(null);
+    }
     const res = await merchantCall(`/api/abandoned-carts?range=${range}`, "GET");
     if (n !== reading.current) return;
     if (res?.status === 200 && res.data.result === "ok") {

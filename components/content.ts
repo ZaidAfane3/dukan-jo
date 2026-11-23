@@ -263,6 +263,8 @@ export type Content = {
     latestSample: { name: string; total: string; status: string }[];
     cartsTitle: string;
     cartsCount: string;
+    /** a signed-in store's figure: only the carts no order has ended yet (Marketing and Reports count them all) */
+    cartsStillOpen: string;
     cartsLost: string;
     cartsLink: string;
   };
@@ -752,7 +754,7 @@ export const content: Record<Lang, Content> = {
       soon: "This report is coming soon in this prototype.",
       currency: "JOD",
       abandoned: {
-        cards: ["Abandoned carts", "Potential lost revenue", "Recovery rate after reminders", "Most products added to abandoned carts"],
+        cards: ["Abandoned carts", "Potential lost revenue", "Recovery rate", "Most products added to abandoned carts"],
         rows: ["Carts recovered", "Reminders sent"],
         empty: "No abandoned carts yet",
       },
@@ -809,8 +811,8 @@ export const content: Record<Lang, Content> = {
         abandoned: { title: "Abandoned carts", desc: "Carts where a customer added products but left without completing the order, in the selected period." },
         lostRevenue: { title: "Potential lost revenue", desc: "The total value of the items left in abandoned carts. These are sales you can still win back." },
         recovery: {
-          title: "Recovery rate after reminders",
-          desc: "The share of abandoned carts that turned into orders after a reminder was sent.",
+          title: "Recovery rate",
+          desc: "The share of abandoned carts that later turned into orders, whether a reminder was sent or not.",
           formula: ["Recovery rate", "=", "Recovered carts", "÷", "Abandoned carts", "×", "100"],
         },
         topProducts: { title: "Most added to abandoned carts", desc: "The products that most often sit in abandoned carts. Start with these when you send reminders or offers." },
@@ -852,6 +854,7 @@ export const content: Record<Lang, Content> = {
       ],
       cartsTitle: "Abandoned carts",
       cartsCount: "Abandoned carts",
+      cartsStillOpen: "Still open",
       cartsLost: "Potential lost revenue",
       cartsLink: "View the full report",
     },
@@ -1340,7 +1343,7 @@ export const content: Record<Lang, Content> = {
       soon: "هذا التقرير قادم قريبًا في هذا النموذج الأولي.",
       currency: "د.أ",
       abandoned: {
-        cards: ["عدد السلات المتروكة", "الدخل المحتمل فقدانه من السلات المتروكة", "نسبة السلات المستردة بعد التذكير", "أكثر المنتجات إضافة للسلات المتروكة"],
+        cards: ["عدد السلات المتروكة", "الدخل المحتمل فقدانه من السلات المتروكة", "نسبة الاسترداد", "أكثر المنتجات إضافة للسلات المتروكة"],
         rows: ["سلات تم استردادها", "تذكيرات تم إرسالها"],
         empty: "لا توجد سلات متروكة بعد",
       },
@@ -1397,8 +1400,8 @@ export const content: Record<Lang, Content> = {
         abandoned: { title: "عدد السلات المتروكة", desc: "السلات التي أضاف فيها العميل منتجات ثم غادر دون إتمام الطلب، خلال الفترة المحددة." },
         lostRevenue: { title: "الدخل المحتمل فقدانه", desc: "القيمة الإجمالية للمنتجات المتروكة في السلات. هذه مبيعات ما زال بإمكانك استعادتها." },
         recovery: {
-          title: "نسبة السلات المستردة بعد التذكير",
-          desc: "نسبة السلات المتروكة التي تحولت إلى طلبات بعد إرسال تذكير.",
+          title: "نسبة الاسترداد",
+          desc: "نسبة السلات المتروكة التي تحولت لاحقاً إلى طلبات، سواء أُرسل لها تذكير أم لا.",
           formula: ["نسبة الاسترداد", "=", "السلات المستردة", "÷", "السلات المتروكة", "×", "100"],
         },
         topProducts: { title: "أكثر المنتجات إضافة للسلات المتروكة", desc: "المنتجات التي تبقى في السلات المتروكة أكثر من غيرها. ابدأ بها عند إرسال التذكيرات أو العروض." },
@@ -1440,6 +1443,7 @@ export const content: Record<Lang, Content> = {
       ],
       cartsTitle: "السلات المتروكة",
       cartsCount: "عدد السلات المتروكة",
+      cartsStillOpen: "ما زالت مفتوحة",
       cartsLost: "الدخل المحتمل فقدانه",
       cartsLink: "عرض التقرير الكامل",
     },
