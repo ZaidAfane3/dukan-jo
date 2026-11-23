@@ -222,6 +222,9 @@ function CouponDialog({
       /* its uses on the public store stay counted, so the server never adds them again (records.ts mergeUsedOnline) */
       ...(initial?.usedOnline ? { usedOnline: initial.usedOnline } : {}),
       active: initial?.active ?? true,
+      /* when it was made: a copy of it the server kept from a save whose answer was lost is known as this same coupon
+         (listMerge.ts), not kept as a second one. A coupon made before this has none, and is not given one. */
+      ...(initial ? (initial.created ? { created: initial.created } : {}) : { created: Date.now() }),
     });
   };
 

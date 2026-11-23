@@ -45,6 +45,7 @@ const copy = {
     saved: "Store link updated",
     noSlug: "You haven't chosen a store link yet. Finish setting up your store to pick one.",
     setup: "Choose link",
+    lost: "Your store has no link right now, so visitors can't reach it. Choose a new one.",
     shareTitle: "My store",
     open: "Open my store",
     pageNow: "This link is now one of Dukkan's own pages, so visitors can't reach your store at it. Choose another link.",
@@ -70,6 +71,7 @@ const copy = {
     saved: "تم تحديث رابط المتجر",
     noSlug: "لم تختر رابط متجرك بعد. أكمل إعداد متجرك لاختياره.",
     setup: "اختيار الرابط",
+    lost: "ليس لمتجرك رابط الآن، لذلك لا يستطيع الزوار الوصول إليه. اختر رابطًا جديدًا.",
     shareTitle: "متجري",
     open: "افتح متجري",
     pageNow: "أصبح هذا الرابط صفحة من صفحات دكان، لذلك لا يصل الزوار إلى متجرك من خلاله. اختر رابطًا آخر.",
@@ -98,11 +100,16 @@ export function StoreLink() {
   const [confirming, setConfirming] = useState("");
   /* his store is kept on Dukkan's server (signed in, not the tour), so its address shows it to anyone */
   const [live, setLive] = useState(false);
+  /* his setup's link step is done but the store has no link (another store took the same link at the same moment:
+     server/shops.ts syncShop took it out of his setup): he chooses a new one here, not in the setup again */
+  const [lost, setLost] = useState(false);
 
   usePageTitle(`${brandName(lang)} | ${c.title}`);
 
   useEffect(() => {
-    setSlug(loadSetup()?.slug ?? "");
+    const s = loadSetup();
+    setSlug(s?.slug ?? "");
+    setLost(!!s && !s.slug && s.done[2] === true);
     setLive(onServer());
     setReady(true);
   }, []);
@@ -247,10 +254,28 @@ export function StoreLink() {
           {!ready ? (
             /* the link is read from this browser in a moment: its row's shape meanwhile, not a blank card */
             <Skeleton className="mt-5 h-12 w-full rounded-xl" />
-          ) : !slug ? (
+          ) : !slug && !editing ? (
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-soft px-5 py-5">
-              <p className="text-sm text-muted">{c.noSlug}</p>
-              <a href="/onboarding" className="rounded-lg border border-primary/60 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">{c.setup}</a>
+              <p className={lost ? "text-sm font-semibold text-amber-700 dark:text-amber-300" : "text-sm text-muted"}>{lost ? c.lost : c.noSlug}</p>
+              {lost ? (
+                <button
+                  type="button"
+                  disabled={tour}
+                  title={tour ? demoOffText(lang) : undefined}
+                  onClick={() => {
+                    setDraft("");
+                    setSlugError("");
+                    setDropped(false);
+                    setConfirming("");
+                    setEditing(true);
+                  }}
+                  className={`rounded-lg border border-primary/60 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white ${demoOff}`}
+                >
+                  {c.setup}
+                </button>
+              ) : (
+                <a href="/onboarding" className="rounded-lg border border-primary/60 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">{c.setup}</a>
+              )}
             </div>
           ) : editing ? (
             <div className="mt-5">

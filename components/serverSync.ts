@@ -590,6 +590,9 @@ function takeTheirs(who: string | null, k: string, sent: string, theirs: Stale):
   const owner = follow(who);
   if (!owner || signedInAs() !== owner || halted) return false;
   writeBases(owner, { [k]: { v: theirs.v, m: {} } });
+  /* the server already has exactly this copy: it is this browser's own save (sent as the tab closed, kept, its answer
+     lost), not another device's. Saved: it goes on from the server's version, and nothing is said */
+  if (theirs.value === sent) return true;
   if (k === DESIGN_KEY && accountValue(k) === sent) keepRefusedDesign(sent);
   if (restoreAccountValue(k, typeof theirs.value === "string" ? theirs.value : null, sent)) showAgain(k);
   refused("stale");
@@ -706,7 +709,10 @@ async function takeBackSlug(owner: string | null, mine: string) {
   try {
     const setup = JSON.parse(mine) as Record<string, unknown>;
     const server = theirs === null ? null : (JSON.parse(theirs) as Record<string, unknown> | null);
-    const slug = server && typeof server.slug === "string" ? server.slug : "";
+    let slug = server && typeof server.slug === "string" ? server.slug : "";
+    /* the server's setup names the refused link too: it lost that link to another store that took it at the same moment
+       (server/shops.ts syncShop, from before that took it out of the setup). No link then: his pages ask for a new one */
+    if (typeof setup?.slug === "string" && slug.toLowerCase() === setup.slug.toLowerCase()) slug = "";
     if (!setup || typeof setup !== "object" || setup.slug === slug) return;
     const back = JSON.stringify({ ...setup, slug });
     if (!replaceAccountValue(SETUP, back, mine)) return;
