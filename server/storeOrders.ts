@@ -13,6 +13,7 @@ import { courierApproved } from "./courierProof";
 import { plainDeep, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { emailNotice, notify } from "./notify";
+import { cartsRecovered } from "./storeCarts";
 import { readSettings } from "./settings";
 
 /* Orders customers place on a store's public page (app/[slug], POST /api/public/store/<slug>/orders), kept in
@@ -72,8 +73,9 @@ export async function findShop(q: { query: PoolClient["query"] }, slug: unknown)
 export const isOpen = (s: Pick<Shop, "status" | "published" | "paused">) => s.status !== "suspended" && s.published && !s.paused;
 
 /** The products customers can buy (not in the bin, not hidden), as the cart prices them. `noShip`: the ones that are not
-    delivered to an address (safeOrder productShips: a digital product, a service, or "Needs shipping" off). */
-function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number, string>; noShip: Set<number> } {
+    delivered to an address (safeOrder productShips: a digital product, a service, or "Needs shipping" off). Also prices
+    the carts customers leave (server/storeCarts.ts). */
+export function catalogOf(products: unknown): { catalog: Sellable[]; images: Map<number, string>; noShip: Set<number> } {
   const list = Array.isArray(products) ? products.filter(isObj) : [];
   const catalog: Sellable[] = [];
   const images = new Map<number, string>();
@@ -207,9 +209,9 @@ async function inTransaction<T>(client: PoolClient | undefined, fn: (c: PoolClie
 }
 
 /** Places a customer's order on the store at `slug`. `body`: { lines: [{ id, qty, size }], customer: { name, phone,
-    city, address, note, fulfil, pay }, coupon?, expect?, attempt? } where `expect` is the total the customer was shown:
+    city, address, note, fulfil, pay }, coupon?, expect?, attempt?, cart? } where `expect` is the total the customer was shown:
     when the store's prices or terms changed since, nothing is placed and the cart is answered again; `attempt` is the
-    checkout's own key (see above). `client`: run inside that open transaction (for tests); otherwise the order has its
+    checkout's own key (see above); `cart` is the key of the basket the cart keeps on the server (server/storeCarts.ts). `client`: run inside that open transaction (for tests); otherwise the order has its
     own. */
 export async function placeStoreOrder(slug: unknown, body: Record<string, unknown>, client?: PoolClient): Promise<PlaceResult> {
   const lines = Array.isArray(body.lines) ? body.lines : null;
@@ -358,6 +360,10 @@ export async function placeStoreOrder(slug: unknown, body: Record<string, unknow
        ON CONFLICT (account_id, key) DO UPDATE SET value = EXCLUDED.value, plain_len = EXCLUDED.plain_len, updated_at = now()`,
       [id, ORDER_NUMBER_KEY, seal(String(number)), String(number).length],
     );
+
+    /* the carts this customer left on the store are recovered by this order (server/storeCarts.ts): the checkout's own
+       (`cart`, its basket's key) and any other with his email or mobile, in this same transaction */
+    await cartsRecovered(c, id, { key: body.cart, email: v.email, phone: v.phone, number });
 
     /* the merchant's bell: kept only if the order is */
     await notify(id, "orderPlaced", { number, total: total.toFixed(3), name: v.customer }, c);

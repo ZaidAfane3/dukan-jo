@@ -12,6 +12,7 @@ import { nextOrderNumber } from "../orderNumbers";
 import type { CartStyle } from "./config";
 import { basketMost, currency, freeWord, icons, moneyIn, mostWords, priceOf, ProductImage } from "./parts";
 import { categoriesOf, type StoreProduct } from "./useStoreData";
+import { cartKey, useServerCart } from "./visitorCart";
 import { useVisitorRefresh } from "./visitorStore";
 
 /* The customer's basket: what is in it, the free delivery progress and a few suggestions, then the checkout (who, where,
@@ -54,6 +55,8 @@ const words = {
     phone: "Phone number",
     email: "Email",
     contactHint: "The store uses these to contact you about your order.",
+    /* the public store keeps the basket once an email or mobile is typed (visitorCart.ts), so the store can remind him */
+    cartHint: "If you leave without ordering, the store may email you a reminder of your cart.",
     errMobile: "Enter a mobile number (07X XXX XXXX).",
     errEmail: "Enter a valid email, e.g. name@example.com",
     city: "City",
@@ -164,6 +167,7 @@ const words = {
     phone: "رقم الهاتف",
     email: "البريد الإلكتروني",
     contactHint: "يستخدمهما المتجر للتواصل معك بخصوص طلبك.",
+    cartHint: "إذا غادرت دون إتمام الطلب، قد يرسل لك المتجر تذكيرًا بسلتك على بريدك.",
     errMobile: "اكتب رقم جوال (07X XXX XXXX).",
     errEmail: "أدخل بريدًا إلكترونيًا صحيحًا، مثل name@example.com",
     city: "المدينة",
@@ -490,6 +494,9 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
   }, [orderTo]);
   const [step, setStep] = useState<"cart" | "details" | "done">("cart");
   const [form, setForm] = useState({ name: "", phone: "", email: "", city: "", address: "", note: "" });
+  /* the public store: the basket is kept on the server too once he typed a valid email or mobile, so the store can
+     remind him of it if he leaves (visitorCart.ts); not while an order is on its way or just placed */
+  const serverCart = useServerCart(orderTo, lines.map((l) => ({ id: l.p.id, qty: l.qty, ...(l.size ? { size: l.size } : {}) })), form, lang, sending || step === "done");
   /* what he types is kept for this store in this browser as he types it (not the note, which is for one order) */
   useEffect(() => {
     if (orderTo) keepDetails(orderTo, form);
@@ -643,6 +650,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
     attemptKey.current = null;
     previousKey.current = [];
     keepAttempt(orderTo ?? "", null);
+    /* the order ended this basket's cart on the server: the next basket is a new one */
+    serverCart.restart();
     setTermsFix(null);
     setStep("done");
     setChanged(false);
@@ -694,7 +703,8 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...order, expect: shown, attempt: attemptKey.current?.key, ...(prev.length ? { previous: prev } : {}) }),
+          /* `cart`: the key of the basket kept on the server (visitorCart.ts), so the order marks it recovered */
+          body: JSON.stringify({ ...order, expect: shown, attempt: attemptKey.current?.key, ...(prev.length ? { previous: prev } : {}), ...(orderTo ? { cart: cartKey(orderTo) } : {}) }),
           signal: stop.signal,
         });
         status = r.status;
@@ -1090,7 +1100,7 @@ export function CartPanel({ open, onClose, lang, lines, products, setQty, fd: fd
           <div key={k}>
             <label htmlFor={`co-${k}`} className={s.label}>{w[k]} <span className="text-rose-600">*</span></label>
             <input id={`co-${k}`} type={k === "email" ? "email" : k === "phone" ? "tel" : "text"} value={form[k]} maxLength={k === "name" ? ORDER_LIMITS.name : k === "email" ? ORDER_LIMITS.email : 20} onChange={(e) => set(k, e.target.value)} dir={k === "name" ? undefined : "ltr"} autoComplete={k === "phone" ? "tel" : k === "email" ? "email" : "name"} inputMode={k === "phone" ? "tel" : k === "email" ? "email" : undefined} placeholder={k === "phone" ? "07X XXX XXXX" : k === "email" ? "name@example.com" : undefined} aria-invalid={!!errors[k]} aria-describedby={k === "name" ? undefined : `co-${k}-hint`} className={`${field(errors[k])} ${k === "name" ? "" : "text-start"}`} />
-            {k === "email" && !errors.email && <p id="co-email-hint" className="mt-1 text-xs opacity-60">{w.contactHint}</p>}
+            {k === "email" && !errors.email && <p id="co-email-hint" className="mt-1 text-xs opacity-60">{w.contactHint}{orderTo ? ` ${w.cartHint}` : ""}</p>}
             {errors[k] && <p id={k === "name" ? undefined : `co-${k}-hint`} className="mt-1 text-xs text-rose-600">{errors[k]}</p>}
           </div>
         ))}

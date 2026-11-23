@@ -26,7 +26,7 @@ const ReportStore = dynamic(() => import("./ReportStore").then((m) => m.ReportSt
 import { useVisitorStore } from "./visitorStore";
 import { sendVisit } from "../storeVisits";
 import { usePageTitle } from "../pageTitle";
-import { basketStorageKey, readBasket, writeBasket } from "./visitorBasket";
+import { basketStorageKey, readBasket, withRestored, writeBasket } from "./visitorBasket";
 
 /* The public store gives each product and each page of the store its own address: /<store>?p=<product id> or
    ?page=<page id>, and a search on the home page /<store>?q=<words>. A reload or a shared link opens it again, and the
@@ -341,6 +341,45 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [settled, basketStore]);
+  /* A reminder's link (?cart=<id>-<signature>, emailed by the store: server/storeCarts.ts): once the kept basket is in,
+     the cart he left is added back to it (visitorBasket.ts withRestored) and the cart opens. The link leaves the
+     address at once, so a reload or a shared address doesn't bring it back again. Asked once per page. */
+  const [cartLink] = useState(() => {
+    try {
+      return typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("cart") ?? "").slice(0, 80);
+    } catch {
+      return "";
+    }
+  });
+  const cartLinkUsed = useRef(false);
+  useEffect(() => {
+    if (!settled || !routed || !visitor || !cartLink || cartLinkUsed.current) return;
+    cartLinkUsed.current = true;
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("cart");
+      window.history.replaceState(window.history.state, "", u.pathname + u.search + u.hash);
+    } catch {
+      /* the address stays as it is */
+    }
+    void fetch(`/api/public/store/${encodeURIComponent(visitor.setup.slug)}/cart`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ restore: cartLink }),
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<{ result?: string; lines?: unknown }>) : null))
+      .then((j) => {
+        if (j?.result !== "ok") return;
+        const got = withRestored(qtyNow.current, j.lines, dataNow.current.products);
+        if (!got.back) return;
+        setQtyMap(got.qty);
+        setCartOpen(true);
+      })
+      .catch(() => {
+        /* offline or the link is too old: the store opens as usual */
+      });
+  }, [settled, routed, visitor, cartLink]);
   /* Back and Forward: the product or page of that address, at the place on the page he left it */
   const [popAt, setPopAt] = useState<{ y: number | null } | null>(null);
   useEffect(() => {

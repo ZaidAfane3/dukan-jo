@@ -1014,4 +1014,37 @@ export const DIWAN_SCHEMA = `
      settings then, as before. Kept with the order, so changing the delivery settings later never changes what an order
      was told. */
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS fee_open BOOLEAN;
+  /* ---------- carts customers leave on a store (server/storeCarts.ts, Marketing > Abandoned carts) ----------
+     A visitor's basket, kept once he has typed a valid email or Jordan mobile at checkout, so the merchant can remind
+     him of it. key_hash: a keyed fingerprint of the random key his browser keeps for this store's basket (never the key
+     itself). items: the lines as the server priced them from the store's own products (id, name, qty, price, size,
+     picture), never the browser's prices; subtotal: their sum then. email, phone, name: sealed; email_hash: a keyed
+     fingerprint of the email for this shop only (as store_signups), phone_hash the same for the mobile, so an order
+     with that email or mobile marks his carts here as recovered. lang: the language he shopped in (the reminder's language). recovered_at / order_number: the order
+     that ended it. reminders / reminded_at: emails sent (at most 3, one a day: storeCarts.ts). A cart with no change
+     for an hour counts as abandoned; carts untouched for 30 days are deleted. They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_carts (
+    id           BIGSERIAL PRIMARY KEY,
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    key_hash     TEXT NOT NULL,
+    email        TEXT,
+    email_hash   TEXT,
+    phone        TEXT,
+    phone_hash   TEXT,
+    name         TEXT,
+    lang         TEXT NOT NULL DEFAULT 'ar' CHECK (lang IN ('ar', 'en')),
+    items        JSONB NOT NULL DEFAULT '[]',
+    subtotal     NUMERIC(12, 3) NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    recovered_at TIMESTAMPTZ,
+    order_number INTEGER,
+    reminders    INTEGER NOT NULL DEFAULT 0,
+    reminded_at  TIMESTAMPTZ
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS store_carts_key ON store_carts (account_id, key_hash);
+  CREATE INDEX IF NOT EXISTS store_carts_account ON store_carts (account_id, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS store_carts_email ON store_carts (account_id, email_hash) WHERE recovered_at IS NULL;
+  CREATE INDEX IF NOT EXISTS store_carts_phone ON store_carts (account_id, phone_hash) WHERE recovered_at IS NULL;
+  CREATE INDEX IF NOT EXISTS store_carts_updated ON store_carts (updated_at);
 `;
