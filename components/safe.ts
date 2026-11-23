@@ -607,7 +607,7 @@ export const isSlug = (s: unknown): s is string => typeof s === "string" && SLUG
 /* Pages of the platform added at the top of the site after stores could already choose names. Nobody can choose one
    from now on, but a store that took one before keeps it in its setup (it is never erased) and is asked on its Store link
    page to choose another, since the platform's page wins at that address. */
-const PAGES_ADDED_LATER = ["store-link", "delivery", "diwan", "from-dukkan", "media", "suspended"];
+const PAGES_ADDED_LATER = ["store-link", "delivery", "diwan", "from-dukkan", "media", "suspended", "unsubscribe"];
 
 /** A name that is one of the platform's own pages at the top of the site (each folder in app/), not a store's address */
 export const isPlatformPage = (name: string): boolean => RESERVED_SLUGS.has(name) || PAGES_ADDED_LATER.includes(name);

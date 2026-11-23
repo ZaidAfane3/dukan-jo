@@ -120,6 +120,8 @@ function detailOf(action: string, meta: Record<string, unknown> | null, staffNam
     case "staff.reset_2step":
     case "staff.reset_password":
       return targetName ? { member: targetName } : null;
+    case "campaign.stop":
+      return { title, ...(typeof m.left === "number" ? { count: m.left } : {}) };
     case "popup.status":
     case "page.status":
       return { title, changes: [{ field: "status", from: str(m.from), to: str(m.to) }] };

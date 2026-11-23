@@ -36,6 +36,12 @@ export type Email = {
   parts?: EmailPart[];
   /* the help line under the email: "dashboard" (a signed-in merchant: use Support), else only "replies aren't read" */
   help?: "dashboard";
+  /* a store's own email to its customers (a campaign, server/campaigns.ts): the store's name as the sender's name and on
+     top of the email instead of Dukkan's, its own line under the email instead of Dukkan's (why it came, with the link
+     that stops them), and mail headers (List-Unsubscribe, so mail apps offer their own "Unsubscribe") */
+  sender?: string;
+  foot?: { lang: "ar" | "en"; text: string; link?: { label: string; url: string } };
+  headers?: Record<string, string>;
 };
 
 export type EmailPart = { lang: "ar" | "en"; heading: string; text: string; button?: { label: string; url: string } };
@@ -90,14 +96,17 @@ export function htmlOf(e: Omit<Email, "to">): string {
   const langs: ("ar" | "en")[] = parts ? parts.map((x) => x.lang) : [e.lang];
   const first = langs[0];
   const rtl = first === "ar";
-  const brand = parts ? "دكان · Dukkan" : rtl ? "دكان" : "Dukkan";
+  const brand = e.sender || (parts ? "دكان · Dukkan" : rtl ? "دكان" : "Dukkan");
   const rule = `<div style="height:1px;background:#e7e5e4;margin:22px 0"></div>`;
   const body = parts
     ? parts.map((x, n) => (n ? rule : "") + blockOf(x.lang, x.heading, x.text, x.button, n === 0 ? e.code : undefined)).join("")
     : blockOf(e.lang, e.heading, e.text, e.button, e.code);
-  const foot = langs
-    .map((l) => `<p dir="${l === "ar" ? "rtl" : "ltr"}" style="margin:0 0 6px;font-family:${FONT[l]};text-align:${l === "ar" ? "right" : "left"}">${escapeHtml(footLine(l, e.help))}</p>`)
-    .join("");
+  const footP = (l: "ar" | "en", inner: string) => `<p dir="${l === "ar" ? "rtl" : "ltr"}" style="margin:0 0 6px;font-family:${FONT[l]};text-align:${l === "ar" ? "right" : "left"}">${inner}</p>`;
+  const own = e.foot;
+  const ownUrl = own?.link ? safeUrl(own.link.url) : null;
+  const foot = own
+    ? footP(own.lang, escapeHtml(own.text)) + (own.link && ownUrl ? footP(own.lang, `<a href="${escapeHtml(ownUrl)}" style="color:${MUTED};text-decoration:underline">${escapeHtml(own.link.label)}</a>`) : "")
+    : langs.map((l) => footP(l, escapeHtml(footLine(l, e.help)))).join("");
   const preview = (parts ? parts[0].text : e.text).split("\n")[0] ?? "";
   return `<!doctype html><html lang="${first}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${escapeHtml(e.subject)}</title></head>
 <body style="margin:0;padding:0;background:#f5f5f4">
@@ -116,23 +125,70 @@ function textOf(e: Omit<Email, "to">): string {
   const blocks = parts.map((x, n) =>
     [x.heading, n === 0 ? e.code : null, x.text, x.button && safeUrl(x.button.url) ? `${x.button.label}: ${safeUrl(x.button.url)}` : null].filter(Boolean).join("\n\n"),
   );
-  return [...blocks, parts.map((x) => footLine(x.lang, e.help)).join("\n"), SITE_HOST].join("\n\n—\n\n");
+  const own = e.foot;
+  const ownUrl = own?.link ? safeUrl(own.link.url) : null;
+  const foot = own ? [own.text, own.link && ownUrl ? `${own.link.label}: ${ownUrl}` : null].filter(Boolean).join("\n") : parts.map((x) => footLine(x.lang, e.help)).join("\n");
+  return [...blocks, foot, SITE_HOST].join("\n\n—\n\n");
 }
+
+/* Who the email is from: EMAIL_FROM, or with `sender` the same address under the store's name ("Store name"
+   <no-reply@…>). The name loses the characters that would break the line (quotes, brackets, line breaks). */
+function fromOf(e: Pick<Email, "sender">, from: string): string {
+  if (!e.sender) return from;
+  const address = /<([^<>]+)>\s*$/.exec(from)?.[1] ?? from;
+  // eslint-disable-next-line no-control-regex
+  const name = e.sender.replace(/[\u0000-\u001f\u007f"<>\\]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
+  return name ? `"${name}" <${address}>` : from;
+}
+
+/* what Resend is sent for one email */
+const payloadOf = (e: Email, from: string) => ({
+  from: fromOf(e, from),
+  to: (Array.isArray(e.to) ? e.to : [e.to]).filter(Boolean),
+  subject: e.subject,
+  text: textOf(e),
+  html: htmlOf(e),
+  ...(e.headers && Object.keys(e.headers).length ? { headers: e.headers } : {}),
+});
 
 /** Sends one email. Throws when it is off or Resend refuses it (the caller logs it, never with the text). */
 export async function sendEmail(e: Email): Promise<void> {
   const key = process.env.RESEND_API_KEY?.trim();
   const from = process.env.EMAIL_FROM?.trim();
   if (!key || !from) throw new Error("email is off (RESEND_API_KEY / EMAIL_FROM not set)");
-  const to = (Array.isArray(e.to) ? e.to : [e.to]).filter(Boolean);
-  if (!to.length) return;
+  const payload = payloadOf(e, from);
+  if (!payload.to.length) return;
   const r = await fetch(RESEND_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to, subject: e.subject, text: textOf(e), html: htmlOf(e) }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!r.ok) throw new Error(`Resend refused the email (${r.status})`);
+}
+
+/** Up to 100 emails in one request to Resend (its batch sending), each to its own reader: a store's campaign
+    (server/campaigns.ts). `key` is Resend's Idempotency-Key, which Resend keeps for 24 hours: the same key sent again
+    with the same emails is answered without sending them twice, so a request whose answer was lost can be sent again
+    safely. Resend takes all of them or none. Gives Resend's status: 200 sent; 429 too many for now (nothing sent); 409
+    the same key is still being answered; another 4xx refused; 5xx or 0 (no answer: timed out, no connection) maybe sent,
+    so send again with the same key. -1: email is off. Never throws. */
+export async function sendEmailBatch(list: Email[], key: string): Promise<number> {
+  const api = process.env.RESEND_API_KEY?.trim();
+  const from = process.env.EMAIL_FROM?.trim();
+  if (!api || !from) return -1;
+  if (!list.length) return 200;
+  try {
+    const r = await fetch(`${RESEND_URL}/batch`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${api}`, "Content-Type": "application/json", "Idempotency-Key": key.slice(0, 256) },
+      body: JSON.stringify(list.map((e) => payloadOf(e, from))),
+      signal: AbortSignal.timeout(30_000),
+    });
+    return r.status;
+  } catch {
+    return 0;
+  }
 }
 
 /* Code emails to one address, by kind of code. Each kind has its own allowance, so using one kind up (many sign-ins,
