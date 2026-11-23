@@ -786,7 +786,7 @@ export const content: Record<Lang, Content> = {
           { id: "v-pages", kind: "list", title: "Most visited pages", desc: "The pages in your store that visitors opened most often.", items: ["Home page", "All products", "Daily Backpack"] },
         ],
         payments: [
-          { id: "p-methods", kind: "breakdown", title: "Payment methods used", desc: "Shows how your payments are split by payment method in the selected period.", items: ["Card", "CliQ", "Cash on delivery", "PayPal"] },
+          { id: "p-methods", kind: "breakdown", title: "Payment methods used", desc: "Shows how your payments are split by payment method in the selected period.", items: ["Card", "CliQ", "Cash on delivery"] },
           { id: "p-online", kind: "rate", tone: "good", rateRange: [55, 92], title: "Share of electronic payments", desc: "The share of electronic payments out of all payment methods in the selected period.", items: ["Electronic payments", "All payments"] },
         ],
         inventory: [
@@ -1379,7 +1379,7 @@ export const content: Record<Lang, Content> = {
           { id: "v-pages", kind: "list", title: "أكثر الصفحات زيارة", desc: "الصفحات في متجرك التي فتحها الزوار أكثر من غيرها.", items: ["الصفحة الرئيسية", "كل المنتجات", "حقيبة يومية"] },
         ],
         payments: [
-          { id: "p-methods", kind: "breakdown", title: "طرق الدفع المستخدمة", desc: "يوضّح توزيع المدفوعات حسب طريقة الدفع في الفترة الزمنية المحددة.", items: ["بطاقة", "كليك", "الدفع عند الاستلام", "باي بال"] },
+          { id: "p-methods", kind: "breakdown", title: "طرق الدفع المستخدمة", desc: "يوضّح توزيع المدفوعات حسب طريقة الدفع في الفترة الزمنية المحددة.", items: ["بطاقة", "كليك", "الدفع عند الاستلام"] },
           { id: "p-online", kind: "rate", tone: "good", rateRange: [55, 92], title: "نسبة المدفوعات الإلكترونية", desc: "نسبة المدفوعات الإلكترونية من إجمالي طرق الدفع خلال الفترة الزمنية المحددة.", items: ["المدفوعات الإلكترونية", "إجمالي المدفوعات"] },
         ],
         inventory: [
