@@ -5,7 +5,7 @@ import { cleanText } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { ORDER_LIMITS, priceCart, visitorEmail } from "@/components/safeOrder";
 import { SITE_HOST } from "@/components/siteAddress";
-import { countTry, limitReached } from "./auth";
+import { reserveTry } from "./auth";
 import { blind, emailKey, plainDeep, seal } from "./crypto";
 import { db } from "./db";
 import { emailOn, sendEmail } from "./email";
@@ -45,8 +45,10 @@ const CARTS_MAX = 20_000;
 /* the most reminders one store can send in a day, and one email address can get from all stores together */
 const SHOP_MAILS_DAY = 100;
 const ADDRESS_MAILS_DAY = 3;
-/* the newest carts the merchant's list shows */
-const LIST_MAX = 500;
+/* one page of the merchant's list (the next ones come with "Show more") */
+const LIST_PAGE = 100;
+/* where a page ends: the last cart's change time as Postgres writes it (to the microsecond) and its id */
+const CURSOR = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?[+-]\d{2}(?::\d{2})?)\|(\d{1,18})$/;
 
 /* the browser's key for its basket: letters, digits and dashes (a random UUID), as a checkout's key */
 const KEY = /^[A-Za-z0-9-]{16,64}$/;
@@ -209,19 +211,27 @@ const ABANDONED = `(reminders > 0 OR (recovered_at IS NULL AND updated_at < now(
 const SINCE = `CASE $2::int WHEN 0 THEN now() - interval '7 days' WHEN 1 THEN now() - interval '30 days'
                ELSE date_trunc('month', now() AT TIME ZONE 'Asia/Amman') AT TIME ZONE 'Asia/Amman' END`;
 
-/** The store's abandoned carts with their last change in the range (0, 1 or 2, as above), newest first (at most
-    LIST_MAX), and for all of them in the range: how many, the share recovered by an order and their average value. */
-export async function listStoreCarts(accountId: string, range: number): Promise<{ carts: CartRow[]; count: number; recovered: number; average: number }> {
+/** The store's abandoned carts with their last change in the range (0, 1 or 2, as above), newest first, a page of
+    LIST_PAGE at a time (`before`: where the page before ended, the `next` it gave; null for the first page), and for
+    all of them in the range: how many, the share recovered by an order and their average value. */
+export async function listStoreCarts(accountId: string, range: number, before: string | null = null): Promise<{ carts: CartRow[]; next: string | null; count: number; recovered: number; average: number }> {
   const pool = await db();
   const r = range === 1 || range === 2 ? range : 0;
   const where = `account_id = $1 AND updated_at >= ${SINCE} AND jsonb_array_length(items) > 0 AND ${ABANDONED}`;
   const sums = await pool.query(`SELECT count(*)::int AS n, count(recovered_at)::int AS back, COALESCE(avg(subtotal), 0) AS avg FROM store_carts WHERE ${where}`, [accountId, r]);
+  /* a cursor (time and id) rather than an offset, so a cart that changed meanwhile never shows twice or pushes one out */
+  const cut = before ? CURSOR.exec(before) : null;
   const { rows } = await pool.query(
-    `SELECT id, name, email, phone, items, subtotal, created_at, updated_at, recovered_at, order_number, reminders, reminded_at, now() AS at
-       FROM store_carts WHERE ${where} ORDER BY updated_at DESC, id DESC LIMIT ${LIST_MAX}`,
-    [accountId, r],
+    `SELECT id, name, email, phone, items, subtotal, created_at, updated_at, updated_at::text AS at_text, recovered_at, order_number, reminders, reminded_at, now() AS at
+       FROM store_carts WHERE ${where} ${cut ? "AND (updated_at, id) < ($3::timestamptz, $4::bigint)" : ""}
+      ORDER BY updated_at DESC, id DESC LIMIT ${LIST_PAGE + 1}`,
+    cut ? [accountId, r, cut[1], cut[2]] : [accountId, r],
   );
-  const carts = rows.map((x: Record<string, unknown>): CartRow => {
+  const more = rows.length > LIST_PAGE;
+  const page = more ? rows.slice(0, LIST_PAGE) : rows;
+  const last = page[page.length - 1] as Record<string, unknown> | undefined;
+  const next = more && last ? `${String(last.at_text)}|${String(last.id)}` : null;
+  const carts = page.map((x: Record<string, unknown>): CartRow => {
     const items = (Array.isArray(x.items) ? x.items : []).filter(isObj);
     const now = new Date(x.at as string).getTime();
     const reminders = Number(x.reminders) || 0;
@@ -253,7 +263,7 @@ export async function listStoreCarts(accountId: string, range: number): Promise<
   });
   const s = sums.rows[0] ?? {};
   const count = Number(s.n) || 0;
-  return { carts, count, recovered: count ? Math.round((Number(s.back) / count) * 1000) / 10 : 0, average: Math.round(Number(s.avg) * 1000) / 1000 };
+  return { carts, next, count, recovered: count ? Math.round((Number(s.back) / count) * 1000) / 10 : 0, average: Math.round(Number(s.avg) * 1000) / 1000 };
 }
 
 /* ---------------- a reminder ---------------- */
@@ -274,70 +284,82 @@ const masked = (to: string) => `${to.split("@")[0]?.slice(0, 1) ?? ""}…@${to.s
 
 /** Emails the customer of one of the merchant's own carts a reminder (in the language he shopped in), with the link
     back to his cart. The cart's count is taken first, in one step with every check, so two presses at once can't both
-    send; it is given back when the email does not go out. In development without email set up, the email's link is
-    written to the server's console instead (`stub`: nothing was sent). */
+    send; it is given back when the email does not go out. The store's and the address's daily allowances are taken
+    the same way, each before anything is waited for (reserveTry), so reminders sent at the same moment on many carts
+    with one address can't all pass the look before the first ones are counted; they are given back when nothing was
+    sent. In development without email set up, the email's link is written to the server's console instead (`stub`:
+    nothing was sent, so nothing is counted). */
 export async function remindStoreCart(accountId: string, cartId: string): Promise<RemindResult> {
   if (!/^\d{1,18}$/.test(cartId)) return { status: 404, body: { result: "none" } };
   if (!emailOn() && !isDev()) return { status: 503, body: { result: "no-sender" } };
-  const shopKey = `cart-mail-shop:${accountId}`;
-  if (limitReached(shopKey, SHOP_MAILS_DAY, 24 * 60)) return { status: 429, body: { result: "slow-down" } };
-  const pool = await db();
-  const shop = await pool.query(`SELECT slug, name, status, paused, published FROM shops WHERE account_id = $1`, [accountId]);
-  const s = shop.rows[0] as { slug: string; name: string; status: string; paused: boolean; published: boolean } | undefined;
-  if (!s) return { status: 404, body: { result: "none" } };
-  /* the link would open a store that can't sell */
-  if (!isOpen(s)) return { status: 409, body: { result: "closed" } };
-
-  const claimed = await pool.query(
-    `WITH old AS (
-       SELECT id, reminded_at FROM store_carts
-        WHERE id = $1 AND account_id = $2 AND recovered_at IS NULL AND email IS NOT NULL AND jsonb_array_length(items) > 0
-          AND updated_at < now() - make_interval(mins => ${CART_IDLE_MINUTES}) AND reminders < ${REMIND_MAX}
-          AND (reminded_at IS NULL OR reminded_at < now() - make_interval(hours => ${REMIND_GAP_HOURS}))
-        FOR UPDATE)
-     UPDATE store_carts c SET reminders = c.reminders + 1, reminded_at = now() FROM old WHERE c.id = old.id
-     RETURNING c.email, c.lang, c.items, c.reminders, c.reminded_at, old.reminded_at AS before`,
-    [cartId, accountId],
-  );
-  const row = claimed.rows[0] as { email: string; lang: string; items: unknown; reminders: number; reminded_at: string; before: string | null } | undefined;
-  if (!row) return whyNot(accountId, cartId);
-  const giveBack = () =>
-    pool.query(`UPDATE store_carts SET reminders = GREATEST(reminders - 1, 0), reminded_at = $3 WHERE id = $1 AND account_id = $2`, [cartId, accountId, row.before]).catch((e) => console.error("[carts] giving a reminder back", e));
-
-  const addressKey = `cart-mail:${emailKey(row.email)}`;
-  if (limitReached(addressKey, ADDRESS_MAILS_DAY, 24 * 60)) {
-    await giveBack();
-    return { status: 429, body: { result: "slow-down" } };
-  }
-  const setupRow = await pool.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [accountId]);
-  const store = cleanSetup(parse(setupRow.rows[0]?.value as string | undefined))?.name || s.name || s.slug;
-  const items = (Array.isArray(row.items) ? row.items : []).filter(isObj);
-  const lang = row.lang === "en" ? "en" : "ar";
-  const words = cartReminderEmail(lang, {
-    store,
-    count: items.reduce((n, it) => n + (Number(it.qty) || 0), 0),
-    products: items.map((it) => String(it.name ?? "")).filter(Boolean),
-    url: cartLink(s.slug, accountId, cartId),
-  });
-  let stub = false;
+  const backShop = reserveTry(`cart-mail-shop:${accountId}`, SHOP_MAILS_DAY, 24 * 60);
+  if (!backShop) return { status: 429, body: { result: "slow-down" } };
+  let backAddress: (() => void) | null = null;
+  let sent = false;
   try {
-    if (emailOn()) await sendEmail({ to: row.email, lang, subject: words.subject, heading: words.heading, text: words.text, button: words.button });
-    else {
-      stub = true;
-      console.info(`[dev] cart reminder for ${masked(row.email)} (email is off, nothing was sent): ${words.button?.url ?? ""}`);
+    const pool = await db();
+    const shop = await pool.query(`SELECT slug, name, status, paused, published FROM shops WHERE account_id = $1`, [accountId]);
+    const s = shop.rows[0] as { slug: string; name: string; status: string; paused: boolean; published: boolean } | undefined;
+    if (!s) return { status: 404, body: { result: "none" } };
+    /* the link would open a store that can't sell */
+    if (!isOpen(s)) return { status: 409, body: { result: "closed" } };
+
+    const claimed = await pool.query(
+      `WITH old AS (
+         SELECT id, reminded_at FROM store_carts
+          WHERE id = $1 AND account_id = $2 AND recovered_at IS NULL AND email IS NOT NULL AND jsonb_array_length(items) > 0
+            AND updated_at < now() - make_interval(mins => ${CART_IDLE_MINUTES}) AND reminders < ${REMIND_MAX}
+            AND (reminded_at IS NULL OR reminded_at < now() - make_interval(hours => ${REMIND_GAP_HOURS}))
+          FOR UPDATE)
+       UPDATE store_carts c SET reminders = c.reminders + 1, reminded_at = now() FROM old WHERE c.id = old.id
+       RETURNING c.email, c.lang, c.items, c.reminders, c.reminded_at, old.reminded_at AS before`,
+      [cartId, accountId],
+    );
+    const row = claimed.rows[0] as { email: string; lang: string; items: unknown; reminders: number; reminded_at: string; before: string | null } | undefined;
+    if (!row) return await whyNot(accountId, cartId);
+    const giveBack = () =>
+      pool.query(`UPDATE store_carts SET reminders = GREATEST(reminders - 1, 0), reminded_at = $3 WHERE id = $1 AND account_id = $2`, [cartId, accountId, row.before]).catch((e) => console.error("[carts] giving a reminder back", e));
+
+    /* the address is known only now: its allowance is taken at once, before the email is waited for */
+    backAddress = reserveTry(`cart-mail:${emailKey(row.email)}`, ADDRESS_MAILS_DAY, 24 * 60);
+    if (!backAddress) {
+      await giveBack();
+      return { status: 429, body: { result: "slow-down" } };
     }
-  } catch (e) {
-    await giveBack();
-    console.error("[carts] reminder could not be sent:", (e as Error)?.message ?? e);
-    return { status: 503, body: { result: "failed" } };
+    const setupRow = await pool.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [accountId]);
+    const store = cleanSetup(parse(setupRow.rows[0]?.value as string | undefined))?.name || s.name || s.slug;
+    const items = (Array.isArray(row.items) ? row.items : []).filter(isObj);
+    const lang = row.lang === "en" ? "en" : "ar";
+    const words = cartReminderEmail(lang, {
+      store,
+      count: items.reduce((n, it) => n + (Number(it.qty) || 0), 0),
+      products: items.map((it) => String(it.name ?? "")).filter(Boolean),
+      url: cartLink(s.slug, accountId, cartId),
+    });
+    let stub = false;
+    try {
+      if (emailOn()) {
+        await sendEmail({ to: row.email, lang, subject: words.subject, heading: words.heading, text: words.text, button: words.button });
+        sent = true;
+      } else {
+        stub = true;
+        console.info(`[dev] cart reminder for ${masked(row.email)} (email is off, nothing was sent): ${words.button?.url ?? ""}`);
+      }
+    } catch (e) {
+      await giveBack();
+      console.error("[carts] reminder could not be sent:", (e as Error)?.message ?? e);
+      return { status: 503, body: { result: "failed" } };
+    }
+    const reminders = Number(row.reminders);
+    const nextAt = reminders < REMIND_MAX ? new Date(new Date(row.reminded_at).getTime() + REMIND_GAP_HOURS * 3_600_000).toISOString() : null;
+    return { status: 200, body: { result: "ok", reminders, nextAt, ...(stub ? { stub: true as const } : {}) } };
+  } finally {
+    /* nothing went out (refused, failed, a database error, or only written to the console): the allowances come back */
+    if (!sent) {
+      backShop();
+      backAddress?.();
+    }
   }
-  if (!stub) {
-    countTry(shopKey, 24 * 60);
-    countTry(addressKey, 24 * 60);
-  }
-  const reminders = Number(row.reminders);
-  const nextAt = reminders < REMIND_MAX ? new Date(new Date(row.reminded_at).getTime() + REMIND_GAP_HOURS * 3_600_000).toISOString() : null;
-  return { status: 200, body: { result: "ok", reminders, nextAt, ...(stub ? { stub: true as const } : {}) } };
 }
 
 /* why a cart could not be claimed for a reminder (read after the claim found nothing) */

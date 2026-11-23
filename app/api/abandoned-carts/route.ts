@@ -6,9 +6,11 @@ export const dynamic = "force-dynamic";
 
 /* The carts customers left on the signed-in merchant's own store (server/storeCarts.ts), for Marketing > Abandoned
    carts. Only his own shop's: the account comes from his session, never from the request.
-     GET /api/abandoned-carts?range=0|1|2   the last 7 days, the last 30 days, this month:
-                                            { carts, count, recovered (a percent), average } */
+     GET /api/abandoned-carts?range=0|1|2              the last 7 days, the last 30 days, this month, newest first:
+                                                       { carts, next, count, recovered (a percent), average }
+     GET /api/abandoned-carts?range=...&before=<next>  the page after that one ("Show more") */
 export const GET = merchantRoute(async (req, me) => {
-  const range = Number(req.nextUrl.searchParams.get("range") ?? 0);
-  return answer({ result: "ok", ...(await listStoreCarts(me.id, Number.isInteger(range) ? range : 0)) });
+  const sp = req.nextUrl.searchParams;
+  const range = Number(sp.get("range") ?? 0);
+  return answer({ result: "ok", ...(await listStoreCarts(me.id, Number.isInteger(range) ? range : 0, (sp.get("before") ?? "").slice(0, 80) || null)) });
 });

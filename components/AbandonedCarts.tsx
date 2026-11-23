@@ -61,6 +61,10 @@ const words = {
     loading: "Loading carts…",
     loadFail: "The carts couldn't load. Check your connection and try again.",
     retry: "Try again",
+    more: "Show more",
+    moreLoading: "Loading…",
+    moreFail: "More carts couldn't load. Check your connection and try again.",
+    showing: "Showing {n} of {m} carts. Search and filters look at the carts shown.",
     minAgo: "{n} min ago",
     hoursAgo: "{n} h ago",
     recovered: "Recovered: order #{n}",
@@ -95,6 +99,10 @@ const words = {
     loading: "جارٍ تحميل السلات…",
     loadFail: "تعذّر تحميل السلات. تحقّق من اتصالك وحاول مجددًا.",
     retry: "حاول مجددًا",
+    more: "عرض المزيد",
+    moreLoading: "جارٍ التحميل…",
+    moreFail: "تعذّر تحميل المزيد من السلات. تحقّق من اتصالك وحاول مجددًا.",
+    showing: "يظهر {n} من {m} سلة. البحث والتصفية يشملان السلات الظاهرة.",
     minAgo: "منذ {n} دقيقة",
     hoursAgo: "منذ {n} ساعة",
     recovered: "استُردت: الطلب رقم {n}",
@@ -151,6 +159,10 @@ export function AbandonedCarts() {
   const [stats, setStats] = useState({ count: 0, recovered: 0, average: 0 });
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  /* where the next page of carts starts (null: all are shown), and its loading */
+  const [next, setNext] = useState<string | null>(null);
+  const [moreLoading, setMoreLoading] = useState(false);
+  const [moreFailed, setMoreFailed] = useState(false);
   /* the cart whose reminder is on its way */
   const [sending, setSending] = useState<string | null>(null);
   const reading = useRef(0);
@@ -175,17 +187,39 @@ export function AbandonedCarts() {
     const n = ++reading.current;
     setLoading(true);
     setFailed(false);
+    setMoreFailed(false);
+    setMoreLoading(false);
     const res = await merchantCall(`/api/abandoned-carts?range=${rg}`, "GET");
     if (n !== reading.current) return;
     setLoading(false);
     if (res?.status === 200 && res.data.result === "ok" && Array.isArray(res.data.carts)) {
       setCarts(res.data.carts as Cart[]);
+      setNext(typeof res.data.next === "string" ? res.data.next : null);
       setStats({ count: Number(res.data.count) || 0, recovered: Number(res.data.recovered) || 0, average: Number(res.data.average) || 0 });
     } else {
       setCarts(null);
+      setNext(null);
       setFailed(true);
     }
   }, []);
+  /* the next page of carts, added under the ones shown (a cart already shown is not added twice) */
+  const loadMore = async () => {
+    if (!next || moreLoading) return;
+    const n = reading.current;
+    setMoreLoading(true);
+    setMoreFailed(false);
+    const res = await merchantCall(`/api/abandoned-carts?range=${range}&before=${encodeURIComponent(next)}`, "GET");
+    if (n !== reading.current) return;
+    setMoreLoading(false);
+    if (res?.status === 200 && res.data.result === "ok" && Array.isArray(res.data.carts)) {
+      setCarts((all) => {
+        const seen = new Set((all ?? []).map((x) => x.id));
+        return [...(all ?? []), ...(res.data.carts as Cart[]).filter((x) => !seen.has(x.id))];
+      });
+      setNext(typeof res.data.next === "string" ? res.data.next : null);
+      setStats({ count: Number(res.data.count) || 0, recovered: Number(res.data.recovered) || 0, average: Number(res.data.average) || 0 });
+    } else setMoreFailed(true);
+  };
   useEffect(() => {
     if (live) void read(range);
   }, [live, range, read]);
@@ -497,6 +531,17 @@ export function AbandonedCarts() {
               shown.length === 0 && <p className="px-4 py-10 text-center text-sm text-muted">{m.noMatch}</p>
             )}
           </div>
+
+          {/* more carts than one page: how many are shown, and the next page */}
+          {!sample && carts && next && (
+            <div className="mt-4 flex flex-col items-center gap-2 text-center">
+              <p className="text-xs text-muted" aria-live="polite">{t.showing.replace("{n}", String(carts.length)).replace("{m}", String(Math.max(stats.count, carts.length)))}</p>
+              <button type="button" onClick={() => void loadMore()} disabled={moreLoading} className="h-10 rounded-xl border border-fg/20 px-4 text-sm font-semibold transition hover:bg-soft disabled:cursor-wait disabled:opacity-60">
+                {moreLoading ? t.moreLoading : t.more}
+              </button>
+              {moreFailed && <p role="alert" className="text-xs text-rose-600">{t.moreFail}</p>}
+            </div>
+          )}
         </section>
       </main>
 

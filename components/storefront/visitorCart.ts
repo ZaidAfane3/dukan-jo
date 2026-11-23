@@ -8,9 +8,9 @@ import { visitorEmail } from "../safeOrder";
    Jordan mobile at checkout, so the store's merchant can remind him of a cart he left (server/storeCarts.ts,
    Marketing > Abandoned carts). The checkout says so under the email field (Cart.tsx cartHint).
 
-   The basket is sent a few seconds after each change (its lines, his email, mobile and name, and the language he
-   shops in), under a random key this browser keeps for this store; never a price: the server prices it from the
-   store's own products. Emptying the basket (or clearing both email and mobile) deletes it there. Placing the order
+   The basket is sent a few seconds after each change, or at once when he leaves or hides the page (its lines, his
+   email, mobile and name, and the language he shops in), under a random key this browser keeps for this store; never
+   a price: the server prices it from the store's own products. Emptying the basket (or clearing both email and mobile) deletes it there. Placing the order
    sends the key with the order, so the server marks this cart recovered, and the next basket gets a new key. */
 
 /* a basket's key in this browser, per store, and whether the server holds an open cart for it now */
@@ -62,6 +62,8 @@ export type CartLine = { id: number; qty: number; size?: string };
 export function useServerCart(slug: string | undefined, lines: CartLine[], who: { email: string; phone: string; name: string }, lang: "ar" | "en", hold: boolean): { restart: () => void } {
   /* what was last kept for which key, so the same basket is not sent again */
   const sent = useRef("");
+  /* the send waiting for its few seconds: sent at once when he leaves the page or hides it (below) */
+  const pending = useRef<(() => void) | null>(null);
   const linesFp = JSON.stringify(lines);
   const email = visitorEmail(who.email);
   const mobile = jordanMobile(who.phone.trim());
@@ -79,13 +81,16 @@ export function useServerCart(slug: string | undefined, lines: CartLine[], who: 
     const body = keep ? { key: k.key, lines: list, email, phone: mobile ? `0${mobile}` : "", name, lang } : { key: k.key, lines: [] };
     const fp = JSON.stringify(body);
     if (sent.current === fp) return;
-    const timer = window.setTimeout(() => {
+    let timer = 0;
+    const send = () => {
+      window.clearTimeout(timer);
+      if (pending.current === send) pending.current = null;
       void fetch(`/api/public/store/${encodeURIComponent(slug)}/cart`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: fp,
-        /* still sent when he leaves the page right after a change */
+        /* a send started as the page goes away (see below) is finished by the browser after it has gone */
         keepalive: true,
       })
         .then((r) => {
@@ -97,9 +102,29 @@ export function useServerCart(slug: string | undefined, lines: CartLine[], who: 
         .catch(() => {
           /* offline: sent again with the next change */
         });
-    }, WAIT_MS);
-    return () => window.clearTimeout(timer);
+    };
+    pending.current = send;
+    timer = window.setTimeout(send, WAIT_MS);
+    return () => {
+      window.clearTimeout(timer);
+      if (pending.current === send) pending.current = null;
+    };
   }, [slug, hold, linesFp, email, mobile, name, lang, cleared]);
+
+  /* He closes the tab, goes to another site or hides the page (a phone switching apps) within those few seconds: the
+     change waiting is sent now, so the last thing he did (an email just typed, a product just taken out) is what the
+     server keeps, and a reminder never brings back a product he removed */
+  useEffect(() => {
+    if (!slug) return;
+    const flush = () => pending.current?.();
+    const onHide = () => document.visibilityState === "hidden" && flush();
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, [slug]);
 
   const restart = useCallback(() => {
     if (!slug) return;
