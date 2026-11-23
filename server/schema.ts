@@ -1014,4 +1014,27 @@ export const DIWAN_SCHEMA = `
      settings then, as before. Kept with the order, so changing the delivery settings later never changes what an order
      was told. */
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS fee_open BOOLEAN;
+  /* ---------- Diwan: the red number beside a page in the sidebar (server/badges.ts) ----------
+     staff_seen: when each staff member last opened each page that shows one ("tickets", "documents"...). What came in
+     after it is new to them; opening the page again moves it to now. A page they never opened starts from the first
+     time their Diwan asked for the numbers, so what was there before isn't counted as new. */
+  CREATE TABLE IF NOT EXISTS staff_seen (
+    staff_id BIGINT NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
+    tab      TEXT NOT NULL,
+    seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (staff_id, tab)
+  );
+  /* sent_at: when a document reached Diwan: when it was sent, or for a courier proof sent as a draft, when the merchant
+     saved his delivery choice and it was handed over (app/api/store PUT). Rows from before take the day they were sent. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+  UPDATE documents SET sent_at = created_at WHERE sent_at IS NULL;
+  ALTER TABLE documents ALTER COLUMN sent_at SET DEFAULT now();
+  /* the numbers look only at what came in lately, so each count goes through a short index rather than the whole table */
+  CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
+  CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';
+  CREATE INDEX IF NOT EXISTS store_orders_ship_new ON store_orders (created_at) WHERE ship_by = 'dukkan';
+  CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at);
+  CREATE INDEX IF NOT EXISTS store_reports_created ON store_reports (created_at);
+  CREATE INDEX IF NOT EXISTS payments_created ON payments (created_at);
+  CREATE INDEX IF NOT EXISTS theme_purchases_paid ON theme_purchases (paid_at) WHERE price > 0;
 `;
