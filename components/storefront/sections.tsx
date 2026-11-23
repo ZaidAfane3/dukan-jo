@@ -11,7 +11,7 @@ import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, ty
 import { basketMost, copy, currency, fillColors, freeWord, icons, moneyIn, mostWords, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { productCount, searchCopy } from "./search";
-import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
+import { bannerInk, bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
 import { onShowSlide } from "./slideSignal";
 import { useSpots } from "./spotSignal";
 import { initialOf, isBlank } from "../safe";
@@ -1445,7 +1445,7 @@ function SampleButton({ ctx }: { ctx: Ctx }) {
   const on = ctx.design?.sampleProducts;
   if (!on || ctx.data.products.length) return null;
   return (
-    <button type="button" data-sample-on onClick={(e) => { e.stopPropagation(); on(true); }} className="mt-3 inline-flex items-center gap-1.5 rounded-full border-2 border-[color-mix(in_srgb,var(--sf-primary)_45%,transparent)] px-5 py-2 text-xs font-bold text-[var(--sf-primary)] transition hover:bg-[color-mix(in_srgb,var(--sf-primary)_8%,transparent)]">
+    <button type="button" data-sample-on onClick={(e) => { e.stopPropagation(); on(true); }} className="mt-3 inline-flex items-center gap-1.5 rounded-full border-2 border-[color-mix(in_srgb,var(--sf-primary)_45%,transparent)] px-5 py-2 text-xs font-bold text-[var(--sf-primarytext,var(--sf-primary))] transition hover:bg-[color-mix(in_srgb,var(--sf-primary)_8%,transparent)]">
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.500-7 10-7 10 7 10 7-3.500 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
       {ctx.lang === "ar" ? "معاينة بمنتجات تجريبية" : "Preview with sample products"}
     </button>
@@ -2146,7 +2146,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "معرض صور: أضف صورك من القائمة الجانبية" : "Picture tiles: add your pictures from the side panel"}
         </div>
       </section>
@@ -2227,7 +2227,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "بنرات ترويجية: أضف بنرًا من القائمة الجانبية" : "Promo banners: add a banner from the side panel"}
         </div>
       </section>
@@ -2255,9 +2255,6 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const dgo = ctx.design && pageOf(b.link ?? "") !== null ? (e: React.MouseEvent) => { if (e.ctrlKey || e.metaKey) ctx.design?.openPage?.(pageOf(b.link)!); } : undefined;
           const rich = b.panel === "light" || b.panel === "dark";
           const accent = b.accent || "var(--sf-accent)";
-          /* the store's accent as words on a frosted panel: kept where it reads on the panel, else the page text's rule */
-          const richBg = b.panel === "light" || b.panel === "dark" ? hex(b.panelColor) || (b.panel === "dark" ? "#12100d" : "#fff5f8") : "";
-          const accentWords = b.accent || !richBg ? accent : accentFor(ctx, richBg);
           const sizeClass = tall ? (ctx.compact ? "h-[420px]" : "h-[600px]") : ctx.compact ? "aspect-[4/3]" : ratio;
           const photo = b.image && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -2269,6 +2266,10 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const bg = { background: b.image ? "#000" : `linear-gradient(135deg, ${plain}, color-mix(in srgb, ${plain} 60%, #6fe3cf))` };
           /* his own colors for the words, where they read on what the words sit on; one that vanishes there gives way to the usual color */
           const surface = bannerSurface(b, primary, ctx.data.color);
+          /* the banner's own words color (the panel's, or white), where it reads there; else the page text's rule picks one */
+          const words = bannerInk(b, primary, ctx.data.color);
+          /* the store's accent as words on a frosted panel: kept where it reads on what the panel really shows, else the page text's rule */
+          const accentWords = b.accent || !rich ? accent : accentFor(ctx, surface);
           const ownC = (c?: string) => (c && readsOn(c, surface) ? c : undefined);
           /* a filled button keeps white words unless they vanish on his button color */
           const onBtn = (c?: string) => (c && !readsOn("#ffffff", c) ? onColor(c) : "#ffffff");
@@ -2365,7 +2366,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
             const family = displayFamily[b.font ?? "default"];
             const small = displayFamily[b.textFont ?? "default"];
             const customPanel = !!b.panelColor && /^#[0-9a-f]{6}$/i.test(b.panelColor);
-            const panelStyle = customPanel ? { background: `color-mix(in srgb, ${b.panelColor} 72%, transparent)`, color: onColor(b.panelColor!) === "#ffffff" ? "#f4efe6" : "#2a1f16" } : undefined;
+            const panelStyle = { ...(customPanel ? { background: `color-mix(in srgb, ${b.panelColor} 72%, transparent)` } : {}), color: words };
             const btn = `mt-5 inline-flex w-fit items-center rounded-full px-6 py-2.5 text-sm font-semibold transition hover:-translate-y-0.5 ${b.buttonStyle === "outline" ? "border" : "text-white"}`;
             /* an outline button in his color where it reads on the panel (else the panel's words color); a filled one keeps readable words */
             const accentHex = hex(b.accent) || hex(ctx.config.theme.accent || primary);
@@ -2374,7 +2375,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
               <div key={n} className={shell} style={bg}>
                 {photo}
                 <div
-                  className={`absolute max-w-[min(80%,24rem)] rounded-[22px] px-8 py-7 backdrop-blur-[8px] ${corner[b.position ?? "top-start"]} ${customPanel ? "" : dark ? "bg-[rgba(18,14,11,.55)] text-[#e9dfcf]" : "bg-[rgba(255,245,248,.72)] text-[#5a3a34]"}`}
+                  className={`absolute max-w-[min(80%,24rem)] rounded-[22px] px-8 py-7 backdrop-blur-[8px] ${corner[b.position ?? "top-start"]} ${customPanel ? "" : dark ? "bg-[rgba(18,14,11,.55)]" : "bg-[rgba(255,245,248,.72)]"}`}
                   style={panelStyle}
                 >
                   {eyebrow && <p className="text-xs tracking-wide" style={{ fontFamily: small, color: ownC(b.eyebrowColor) || (b.accent && !ownC(b.accent) ? "inherit" : accentWords), fontSize: b.textSize ? Math.round(b.textSize * 0.8) : b.textFont && b.textFont !== "default" ? 20 : undefined , ...tx(b.styles?.eyebrow) }}><Say>{eyebrow}</Say></p>}
@@ -2409,7 +2410,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
             <div key={n} className={shell} style={bg}>
               {photo}
               <span aria-hidden className={`absolute inset-0 -z-10 ${middle ? "bg-black/40" : "bg-gradient-to-t from-black/65 via-black/15 to-transparent"}`} />
-              <div className={`flex h-full flex-col p-6 text-white ${middle ? "items-center justify-center text-center" : "justify-end"}`}>
+              <div className={`flex h-full flex-col p-6 ${middle ? "items-center justify-center text-center" : "justify-end"}`} style={{ color: words }}>
                 {middle && eyebrow && <p className={`mb-2 font-bold drop-shadow ${/[؀-ۿ]/.test(eyebrow) ? "" : "uppercase tracking-[0.18em]"}`} style={{ color: ownC(b.eyebrowColor) || "inherit", fontSize: b.eyebrowSize ? scaled(b.eyebrowSize, ctx.compact) : 13, fontFamily: b.textFont && b.textFont !== "default" ? displayFamily[b.textFont] : undefined, ...tx(b.styles?.eyebrow) }}><Say>{eyebrow}</Say></p>}
                 {title && <h3 className="font-extrabold leading-tight drop-shadow" style={{ fontFamily: displayFamily[b.font ?? "default"], color: ownC(b.titleColor) || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) , ...tx(b.styles?.title) }}><Say>{title}</Say></h3>}
                 {text && <p className={`mt-1.5 max-w-[85%] text-sm leading-relaxed opacity-90 ${middle ? "drop-shadow" : ""}`}><Say>{text}</Say></p>}
@@ -2456,7 +2457,7 @@ function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["set
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "صور متحركة: أضف صورك أو ملفات GIF من القائمة الجانبية" : "Animated pictures: add your pictures or GIFs from the side panel"}
         </div>
       </section>
@@ -2766,7 +2767,7 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
     <section className={section(ctx.compact)}>
       <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} right={items.length > cols ? railCtl.arrows : null} />
       {note && (
-        <p className="mb-4 rounded-xl border-2 border-dashed px-4 py-3 text-center text-sm font-semibold text-[var(--sf-primary)]" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
+        <p className="mb-4 rounded-xl border-2 border-dashed px-4 py-3 text-center text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
           {note}
         </p>
       )}
@@ -2856,7 +2857,7 @@ function Ribbon({ s, ctx }: { s: Extract<SectionConfig, { type: "ribbon" }>["set
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "شريط الكلمات: أضف كلمات من القائمة الجانبية" : "Words ribbon: add words from the side panel"}
         </div>
       </section>
@@ -2895,7 +2896,7 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "أزرار ملوّنة: أضف أزرارًا من القائمة الجانبية" : "Colored chips: add chips from the side panel"}
         </div>
       </section>

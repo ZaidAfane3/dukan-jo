@@ -6,8 +6,9 @@ import { db } from "@/server/db";
 export const dynamic = "force-dynamic";
 
 /* The signed-in merchant's choices on Settings, Customize notifications: which events should reach him by WhatsApp and
-   which by email (table notification_prefs, server/schema.ts; the events in components/notifyPrefs.ts). Nothing sends
-   those messages yet: a future sender reads what is saved here. A suspended shop's session counts as none
+   which by email (table notification_prefs, server/schema.ts; the events in components/notifyPrefs.ts). server/notify.ts
+   reads the email switch of new orders and of the two stock alerts before it emails him (notifyPrefs.ts LIVE_EMAIL);
+   WhatsApp and the other events are not sent yet, but their switches are kept as saved. A suspended shop's session counts as none
    (currentAccount), so it can neither read nor change them.
    GET: { result: "ok", prefs, saved } with every event filled in (the default, both on, for any event never chosen);
         saved is false while the account has no row yet.

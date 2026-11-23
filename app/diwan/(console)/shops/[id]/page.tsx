@@ -155,7 +155,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
               const look = STATUS_LOOK[key];
               const line =
                 key === "suspended"
-                  ? t(`Suspended by Dukkan on ${f.date(sh.suspended_at)}`, `أوقفته دكّان في ${f.date(sh.suspended_at)}`)
+                  ? t(`Suspended by Dukkan on ${f.date(sh.suspended_at)}`, `أوقفته دكان في ${f.date(sh.suspended_at)}`)
                   : key === "paused"
                     ? t("Under maintenance: its merchant paused the store", "تحت الصيانة: أوقف التاجر متجره مؤقتًا")
                     : sh.published
@@ -202,7 +202,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 <ActionCard
                   icon="cash"
                   title={t("Mark a payment as received", "تسجيل دفعة مستلمة")}
-                  line={t("Record money the store paid Dukkan.", "سجّل مبلغًا دفعه المتجر لدكّان.")}
+                  line={t("Record money the store paid Dukkan.", "سجّل مبلغًا دفعه المتجر لدكان.")}
                   onClick={() => setPanel("paid")}
                 />
               )}
@@ -303,13 +303,13 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                   v={(() => {
                     const way =
                       sh.ship_mode === "seen"
-                        ? t("Dukkan Ship", "شحن دكّان")
+                        ? t("Dukkan Ship", "شحن دكان")
                         : sh.ship_mode === "own"
                           ? sh.ship_name
                             ? t(`Own courier: ${sh.ship_name}`, `مندوب خاص: ${sh.ship_name}`)
                             : t("Own courier", "مندوب خاص")
                           : sh.published
-                            ? t("Dukkan Ship (default, not chosen)", "شحن دكّان (تلقائي، لم يُختر)")
+                            ? t("Dukkan Ship (default, not chosen)", "شحن دكان (تلقائي، لم يُختر)")
                             : null;
                     if (way) return sh.pickup ? `${way}${t(" · pickup too", " · والاستلام من المتجر")}` : way;
                     return sh.pickup ? t("Pickup only", "استلام من المتجر فقط") : t("Not chosen yet", "لم يُختر بعد");
@@ -317,7 +317,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 <Line
                   k={t("Ways to pay", "طرق الدفع")}
-                  v={sh.store_pays == null ? t("All Dukkan has on (not chosen)", "كل ما يتيحه دكّان (لم يختر)") : sh.store_pays === "" ? t("None yet", "لا شيء بعد") : sh.store_pays.split(",").map((p) => (p === "cliq" ? t("CliQ", "كليك") : p === "cash" ? t("Cash on delivery", "الدفع عند الاستلام") : t("Card", "بطاقة"))).join(" · ")}
+                  v={sh.store_pays == null ? t("All Dukkan has on (not chosen)", "كل ما يتيحه دكان (لم يختر)") : sh.store_pays === "" ? t("None yet", "لا شيء بعد") : sh.store_pays.split(",").map((p) => (p === "cliq" ? t("CliQ", "كليك") : p === "cash" ? t("Cash on delivery", "الدفع عند الاستلام") : t("Card", "بطاقة"))).join(" · ")}
                 />
                 {sh.ship_mode === "seen" && (
                   <>
@@ -349,14 +349,14 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 <p className="pt-2 text-xs text-muted">
                   {t(
                     "Store page figures are counted by Dukkan from the orders customers placed; added figures are the orders the merchant added himself, which Dukkan can't check. Card and CliQ test orders are not counted, and sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
-                    "أرقام صفحة المتجر يحسبها دكّان من الطلبات التي قدّمها العملاء، والأرقام المضافة هي طلبات أضافها التاجر بنفسه ولا يستطيع دكّان التحقق منها. الطلبات التجريبية بالبطاقة وكليك غير محسوبة، والمبيعات هي الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
+                    "أرقام صفحة المتجر يحسبها دكان من الطلبات التي قدّمها العملاء، والأرقام المضافة هي طلبات أضافها التاجر بنفسه ولا يستطيع دكان التحقق منها. الطلبات التجريبية بالبطاقة وكليك غير محسوبة، والمبيعات هي الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
                   )}
                 </p>
               </Info>
             </div>
 
             {/* the store's history with Dukkan, newest first in each part */}
-            <h2 className="mb-4 mt-10 text-xl font-extrabold tracking-tight">{t("History with Dukkan", "السجل مع دكّان")}</h2>
+            <h2 className="mb-4 mt-10 text-xl font-extrabold tracking-tight">{t("History with Dukkan", "السجل مع دكان")}</h2>
             <div className="grid gap-4 lg:grid-cols-2">
               {d.payments && (
                 <Part
@@ -777,7 +777,7 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
         <p className="text-sm text-muted">
           {t(
             "Only after checking it is really the owner (for example a call to the mobile on the account). Their next sign-in needs only the password. The merchant is told in Dukkan and by email.",
-            "فقط بعد التأكد من أنه المالك فعلًا (مثلًا باتصال على جوال الحساب). يحتاج دخوله التالي إلى كلمة المرور فقط. يُبلَّغ التاجر بذلك في دكّان وبالبريد.",
+            "فقط بعد التأكد من أنه المالك فعلًا (مثلًا باتصال على جوال الحساب). يحتاج دخوله التالي إلى كلمة المرور فقط. يُبلَّغ التاجر بذلك في دكان وبالبريد.",
           )}
         </p>
         {reasonBox(t("How you checked it is the owner", "كيف تأكدت من أنه المالك"))}

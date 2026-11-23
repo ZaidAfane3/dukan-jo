@@ -93,7 +93,7 @@ export function ShipOrders() {
       : tab === "delivered" ? t("No order has been delivered yet.", "لم يُوصَّل أي طلب بعد.")
         : tab === "failed" ? t("No order is marked not delivered.", "لا يوجد طلب مُعلَّم بأنه لم يُسلَّم.")
           : tab === "cancelled" ? t("No store cancelled an order before delivery.", "لم يلغِ أي متجر طلبًا قبل توصيله.")
-            : t("No Dukkan Ship order yet.", "لا توجد طلبات شحن دكّان بعد.");
+            : t("No Dukkan Ship order yet.", "لا توجد طلبات شحن دكان بعد.");
 
   return (
     <section>
@@ -305,7 +305,7 @@ function Details({ o }: { o: ShipOrder }) {
         <h3 className={head}>{t("Status", "الحالة")}</h3>
         <dl>
           <Row label={t("The store's status", "حالة الطلب عند المتجر")}>{t(MERCHANT_STATUS[o.status].en, MERCHANT_STATUS[o.status].ar)}</Row>
-          <Row label={t("Dukkan delivery", "توصيل دكّان")}><Badge tone={STATE[stateOf(o)].tone}>{t(STATE[stateOf(o)].en, STATE[stateOf(o)].ar)}</Badge></Row>
+          <Row label={t("Dukkan delivery", "توصيل دكان")}><Badge tone={STATE[stateOf(o)].tone}>{t(STATE[stateOf(o)].en, STATE[stateOf(o)].ar)}</Badge></Row>
           {o.ship.state !== "waiting" && (
             <Row label={t("Marked", "عُلِّم")}>
               {f.dateTime(o.ship.at)}

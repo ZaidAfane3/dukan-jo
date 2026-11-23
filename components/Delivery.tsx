@@ -13,7 +13,7 @@ import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 import { typedMoney } from "./records";
 import { cleanMoney } from "./safe";
 import { ACCOUNT_LIMITS } from "./safeAccount";
-import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs } from "./partnerProofs";
+import { MAX_PROOFS, ProofRows, proofsInPlay, syncProofPartner, usePartnerProofs } from "./partnerProofs";
 import { dropUndos, offerUndo, valueUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
@@ -334,9 +334,9 @@ export function Delivery() {
                   }}
                   className="hidden"
                 />
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={proof.busy || !proof.ready || proof.proofs.length >= MAX_PROOFS} className="grid h-16 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={proof.busy || !proof.ready || proofsInPlay(proof.proofs) >= MAX_PROOFS} className="grid h-16 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
                   <span>
-                    {proof.busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proof.proofs.length}/{MAX_PROOFS})</span>
+                    {proof.busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofsInPlay(proof.proofs)}/{MAX_PROOFS})</span>
                   </span>
                 </button>
                 <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
@@ -383,7 +383,7 @@ export const payWords = {
     title: "طرق الدفع",
     sub: "اختر كيف يدفع لك العملاء عند إتمام الطلب.",
     names: { cliq: "كليك CliQ", cash: "الدفع عند الاستلام", card: "بطاقة" } as Record<Payment, string>,
-    unavailable: "غير متاح على دكّان حاليًا",
+    unavailable: "غير متاح على دكان حاليًا",
     none: "لا يستطيع العملاء إتمام الطلب حتى تفعّل طريقة دفع واحدة على الأقل.",
     save: "حفظ",
     saved: "تم الحفظ",

@@ -170,12 +170,12 @@ export default function ShopsPage() {
           ]}
         />
         <Select
-          label={t("Dukkan Ship", "شحن دكّان")}
+          label={t("Dukkan Ship", "شحن دكان")}
           value={filters.ship}
           onChange={setFilter("ship")}
           options={[
-            { value: "", label: `${t("Dukkan Ship", "شحن دكّان")}: ${all}` },
-            { value: "yes", label: t("Uses Dukkan Ship", "يستخدم شحن دكّان") },
+            { value: "", label: `${t("Dukkan Ship", "شحن دكان")}: ${all}` },
+            { value: "yes", label: t("Uses Dukkan Ship", "يستخدم شحن دكان") },
             { value: "no", label: t("Own delivery", "توصيل خاص") },
           ]}
         />

@@ -268,7 +268,7 @@ function TicketView({ first }: { first: Data }) {
       continue;
     }
     const staffSide = m.author === "staff";
-    const who = staffSide ? m.staff?.name ?? t("Dukkan team", "فريق دكّان") : merchantName;
+    const who = staffSide ? m.staff?.name ?? t("Dukkan team", "فريق دكان") : merchantName;
     /* an internal note is a sticky note on the thread (app/globals.css), never a chat bubble */
     const bubble = m.internal
       ? "sticky-note !rounded-[3px] mt-2 -rotate-[0.6deg] rtl:rotate-[0.6deg]"
@@ -526,7 +526,7 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
         {note ? (
           <p className="flex items-center gap-1.5 rounded-lg bg-amber-100 px-2.5 py-1.5 text-xs font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-200">
             {lockIcon}
-            {t("Only Dukkan staff see this note. The merchant is not told.", "لا يرى هذه الملاحظة إلا فريق دكّان. لا يُبلَّغ التاجر.")}
+            {t("Only Dukkan staff see this note. The merchant is not told.", "لا يرى هذه الملاحظة إلا فريق دكان. لا يُبلَّغ التاجر.")}
           </p>
         ) : (
           <div className="flex flex-wrap items-center gap-2">

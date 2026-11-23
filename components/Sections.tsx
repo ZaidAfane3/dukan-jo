@@ -596,20 +596,8 @@ function PaymentsMock() {
           <PayLogo index={1} />
         </div>
 
-        {/* The payment logos float in one tidy row just below the card, so they never cover its rows */}
-        <div dir="ltr" className="absolute inset-x-[3%] -bottom-[11%] flex items-center justify-between gap-3" style={{ transform: "translateZ(100px)" }}>
-          <div className="flex items-center rounded-2xl bg-card px-3 py-2 shadow-xl">
-            <FileLogo
-              src="/logos/paypal.png"
-              box="h-11 w-28" imgClass="max-h-[70%] max-w-[80%] object-contain"
-              fallback={
-                <span className="text-base font-black italic tracking-tight">
-                  <span className="text-[#253b80]">Pay</span>
-                  <span className="text-[#179bd7]">Pal</span>
-                </span>
-              }
-            />
-          </div>
+        {/* The Visa logo floats just below the card's corner, so it never covers its rows (PayPal is no longer taken, so it is not shown) */}
+        <div dir="ltr" className="absolute inset-x-[3%] -bottom-[11%] flex items-center justify-end gap-3" style={{ transform: "translateZ(100px)" }}>
           <div className="flex items-center rounded-2xl bg-card px-3 py-2 shadow-xl">
             <VisaLogo box="h-11 w-28" imgClass="max-h-[70%] max-w-[80%] object-contain" />
           </div>

@@ -230,7 +230,7 @@ function widgetData(w: ReportWidget, section: number, index: number, range: numb
 }
 
 /* The logo of each payment method, in the same order as the items of the widget. "cash" is drawn here. */
-const PAY_LOGOS: Record<string, string[]> = { "p-methods": ["/logos/visa.png", "/logos/cliq.png", "cash", "/logos/paypal.png"] };
+const PAY_LOGOS: Record<string, string[]> = { "p-methods": ["/logos/visa.png", "/logos/cliq.png", "cash"] };
 
 function PayLogo({ src }: { src: string }) {
   if (src === "cash") {

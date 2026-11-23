@@ -82,7 +82,7 @@ export function LoginForm() {
   const common = (r: Reply) => {
     if (r.status === 0 || r.status >= 500) return t("Diwan can't be reached right now. Try again in a moment.", "تعذر الوصول إلى الديوان الآن. حاول بعد قليل.");
     if (r.status === 429) return t("Too many tries. Wait 15 minutes and try again.", "محاولات كثيرة. انتظر 15 دقيقة ثم حاول مجددًا.");
-    if (r.status === 403 && r.data?.result === "forbidden") return t("Open this page from Dukkan's own address.", "افتح هذه الصفحة من عنوان دكّان نفسه.");
+    if (r.status === 403 && r.data?.result === "forbidden") return t("Open this page from Dukkan's own address.", "افتح هذه الصفحة من عنوان دكان نفسه.");
     return "";
   };
 

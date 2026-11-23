@@ -57,7 +57,7 @@ const MUTED = "#78716c";
 
 const FONT = { ar: "Tahoma,Arial,sans-serif", en: "-apple-system,'Segoe UI',Roboto,Arial,sans-serif" };
 const FOOT = {
-  ar: { sent: "أُرسلت هذه الرسالة من دكّان، ولا يُستقبل الرد عليها.", help: "للمساعدة استخدم صفحة الدعم في لوحة التحكم." },
+  ar: { sent: "أُرسلت هذه الرسالة من دكان، ولا يُستقبل الرد عليها.", help: "للمساعدة استخدم صفحة الدعم في لوحة التحكم." },
   en: { sent: "Sent by Dukkan. Replies to this email aren't read.", help: "For help, use Support in your dashboard." },
 };
 const footLine = (lang: "ar" | "en", help: Email["help"]) => `${FOOT[lang].sent}${help === "dashboard" ? ` ${FOOT[lang].help}` : ""}`;
@@ -90,7 +90,7 @@ export function htmlOf(e: Omit<Email, "to">): string {
   const langs: ("ar" | "en")[] = parts ? parts.map((x) => x.lang) : [e.lang];
   const first = langs[0];
   const rtl = first === "ar";
-  const brand = parts ? "دكّان · Dukkan" : rtl ? "دكّان" : "Dukkan";
+  const brand = parts ? "دكان · Dukkan" : rtl ? "دكان" : "Dukkan";
   const rule = `<div style="height:1px;background:#e7e5e4;margin:22px 0"></div>`;
   const body = parts
     ? parts.map((x, n) => (n ? rule : "") + blockOf(x.lang, x.heading, x.text, x.button, n === 0 ? e.code : undefined)).join("")

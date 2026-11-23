@@ -274,7 +274,6 @@ export const SITE_DEFAULTS: SiteContent = {
       { name: "Visa", src: "/logos/visa.png", height: 16, invertInDark: false },
       { name: "Apple Pay", src: "/logos/applepay.png", height: 18, invertInDark: true },
       { name: "CliQ", src: "/logos/cliq-tight.png", height: 22, invertInDark: true },
-      { name: "PayPal", src: "/logos/paypal.png", height: 14, invertInDark: false },
     ],
   },
   social: [

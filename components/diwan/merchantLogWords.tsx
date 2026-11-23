@@ -60,7 +60,7 @@ export function MerchantLineText({ row, t, lang }: { row: MerchantLine; t: T; la
     const k = str(id);
     return k ? (row.themes?.[k]?.[lang] ?? k) : "";
   };
-  const delivery = (v: unknown) => (v === "seen" ? t("Dukkan Ship", "شحن دكّان") : v === "own" ? t("own courier", "مندوب خاص") : str(v));
+  const delivery = (v: unknown) => (v === "seen" ? t("Dukkan Ship", "شحن دكان") : v === "own" ? t("own courier", "مندوب خاص") : str(v));
   const fromTo = (from: string, to: string) =>
     from ? t(`from “${from}” to “${to}”`, `من «${from}» إلى «${to}»`) : t(`to “${to}”`, `إلى «${to}»`);
   let detail = "";

@@ -384,7 +384,7 @@ function SlotField({ def, value, onChange, onLang }: { def: SlotDef; value: Slot
       <div>
         <label className={label} htmlFor={id}>{t(def.label.en, def.label.ar)}{star}</label>
         <input id={id} dir="ltr" className={field} maxLength={300} placeholder="/themes  ·  https://…" value={one} onChange={(e) => onChange(e.target.value)} />
-        <p className="mt-1 text-xs text-muted">{t("A Dukkan page (like /themes) or an https address (opens in a new tab).", "صفحة في دكّان (مثل /themes) أو عنوان https (يفتح في تبويب جديد).")}</p>
+        <p className="mt-1 text-xs text-muted">{t("A Dukkan page (like /themes) or an https address (opens in a new tab).", "صفحة في دكان (مثل /themes) أو عنوان https (يفتح في تبويب جديد).")}</p>
       </div>
     );
   }
@@ -460,8 +460,8 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
       const names = group.map((k) => rule.slots.find((s) => s.key === k)!).map((s) => t(s.label.en, s.label.ar)).join(t(" and ", " و"));
       return t(`${names} go together: fill in all of them (words in English and Arabic) or leave them all empty.`, `${names} معًا: املأها كلها (الكلمات بالعربية والإنجليزية) أو اتركها كلها فارغة.`);
     }
-    if (def.kind === "image") return t("The picture must be a PNG, JPG or WebP up to 400 KB, a picture on Dukkan (/...), or an https address.", "يجب أن تكون الصورة PNG أو JPG أو WebP حتى 400 ك.ب، أو صورة على دكّان (/...)، أو عنوان https.");
-    if (def.kind === "link") return t(`${name} must be a Dukkan page (starting with /) or an https address.`, `${name} يجب أن يكون صفحة في دكّان (يبدأ بـ /) أو عنوان https.`);
+    if (def.kind === "image") return t("The picture must be a PNG, JPG or WebP up to 400 KB, a picture on Dukkan (/...), or an https address.", "يجب أن تكون الصورة PNG أو JPG أو WebP حتى 400 ك.ب، أو صورة على دكان (/...)، أو عنوان https.");
+    if (def.kind === "link") return t(`${name} must be a Dukkan page (starting with /) or an https address.`, `${name} يجب أن يكون صفحة في دكان (يبدأ بـ /) أو عنوان https.`);
     if (def.kind === "theme") return t("Choose a theme from the list.", "اختر تصميمًا من القائمة.");
     if (def.kind === "list") return t(`Write ${name} in English and Arabic, at most ${def.maxItems} lines each.`, `اكتب ${name} بالعربية والإنجليزية، ${def.maxItems} أسطر على الأكثر لكل لغة.`);
     return def.required

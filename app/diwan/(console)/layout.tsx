@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   /* Arabic first; DiwanShell sets the tab's title in the staff's language, with the page's name */
-  title: "ديوان | فريق دكّان",
+  title: "ديوان | فريق دكان",
   robots: { index: false, follow: false },
 };
 

@@ -174,7 +174,7 @@ export default function PaymentsPage() {
     <>
       <PageHead
         title={t("Payments", "المدفوعات")}
-        sub={t("What stores paid Dukkan, and how they paid it.", "ما دفعته المتاجر لدكّان، وكيف دفعته.")}
+        sub={t("What stores paid Dukkan, and how they paid it.", "ما دفعته المتاجر لدكان، وكيف دفعته.")}
         actions={
           <Btn kind="ghost" onClick={exportCsv} disabled={exporting || !s.data?.count} aria-busy={exporting}>
             {exporting ? t("Preparing…", "جارٍ التجهيز…") : t("Export CSV", "تصدير CSV")}

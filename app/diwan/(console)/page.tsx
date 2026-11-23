@@ -175,7 +175,7 @@ function Welcome({ line }: { line?: string }) {
               </span>
             )}
           </h1>
-          <p className="mt-0.5 text-[13.5px] leading-relaxed text-fg/65">{line ?? t("Here is Dukkan today.", "هذه دكّان اليوم.")}</p>
+          <p className="mt-0.5 text-[13.5px] leading-relaxed text-fg/65">{line ?? t("Here is Dukkan today.", "هذه دكان اليوم.")}</p>
         </div>
         {lang === "en" && (
           <p lang="ar" dir="rtl" className="relative hidden shrink-0 pe-28 text-[24px] leading-none text-primary/80 sm:block" style={RUQAA}>

@@ -385,8 +385,8 @@ export const DIWAN_SCHEMA = `
   /* What the merchant chose on Settings, Customize notifications (app/api/notification-prefs/route.ts):
      prefs = { "<event>": { "whatsapp": true|false, "email": true|false } } for the events in components/notifyPrefs.ts
      (newOrder, storeRating, productRating, shippingRating, customerQuestion, lowStock, outOfStock). No row, or an event
-     missing from prefs: the default, both on. Nothing sends WhatsApp or email messages yet: this is what a future sender
-     reads before it sends one. The bell does not use it. */
+     missing from prefs: the default, both on. server/notify.ts reads the email choice of the events it emails
+     (notifyPrefs.ts LIVE_EMAIL); WhatsApp is not sent yet. The bell does not use it. */
   CREATE TABLE IF NOT EXISTS notification_prefs (
     account_id BIGINT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
     prefs      JSONB NOT NULL,
@@ -929,4 +929,61 @@ export const DIWAN_SCHEMA = `
      settings then, as before. Kept with the order, so changing the delivery settings later never changes what an order
      was told. */
   ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS fee_open BOOLEAN;
+  /* ---------- Diwan: the red number beside a page in the sidebar (server/badges.ts) ----------
+     staff_seen: when each staff member last opened each page that shows one ("tickets", "documents"...). What came in
+     after it is new to them; opening the page again moves it to now. A page they never opened starts from the first
+     time their Diwan asked for the numbers, so what was there before isn't counted as new. */
+  CREATE TABLE IF NOT EXISTS staff_seen (
+    staff_id BIGINT NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
+    tab      TEXT NOT NULL,
+    seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (staff_id, tab)
+  );
+  /* sent_at: when a document reached Diwan: when it was sent, or for a courier proof sent as a draft, when the merchant
+     saved his delivery choice and it was handed over (app/api/store PUT). Rows from before take the day they were sent. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+  UPDATE documents SET sent_at = created_at WHERE sent_at IS NULL;
+  ALTER TABLE documents ALTER COLUMN sent_at SET DEFAULT now();
+  /* the numbers look only at what came in lately, so each count goes through a short index rather than the whole table */
+  CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
+  CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';
+  CREATE INDEX IF NOT EXISTS store_orders_ship_new ON store_orders (created_at) WHERE ship_by = 'dukkan';
+  CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at);
+  CREATE INDEX IF NOT EXISTS store_reports_created ON store_reports (created_at);
+  CREATE INDEX IF NOT EXISTS payments_created ON payments (created_at);
+  CREATE INDEX IF NOT EXISTS theme_purchases_paid ON theme_purchases (paid_at) WHERE price > 0;
+
+  /* ---------- carts customers leave on a store (server/storeCarts.ts, Marketing > Abandoned carts) ----------
+     A visitor's basket, kept once he has typed a valid email or Jordan mobile at checkout, so the merchant can remind
+     him of it. key_hash: a keyed fingerprint of the random key his browser keeps for this store's basket (never the key
+     itself). items: the lines as the server priced them from the store's own products (id, name, qty, price, size,
+     picture), never the browser's prices; subtotal: their sum then. email, phone, name: sealed; email_hash: a keyed
+     fingerprint of the email for this shop only (as store_signups), phone_hash the same for the mobile, so an order
+     with that email or mobile marks his carts here as recovered. lang: the language he shopped in (the reminder's language). recovered_at / order_number: the order
+     that ended it. reminders / reminded_at: emails sent (at most 3, one a day: storeCarts.ts). A cart with no change
+     for an hour counts as abandoned; carts untouched for 30 days are deleted. They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_carts (
+    id           BIGSERIAL PRIMARY KEY,
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    key_hash     TEXT NOT NULL,
+    email        TEXT,
+    email_hash   TEXT,
+    phone        TEXT,
+    phone_hash   TEXT,
+    name         TEXT,
+    lang         TEXT NOT NULL DEFAULT 'ar' CHECK (lang IN ('ar', 'en')),
+    items        JSONB NOT NULL DEFAULT '[]',
+    subtotal     NUMERIC(12, 3) NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    recovered_at TIMESTAMPTZ,
+    order_number INTEGER,
+    reminders    INTEGER NOT NULL DEFAULT 0,
+    reminded_at  TIMESTAMPTZ
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS store_carts_key ON store_carts (account_id, key_hash);
+  CREATE INDEX IF NOT EXISTS store_carts_account ON store_carts (account_id, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS store_carts_email ON store_carts (account_id, email_hash) WHERE recovered_at IS NULL;
+  CREATE INDEX IF NOT EXISTS store_carts_phone ON store_carts (account_id, phone_hash) WHERE recovered_at IS NULL;
+  CREATE INDEX IF NOT EXISTS store_carts_updated ON store_carts (updated_at);
 `;

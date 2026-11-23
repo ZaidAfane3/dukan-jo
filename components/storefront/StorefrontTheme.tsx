@@ -26,7 +26,7 @@ const ReportStore = dynamic(() => import("./ReportStore").then((m) => m.ReportSt
 import { useVisitorStore } from "./visitorStore";
 import { sendVisit } from "../storeVisits";
 import { usePageTitle } from "../pageTitle";
-import { basketStorageKey, readBasket, writeBasket } from "./visitorBasket";
+import { basketStorageKey, readBasket, withRestored, writeBasket } from "./visitorBasket";
 
 /* The public store gives each product and each page of the store its own address: /<store>?p=<product id> or
    ?page=<page id>, and a search on the home page /<store>?q=<words>. A reload or a shared link opens it again, and the
@@ -341,6 +341,45 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [settled, basketStore]);
+  /* A reminder's link (?cart=<id>-<signature>, emailed by the store: server/storeCarts.ts): once the kept basket is in,
+     the cart he left is added back to it (visitorBasket.ts withRestored) and the cart opens. The link leaves the
+     address at once, so a reload or a shared address doesn't bring it back again. Asked once per page. */
+  const [cartLink] = useState(() => {
+    try {
+      return typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("cart") ?? "").slice(0, 80);
+    } catch {
+      return "";
+    }
+  });
+  const cartLinkUsed = useRef(false);
+  useEffect(() => {
+    if (!settled || !routed || !visitor || !cartLink || cartLinkUsed.current) return;
+    cartLinkUsed.current = true;
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("cart");
+      window.history.replaceState(window.history.state, "", u.pathname + u.search + u.hash);
+    } catch {
+      /* the address stays as it is */
+    }
+    void fetch(`/api/public/store/${encodeURIComponent(visitor.setup.slug)}/cart`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ restore: cartLink }),
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<{ result?: string; lines?: unknown }>) : null))
+      .then((j) => {
+        if (j?.result !== "ok") return;
+        const got = withRestored(qtyNow.current, j.lines, dataNow.current.products);
+        if (!got.back) return;
+        setQtyMap(got.qty);
+        setCartOpen(true);
+      })
+      .catch(() => {
+        /* offline or the link is too old: the store opens as usual */
+      });
+  }, [settled, routed, visitor, cartLink]);
   /* Back and Forward: the product or page of that address, at the place on the page he left it */
   const [popAt, setPopAt] = useState<{ y: number | null } | null>(null);
   useEffect(() => {
@@ -1213,9 +1252,12 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
         {shownProduct ? (
           <>
           {sampleProduct && (
-            <p data-sample-product className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 text-center text-xs font-medium`} style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)" }}>
+            <p data-sample-product className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 text-center text-xs font-medium`} style={{ background: "color-mix(in srgb, var(--sf-primary) 10%, white)", color: "#1c1917" }}>
+              {/* the strip is nearly white whatever the page's colours, so its words are dark and the link is the store
+                  colour darkened by half: readable even on a dark page or with a pale store colour (review: sample-product
+                  link vanishes on dark pages) */}
               {lang === "ar" ? "منتج تجريبي: أضف منتجاتك لترى منتجك هنا" : "A sample product: add your products to see yours here"}
-              <a href="/products" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-bold text-[var(--sf-primary)] underline underline-offset-2">{lang === "ar" ? "أضف منتجًا" : "Add a product"}</a>
+              <a href="/products" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-bold underline underline-offset-2" style={{ color: "color-mix(in srgb, var(--sf-primary) 50%, #111)" }}>{lang === "ar" ? "أضف منتجًا" : "Add a product"}</a>
             </p>
           )}
           <ProductPage p={shownProduct} ctx={ctx} onBack={closePage} look={config.productPage?.style} fd={fd} pickup={data.pickup} sections={config.sections} ask={whatsappHref(config.footer.whatsapp?.trim() || data.whatsapp)} />
@@ -1241,14 +1283,14 @@ export function StorefrontTheme({ config = defaultConfig, device = "auto", inter
             {/* The elements of the page, built in the designer like the home page */}
             {shownPage.sections.map((s) => renderSection(s, ctx))}
             {design && shownPage.sections.length === 0 && (
-              <p className="mx-8 mb-10 mt-4 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 py-10 text-center text-sm font-semibold text-[var(--sf-primary)]">
+              <p className="mx-8 mb-10 mt-4 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 py-10 text-center text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
                 {lang === "ar" ? "الصفحة فارغة: أضف عناصر من القائمة الجانبية" : "The page is empty: add elements from the side panel"}
               </p>
             )}
           </>
         ) : design && !config.sections.length ? (
           /* the home page with every block taken off: only the designer sees where blocks would go */
-          <p className={`${compact ? "mx-4" : "mx-8"} my-10 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 px-4 py-14 text-center text-sm font-semibold text-[var(--sf-primary)]`}>
+          <p className={`${compact ? "mx-4" : "mx-8"} my-10 rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 px-4 py-14 text-center text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]`}>
             {lang === "ar" ? "الصفحة فارغة: أضف أول عنصر من «عناصر الصفحة» في القائمة الجانبية" : "This page is empty: add your first block from Page elements in the side panel"}
           </p>
         ) : (

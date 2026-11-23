@@ -22,6 +22,7 @@ import {
   type AppNotification,
 } from "./notifications";
 import { GlobalSearch } from "./GlobalSearch";
+import { SEARCH_OPEN } from "./searchSources";
 import { usePrefs } from "./Prefs";
 import { ordersCopy } from "./ordersContent";
 import { ProfileMenu } from "./ProfileMenu";
@@ -189,7 +190,7 @@ export function BellPanel({
       {/* Dukkan's guides, news and rules (Diwan's marketing pages), under the notifications they are announced in */}
       {moreHref && (
         <Link href={moreHref} className="flex items-center justify-between gap-3 border-t border-fg/10 px-5 py-3.5 text-sm font-semibold text-primary transition-colors hover:bg-soft/60">
-          {lang === "ar" ? "من دكّان: كل الأدلة والأخبار" : "From Dukkan: all guides and news"}
+          {lang === "ar" ? "من دكان: كل الأدلة والأخبار" : "From Dukkan: all guides and news"}
           <span aria-hidden className="rtl:-scale-x-100">→</span>
         </Link>
       )}
@@ -260,6 +261,14 @@ function NotificationBell() {
     if (href.startsWith("/support?") && window.location.pathname === "/support") {
       window.dispatchEvent(new CustomEvent("dukkan-open-ticket", { detail: Number(item.params.number) }));
       window.history.replaceState(null, "", href);
+      return;
+    }
+    /* a notice about an item on the page already open (a stock notice while on Products): the page is not opened
+       again, so it is told to open the item, as the search does (GlobalSearch go); Orders follows its address itself */
+    const to = new URL(href, window.location.href);
+    if (to.pathname === window.location.pathname && to.searchParams.has("open") && to.pathname !== "/orders") {
+      window.history.replaceState(window.history.state, "", to.pathname + to.search + to.hash);
+      window.dispatchEvent(new Event(SEARCH_OPEN));
     } else router.push(href);
   };
 

@@ -109,8 +109,13 @@ export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELE
     return { ok: false, status: 0, data: null };
   }
   if (r.status === 401) toSignIn();
+  /* a change was made: the sidebar's red numbers are asked again (components/diwan/badges.tsx) */
+  if (r.ok) window.dispatchEvent(new Event(DIWAN_CHANGED));
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
 }
+
+/** The window event send() raises after every change that worked */
+export const DIWAN_CHANGED = "diwan:changed";
 
 /** What a refusal of the sign-in or of the request itself means, in words (null for any other answer). Diwan has no
     roles, so a 403 is not about what someone may do: "forbidden" is a change sent from a page opened at another address
@@ -120,7 +125,7 @@ export function refusedWords(t: (en: string, ar: string) => string, r: { status:
   if (r.status === 401) return t("You were signed out. Sign in again and try once more.", "انتهت جلستك. سجّل الدخول مجددًا وحاول مرة أخرى.");
   if (r.status !== 403) return null;
   if (r.data?.result === "not-allowed") return t("This account can't do this.", "لا يستطيع هذا الحساب القيام بذلك.");
-  return t("This page is out of date or was opened from another address. Reload it from Dukkan's own address and try again.", "هذه الصفحة قديمة أو فُتحت من عنوان آخر. أعد تحميلها من عنوان دكّان نفسه وحاول مجددًا.");
+  return t("This page is out of date or was opened from another address. Reload it from Dukkan's own address and try again.", "هذه الصفحة قديمة أو فُتحت من عنوان آخر. أعد تحميلها من عنوان دكان نفسه وحاول مجددًا.");
 }
 
 /* ---------------- formatting ---------------- */

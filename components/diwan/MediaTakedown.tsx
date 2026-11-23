@@ -99,7 +99,7 @@ export default function MediaTakedown() {
               <img src={`/media/${found.id}`} alt="" className="h-20 w-20 rounded-lg object-cover ring-1 ring-fg/10" />
             ) : null}
             <div>
-              <p>{found.store ? t(`Store: ${found.store}`, `المتجر: ${found.store}`) : found.accountId ? t("A store without a name yet", "متجر بلا اسم بعد") : t("Dukkan's own (a theme or the starter design)", "ملف لدكّان نفسها (ثيم أو التصميم المبدئي)")}</p>
+              <p>{found.store ? t(`Store: ${found.store}`, `المتجر: ${found.store}`) : found.accountId ? t("A store without a name yet", "متجر بلا اسم بعد") : t("Dukkan's own (a theme or the starter design)", "ملف لدكان نفسها (ثيم أو التصميم المبدئي)")}</p>
               <p className="text-muted" dir="ltr">
                 {found.mime} · {Number((found.bytes / 1_000_000).toFixed(2))} MB · {f.dateTime(found.createdAt)}
               </p>

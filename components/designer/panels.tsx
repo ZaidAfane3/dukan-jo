@@ -33,7 +33,7 @@ import { LinkPicker, LinkTargets, PictureMover, useStorePages } from "./PageLink
 import { emptyForCustomers, sellsOf } from "../storefront/sections";
 import { usePublicSettings } from "../platformPublic";
 import { load as loadInfoPages } from "../InfoPages";
-import { bannerSurface, cardGround, dimOn, footerColors, footerNameSize, hex, inkOn, legibleOn, mix, readsOn } from "../storefront/footerColors";
+import { bannerInk, bannerSurface, cardGround, dimOn, footerColors, footerNameSize, hex, inkOn, legibleOn, mix, readsOn } from "../storefront/footerColors";
 
 export type Identity = { name: string; description: string; color: string; phone: string };
 export type Draft = { config: StorefrontConfig; identity: Identity };
@@ -1765,8 +1765,9 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       if (pop) return key === "title" ? page.title : key === "button" ? page.bg : pageText;
       if (orbit) return key === "title" ? page.title : key === "eyebrow" ? page.accent : key === "button" ? page.bg : key === "subtitle" && hex(pageText) && hex(page.bg) ? mix(hex(pageText), hex(page.bg), 0.8) : pageText;
       if (split) {
-        const text = splitLight ? pageText : "#ffffff";
-        return key === "button" ? (splitLight ? onColor(page.primary) : "#12262b") : key === "eyebrow" && splitLight ? page.accent : text;
+        /* the panel's words: the page's text color where it reads on the panel, else the page text's rule (surfaceInk) */
+        const text = legibleOn(pageText, splitPanel);
+        return key === "button" ? (splitLight ? onColor(page.primary) : "#12262b") : key === "eyebrow" && splitLight ? legibleOn(page.accent, splitPanel, text) : text;
       }
       return key === "button" ? "#12262b" : onBanner;
     };
@@ -4772,7 +4773,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
                   <Seg value={x.font ?? "default"} onChange={(font) => edit(i, { font })} options={fonts} />
                 </Field>
                 <Stepper lang={lang} label={lx.titleSize} value={x.titleSize ?? (x.variant === "card" ? 64 : 84)} auto={x.titleSize === undefined} min={20} max={200} onChange={(titleSize) => edit(i, { titleSize })} onReset={() => edit(i, { titleSize: undefined })} />
-                <ColorChip lang={lang} label={lx.bannerTitleColor} value={x.titleColor} auto={x.variant === "card" ? textNow : x.panel === "light" ? "#5a3a34" : x.panel === "dark" ? "#e9dfcf" : "#ffffff"} onChange={(titleColor) => edit(i, { titleColor })} onReset={() => edit(i, { titleColor: undefined })} on={bannerSurface(x, page.primary, storeColor)} />
+                <ColorChip lang={lang} label={lx.bannerTitleColor} value={x.titleColor} auto={x.variant === "card" ? textNow : bannerInk(x, page.primary, storeColor)} onChange={(titleColor) => edit(i, { titleColor })} onReset={() => edit(i, { titleColor: undefined })} on={bannerSurface(x, page.primary, storeColor)} />
               </>
             }>
               <input value={x.title?.[lang] ?? ""} onChange={(e) => bi(i, "title", e.target.value)} placeholder={listB[lang].bannerTitlePh} aria-label={t.bannerTitle} maxLength={60} className={`${input} h-10`} />
