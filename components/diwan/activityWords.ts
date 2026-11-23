@@ -69,7 +69,7 @@ const W: Record<string, [en: string, ar: string]> = {
   "popup.status": ["Changed a pop-up's status", "غيّر حالة نافذة منبثقة"],
   "popup.restart": ["Started a pop-up again", "شغّل نافذة منبثقة مجددًا"],
   "popup.delete": ["Deleted a pop-up", "حذف نافذة منبثقة"],
-  "ship.order.mark": ["Marked a Dukkan Ship order", "علّم طلب شحن دكّان"],
+  "ship.order.mark": ["Marked a Dukkan Ship order", "علّم طلب شحن دكان"],
   "page.create": ["Created a page", "أنشأ صفحة"],
   "page.edit": ["Edited a page", "عدّل صفحة"],
   "page.status": ["Changed a page's status", "غيّر حالة صفحة"],
@@ -116,7 +116,7 @@ export const actionWords = (t: (en: string, ar: string) => string, action: strin
    (components/diwan/platformSettings.ts says why each went). */
 const SETTING: Record<string, [en: string, ar: string]> = {
   payment_methods: ["Payment methods", "طرق الدفع"],
-  dukkan_ship: ["Dukkan Ship", "شحن دكّان"],
+  dukkan_ship: ["Dukkan Ship", "شحن دكان"],
   store_legal_templates: ["Store legal pages", "الصفحات القانونية للمتاجر"],
   support_contact: ["Support contact", "التواصل مع الدعم"],
   support_reply_hours: ["Support reply time", "مدة الرد على الدعم"],

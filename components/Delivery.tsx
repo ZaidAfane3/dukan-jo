@@ -383,7 +383,7 @@ export const payWords = {
     title: "طرق الدفع",
     sub: "اختر كيف يدفع لك العملاء عند إتمام الطلب.",
     names: { cliq: "كليك CliQ", cash: "الدفع عند الاستلام", card: "بطاقة" } as Record<Payment, string>,
-    unavailable: "غير متاح على دكّان حاليًا",
+    unavailable: "غير متاح على دكان حاليًا",
     none: "لا يستطيع العملاء إتمام الطلب حتى تفعّل طريقة دفع واحدة على الأقل.",
     save: "حفظ",
     saved: "تم الحفظ",

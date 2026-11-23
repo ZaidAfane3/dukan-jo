@@ -72,9 +72,9 @@ export function wordsIn(lang: unknown, words: (lang: EmailLang) => EmailWords): 
 export const resetCodeEmail = (lang: EmailLang): EmailWords =>
   lang === "ar"
     ? {
-        subject: "رمز إعادة تعيين كلمة المرور في دكّان",
+        subject: "رمز إعادة تعيين كلمة المرور في دكان",
         heading: "رمز إعادة تعيين كلمة المرور",
-        text: "هذا رمزك لإعادة تعيين كلمة المرور في دكّان. ينتهي خلال 10 دقائق.\nإذا لم تطلبه فتجاهل هذه الرسالة.",
+        text: "هذا رمزك لإعادة تعيين كلمة المرور في دكان. ينتهي خلال 10 دقائق.\nإذا لم تطلبه فتجاهل هذه الرسالة.",
       }
     : {
         subject: "Your Dukkan password reset code",
@@ -124,9 +124,9 @@ export const ticketRepliedEmail = (lang: EmailLang, p: { number: number | string
   const button = { label: lang === "ar" ? "اعرض التذكرة" : "View the ticket", url: link(`/support?ticket=${p.number}`) };
   return lang === "ar"
     ? {
-        subject: `ردّ دكّان على تذكرتك رقم ${p.number}`,
+        subject: `ردّ دكان على تذكرتك رقم ${p.number}`,
         heading: "ردّ جديد على تذكرتك",
-        text: `ردّ فريق دعم دكّان على تذكرتك رقم ${p.number}${subject ? `: ${subject}` : ""}.\nافتح التذكرة لقراءة الرد.`,
+        text: `ردّ فريق دعم دكان على تذكرتك رقم ${p.number}${subject ? `: ${subject}` : ""}.\nافتح التذكرة لقراءة الرد.`,
         button,
       }
     : {
@@ -142,19 +142,19 @@ export const ticketRepliedEmail = (lang: EmailLang, p: { number: number | string
 export const documentStatusEmail = (lang: EmailLang, p: { name: string; approved: boolean; note?: string }): EmailWords => {
   const name = line(p.name, 120);
   const note = line(p.note);
-  const button = { label: lang === "ar" ? "افتح دكّان" : "Open Dukkan", url: link("/dashboard") };
+  const button = { label: lang === "ar" ? "افتح دكان" : "Open Dukkan", url: link("/dashboard") };
   if (lang === "ar")
     return p.approved
       ? {
           subject: "تمت الموافقة على مستندك",
           heading: "تمت الموافقة على المستند",
-          text: `تمت الموافقة على مستندك «${name}».${note ? `\nملاحظة من دكّان: ${note}` : ""}`,
+          text: `تمت الموافقة على مستندك «${name}».${note ? `\nملاحظة من دكان: ${note}` : ""}`,
           button,
         }
       : {
           subject: "لم يُقبل مستندك",
           heading: "لم يُقبل المستند",
-          text: `لم يُقبل مستندك «${name}».${note ? `\nالسبب: ${note}` : ""}\nيمكنك إرسال مستند جديد من دكّان.`,
+          text: `لم يُقبل مستندك «${name}».${note ? `\nالسبب: ${note}` : ""}\nيمكنك إرسال مستند جديد من دكان.`,
           button,
         };
   return p.approved
@@ -175,12 +175,12 @@ export const documentStatusEmail = (lang: EmailLang, p: { name: string; approved
 /** Dukkan suspended the store (`reason`: what Dukkan wrote, when it did) */
 export const shopSuspendedEmail = (lang: EmailLang, p: { reason?: string }): EmailWords => {
   const reason = line(p.reason);
-  const button = { label: lang === "ar" ? "تواصل مع دعم دكّان" : "Contact Dukkan support", url: link("/support") };
+  const button = { label: lang === "ar" ? "تواصل مع دعم دكان" : "Contact Dukkan support", url: link("/support") };
   return lang === "ar"
     ? {
-        subject: "تم إيقاف متجرك على دكّان",
+        subject: "تم إيقاف متجرك على دكان",
         heading: "تم إيقاف متجرك",
-        text: `أوقف دكّان متجرك، فلا يمكن للزبائن الطلب منه الآن.${reason ? `\nالسبب: ${reason}` : ""}\nإذا كان لديك سؤال فتواصل مع دعم دكّان.`,
+        text: `أوقف دكان متجرك، فلا يمكن للزبائن الطلب منه الآن.${reason ? `\nالسبب: ${reason}` : ""}\nإذا كان لديك سؤال فتواصل مع دعم دكان.`,
         button,
       }
     : {
@@ -193,9 +193,9 @@ export const shopSuspendedEmail = (lang: EmailLang, p: { reason?: string }): Ema
 
 /** The store is open again */
 export const shopReactivatedEmail = (lang: EmailLang): EmailWords => {
-  const button = { label: lang === "ar" ? "افتح دكّان" : "Open Dukkan", url: link("/dashboard") };
+  const button = { label: lang === "ar" ? "افتح دكان" : "Open Dukkan", url: link("/dashboard") };
   return lang === "ar"
-    ? { subject: "عاد متجرك للعمل على دكّان", heading: "عاد متجرك للعمل", text: "أعاد دكّان فتح متجرك، ويمكن للزبائن الطلب منه من جديد.", button }
+    ? { subject: "عاد متجرك للعمل على دكان", heading: "عاد متجرك للعمل", text: "أعاد دكان فتح متجرك، ويمكن للزبائن الطلب منه من جديد.", button }
     : { subject: "Your Dukkan store is open again", heading: "Your store is open again", text: "Dukkan reopened your store. Customers can order from it again.", button };
 };
 
@@ -207,7 +207,7 @@ export const shipFailedEmail = (lang: EmailLang, p: { number: number | string; n
     ? {
         subject: `تعذّر تسليم الطلب رقم ${p.number}`,
         heading: "تعذّر التسليم",
-        text: `تعذّر على شحن دكّان تسليم الطلب رقم ${p.number}.${note ? `\nالسبب: ${note}` : ""}`,
+        text: `تعذّر على شحن دكان تسليم الطلب رقم ${p.number}.${note ? `\nالسبب: ${note}` : ""}`,
         button,
       }
     : {
@@ -238,9 +238,9 @@ export const twoStepOffEmail = (lang: EmailLang, self = false): EmailWords => {
         };
   return lang === "ar"
     ? {
-        subject: "أوقف دكّان التحقق بخطوتين في حسابك",
+        subject: "أوقف دكان التحقق بخطوتين في حسابك",
         heading: "أُوقف التحقق بخطوتين",
-        text: "أوقف فريق دكّان التحقق بخطوتين في حسابك، فصار الدخول بكلمة المرور وحدها.\nيمكنك تشغيله من جديد من الإعدادات.\nإذا لم تطلب هذا، فغيّر كلمة المرور الآن وتواصل مع دعم دكّان.",
+        text: "أوقف فريق دكان التحقق بخطوتين في حسابك، فصار الدخول بكلمة المرور وحدها.\nيمكنك تشغيله من جديد من الإعدادات.\nإذا لم تطلب هذا، فغيّر كلمة المرور الآن وتواصل مع دعم دكان.",
         button,
       }
     : {
@@ -309,7 +309,7 @@ export const staffSigninCodeEmail = (lang: EmailLang, minutes: number): EmailWor
     ? {
         subject: "رمز الدخول إلى ديوان",
         heading: "رمز الدخول إلى ديوان",
-        text: `هذا رمز دخولك إلى ديوان، لوحة فريق دكّان.\nاكتبه في صفحة الدخول، وينتهي خلال ${minutes} دقائق.\nإذا لم تحاول الدخول، فهناك من يعرف كلمة مرورك: اطلب من مالك آخر في الفريق كلمة مرور جديدة لك الآن.`,
+        text: `هذا رمز دخولك إلى ديوان، لوحة فريق دكان.\nاكتبه في صفحة الدخول، وينتهي خلال ${minutes} دقائق.\nإذا لم تحاول الدخول، فهناك من يعرف كلمة مرورك: اطلب من مالك آخر في الفريق كلمة مرور جديدة لك الآن.`,
       }
     : {
         subject: "Your Diwan sign-in code",

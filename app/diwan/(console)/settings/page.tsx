@@ -30,7 +30,7 @@ export default function SettingsPage() {
   const s = useApi<Data>("/api/diwan/settings");
   return (
     <div>
-      <PageHead title={t("Platform settings", "إعدادات المنصة")} sub={t("What every store on Dukkan starts with and can choose from.", "ما تبدأ به كل المتاجر في دكّان وما تستطيع الاختيار منه.")} />
+      <PageHead title={t("Platform settings", "إعدادات المنصة")} sub={t("What every store on Dukkan starts with and can choose from.", "ما تبدأ به كل المتاجر في دكان وما تستطيع الاختيار منه.")} />
       <Loaded s={s} skeleton={<SettingsSkeleton />}>
         {(d) => (
           <div className="grid items-start gap-6 xl:grid-cols-2">
@@ -292,7 +292,7 @@ function Support({ e }: { e: Entry<"support_contact"> }) {
   return (
     <Section
       title={t("Support contact", "التواصل مع الدعم")}
-      sub={t("How merchants reach Dukkan's team: on the suspended-store page and in the website's contact lines. Leave one empty to hide it.", "كيف يصل التجار إلى فريق دكّان: في صفحة المتجر الموقوف وفي بيانات التواصل على الموقع. اترك أيًّا منها فارغًا لإخفائه.")}
+      sub={t("How merchants reach Dukkan's team: on the suspended-store page and in the website's contact lines. Leave one empty to hide it.", "كيف يصل التجار إلى فريق دكان: في صفحة المتجر الموقوف وفي بيانات التواصل على الموقع. اترك أيًّا منها فارغًا لإخفائه.")}
       info={s.info}
       state={s.state}
       onSave={() => s.save()}
@@ -326,7 +326,7 @@ function Support({ e }: { e: Entry<"support_contact"> }) {
             {shown.mailto && <span className={`${chip} ring-1 ring-fg/15`} dir="ltr">{shown.email}</span>}
           </div>
         ) : (
-          <p className="mt-1 text-sm">{t("No way to reach support: only “To sort this out, contact Dukkan's support team.”", "لا توجد طريقة للتواصل مع الدعم: تظهر فقط عبارة «لحلّ الأمر تواصل مع فريق دعم دكّان.»")}</p>
+          <p className="mt-1 text-sm">{t("No way to reach support: only “To sort this out, contact Dukkan's support team.”", "لا توجد طريقة للتواصل مع الدعم: تظهر فقط عبارة «لحلّ الأمر تواصل مع فريق دعم دكان.»")}</p>
         )}
       </div>
     </Section>
@@ -348,7 +348,7 @@ function ReplyTime({ e }: { e: Entry<"support_reply_hours"> }) {
   return (
     <Section
       title={t("Support reply time", "مدة الرد على الدعم")}
-      sub={t("How soon Dukkan's team usually answers a ticket. Merchants see it at the top of their Support page.", "المدة التي يرد خلالها فريق دكّان عادةً على التذكرة. يراها التاجر أعلى صفحة الدعم.")}
+      sub={t("How soon Dukkan's team usually answers a ticket. Merchants see it at the top of their Support page.", "المدة التي يرد خلالها فريق دكان عادةً على التذكرة. يراها التاجر أعلى صفحة الدعم.")}
       info={s.info}
       state={s.state}
       /* a value that fails the rules is still sent (NaN goes as null), so the server refuses it and the card says so */
@@ -672,7 +672,7 @@ function TemplateCard({ info, onChange }: { info: Data["template"]; onChange: ()
   const reset = async () => {
     const yes = await askConfirm({
       title: t("Back to the original design", "العودة إلى التصميم الأصلي"),
-      body: t("New stores will start from Dukkan's original design again. Continue?", "ستبدأ المتاجر الجديدة من تصميم دكّان الأصلي مجددًا. متابعة؟"),
+      body: t("New stores will start from Dukkan's original design again. Continue?", "ستبدأ المتاجر الجديدة من تصميم دكان الأصلي مجددًا. متابعة؟"),
     });
     if (!yes) return;
     setBusy(true);

@@ -17,7 +17,7 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan", en: "Overview", ar: "نظرة عامة", perm: "shops.read", group: null },
   { href: "/diwan/shops", en: "Stores", ar: "المتاجر", perm: "shops.read", group: "stores", badge: "shops" },
   { href: "/diwan/payments", en: "Payments", ar: "المدفوعات", perm: "billing", group: "stores", badge: "payments" },
-  { href: "/diwan/ship", en: "Dukkan Ship", ar: "شحن دكّان", perm: "settings", group: "stores", badge: "ship" },
+  { href: "/diwan/ship", en: "Dukkan Ship", ar: "شحن دكان", perm: "settings", group: "stores", badge: "ship" },
   { href: "/diwan/funnel", en: "Onboarding funnel", ar: "مراحل البدء", perm: "shops.read", group: "stores" },
   { href: "/diwan/tickets", en: "Tickets", ar: "التذاكر", perm: "tickets", group: "support", badge: "tickets" },
   { href: "/diwan/complaints", en: "Store reports", ar: "بلاغات المتاجر", perm: "complaints", group: "support", badge: "complaints" },

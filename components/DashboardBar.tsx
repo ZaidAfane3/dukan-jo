@@ -189,7 +189,7 @@ export function BellPanel({
       {/* Dukkan's guides, news and rules (Diwan's marketing pages), under the notifications they are announced in */}
       {moreHref && (
         <Link href={moreHref} className="flex items-center justify-between gap-3 border-t border-fg/10 px-5 py-3.5 text-sm font-semibold text-primary transition-colors hover:bg-soft/60">
-          {lang === "ar" ? "من دكّان: كل الأدلة والأخبار" : "From Dukkan: all guides and news"}
+          {lang === "ar" ? "من دكان: كل الأدلة والأخبار" : "From Dukkan: all guides and news"}
           <span aria-hidden className="rtl:-scale-x-100">→</span>
         </Link>
       )}

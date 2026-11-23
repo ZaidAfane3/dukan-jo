@@ -56,7 +56,7 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
      on a fresh load in English the metadata used to win). Overview, and pages that are not in the menu, keep Diwan's
      own line. */
   const pageName = DIWAN_NAV.filter((i) => i.href !== "/diwan").find((i) => active(i.href));
-  const tabTitle = pageName ? t(`Diwan | ${pageName.en}`, `ديوان | ${pageName.ar}`) : t("Diwan | Dukkan staff", "ديوان | فريق دكّان");
+  const tabTitle = pageName ? t(`Diwan | ${pageName.en}`, `ديوان | ${pageName.ar}`) : t("Diwan | Dukkan staff", "ديوان | فريق دكان");
   usePageTitle(tabTitle);
 
   const signOut = async () => {
@@ -227,7 +227,7 @@ export function DiwanShell({ staff, children }: { staff: ShellStaff; children: R
               </span>
               <span className="hidden h-6 w-px bg-fg/15 sm:block" aria-hidden />
               <span className="hidden text-[12px] leading-tight text-muted sm:block">
-                <span className="block font-semibold text-fg/85">{t("Diwan", "ديوان دكّان")}</span>
+                <span className="block font-semibold text-fg/85">{t("Diwan", "ديوان دكان")}</span>
                 {t("Dukkan's staff console", "لوحة فريق العمل")}
               </span>
             </Link>

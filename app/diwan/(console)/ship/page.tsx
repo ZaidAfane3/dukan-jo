@@ -45,14 +45,14 @@ export default function ShipPage() {
   return (
     <div>
       <PageHead
-        title={t("Dukkan Ship", "شحن دكّان")}
+        title={t("Dukkan Ship", "شحن دكان")}
         sub={
           tab === "settings" && s.data
-            ? `${t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكّان.")} ${s.data.stores === 0 ? t("No store delivers with it yet.", "لا يوصّل بها أي متجر بعد.") : f.count(s.data.stores, ["store delivers with it.", "stores deliver with it."], { one: "يوصّل بها متجر واحد.", two: "يوصّل بها متجران.", few: "متاجر توصّل بها.", many: "متجرًا يوصّل بها." })}`
-            : t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكّان.")
+            ? `${t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكان.")} ${s.data.stores === 0 ? t("No store delivers with it yet.", "لا يوصّل بها أي متجر بعد.") : f.count(s.data.stores, ["store delivers with it.", "stores deliver with it."], { one: "يوصّل بها متجر واحد.", two: "يوصّل بها متجران.", few: "متاجر توصّل بها.", many: "متجرًا يوصّل بها." })}`
+            : t("Dukkan's own delivery.", "خدمة التوصيل الخاصة بدكان.")
         }
       />
-      <div role="tablist" aria-label={t("Dukkan Ship", "شحن دكّان")} className="mb-6 flex flex-wrap gap-2">
+      <div role="tablist" aria-label={t("Dukkan Ship", "شحن دكان")} className="mb-6 flex flex-wrap gap-2">
         {tabs.map((x) => (
           <button
             key={x.key}
@@ -77,7 +77,7 @@ export default function ShipPage() {
             {d.canSeeStores ? (
               <Stores total={d.stores} />
             ) : (
-              <p className={`${card} text-sm text-muted`}>{d.stores === 0 ? t("No store delivers with Dukkan Ship yet.", "لا يوصّل أي متجر عبر شحن دكّان بعد.") : f.count(d.stores, ["store delivers with Dukkan Ship.", "stores deliver with Dukkan Ship."], { one: "يوصّل متجر واحد عبر شحن دكّان.", two: "يوصّل متجران عبر شحن دكّان.", few: "متاجر توصّل عبر شحن دكّان.", many: "متجرًا يوصّل عبر شحن دكّان." })}</p>
+              <p className={`${card} text-sm text-muted`}>{d.stores === 0 ? t("No store delivers with Dukkan Ship yet.", "لا يوصّل أي متجر عبر شحن دكان بعد.") : f.count(d.stores, ["store delivers with Dukkan Ship.", "stores deliver with Dukkan Ship."], { one: "يوصّل متجر واحد عبر شحن دكان.", two: "يوصّل متجران عبر شحن دكان.", few: "متاجر توصّل عبر شحن دكان.", many: "متجرًا يوصّل عبر شحن دكان." })}</p>
             )}
           </div>
         )}
@@ -96,7 +96,7 @@ function ChangedLine({ d }: { d: Data }) {
         ? t(`Changed ${f.dateTime(d.updatedAt)}${d.by ? ` by ${d.by}` : ""}`, `عُدّل ${f.dateTime(d.updatedAt)}${d.by ? ` بواسطة ${d.by}` : ""}`)
         : d.history.length
           ? /* changes were recorded but the saved setting is gone: never "never changed" above a change */
-            t("The saved setting wasn't found, so Dukkan Ship uses the starting values.", "لم يُعثر على الإعداد المحفوظ، لذا يستخدم شحن دكّان القيم الأولى.")
+            t("The saved setting wasn't found, so Dukkan Ship uses the starting values.", "لم يُعثر على الإعداد المحفوظ، لذا يستخدم شحن دكان القيم الأولى.")
           : t("Never changed: the starting value", "لم يُعدّل: القيمة الأولى")}
     </span>
   );
@@ -190,7 +190,7 @@ function PriceCard({ d, onSaved }: { d: Data; onSaved: () => void }) {
           <h2 className="text-base font-bold">{t("Delivery price for every order", "سعر التوصيل لكل طلب")}</h2>
           <p className="mt-0.5 text-sm text-muted">{t("The same price for every city.", "السعر نفسه لكل المدن.")}</p>
           <p className="mt-4 text-5xl font-extrabold tabular-nums tracking-tight">{f.jod(current)}</p>
-          <p className="mt-2 text-sm text-muted">{t("What a customer pays for delivery on each order from a store that delivers with Dukkan Ship.", "ما يدفعه العميل للتوصيل في كل طلب من متجر يوصّل عبر شحن دكّان.")}</p>
+          <p className="mt-2 text-sm text-muted">{t("What a customer pays for delivery on each order from a store that delivers with Dukkan Ship.", "ما يدفعه العميل للتوصيل في كل طلب من متجر يوصّل عبر شحن دكان.")}</p>
         </div>
         <div className="flex flex-col items-end gap-2">
           <Btn onClick={start}>{t("Change the price", "تغيير السعر")}</Btn>
@@ -351,7 +351,7 @@ function Cities({ d, onSaved }: { d: Data; onSaved: () => void }) {
     <section className={card}>
       <h2 className="text-base font-bold">{t("Cities", "المدن")}</h2>
       <p className="mt-0.5 text-sm text-muted">
-        {t("Where Dukkan Ship picks orders up from a store and delivers them to customers: one list for both. A customer outside these cities can't choose delivery.", "المدن التي يستلم منها شحن دكّان الطلبات من المتجر ويوصّلها إلى العملاء: قائمة واحدة للاثنين. العميل خارج هذه المدن لا يستطيع اختيار التوصيل.")}
+        {t("Where Dukkan Ship picks orders up from a store and delivers them to customers: one list for both. A customer outside these cities can't choose delivery.", "المدن التي يستلم منها شحن دكان الطلبات من المتجر ويوصّلها إلى العملاء: قائمة واحدة للاثنين. العميل خارج هذه المدن لا يستطيع اختيار التوصيل.")}
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
         {d.value.cities.map((c, i) => (
@@ -502,7 +502,7 @@ function Stores({ total }: { total: number }) {
     <section>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold">{t("Stores using Dukkan Ship", "المتاجر التي تستخدم شحن دكّان")} <span className="font-normal text-muted">({f.num(total)})</span></h2>
+          <h2 className="text-base font-bold">{t("Stores using Dukkan Ship", "المتاجر التي تستخدم شحن دكان")} <span className="font-normal text-muted">({f.num(total)})</span></h2>
           <p className="mt-0.5 text-sm text-muted">{t("Newest first. Search by store name or link, or an owner's full email or mobile.", "الأحدث أولًا. ابحث باسم المتجر أو رابطه، أو بالبريد أو الجوال الكامل للمالك.")}</p>
         </div>
         <input type="search" aria-label={t("Search stores", "ابحث في المتاجر")} placeholder={t("Search stores", "ابحث في المتاجر")} className={`${field} w-full sm:w-72`} value={typed} onChange={(x) => setTyped(x.target.value)} />
@@ -511,8 +511,8 @@ function Stores({ total }: { total: number }) {
         <p role="alert" className={`${card} text-sm text-red-600 dark:text-red-400`}>{t("The stores couldn't be loaded.", "تعذّر تحميل المتاجر.")} <button type="button" className="font-semibold underline" onClick={s.reload}>{t("Try again", "حاول مجددًا")}</button></p>
       ) : (
         <DataTable
-          head={[t("Store", "المتجر"), t("Link", "الرابط"), t("Pickup city", "مدينة الاستلام"), t("Status", "الحالة"), t("Orders", "الطلبات"), t("Dukkan Ship orders", "طلبات شحن دكّان")]}
-          empty={s.data && !s.data.rows.length ? (q ? t("No store matches this search.", "لا يوجد متجر يطابق هذا البحث.") : t("No store delivers with Dukkan Ship yet.", "لا يوجد متجر يوصّل عبر شحن دكّان بعد.")) : false}
+          head={[t("Store", "المتجر"), t("Link", "الرابط"), t("Pickup city", "مدينة الاستلام"), t("Status", "الحالة"), t("Orders", "الطلبات"), t("Dukkan Ship orders", "طلبات شحن دكان")]}
+          empty={s.data && !s.data.rows.length ? (q ? t("No store matches this search.", "لا يوجد متجر يطابق هذا البحث.") : t("No store delivers with Dukkan Ship yet.", "لا يوجد متجر يوصّل عبر شحن دكان بعد.")) : false}
         >
           {/* while the first rows load: pulsing rows in the table's own columns, not bare headers (the empty message only
               shows once the answer is in) */}
