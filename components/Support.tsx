@@ -11,7 +11,7 @@ import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required"
 import { ACCOUNT_LIMITS, cleanTickets, ticketKind, TICKET_MIN, TICKET_PICTURES, type Ticket } from "./safeAccount";
 import { pickPicture } from "./designer/image";
 import {
-  createTicket, fetchThread, fetchTickets, pictureUrl, replyTicket, sendable, setTicketOpen,
+  createTicket, fetchThread, fetchTickets, newAttempt, pictureUrl, replyTicket, sendable, setTicketOpen,
   type MerchantStatus, type Sent, type ServerTicket, type Thread,
 } from "./ticketsApi";
 import { usePageTitle } from "./pageTitle";
@@ -1113,21 +1113,34 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
   /* his reply is held for a moment with an Undo, like a new ticket (heldSend.tsx); closing the conversation meanwhile
      sends it at once. Kept as a draft until it went, so one that could not be sent after it was closed comes back here. */
   const draft = `seen-reply-draft-${number}`;
+  /* the reply being written is one attempt (ticketsApi.ts replyTicket): sent again unchanged, the server keeps it once */
+  const attempt = useRef("");
+  /* The draft is looked at once the conversation has loaded: a reply sent as the page reloaded (keepalive) may have
+     reached Dukkan after all, and its draft is then dropped rather than brought back to be sent twice. Only a message of
+     his with the same words written since the draft was kept counts (an earlier "ok" is not this one). */
+  const restored = useRef("");
   useEffect(() => {
+    if ((!t && !failed) || restored.current === draft) return;
+    restored.current = draft;
     const d = takeDraft(draft);
     if (!d || typeof d.text !== "string") return;
+    const words = cleanLines(d.text, ACCOUNT_LIMITS.message);
+    const keptAt = typeof d.at === "number" ? d.at : 0;
+    if (t?.messages.some((m) => m.from === "me" && m.body === words && m.at >= keptAt - 2 * 60_000)) return;
     setText(d.text.slice(0, ACCOUNT_LIMITS.message));
     if (Array.isArray(d.pictures)) setPics(d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES));
+    if (typeof d.attempt === "string") attempt.current = d.attempt;
     setError(sv.sendFailed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
+  }, [draft, t, failed]);
   const deliver = async () => {
     /* the account it is sent as, taken now (the answer may come after a sign-out). While it goes up the box and the
        picture buttons are locked (busy), so what is cleared after is exactly what was sent. */
-    const owner = keepDraft(draft, { text, pictures: pics });
+    if (!attempt.current) attempt.current = newAttempt();
+    const owner = keepDraft(draft, { text, pictures: pics, attempt: attempt.current, at: Date.now() });
     setBusy(true);
     setError("");
-    const r = await replyTicket(number, cleanLines(text, ACCOUNT_LIMITS.message), pics, { leaving: held.leaving.current });
+    const r = await replyTicket(number, cleanLines(text, ACCOUNT_LIMITS.message), pics, { leaving: held.leaving.current, attempt: attempt.current });
     setBusy(false);
     if (!r.ok) {
       /* still open: the box keeps his words and says why; closed meanwhile: the draft brings them back next time */
@@ -1135,6 +1148,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
       return setError(r.why === "too-many" ? sv.tooMany : r.why === "pictures-full" ? sv.picturesRoom : r.field === "pictures" ? sv.picturesBad : sv.sendFailed);
     }
     dropDraft(draft, owner);
+    attempt.current = "";
     setText("");
     setPics([]);
     setNote("");

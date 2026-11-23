@@ -742,7 +742,8 @@ export function Dashboard() {
             ) : !sample && carts.sums ? (
               <div className={`mt-4 flex flex-1 flex-col justify-center gap-5 transition-opacity duration-300 ${busy.carts ? "opacity-40" : ""}`}>
                 <div>
-                  <p className="text-sm text-muted">{h.cartsCount}</p>
+                  {/* the carts no order has ended yet (Marketing and Reports count every abandoned cart, so named apart) */}
+                  <p className="text-sm text-muted">{h.cartsStillOpen}</p>
                   <p className="text-3xl font-bold text-primary"><AnimatedNumber value={carts.sums.open} /></p>
                 </div>
                 <div>

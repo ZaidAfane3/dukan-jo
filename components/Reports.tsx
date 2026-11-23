@@ -395,7 +395,7 @@ const real = {
     cartsNote: "Abandoned carts are kept for a store that is signed in and open at its link.",
     cartsFailed: "Your abandoned carts couldn't be loaded. Check your connection and try again.",
     cartsOpen: "Open abandoned carts",
-    cartsReminders: { title: "Reminders sent", desc: "The reminder emails sent to customers about the carts they left, in the selected period." },
+    cartsReminders: { title: "Reminders sent", desc: "The reminder emails sent to customers about the carts they left." },
     cogsUnknown: (n: number) => `${n === 1 ? "1 sold item has" : `${n} sold items have`} no known cost (no cost on the product, or the product was deleted), so ${n === 1 ? "it is" : "they are"} left out.`,
     profitHigh: "Some sold items have no cost on their product, so the real profit is lower than this.",
     /* the profit counts only the products that have a cost price (storeNumbers.ts salesFigures) */
@@ -451,7 +451,7 @@ const real = {
     cartsNote: "تُحفظ السلات المتروكة لمتجر مسجّل الدخول ومفتوح على رابطه.",
     cartsFailed: "تعذّر تحميل السلات المتروكة. تحقق من الاتصال وحاول مرة أخرى.",
     cartsOpen: "فتح السلات المتروكة",
-    cartsReminders: { title: "تذكيرات تم إرسالها", desc: "رسائل التذكير التي أُرسلت للعملاء عن السلات التي تركوها، خلال الفترة المحددة." },
+    cartsReminders: { title: "تذكيرات تم إرسالها", desc: "رسائل التذكير التي أُرسلت للعملاء عن السلات التي تركوها." },
     cogsUnknown: (n: number) => `${n === 1 ? "قطعة مباعة واحدة تكلفتها" : `${n} من القطع المباعة تكلفتها`} غير معروفة (لا تكلفة على المنتج، أو حُذف المنتج)، فلم تُحسب.`,
     profitHigh: "بعض القطع المباعة لا تكلفة على منتجها، فالربح الحقيقي أقل من هذا.",
     profitFrom: (n: number, m: number) =>

@@ -583,6 +583,40 @@ function mergeStale(who: string | null, k: string, sent: string, theirs: Stale):
   return true;
 }
 
+/* A key put back from the outbox, as it was before its picture data was sent as files (picturesOutOf, in sendBatch):
+   { out: what went, src: the copy with the picture data }. The server kept the lost save's pictures from the data
+   itself, and the browser may have made each picture smaller before sending it, so the two files differ: takeTheirs
+   compares the server's copy with the data. Only the keys being sent; cleared once answered. */
+const withPictureData = new Map<string, { out: string; src: string }>();
+
+/** True when `theirs` is `mine` with some picture data (data:image/...) replaced by file addresses (/media/<id>), and
+    nothing else different. Only the places that held picture data may differ, so another device's change of a picture
+    already kept as a file, or of anything else, is never taken for this one. */
+function sameButFiles(mine: string, theirs: string): boolean {
+  if (!mine.includes("data:image/")) return false;
+  let a: unknown;
+  let b: unknown;
+  try {
+    a = JSON.parse(mine);
+    b = JSON.parse(theirs);
+  } catch {
+    return false;
+  }
+  const same = (x: unknown, y: unknown, depth: number): boolean => {
+    if (depth > 40) return false;
+    if (typeof x === "string" && typeof y === "string") return x === y || (x.startsWith("data:image/") && /^\/media\/[A-Za-z0-9_-]{24}$/.test(y));
+    if (Array.isArray(x)) return Array.isArray(y) && x.length === y.length && x.every((v, i) => same(v, y[i], depth + 1));
+    if (x && typeof x === "object") {
+      if (!y || typeof y !== "object" || Array.isArray(y)) return false;
+      const kx = Object.keys(x);
+      const ky = Object.keys(y);
+      return kx.length === ky.length && kx.every((k) => Object.hasOwn(y, k) && same((x as Record<string, unknown>)[k], (y as Record<string, unknown>)[k], depth + 1));
+    }
+    return x === y;
+  };
+  return same(a, b, 0);
+}
+
 /* A key that is not a list (VERSION_KEYS), put back from the outbox, that another device saved after this browser's
    copy was made: the server keeps its newer copy and this browser takes it (a design sent is kept as the designer's
    draft first), and the page says some changes were not saved. False as for mergeStale: it stays in the outbox. */
@@ -593,6 +627,15 @@ function takeTheirs(who: string | null, k: string, sent: string, theirs: Stale):
   /* the server already has exactly this copy: it is this browser's own save (sent as the tab closed, kept, its answer
      lost), not another device's. Saved: it goes on from the server's version, and nothing is said */
   if (theirs.value === sent) return true;
+  /* the same, but that save went with its picture data inside (sent as the tab closed, when they are not sent first)
+     and the server kept each picture as a file: equal once every picture data of this copy is matched with a file
+     address at the same place. This browser takes the server's copy (the files), and nothing is said. */
+  const before = withPictureData.get(k);
+  withPictureData.delete(k);
+  if (typeof theirs.value === "string" && sameButFiles(before && before.out === sent ? before.src : sent, theirs.value)) {
+    replaceAccountValue(k, theirs.value, sent);
+    return true;
+  }
   if (k === DESIGN_KEY && accountValue(k) === sent) keepRefusedDesign(sent);
   if (restoreAccountValue(k, typeof theirs.value === "string" ? theirs.value : null, sent)) showAgain(k);
   refused("stale");
@@ -703,6 +746,14 @@ function takeBackRefused(held: Record<string, Held> | undefined, sent: Record<st
    goes again. Left as it was, the refused link would stay in his saved setup, and every later save of the setup would be
    refused for it (testing S-3). */
 const SETUP = "seen-setup";
+function slugOf(v: string): string {
+  try {
+    const s = JSON.parse(v) as { slug?: unknown } | null;
+    return s && typeof s.slug === "string" ? s.slug : "";
+  } catch {
+    return "";
+  }
+}
 async function takeBackSlug(owner: string | null, mine: string) {
   const theirs = await serverValue(SETUP);
   if (theirs === undefined || halted || signedInAs() !== follow(owner)) return;
@@ -758,7 +809,14 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
       /* his orders, where one he just added got another number (a store order took its number first: app/api/store):
          the Orders page shows the kept list */
       else if (k === "seen-orders") showAgain(k);
+      /* his setup without the store link another store took in the same second (app/api/store, server/shops.ts
+         dropSetupSlug): his pages stop showing that link and ask for a new one */
+      else if (k === SETUP && slugOf(v) !== slugOf(sent[k])) {
+        showAgain(k);
+        window.dispatchEvent(new Event(SETUP));
+      }
     }
+    for (const k of Object.keys(sent)) withPictureData.delete(k);
     /* a paid theme he has not bought was put on the store: those keys were not kept. This browser takes the server's copy
        back (the store stays on the theme it had), unless the page changed the key again since, and the page says why
        (SaveNotice.tsx, with a way to the theme store) */
@@ -825,6 +883,8 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
         if (v === null || !holdsPictures(k, v) || !stillOwner()) continue;
         const next = await picturesOutOf(k, v).catch(() => v);
         if (next === v || !stillOwner()) continue;
+        /* a change left in the outbox: kept with its picture data until answered (takeTheirs) */
+        if (replay.has(k) && VERSION_KEYS.has(k)) withPictureData.set(k, { out: next, src: v });
         replaceAccountValue(k, next, v);
         batch.set(k, next);
       }
