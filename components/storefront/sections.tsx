@@ -1445,7 +1445,7 @@ function SampleButton({ ctx }: { ctx: Ctx }) {
   const on = ctx.design?.sampleProducts;
   if (!on || ctx.data.products.length) return null;
   return (
-    <button type="button" data-sample-on onClick={(e) => { e.stopPropagation(); on(true); }} className="mt-3 inline-flex items-center gap-1.5 rounded-full border-2 border-[color-mix(in_srgb,var(--sf-primary)_45%,transparent)] px-5 py-2 text-xs font-bold text-[var(--sf-primary)] transition hover:bg-[color-mix(in_srgb,var(--sf-primary)_8%,transparent)]">
+    <button type="button" data-sample-on onClick={(e) => { e.stopPropagation(); on(true); }} className="mt-3 inline-flex items-center gap-1.5 rounded-full border-2 border-[color-mix(in_srgb,var(--sf-primary)_45%,transparent)] px-5 py-2 text-xs font-bold text-[var(--sf-primarytext,var(--sf-primary))] transition hover:bg-[color-mix(in_srgb,var(--sf-primary)_8%,transparent)]">
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.500-7 10-7 10 7 10 7-3.500 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
       {ctx.lang === "ar" ? "معاينة بمنتجات تجريبية" : "Preview with sample products"}
     </button>
@@ -2146,7 +2146,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "معرض صور: أضف صورك من القائمة الجانبية" : "Picture tiles: add your pictures from the side panel"}
         </div>
       </section>
@@ -2227,7 +2227,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "بنرات ترويجية: أضف بنرًا من القائمة الجانبية" : "Promo banners: add a banner from the side panel"}
         </div>
       </section>
@@ -2457,7 +2457,7 @@ function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["set
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "صور متحركة: أضف صورك أو ملفات GIF من القائمة الجانبية" : "Animated pictures: add your pictures or GIFs from the side panel"}
         </div>
       </section>
@@ -2767,7 +2767,7 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
     <section className={section(ctx.compact)}>
       <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} right={items.length > cols ? railCtl.arrows : null} />
       {note && (
-        <p className="mb-4 rounded-xl border-2 border-dashed px-4 py-3 text-center text-sm font-semibold text-[var(--sf-primary)]" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
+        <p className="mb-4 rounded-xl border-2 border-dashed px-4 py-3 text-center text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
           {note}
         </p>
       )}
@@ -2857,7 +2857,7 @@ function Ribbon({ s, ctx }: { s: Extract<SectionConfig, { type: "ribbon" }>["set
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "شريط الكلمات: أضف كلمات من القائمة الجانبية" : "Words ribbon: add words from the side panel"}
         </div>
       </section>
@@ -2896,7 +2896,7 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "أزرار ملوّنة: أضف أزرارًا من القائمة الجانبية" : "Colored chips: add chips from the side panel"}
         </div>
       </section>
