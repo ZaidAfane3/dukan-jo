@@ -6,7 +6,7 @@ import { content } from "./content";
 import { useDemo } from "./demoSandbox";
 import { latin } from "./digits";
 import { usePrefs } from "./Prefs";
-import { cleanOrder, cleanProduct, couponName, parseList, productCategories, type Coupon, type Order } from "./records";
+import { cleanOrder, cleanProduct, couponName, parseList, phoneDigits, productCategories, type Coupon, type Order } from "./records";
 import { findStoreOrder, loadStoreOrders, readCoupons, readInfoPages, SEARCH_OPEN, useStoreOrders, type SearchPage } from "./searchSources";
 
 /* The groups, in the order they are shown: products, orders, coupons, his own info pages, the dashboard's pages */
@@ -141,7 +141,8 @@ export function GlobalSearch() {
         id: String(o.id),
         name: String(o.customer ?? ""),
         hay: norm(`${o.customer ?? ""}\n${o.email ?? ""}`),
-        phone: String(o.phone ?? "").replace(/\s/g, ""),
+        /* kept as bare digits (no +962 or leading 0) so a phone is found however it is typed, like on the Orders page */
+        phone: phoneDigits(String(o.phone ?? "")),
       }));
     const products = data.products
       .filter((p) => !p.deletedAt)
@@ -173,7 +174,7 @@ export function GlobalSearch() {
     if (!t) return [];
     const out: Result[] = [];
     const sym = t.startsWith("#") ? t.slice(1) : t;
-    const digits = t.replace(/\s/g, "");
+    const digits = phoneDigits(t);
     const by = (b: { en: string; ar: string }) => b[lang] || b[lang === "ar" ? "en" : "ar"];
 
     index.products.forEach((p) => {
@@ -181,7 +182,7 @@ export function GlobalSearch() {
     });
 
     index.orders.forEach((o) => {
-      if ((sym && o.id.includes(sym)) || o.hay.includes(t) || (digits && o.phone.includes(digits))) {
+      if ((sym && o.id.includes(sym)) || o.hay.includes(t) || (digits.length >= 3 && o.phone.includes(digits))) {
         out.push({ id: `o${o.key}`, group: 1, label: o.name, sub: `#${o.id}`, href: `/orders?open=${o.id}` });
       }
     });

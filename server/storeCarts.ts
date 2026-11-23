@@ -245,12 +245,24 @@ const SINCE = `CASE $2::int WHEN 0 THEN now() - interval '7 days' WHEN 1 THEN no
 
 /** The store's abandoned carts with their last change in the range (0, 1 or 2, as above), newest first, a page of
     LIST_PAGE at a time (`before`: where the page before ended, the `next` it gave; null for the first page), and for
-    all of them in the range: how many, the share recovered by an order and their average value. */
-export async function listStoreCarts(accountId: string, range: number, before: string | null = null): Promise<{ carts: CartRow[]; next: string | null; count: number; recovered: number; average: number }> {
+    all of them in the range: how many, the share recovered by an order and their average value. The home page and
+    Reports read the rest of the sums: the carts still open (no order yet) and what is in them, how many were
+    recovered, and the reminders sent. */
+export async function listStoreCarts(
+  accountId: string,
+  range: number,
+  before: string | null = null,
+): Promise<{ carts: CartRow[]; next: string | null; count: number; recovered: number; average: number; open: number; openValue: number; recoveredCarts: number; remindersSent: number }> {
   const pool = await db();
   const r = range === 1 || range === 2 ? range : 0;
   const where = `account_id = $1 AND updated_at >= ${SINCE} AND jsonb_array_length(items) > 0 AND ${ABANDONED}`;
-  const sums = await pool.query(`SELECT count(*)::int AS n, count(recovered_at)::int AS back, COALESCE(avg(subtotal), 0) AS avg FROM store_carts WHERE ${where}`, [accountId, r]);
+  const sums = await pool.query(
+    `SELECT count(*)::int AS n, count(recovered_at)::int AS back, COALESCE(avg(subtotal), 0) AS avg,
+            count(*) FILTER (WHERE recovered_at IS NULL)::int AS open, COALESCE(sum(subtotal) FILTER (WHERE recovered_at IS NULL), 0) AS open_value,
+            COALESCE(sum(reminders), 0)::int AS sent
+       FROM store_carts WHERE ${where}`,
+    [accountId, r],
+  );
   /* a cursor (time and id) rather than an offset, so a cart that changed meanwhile never shows twice or pushes one out */
   const cut = before ? CURSOR.exec(before) : null;
   const { rows } = await pool.query(
@@ -295,7 +307,17 @@ export async function listStoreCarts(accountId: string, range: number, before: s
   });
   const s = sums.rows[0] ?? {};
   const count = Number(s.n) || 0;
-  return { carts, next, count, recovered: count ? Math.round((Number(s.back) / count) * 1000) / 10 : 0, average: Math.round(Number(s.avg) * 1000) / 1000 };
+  return {
+    carts,
+    next,
+    count,
+    recovered: count ? Math.round((Number(s.back) / count) * 1000) / 10 : 0,
+    average: Math.round(Number(s.avg) * 1000) / 1000,
+    open: Number(s.open) || 0,
+    openValue: Math.round(Number(s.open_value) * 1000) / 1000,
+    recoveredCarts: Number(s.back) || 0,
+    remindersSent: Number(s.sent) || 0,
+  };
 }
 
 /* ---------------- a reminder ---------------- */

@@ -502,7 +502,8 @@ export function Coupons() {
   };
 
   const exportCsv = () => {
-    const header = m.cols.slice(0, 5).join(",");
+    /* the table's columns plus the code after the name, so each header sits over its own cell */
+    const header = [m.cols[0], m.form.code, ...m.cols.slice(1, 5)].join(",");
     const rows = shown.map((c) =>
       [couponName(c), c.code, discountText(c), c.start || m.startsNow, c.end || m.noEnd, m.statuses[statusOf(c)]]
         /* a cell starting with = + - @ (or a tab or line break) would run as a formula in Excel: a ' in front keeps it text */
