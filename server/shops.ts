@@ -177,6 +177,7 @@ export async function syncShop(
     if ((e as { code?: string }).code !== "23505") throw e;
     await c.query(sql, [...values.slice(0, 2), null, ...values.slice(3)]);
     slugKept = null;
+    await dropSetupSlug(c, accountId, values[2] as string).catch((e) => console.error("[shops] dropping a taken link", accountId, e));
   }
   /* a live store's old link is held for it for a while (server/slugHolds.ts): a problem there never fails the save */
   if (was?.published && (was.slug ?? "").toLowerCase() !== (slugKept ?? "").toLowerCase())
@@ -194,6 +195,25 @@ export async function syncShop(
       product_count: Number(values[11]),
       order_count: Number(values[12]),
     });
+}
+
+/* The link went to another shop (two accounts chose it in the same second): it comes out of this account's saved setup
+   too. Left there, the setup would name a link that is not its own: every later save of the setup would be refused
+   "slug-taken", and his pages would show a link that opens another store. With none, his pages ask him for a new one
+   (StoreLink.tsx, Onboarding.tsx). Only while the setup still names that link and no save changed it since it was read
+   (its row's xmin): a newer setup is never written over. */
+async function dropSetupSlug(c: Q, accountId: string | number, slug: string) {
+  const { rows } = await c.query(`SELECT value, xmin::text AS x FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [accountId]);
+  if (!rows[0] || typeof rows[0].value !== "string") return;
+  let setup: unknown;
+  try {
+    setup = JSON.parse(rows[0].value);
+  } catch {
+    return;
+  }
+  if (!isObj(setup) || typeof setup.slug !== "string" || setup.slug.toLowerCase() !== slug.toLowerCase()) return;
+  const next = JSON.stringify({ ...setup, slug: "" });
+  await c.query(`UPDATE store_data SET value = $3, plain_len = $4, updated_at = now() WHERE account_id = $1 AND key = 'seen-setup' AND xmin::text = $5`, [accountId, seal(next), next.length, rows[0].x]);
 }
 
 type ShopWas = { name: string; slug: string | null; setup_done: number; published: boolean; paused: boolean; ship_mode: string; theme_id: string | null; product_count: number; order_count: number };

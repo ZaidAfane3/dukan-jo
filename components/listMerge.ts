@@ -104,10 +104,14 @@ function bothChanged(mine: unknown, theirs: unknown, bin: boolean): unknown {
 }
 
 /* Two items with the same id made at the same moment (their "created" time, to the millisecond): one item, saved twice.
-   Ids count up, so two devices can each add a different item under the same id, but not at the same millisecond. */
+   Ids count up, so two devices can each add a different item under the same id, but not at the same millisecond.
+   A coupon made before coupons had a "created" time: its id is already the moment it was made and its code, so the
+   same id with the same code is that same coupon too (kept twice, checkout would take the older copy's discount). */
 function sameMaking(a: unknown, b: unknown): boolean {
-  const x = (a as Record<string, unknown> | null)?.created;
-  return typeof x === "number" && x === (b as Record<string, unknown> | null)?.created;
+  const x = a as Record<string, unknown> | null;
+  const y = b as Record<string, unknown> | null;
+  if (typeof x?.created === "number") return x.created === y?.created;
+  return typeof x?.id === "string" && x.id === y?.id && typeof x.code === "string" && x.code === y?.code;
 }
 
 /* the biggest number id in the lists (worked out once, only when two new items share an id) */

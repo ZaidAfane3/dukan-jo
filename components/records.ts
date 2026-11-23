@@ -337,6 +337,9 @@ export type Coupon = {
      copy of the coupons gets the uses it has not seen added again (mergeUsedOnline) */
   usedOnline?: number;
   active: boolean;
+  /* When it was made (ms), kept when it is edited: two copies of it with the same id are the same coupon saved twice,
+     not two (listMerge.ts sameMaking). Coupons made before it have none. */
+  created?: number;
 };
 
 /** A coupon code: 3 to 16 Latin capital letters and digits. */
@@ -489,6 +492,7 @@ export function cleanCoupon(x: Record<string, unknown>): Coupon | null {
     used: count(x.used),
     ...(count(x.usedOnline) > 0 ? { usedOnline: count(x.usedOnline) } : {}),
     active: x.active !== false,
+    ...(time(x.created, 0) ? { created: time(x.created, 0) } : {}),
   };
 }
 
