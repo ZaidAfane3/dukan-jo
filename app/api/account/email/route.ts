@@ -109,7 +109,7 @@ export const POST = guarded(async (req: NextRequest) => {
     return rows[0]?.email_hash === emailKey(email) ? answer({ result: "ok", email }) : answer({ result: "taken" }, 409);
   }
   try {
-    await pool.query(`UPDATE accounts SET email = $2, email_hash = $3, email_verified = true WHERE id = $1`, [a.id, seal(email), emailKey(email)]);
+    await pool.query(`UPDATE accounts SET email = $2, email_hash = $3 WHERE id = $1`, [a.id, seal(email), emailKey(email)]);
   } catch (e) {
     if ((e as { code?: string }).code === "23505") return answer({ result: "taken" }, 409);
     throw e;

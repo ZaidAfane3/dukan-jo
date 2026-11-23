@@ -4,13 +4,13 @@
    account_id is the shop's id everywhere. Money is in JOD with 3 decimals (fils). */
 
 export const DIWAN_SCHEMA = `
-  /* ---------- merchant accounts: sign-in history and impersonation ---------- */
+  /* ---------- merchant accounts: sign-in history ---------- */
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS login_count   INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ NOT NULL DEFAULT now();
-  /* set when a staff member opened this session with "Log in as merchant" (impersonations.id). Unused since 2026-11-16,
-     when that was removed: no new session gets it, and server/auth.ts never accepts a session that has it. */
-  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS impersonation_id BIGINT;
+  /* impersonation_id was set when a staff member opened a session with "Log in as merchant", removed 2026-11-16: no
+     session has had it since, so it goes (2026-11-23), with the impersonations table further down. */
+  ALTER TABLE sessions DROP COLUMN IF EXISTS impersonation_id;
 
   /* ---------- staff ---------- */
   CREATE TABLE IF NOT EXISTS staff (
@@ -100,42 +100,10 @@ export const DIWAN_SCHEMA = `
      only covers non-empty links, so Postgres can't use it for a lookup by a parameter and read the whole table */
   CREATE INDEX IF NOT EXISTS shops_slug_find ON shops (lower(slug));
 
-  /* ---------- plans, subscriptions, payments ----------
-     The plans and subscriptions tables are unused since 2026-11-16: Dukkan has no plans and no free trial, so nothing
-     reads or writes them any more (and a new database no longer gets the 'trial' plan row). They are left in place with
-     their rows, rather than dropped, so no history is lost; payments.subscription_id stays empty for new payments. */
-  CREATE TABLE IF NOT EXISTS plans (
-    id            BIGSERIAL PRIMARY KEY,
-    key           TEXT NOT NULL UNIQUE,
-    name_en       TEXT NOT NULL,
-    name_ar       TEXT NOT NULL,
-    price_month   NUMERIC(10, 3) NOT NULL DEFAULT 0,
-    price_year    NUMERIC(10, 3) NOT NULL DEFAULT 0,
-    max_products  INTEGER,            -- NULL: no limit
-    custom_domain BOOLEAN NOT NULL DEFAULT true, -- no longer used: no store can use its own domain
-    max_staff     INTEGER,            -- NULL: no limit
-    active        BOOLEAN NOT NULL DEFAULT true,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-  );
-
-  CREATE TABLE IF NOT EXISTS subscriptions (
-    id         BIGSERIAL PRIMARY KEY,
-    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    plan_id    BIGINT NOT NULL REFERENCES plans (id),
-    status     TEXT NOT NULL CHECK (status IN ('trial', 'active', 'expired', 'cancelled')),
-    starts_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ends_at    TIMESTAMPTZ,
-    set_by     BIGINT REFERENCES staff (id),
-    note       TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-  );
-  /* one current subscription per shop; older ones stay as history */
-  CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_current ON subscriptions (account_id) WHERE status IN ('trial', 'active');
-
+  /* ---------- payments ---------- */
   CREATE TABLE IF NOT EXISTS payments (
     id              BIGSERIAL PRIMARY KEY,
     account_id      BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    subscription_id BIGINT REFERENCES subscriptions (id),
     amount          NUMERIC(10, 3) NOT NULL CHECK (amount >= 0),
     method          TEXT NOT NULL CHECK (method IN ('bank', 'cliq', 'cash', 'card')),
     reference       TEXT NOT NULL DEFAULT '',
@@ -150,19 +118,20 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE payments ADD COLUMN IF NOT EXISTS request_key TEXT;
   CREATE UNIQUE INDEX IF NOT EXISTS payments_request ON payments (account_id, request_key) WHERE request_key IS NOT NULL;
 
-  /* ---------- log in as merchant ---------- */
-  /* Unused since 2026-11-16, when "Log in as merchant" was removed: no new rows are written. Kept with its old rows. */
-  CREATE TABLE IF NOT EXISTS impersonations (
-    id         BIGSERIAL PRIMARY KEY,
-    staff_id   BIGINT NOT NULL REFERENCES staff (id),
-    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    reason     TEXT NOT NULL,
-    view_only  BOOLEAN NOT NULL DEFAULT true,
-    ip         TEXT NOT NULL DEFAULT '',
-    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ends_at    TIMESTAMPTZ NOT NULL,
-    ended_at   TIMESTAMPTZ
-  );
+  /* ---------- tables gone on 2026-11-23 ----------
+     Unused since 2026-11-16 and kept until now only for their old rows (a copy is taken before this goes live):
+     plans and subscriptions (Dukkan has no plans and no free trial), with payments.subscription_id, their link that
+     stayed empty; impersonations ("Log in as merchant" was removed); domains (Dukkan no longer sells domains or
+     connects a store's own domain); feature_flags (the flags were removed); email_verifications (email codes live in
+     email_codes since 2026-11-21). Their indexes go with them. The column goes before subscriptions, which it points
+     at, and subscriptions before plans. Nothing happens on a database that never had them. */
+  ALTER TABLE payments DROP COLUMN IF EXISTS subscription_id;
+  DROP TABLE IF EXISTS subscriptions;
+  DROP TABLE IF EXISTS plans;
+  DROP TABLE IF EXISTS impersonations;
+  DROP TABLE IF EXISTS domains;
+  DROP TABLE IF EXISTS feature_flags;
+  DROP TABLE IF EXISTS email_verifications;
 
   /* ---------- tickets, bug reports and ideas ---------- */
   CREATE SEQUENCE IF NOT EXISTS ticket_number START 1001;
@@ -293,27 +262,6 @@ export const DIWAN_SCHEMA = `
     products   JSONB NOT NULL DEFAULT '{}',
     PRIMARY KEY (account_id, day)
   );
-
-  /* ---------- domains ----------
-     Kept only for the rows already saved: Dukkan no longer sells domains or connects a store's own domain (every store
-     lives at the site address/<its link>), so nothing adds to this table or shows it any more. */
-  CREATE TABLE IF NOT EXISTS domains (
-    id            BIGSERIAL PRIMARY KEY,
-    account_id    BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    client_id     BIGINT,             -- the id the merchant's page gave it
-    name          TEXT NOT NULL,
-    kind          TEXT NOT NULL CHECK (kind IN ('connect', 'bought')),
-    status        TEXT NOT NULL DEFAULT 'awaiting' CHECK (status IN ('awaiting', 'checking', 'active', 'failed', 'removed')),
-    years         SMALLINT,
-    renews_at     TIMESTAMPTZ,
-    auto_renew    BOOLEAN NOT NULL DEFAULT true,
-    paid          NUMERIC(10, 3) NOT NULL DEFAULT 0,
-    papers_needed BOOLEAN NOT NULL DEFAULT false,
-    note          TEXT NOT NULL DEFAULT '',
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS domains_name ON domains (lower(name)) WHERE status <> 'removed';
 
   /* ---------- themes bought ---------- */
   CREATE TABLE IF NOT EXISTS theme_purchases (
@@ -468,22 +416,10 @@ export const DIWAN_SCHEMA = `
     updated_by BIGINT REFERENCES staff (id),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  /* The 'trial_days' row (the free trial's length) is no longer used since 2026-11-16: Dukkan has no free trial. It is
-     left in place where it exists, but nothing reads or writes it any more. */
-  /* The 'site_content' row (the landing page's words, once saved from Diwan > Website) is no longer used since
-     2026-11-16: the website's copy lives in code (components/siteContent.ts). The row is left in place rather than
-     deleted, but nothing reads or writes it any more. */
-
-  /* unused since flags were removed; kept so existing data isn't dropped */
-  CREATE TABLE IF NOT EXISTS feature_flags (
-    key         TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    mode        TEXT NOT NULL DEFAULT 'off' CHECK (mode IN ('off', 'some', 'all')),
-    account_ids BIGINT[] NOT NULL DEFAULT '{}',
-    updated_by  BIGINT REFERENCES staff (id),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-  );
+  /* Two rows nothing has read or written since 2026-11-16 go (2026-11-23): 'trial_days' (the free trial's length; Dukkan
+     has no free trial) and 'site_content' (the landing page's words, once saved from Diwan > Website; the website's copy
+     lives in code, components/siteContent.ts). */
+  DELETE FROM platform_settings WHERE key IN ('trial_days', 'site_content');
 
   /* ---------- theme and app marketplace ---------- */
   CREATE TABLE IF NOT EXISTS developers (
@@ -532,16 +468,12 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at DESC);
   /* "new stores" audiences count the accounts made since an announcement, pop-up or page went out (server/announce.ts) */
   CREATE INDEX IF NOT EXISTS accounts_created ON accounts (created_at);
-  CREATE INDEX IF NOT EXISTS subscriptions_account ON subscriptions (account_id, created_at DESC);
-  CREATE INDEX IF NOT EXISTS impersonations_account ON impersonations (account_id, started_at DESC);
 
   /* agent D: the rest of the merchant's profile from the settings page (all optional; dob as YYYY-MM-DD) */
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS city   TEXT NOT NULL DEFAULT '';
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS dob    DATE;
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT '' CHECK (gender IN ('', 'male', 'female'));
   /* agent D: Diwan's queues */
-  CREATE INDEX IF NOT EXISTS domains_status ON domains (status, updated_at DESC);
-  CREATE INDEX IF NOT EXISTS domains_account ON domains (account_id, created_at);
   CREATE INDEX IF NOT EXISTS documents_status ON documents (status, created_at DESC);
   CREATE INDEX IF NOT EXISTS store_reports_status ON store_reports (status, created_at DESC);
   CREATE INDEX IF NOT EXISTS store_reports_account ON store_reports (account_id, created_at DESC);
@@ -832,30 +764,14 @@ export const DIWAN_SCHEMA = `
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 
-  /* ---------- a merchant's email, confirmed by a code (server/emailVerify.ts) ----------
-     email_verified: the account proved it gets the email it signs in with. Always true now (see "email codes" below): a
-     sign-up (server/signup.ts) and a change of the email (app/api/account/email) write true, and nothing reads it, so
-     it holds nothing back (no store waits for it to go live).
-     email_verifications: the codes sent for it, apart from password_resets so a code for one can never work for the
-     other. Kept only as an HMAC (crypto.ts blind) of the account, the address it went to and the code; 10 minutes, 5
-     tries, once. email_hash: the address the code went to (crypto.ts emailKey), so a code sent before the email changed
-     confirms nothing. */
-  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT true;
-  CREATE TABLE IF NOT EXISTS email_verifications (
-    id          BIGSERIAL PRIMARY KEY,
-    account_id  BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    email_hash  TEXT NOT NULL,
-    code_hash   TEXT NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at  TIMESTAMPTZ NOT NULL,
-    attempts    SMALLINT NOT NULL DEFAULT 0,
-    used_at     TIMESTAMPTZ
-  );
-  CREATE INDEX IF NOT EXISTS email_verifications_account ON email_verifications (account_id, id DESC);
+  /* accounts.email_verified said the account proved it gets the email it signs in with. Since 2026-11-21 an account
+     exists only once its email was confirmed at sign-up (see "email codes" below), so it was always true and nothing
+     read it: it goes (2026-11-23). */
+  ALTER TABLE accounts DROP COLUMN IF EXISTS email_verified;
 
   /* ---------- email codes: sign-up, 2-step sign-in, a new email (server/emailVerify.ts) ----------
      Since 2026-11-21 an account exists only once its email was confirmed at sign-up, so every account counts as
-     confirmed (email_verified stays, always true; email_verifications above is no longer written).
+     confirmed.
      email_codes: every code sent by email. ref: what it is for ("s:" a sign-up waiting, "l:" a session waiting for its
      2-step code, "c:" an account's new email, "t:" turning 2-step on or off). Kept only as an HMAC (crypto.ts blind).
      new_email: for "c:", the address the account moves to (sealed). confirmed_at: the code was right (a second tab
@@ -864,7 +780,6 @@ export const DIWAN_SCHEMA = `
      nobody confirmed holds nothing. Its browser holds the token (cookie dukkan-signup). Kept an hour.
      two_step_method: how a merchant with 2-step on (totp_on) gets the code: 'email' (WhatsApp later). The authenticator
      app is gone: accounts that used it get their codes by email. */
-  UPDATE accounts SET email_verified = true WHERE NOT email_verified;
   CREATE TABLE IF NOT EXISTS email_codes (
     id           BIGSERIAL PRIMARY KEY,
     ref          TEXT NOT NULL,

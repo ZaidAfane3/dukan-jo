@@ -142,7 +142,7 @@ async function sessionRow(req: NextRequest) {
             COALESCE(sh.status = 'suspended', false) AS suspended
        FROM sessions s JOIN accounts a ON a.id = s.account_id
        LEFT JOIN shops sh ON sh.account_id = a.id
-      WHERE s.token_hash = $1 AND s.expires_at > now() AND s.impersonation_id IS NULL AND s.replaced_at IS NULL`,
+      WHERE s.token_hash = $1 AND s.expires_at > now() AND s.replaced_at IS NULL`,
     [tokenHash(token), DAYS - 1],
   );
   const a = rows[0];
@@ -180,14 +180,14 @@ export const suspendedReply = (reason: string | null, at: Date | string | null) 
 /** For a merchant whose store was suspended while they were signed in: the suspension behind this browser's session,
     or null. Suspending keeps the merchant's own sessions (they count as signed out, see sessionRow) so an open tab can
     still be told why; reactivating deletes them, so the merchant signs in again. Never a session still waiting for its
-    2-step code (nor one left from the removed "log in as merchant"). */
+    2-step code. */
 export async function sessionSuspension(req: NextRequest): Promise<ReturnType<typeof suspendedReply> | null> {
   const token = req.cookies.get(COOKIE)?.value;
   if (!token || token.length > 100) return null;
   const { rows } = await (await db()).query(
     `SELECT sh.suspend_reason, sh.suspended_at
        FROM sessions s JOIN shops sh ON sh.account_id = s.account_id
-      WHERE s.token_hash = $1 AND s.expires_at > now() AND s.impersonation_id IS NULL AND NOT s.pending_totp AND s.replaced_at IS NULL AND sh.status = 'suspended'`,
+      WHERE s.token_hash = $1 AND s.expires_at > now() AND NOT s.pending_totp AND s.replaced_at IS NULL AND sh.status = 'suspended'`,
     [tokenHash(token)],
   );
   return rows[0] ? suspendedReply(rows[0].suspend_reason, rows[0].suspended_at) : null;

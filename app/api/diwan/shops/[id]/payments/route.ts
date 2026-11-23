@@ -11,9 +11,8 @@ export const dynamic = "force-dynamic";
 const METHODS = ["bank", "cliq", "cash", "card"];
 
 /* Marks a payment as received: { amount (JOD), method, reference?, paidOn: "yyyy-mm-dd", note? }. Dukkan has no plans
-   and no free trial, so a payment stands on its own: it is not linked to a subscription and extends nothing
-   (payments.subscription_id stays empty). The merchant gets a message in their bell. Needs the staff member's own
-   password with it ({ myPassword }, server/staffConfirm.ts passwordAgain). */
+   and no free trial, so a payment stands on its own: it extends nothing. The merchant gets a message in their bell.
+   Needs the staff member's own password with it ({ myPassword }, server/staffConfirm.ts passwordAgain). */
 export const POST = staffRoute("billing", async (req, staff, ctx) => {
   const id = await shopId(ctx);
   if (!id) return notFound();

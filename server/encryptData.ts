@@ -20,7 +20,6 @@ const SEALED: { table: string; key: string[]; cols: string[] }[] = [
   { table: "order_deletions", key: ["id"], cols: ["reason", "deleted_by"] },
   { table: "payments", key: ["id"], cols: ["note"] }, // the bank reference stays plain: Dukkan's own code, searched by staff
   { table: "documents", key: ["id"], cols: ["name", "note", "partner"] },
-  { table: "impersonations", key: ["id"], cols: ["reason", "ip"] },
 ];
 
 /** What this file seals, as text: db() runs the start-up setup again whenever it changes (server/db.ts SETUP_KEY) */

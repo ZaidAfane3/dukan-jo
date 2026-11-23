@@ -1,8 +1,8 @@
 import { STORE_PREFIX } from "./siteAddress";
 /* The words, links and pictures of Dukkan's own landing page (the page at "/"), its nav and its footer. Since 2026-11-16
    this file is the only source of the website's copy: to change the website, edit SITE_DEFAULTS below and ship the code.
-   Diwan no longer has a Website page, and the old platform_settings row 'site_content' it saved is no longer read, so
-   nothing in the database can change what the public site says.
+   Diwan no longer has a Website page, and the old platform_settings row 'site_content' it saved is gone (server/schema.ts),
+   so nothing in the database can change what the public site says.
 
    Plain TypeScript with no browser or server APIs, so the server and the browser draw the same page
    (components/useSiteContent.ts reads it for the landing page's sections). */

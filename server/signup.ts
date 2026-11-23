@@ -83,8 +83,8 @@ export async function makeAccount(p: Pending): Promise<MadeAccount> {
       }
     }
     const { rows } = await c.query(
-      `INSERT INTO accounts (email, name, phone, email_hash, phone_hash, password_hash, name_keys, name_keys_v, email_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING id`,
+      `INSERT INTO accounts (email, name, phone, email_hash, phone_hash, password_hash, name_keys, name_keys_v)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
       [seal(p.email), seal(p.name), seal(p.phone), p.email_hash, p.phone_hash, p.password_hash, p.name_keys ?? nameKeys(p.name), p.name_keys ? p.name_keys_v : NAME_KEYS_VERSION],
     );
     const id = String(rows[0].id);
