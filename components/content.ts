@@ -68,7 +68,6 @@ export type Content = {
     errWrongPassword: string;
     errTooMany: string;
     errSignupMany: string;
-    terms: { before: string; terms: string; and: string; privacy: string };
     side: { kicker: string; heading: string; panelTitle: string; caption: string };
   };
   onboarding: {
@@ -560,12 +559,6 @@ export const content: Record<Lang, Content> = {
       errWrongPassword: "The email, number or password is not right. Try again.",
       errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
       errSignupMany: "Too many sign-up tries from this connection in the last hour. Wait an hour and try again.",
-      terms: {
-        before: "By creating an account, you agree to Dukkan's ",
-        terms: "Terms of Service",
-        and: " and ",
-        privacy: "Privacy Policy",
-      },
       side: {
         kicker: "Getting started is the easy part",
         heading: "We'll guide you from signup to your first sale",
@@ -1155,12 +1148,6 @@ export const content: Record<Lang, Content> = {
       errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
       errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
       errSignupMany: "محاولات تسجيل كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
-      terms: {
-        before: "بإنشائك حسابًا، فإنك توافق على ",
-        terms: "شروط الاستخدام",
-        and: " و",
-        privacy: "سياسة الخصوصية",
-      },
       side: {
         kicker: "البداية أسهل مما تتخيل",
         heading: "نرافقك من التسجيل حتى أول عملية بيع",

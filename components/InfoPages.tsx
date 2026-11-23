@@ -15,6 +15,10 @@ import { takeServerCopy } from "./serverSync";
 import { dropUndos, listUndo, offerUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
+import { onServer } from "./merchantApi";
+import { loadSetup } from "./setup";
+import { storeUrl } from "./siteAddress";
+import { storeIsLive } from "./storefront/storage";
 
 type Bi = { en: string; ar: string };
 export type InfoPage = {
@@ -57,6 +61,7 @@ const copy = {
     draft: "Draft",
     visit: "View page",
     soon: "Your store isn't live yet",
+    unpublished: "Publish this page and save it to view it",
     info: "Page information",
     pageTitle: "Page title",
     titlePh: "For example: About us",
@@ -82,6 +87,8 @@ const copy = {
     newest: "Use Dukkan's newest text",
     newestHint: "Puts Dukkan's latest wording for this page in the form, in this language. Nothing changes until you save.",
     untitled: "Untitled page",
+    /* the page has text in the other language only (its text shows faded in the boxes) */
+    onlyOther: "This page has no English text yet. Visitors reading in English see the Arabic text, shown faded in the boxes, until you write it here.",
     /* the undo note at the bottom (UndoToast.tsx) */
     undoAdded: (t: string) => `Page “${t}” added`,
     undoEdited: (t: string) => `Changes to page “${t}” saved`,
@@ -98,6 +105,7 @@ const copy = {
     draft: "مسودة",
     visit: "زيارة الصفحة",
     soon: "متجرك غير منشور بعد",
+    unpublished: "انشر هذه الصفحة واحفظها لتتمكن من زيارتها",
     info: "معلومات الصفحة",
     pageTitle: "عنوان الصفحة",
     titlePh: "مثال: من نحن",
@@ -123,6 +131,7 @@ const copy = {
     newest: "استخدم أحدث نص من دكان",
     newestHint: "يضع أحدث صياغة من دكان لهذه الصفحة في النموذج، بهذه اللغة. لا يتغير شيء حتى تحفظ.",
     untitled: "صفحة بدون عنوان",
+    onlyOther: "لا يوجد نص عربي لهذه الصفحة بعد. يرى الزوار بالعربية النص الإنجليزي، الظاهر باهتًا في الحقول، حتى تكتبه هنا.",
     undoAdded: (t: string) => `أُضيفت الصفحة «${t}»`,
     undoEdited: (t: string) => `حُفظت تعديلات الصفحة «${t}»`,
     undoDeleted: (t: string) => `حُذفت الصفحة «${t}»`,
@@ -237,6 +246,8 @@ export function InfoPages() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [flash, setFlash] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+  /* the store's link name, once the store is on Dukkan's server and live (its pages open at their own address then) */
+  const [liveSlug, setLiveSlug] = useState("");
   /* the list and the page being edited as they are now, for an undo (it checks nothing changed since) */
   const pagesNow = useRef<InfoPage[]>([]);
   /* the list as read from storage (see the save below) */
@@ -253,6 +264,8 @@ export function InfoPages() {
   const t = (b: Bi) => b[lang] || b[other];
 
   usePageTitle(`${brandName(lang)} | ${c.title}`);
+
+  useEffect(() => setLiveSlug(onServer() && storeIsLive() ? loadSetup()?.slug ?? "" : ""), []);
 
   useEffect(() => {
     /* A store with no pages saved in this browser takes the server's copy first (a live store's pages are kept there from
@@ -331,9 +344,11 @@ export function InfoPages() {
 
   const open = (p: InfoPage) => {
     setEditing(p.id);
-    setTitle(t(p.title));
+    /* only this language's text: the other language's shows faded in the boxes (below). Filling the box with it would
+       save it as this language's text too, and a later change in the other language would no longer reach here. */
+    setTitle(p.title[lang]);
     setType(p.type);
-    setContent(t(p.content));
+    setContent(p.content[lang]);
     setFooter(p.footer);
     setPublished(p.published);
     setErrors({});
@@ -393,7 +408,9 @@ export function InfoPages() {
     /* Editing in one language only changes that language's text. */
     const l = pagesNow.current;
     if (editing === "new") {
-      const id = l.reduce((m, p) => Math.max(m, p.id), 0) + 1;
+      /* a new page never takes the id of a deleted one (links to that page would open this one): above every id in
+         the list and above the starting pages (1 to 3), and at least the seconds since 2026 began, which only grow */
+      const id = Math.max(l.reduce((m, p) => Math.max(m, p.id), 0), 3, Math.floor((Date.now() - Date.UTC(2026, 0, 1)) / 1000)) + 1;
       const bi = (v: string): Bi => ({ en: lang === "en" ? v : "", ar: lang === "ar" ? v : "" });
       const made: InfoPage = { id, type, published, footer, title: bi(cleanLine(title, 80)), content: bi(cleanLines(content, 10000)), created: Date.now() };
       change([made, ...l], (x) => copy[x].undoAdded(named(made.title, x)));
@@ -415,6 +432,11 @@ export function InfoPages() {
   };
 
   /* deleting a page is for good, so it still asks first; the Undo after it puts it back for a moment */
+  /* the page being edited as last saved */
+  const page = typeof editing === "number" ? pages.find((p) => p.id === editing) : undefined;
+  /* the starting legal page it is (its text can be taken again from Dukkan's newest), with the type picked in the form */
+  const legal = page ? legalTemplateOf({ id: page.id, type, created: page.created }) : null;
+
   const remove = (id: number) => {
     const gone = pagesNow.current.find((p) => p.id === id);
     setEditing(null);
@@ -502,15 +524,21 @@ export function InfoPages() {
                     <option value="1">{c.published}</option>
                     <option value="0">{c.draft}</option>
                   </select>
-                  <span title={c.soon} className="cursor-not-allowed rounded-lg border border-fg/15 px-4 py-2 text-sm font-semibold text-muted/70">{c.visit}</span>
+                  {/* the page at its own address in the live store (StorefrontTheme opens ?page=<id>), once it is saved and published */}
+                  {liveSlug && page?.published ? (
+                    <a href={`${storeUrl(liveSlug)}?page=${page.id}`} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-fg/20 px-4 py-2 text-sm font-semibold transition hover:bg-soft">{c.visit}</a>
+                  ) : (
+                    <span title={liveSlug ? c.unpublished : c.soon} className="cursor-not-allowed rounded-lg border border-fg/15 px-4 py-2 text-sm font-semibold text-muted/70">{c.visit}</span>
+                  )}
                 </div>
 
                 <h2 className="text-lg font-extrabold">{c.info}</h2>
                 <RequiredNote text={requiredNote[lang]} show={hasErrors(errors)} />
+                {page && (!page.title[lang] || !page.content[lang]) && (page.title[other] || page.content[other]) && <p className="rounded-xl bg-soft px-4 py-3 text-xs text-muted">{c.onlyOther}</p>}
 
                 <div>
                   <label htmlFor="pg-title" className="mb-2 block text-sm font-semibold">{c.pageTitle}<RequiredMark /></label>
-                  <input id="pg-title" ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={c.titlePh} maxLength={80} aria-required className={`${field} h-12`} />
+                  <input id="pg-title" ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={page?.title[other] || c.titlePh} maxLength={80} aria-required className={`${field} h-12`} />
                   {errors.title && <p className="mt-1.5 text-xs text-rose-600">{errors.title}</p>}
                 </div>
 
@@ -531,15 +559,14 @@ export function InfoPages() {
                   </div>
                 </div>
 
-                {typeof editing === "number" && legalTemplateOf({ id: editing, type }) && (
+                {legal && (
                   <div className="flex flex-wrap items-center gap-3">
                     <button
                       type="button"
                       onClick={() =>
                         void refreshPublicSettings().then(() => {
-                          const k = legalTemplateOf({ id: editing, type });
-                          if (!k || editingNow.current !== editing) return;
-                          const tpl = publicSettings().store_legal_templates[k];
+                          if (editingNow.current !== editing) return;
+                          const tpl = publicSettings().store_legal_templates[legal];
                           setTitle(tpl.title[lang] || t(tpl.title));
                           setContent(tpl.body[lang] || t(tpl.body));
                         })
@@ -554,7 +581,7 @@ export function InfoPages() {
 
                 <div>
                   <label htmlFor="pg-content" className="mb-2 block text-sm font-semibold">{c.content}<RequiredMark /></label>
-                  <textarea id="pg-content" value={content} onChange={(e) => setContent(e.target.value)} placeholder={c.contentPh} rows={14} maxLength={10000} aria-required className={`${field} resize-y py-3 leading-7`} />
+                  <textarea id="pg-content" value={content} onChange={(e) => setContent(e.target.value)} placeholder={page?.content[other] || c.contentPh} rows={14} maxLength={10000} aria-required className={`${field} resize-y py-3 leading-7`} />
                   {errors.content && <p className="mt-1.5 text-xs text-rose-600">{errors.content}</p>}
                 </div>
 

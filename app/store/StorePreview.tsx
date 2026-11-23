@@ -6,7 +6,7 @@ import { usePrefs } from "@/components/Prefs";
 import { StorefrontTheme } from "@/components/storefront/StorefrontTheme";
 import { defaultConfig, type StorefrontConfig } from "@/components/storefront/config";
 import { StoreSkeleton } from "@/components/StoreSkeletons";
-import { loadConfig, loadTemplate, refreshTemplate, TEMPLATE_EVENT } from "@/components/storefront/storage";
+import { loadConfig, loadTemplate, refreshTemplate, storeIsLive, TEMPLATE_EVENT } from "@/components/storefront/storage";
 import { defaultStoreName, loadSetup } from "@/components/setup";
 import { useCatalog } from "@/components/catalog";
 import { composeDesign, findTheme, loadThemeState, previewProducts } from "@/components/themes";
@@ -87,9 +87,11 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
     setConfig(original ? defaultConfig : starter ? loadTemplate() ?? defaultConfig : loadConfig());
     /* /store?demo=1 shows the store with sample products, for screenshots. Nothing is saved. */
     setDemo(original || starter || q.get("demo") === "1");
-    /* his own store, not a preview of it: paused, it shows the maintenance page instead */
+    /* his own store, not a preview of it: paused, it shows the maintenance page instead. Only once it is live: visitors of
+       a store that never went live see "coming soon" whether it is paused or not (server/publicStore.ts asks "published"
+       before "paused"), so the maintenance page would not be what they see. */
     const m = loadMaintenance();
-    setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && m.on ? "" : null);
+    setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && storeIsLive() && m.on ? "" : null);
     setReady(true);
   }, [lang, preview, catalog, templateRev]);
 

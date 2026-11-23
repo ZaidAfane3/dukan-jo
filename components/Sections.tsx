@@ -5,7 +5,7 @@ import { Logo } from "./Nav";
 import { supportLinks, usePublicSettings } from "./platformPublic";
 import { FlagJO } from "./Flag";
 import { brandName } from "./content";
-import { linkAttrs, SOCIAL_NAMES, type IndustryIcon, type SiteView } from "./siteContent";
+import { linkAttrs, SOCIAL_NAMES, withSupport, type IndustryIcon, type SiteView } from "./siteContent";
 import { useSite, useSiteLang } from "./useSiteContent";
 import { SeenShipMark } from "./SeenShip";
 import { Reveal, Tilt, Typed } from "./ui";
@@ -1119,18 +1119,18 @@ const socialIcons: Record<SiteView["social"][number]["kind"], React.ReactNode> =
 export function Footer() {
   const { lang, s } = useSite();
   const c = s.footer;
+  /* the phone and email as staff set them in Diwan (Platform settings > Support contact); an empty one is left out */
+  const support = supportLinks(usePublicSettings());
   /* A link with no address is left out, and a column left with no links goes too. The industries column lists the
      industries of the section above and leads to it. */
   const cols = [
-    ...c.columns.map((col) => ({ title: col.title, links: col.links.filter((l) => l.href && l.label) })),
+    ...c.columns.map((col) => ({ title: col.title, links: col.links.map((l) => ({ ...l, href: withSupport(l.href, support.mailto) })).filter((l) => l.href && l.label) })),
     { title: c.industriesTitle, links: s.industries.items.map((i) => ({ label: i.name, href: "#industries" })) },
   ].filter((col) => col.links.length);
   /* with up to three link columns, the payment logos and "Available in" keep their own two columns at the far side */
   const placed = cols.length <= 3;
   const social = s.social.filter((x) => x.href);
   const contact = s.contact;
-  /* the phone and email as staff set them in Diwan (Platform settings > Support contact); an empty one is left out */
-  const support = supportLinks(usePublicSettings());
   const pin = (
     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M12 21s7-6.100 7-11.500A7 7 0 0 0 5 9.500C5 14.900 12 21 12 21Z" />

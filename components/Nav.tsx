@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { brandName } from "./content";
 import { LangSwitch, ThemeToggle } from "./Prefs";
-import { linkAttrs } from "./siteContent";
+import { linkAttrs, withSupport } from "./siteContent";
+import { supportLinks, usePublicSettings } from "./platformPublic";
 import { useSite, useSiteLang } from "./useSiteContent";
 
 export function Logo({ light = false }: { light?: boolean }) {
@@ -24,7 +25,8 @@ export function Logo({ light = false }: { light?: boolean }) {
 function ResourcesMenu() {
   const { s } = useSite();
   const reg = s.legal;
-  const links = s.nav.resourceLinks.filter((l) => l.href && l.label);
+  const mailto = supportLinks(usePublicSettings()).mailto;
+  const links = s.nav.resourceLinks.map((l) => ({ ...l, href: withSupport(l.href, mailto) })).filter((l) => l.href && l.label);
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLLIElement>(null);
 
