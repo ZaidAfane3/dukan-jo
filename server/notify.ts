@@ -20,7 +20,9 @@ import {
      shipCityGone    { city }                   Dukkan Ship no longer picks up from the store's pickup city (Diwan took
                                                 it off the list: app/api/diwan/settings)
      payOff          {}                         Diwan switched off the last way to pay the store had on
-     twoStepOff      {}                         Diwan turned the merchant's 2-step sign-in off (app/api/diwan/shops/[id]/totp)
+     twoStepOff      { by? }                    the merchant's 2-step sign-in was turned off: by Diwan (no `by`,
+                                                app/api/diwan/shops/[id]/totp) or by the merchant in Settings (by "self",
+                                                app/api/auth/totp/disable)
    Dukkan has no plans or free trial, so the old planChanged kind is no longer sent, and "Log in as merchant" was removed
    on 2026-11-16, so neither is the old supportViewed kind (the bell still words both for older messages). Announcements are not sent with
    this: they are rows in announcements, shown to whoever they are for. */
@@ -74,7 +76,7 @@ function wordsFor(kind: NotifyKind, p: Params): Words | null {
     case "shipFailed":
       return (l) => shipFailedEmail(l, { number: p.number, note: String(p.note ?? "") });
     case "twoStepOff":
-      return (l) => twoStepOffEmail(l);
+      return (l) => twoStepOffEmail(l, p.by === "self");
     default:
       return null;
   }

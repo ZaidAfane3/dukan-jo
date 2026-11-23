@@ -36,7 +36,7 @@ export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
   shipFailed: 1, /* Dukkan Ship could not deliver it */
   shipCityGone: 1, /* Dukkan Ship no longer picks up from his city */
   payOff: 1, /* Dukkan switched off the last way to pay his store had */
-  twoStepOff: 1, /* Dukkan turned his 2-step sign-in off */
+  twoStepOff: 1, /* his 2-step sign-in was turned off (by Dukkan, or by him in Settings) */
   supportViewed: 1,
   announcement: 1,
 };
@@ -183,7 +183,7 @@ export function notificationLink(item: AppNotification): string | null {
   if (item.kind === "shipCityGone") return "/delivery";
   /* the last way to pay his store had was switched off by Dukkan: the Ways to pay card, where he turns on another */
   if (item.kind === "payOff") return "/delivery#ways-to-pay";
-  /* Dukkan turned his 2-step sign-in off: Settings, where he turns it on again */
+  /* his 2-step sign-in was turned off: Settings, where he turns it on again */
   if (item.kind === "twoStepOff") return "/settings#two-step";
   return null;
 }
@@ -226,7 +226,7 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
     case "payOff":
       return w.payOff;
     case "twoStepOff":
-      return w.twoStepOff;
+      return p.by === "self" ? w.twoStepOffSelf : w.twoStepOff;
     default:
       return "";
   }

@@ -397,6 +397,8 @@ export type Content = {
       payOff: string;
       /* Dukkan's team turned his 2-step sign-in off */
       twoStepOff: string;
+      /* he turned it off himself in Settings */
+      twoStepOffSelf: string;
       statusWords: Record<string, string>;
       sep: string;
       announcement: string;
@@ -994,6 +996,7 @@ export const content: Record<Lang, Content> = {
         shipCityGone: "Dukkan Ship no longer picks up from {city}. Choose another pickup city on Delivery options so your orders can be collected.",
         payOff: "Dukkan switched off a way to pay your store used, so customers can't complete an order now. Turn on another way to pay.",
         twoStepOff: "Dukkan's team turned off 2-step sign-in on your account. You can turn it on again in Settings. If you did not ask for this, change your password now.",
+        twoStepOffSelf: "2-step sign-in was turned off on your account in Settings. You can turn it on again there. If this wasn't you, change your password now.",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
@@ -1584,6 +1587,7 @@ export const content: Record<Lang, Content> = {
         shipCityGone: "لم يعد شحن دكان يستلم الطلبات من {city}. اختر مدينة استلام أخرى في خيارات التوصيل ليتمكّن من استلام طلباتك.",
         payOff: "أوقف دكّان طريقة دفع كان متجرك يستخدمها، لذلك لا يستطيع العملاء إتمام الطلب الآن. فعّل طريقة دفع أخرى.",
         twoStepOff: "أوقف فريق دكّان التحقق بخطوتين في حسابك. يمكنك تشغيله من جديد من الإعدادات. إذا لم تطلب هذا، فغيّر كلمة المرور الآن.",
+        twoStepOffSelf: "أُوقف التحقق بخطوتين في حسابك من الإعدادات. يمكنك تشغيله من جديد من هناك. إذا لم تكن أنت، فغيّر كلمة المرور الآن.",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
         announcement: "من دكّان",
