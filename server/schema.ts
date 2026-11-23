@@ -961,7 +961,9 @@ export const DIWAN_SCHEMA = `
      fingerprint of the email for this shop only (as store_signups), phone_hash the same for the mobile, so an order
      with that email or mobile marks his carts here as recovered. lang: the language he shopped in (the reminder's language). recovered_at / order_number: the order
      that ended it. reminders / reminded_at: emails sent (at most 3, one a day: storeCarts.ts). A cart with no change
-     for an hour counts as abandoned; carts untouched for 30 days are deleted. They go with the account. */
+     for an hour counts as abandoned; carts untouched for 30 days are deleted. They go with the account.
+     abandoned_at: when a cart left an hour came back to life (he returned and the basket was saved again), so it still
+     counts as abandoned, and as recovered if he then orders; null while it was never left that long. */
   CREATE TABLE IF NOT EXISTS store_carts (
     id           BIGSERIAL PRIMARY KEY,
     account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -986,4 +988,5 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS store_carts_email ON store_carts (account_id, email_hash) WHERE recovered_at IS NULL;
   CREATE INDEX IF NOT EXISTS store_carts_phone ON store_carts (account_id, phone_hash) WHERE recovered_at IS NULL;
   CREATE INDEX IF NOT EXISTS store_carts_updated ON store_carts (updated_at);
+  ALTER TABLE store_carts ADD COLUMN IF NOT EXISTS abandoned_at TIMESTAMPTZ;
 `;
