@@ -1,5 +1,5 @@
 import type { Banner, StorefrontConfig } from "./config";
-import { fillColors, isGradient } from "./parts";
+import { fillColors, gradientOf, isGradient, onColor } from "./parts";
 
 /* The colors the footer really paints, worked out once so the store and the designer's color pickers agree */
 
@@ -60,14 +60,37 @@ export function legibleOn(color: string, bg: string, fallback?: string): string 
   return worst(SOFT_LIGHT) >= worst(SOFT_DARK) ? SOFT_LIGHT : SOFT_DARK;
 }
 
-/** What the words of a promo banner sit on: its card color, its frosted panel (his color, or the dark or light one), or, with no
-    picture, the fill in the store color; "" on a picture (it has its own dark fade). `primary`: the theme's store color, `storeColor`: setup's. */
+/* A promo banner's frosted panel: its color and how much of it covers what is behind (the rest shows through), as the store
+   draws it (Banners in sections.tsx), and the words color that panel has by default */
+const bannerPanel = (b: Banner): { color: string; cover: number; ink: string } => {
+  const own = hex(b.panelColor);
+  if (own) return { color: own, cover: 0.72, ink: onColor(own) === "#ffffff" ? "#f4efe6" : "#2a1f16" };
+  return b.panel === "dark" ? { color: "#120e0b", cover: 0.55, ink: "#e9dfcf" } : { color: "#fff5f8", cover: 0.72, ink: "#5a3a34" };
+};
+
+/** What the words of a promo banner sit on, as drawn: its card color; its frosted panel (his color, or the dark or light one),
+    over the banner's fill when it has no picture (the panel lets the fill show through, so a dark panel on a pale store color
+    is a mid grey); with no panel and no picture, the fill in the store color under the banner's dark fade; "" on a picture
+    with no panel (it has its own dark fade). On a picture a panel counts as its own color (the picture is not known here).
+    `primary`: the theme's store color, `storeColor`: setup's. */
 export function bannerSurface(b: Banner, primary: string, storeColor: string): string {
   if (b.variant === "card") return b.bg || primary;
-  if (b.panel === "light" || b.panel === "dark") return hex(b.panelColor) || (b.panel === "dark" ? "#12100d" : "#fff5f8");
-  if (b.image) return "";
   const plain = hex(storeColor) || DEFAULT_PRIMARY;
-  return `linear-gradient(135deg, ${plain}, ${mix(plain, "#6fe3cf", 0.6)})`;
+  const fill = [plain, mix(plain, "#6fe3cf", 0.6)];
+  if (b.panel === "light" || b.panel === "dark") {
+    const p = bannerPanel(b);
+    return b.image ? p.color : gradientOf(mix(p.color, fill[0], p.cover), mix(p.color, fill[1], p.cover));
+  }
+  if (b.image) return "";
+  /* the fade is 40% black in the middle, and about as dark where the words sit at the bottom */
+  return gradientOf(mix("#000000", fill[0], 0.4), mix("#000000", fill[1], 0.4));
+}
+
+/** The words color of a promo banner (not a color card) when he picked none: the panel's own (white with no panel), where it
+    reads on what the words really sit on (bannerSurface); otherwise the page text's rule picks one that does */
+export function bannerInk(b: Banner, primary: string, storeColor: string): string {
+  const ink = b.panel === "light" || b.panel === "dark" ? bannerPanel(b).ink : "#ffffff";
+  return legibleOn(ink, bannerSurface(b, primary, storeColor));
 }
 
 export type FooterColors = {
