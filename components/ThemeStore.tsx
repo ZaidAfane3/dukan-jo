@@ -8,9 +8,9 @@ import { usePrefs } from "./Prefs";
 import { PreviewEye, PreviewWindow } from "./ThemePopup";
 import { ThemePreview } from "./ThemePreview";
 import { themeWords } from "./themesContent";
-import { useCatalog } from "./catalog";
+import { refreshCatalog, useCatalog } from "./catalog";
 import { payNote, themePays, usePublicSettings, type ThemePay } from "./platformPublic";
-import { buyTheme, isFeatured, isFreeTheme, loadThemeState, storeThemes, type ThemeInfo, type ThemeState } from "./themes";
+import { buyTheme, findTheme, isFeatured, isFreeTheme, loadThemeState, storeThemes, type ThemeInfo, type ThemeState } from "./themes";
 import { usePageTitle } from "./pageTitle";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10 sm:p-7";
@@ -145,7 +145,17 @@ export function ThemeStore() {
           onDone={async (method) => {
             const r = await buyTheme(buying, method);
             if (r.ok) setState(loadThemeState());
-            return r.ok ? null : r.why;
+            if (r.ok) return null;
+            /* staff changed the price since this page got the theme store's list: the list is asked again so every card
+               shows it, and the checkout stays open at the server's price (a free theme made paid now asks how to pay) */
+            if (r.why === "price-changed") {
+              await refreshCatalog(true);
+              const now = findTheme(buying.id) ?? buying;
+              setBuying({ ...now, price: r.price });
+              return "price-changed";
+            }
+            /* the browser is signed in to another account now: the tab is already leaving (themes.ts buyTheme) */
+            return r.why === "other-account" ? "failed" : r.why;
           }}
         />
       )}
@@ -168,8 +178,10 @@ function Modal({ children, onClose, label, wide = false }: { children: React.Rea
   );
 }
 
+type Refusal = "method-off" | "failed" | "price-changed";
+
 /* The checkout. Prototype: it asks for nothing and takes nothing; it only adds the theme to My themes. */
-function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () => void; onDone: (method: ThemePay | undefined) => Promise<"method-off" | "failed" | null> }) {
+function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () => void; onDone: (method: ThemePay | undefined) => Promise<Refusal | null> }) {
   const { lang } = usePrefs();
   const w = themeWords[lang];
   const platform = usePublicSettings();
@@ -181,7 +193,7 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
   /* a free theme asks for no way to pay (the server takes none for it: app/api/themes/purchase) */
   const free = !(theme.price > 0);
   const [step, setStep] = useState<"pick" | "paying" | "done">("pick");
-  const [refused, setRefused] = useState<"method-off" | "failed" | null>(null);
+  const [refused, setRefused] = useState<Refusal | null>(null);
 
   const pay = () => {
     if (!method && !free) return;
@@ -237,7 +249,7 @@ function Checkout({ theme, onClose, onDone }: { theme: ThemeInfo; onClose: () =>
           {method && payNote(platform, method, lang) && <p dir="auto" className="mt-2 text-xs text-muted">{payNote(platform, method, lang)}</p>}
           </>
           )}
-          {refused && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{refused === "method-off" ? w.checkout.methodOff : w.checkout.failed}</p>}
+          {refused && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{refused === "method-off" ? w.checkout.methodOff : refused === "price-changed" ? w.checkout.priceChanged : w.checkout.failed}</p>}
 
           <div className="mt-5 flex items-center justify-between border-t border-fg/10 pt-4">
             <span className="text-sm text-muted">{w.checkout.total}</span>

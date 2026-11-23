@@ -1,5 +1,6 @@
 import type { ListingRow } from "@/components/themeListing";
 import { themePrice } from "@/components/themePrices";
+import type { PoolClient } from "pg";
 import { db } from "./db";
 
 /* The theme store's list in the database (catalog_themes; the rules are in components/themeListing.ts) */
@@ -7,9 +8,9 @@ import { db } from "./db";
 const COLS = `id, source, status, name, tagline, about, features, tags, price::float AS price, sort, featured, demo,
   released_at AS "releasedAt", updated_at AS "updatedAt"`;
 
-/** The listings, with the design of the design themes when `withDesign` */
-export async function readListings(where: string, params: unknown[] = [], withDesign = false): Promise<ListingRow[]> {
-  const { rows } = await (await db()).query(
+/** The listings, with the design of the design themes when `withDesign`. `q`: a transaction's client, to read inside it. */
+export async function readListings(where: string, params: unknown[] = [], withDesign = false, q?: PoolClient): Promise<ListingRow[]> {
+  const { rows } = await (q ?? (await db())).query(
     `SELECT ${COLS}${withDesign ? ", CASE WHEN source = 'design' THEN design END AS design" : ""} FROM catalog_themes ${where} ORDER BY sort, created_at`,
     params,
   );
