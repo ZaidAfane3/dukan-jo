@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LEGAL_PAGES, LIMITS, okSupportEmail, okSupportNumber, PAY_METHODS, type Bi, type PayMethod, type PlatformSettings, type SettingKey, type SupportContact } from "@/components/diwan/platformSettings";
+import { LEGAL_PAGES, LIMITS, okSupportEmail, okSupportNumber, PAY_METHODS, THEME_CHECKOUT_CHARGES, type Bi, type PayMethod, type PlatformSettings, type SettingKey, type SupportContact } from "@/components/diwan/platformSettings";
 import { replyWithin, supportLinks } from "@/components/platformPublic";
 import { latin } from "@/components/digits";
 import { askConfirm, Dialog } from "@/components/diwan/dialogs";
@@ -30,7 +30,7 @@ export default function SettingsPage() {
   const s = useApi<Data>("/api/diwan/settings");
   return (
     <div>
-      <PageHead title={t("Platform settings", "إعدادات المنصة")} sub={t("What every store on Dukkan starts with and can choose from.", "ما تبدأ به كل المتاجر في دكّان وما تستطيع الاختيار منه.")} />
+      <PageHead title={t("Platform settings", "إعدادات المنصة")} sub={t("What every store on Dukkan starts with and can choose from.", "ما تبدأ به كل المتاجر في دكان وما تستطيع الاختيار منه.")} />
       <Loaded s={s} skeleton={<SettingsSkeleton />}>
         {(d) => (
           <div className="grid items-start gap-6 xl:grid-cols-2">
@@ -147,7 +147,7 @@ function NumBar() {
   );
 }
 
-type PayUse = { orders: number; ordersTotal: number; ordersTest?: boolean; stores: number; themes: number; themesTotal: number; buyers: number };
+type PayUse = { orders: number; ordersTotal: number; testOrders?: number; stores: number; themes: number; themesTotal: number; buyers: number };
 const PERIODS = [["30", "Last 30 days", "آخر 30 يومًا"], ["90", "Last 90 days", "آخر 90 يومًا"], ["365", "Last year", "آخر سنة"], ["all", "All time", "كل الوقت"]] as const;
 
 function Payments({ e }: { e: Entry<"payment_methods"> }) {
@@ -213,8 +213,8 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
                   <div>
                     <dt className="text-xs text-muted">{t("Orders in stores", "طلبات المتاجر")}</dt>
                     <dd className="font-bold tabular-nums">
-                      {/* card and CliQ checkouts are test orders while no payment is taken: their total is not money received */}
-                      {stats.loading ? <NumBar /> : u ? <>{jod(u.ordersTotal)} {u.ordersTest && <span className="font-normal text-amber-700 dark:text-amber-300">{t("(test, nothing charged)", "(تجريبية، لم يُخصم أي مبلغ)")}</span>} <span className="font-normal text-muted">· {f.count(u.orders, ["order", "orders"], { one: "طلب واحد", two: "طلبان", few: "طلبات", many: "طلبًا" })} · {f.count(u.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
+                      {/* card and CliQ orders count once the merchant marked their payment received; the others are test orders, counted apart */}
+                      {stats.loading ? <NumBar /> : u ? <>{jod(u.ordersTotal)} {!!u.testOrders && <span className="font-normal text-amber-700 dark:text-amber-300">{t(`(+ ${f.count(u.testOrders, ["test order", "test orders"], { one: "طلب تجريبي واحد", two: "طلبان تجريبيان", few: "طلبات تجريبية", many: "طلبًا تجريبيًا" })}, nothing charged)`, `(+ ${f.count(u.testOrders, ["test order", "test orders"], { one: "طلب تجريبي واحد", two: "طلبان تجريبيان", few: "طلبات تجريبية", many: "طلبًا تجريبيًا" })}، لم يُخصم أي مبلغ)`)}</span>} <span className="font-normal text-muted">· {f.count(u.orders, ["order", "orders"], { one: "طلب واحد", two: "طلبان", few: "طلبات", many: "طلبًا" })} · {f.count(u.stores, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
                     </dd>
                   </div>
                 )}
@@ -222,7 +222,8 @@ function Payments({ e }: { e: Entry<"payment_methods"> }) {
                   <div>
                     <dt className="text-xs text-muted">{t("Themes bought", "ثيمات مشتراة")}</dt>
                     <dd className="font-bold tabular-nums">
-                      {stats.loading ? <NumBar /> : u ? <>{jod(u.themesTotal)} <span className="font-normal text-muted">· {f.count(u.themes, ["purchase", "purchases"], { one: "عملية شراء واحدة", two: "عمليتا شراء", few: "عمليات شراء", many: "عملية شراء" })} · {f.count(u.buyers, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
+                      {/* the theme checkout takes no money yet (THEME_CHECKOUT_CHARGES): its total is the listed prices, not money received */}
+                      {stats.loading ? <NumBar /> : u ? <>{jod(u.themesTotal)} {!THEME_CHECKOUT_CHARGES && <span className="font-normal text-amber-700 dark:text-amber-300">{t("(listed prices, nothing charged)", "(بالسعر المعروض، لم يُخصم أي مبلغ)")}</span>} <span className="font-normal text-muted">· {f.count(u.themes, ["purchase", "purchases"], { one: "عملية شراء واحدة", two: "عمليتا شراء", few: "عمليات شراء", many: "عملية شراء" })} · {f.count(u.buyers, ["store", "stores"], { one: "متجر واحد", two: "متجران", few: "متاجر", many: "متجرًا" })}</span></> : "—"}
                     </dd>
                   </div>
                 )}
@@ -291,7 +292,7 @@ function Support({ e }: { e: Entry<"support_contact"> }) {
   return (
     <Section
       title={t("Support contact", "التواصل مع الدعم")}
-      sub={t("How merchants reach Dukkan's team: on the suspended-store page and in the website's contact lines. Leave one empty to hide it.", "كيف يصل التجار إلى فريق دكّان: في صفحة المتجر الموقوف وفي بيانات التواصل على الموقع. اترك أيًّا منها فارغًا لإخفائه.")}
+      sub={t("How merchants reach Dukkan's team: on the suspended-store page and in the website's contact lines. Leave one empty to hide it.", "كيف يصل التجار إلى فريق دكان: في صفحة المتجر الموقوف وفي بيانات التواصل على الموقع. اترك أيًّا منها فارغًا لإخفائه.")}
       info={s.info}
       state={s.state}
       onSave={() => s.save()}
@@ -325,7 +326,7 @@ function Support({ e }: { e: Entry<"support_contact"> }) {
             {shown.mailto && <span className={`${chip} ring-1 ring-fg/15`} dir="ltr">{shown.email}</span>}
           </div>
         ) : (
-          <p className="mt-1 text-sm">{t("No way to reach support: only “To sort this out, contact Dukkan's support team.”", "لا توجد طريقة للتواصل مع الدعم: تظهر فقط عبارة «لحلّ الأمر تواصل مع فريق دعم دكّان.»")}</p>
+          <p className="mt-1 text-sm">{t("No way to reach support: only “To sort this out, contact Dukkan's support team.”", "لا توجد طريقة للتواصل مع الدعم: تظهر فقط عبارة «لحلّ الأمر تواصل مع فريق دعم دكان.»")}</p>
         )}
       </div>
     </Section>
@@ -347,7 +348,7 @@ function ReplyTime({ e }: { e: Entry<"support_reply_hours"> }) {
   return (
     <Section
       title={t("Support reply time", "مدة الرد على الدعم")}
-      sub={t("How soon Dukkan's team usually answers a ticket. Merchants see it at the top of their Support page.", "المدة التي يرد خلالها فريق دكّان عادةً على التذكرة. يراها التاجر أعلى صفحة الدعم.")}
+      sub={t("How soon Dukkan's team usually answers a ticket. Merchants see it at the top of their Support page.", "المدة التي يرد خلالها فريق دكان عادةً على التذكرة. يراها التاجر أعلى صفحة الدعم.")}
       info={s.info}
       state={s.state}
       /* a value that fails the rules is still sent (NaN goes as null), so the server refuses it and the card says so */
@@ -409,8 +410,8 @@ const LockIcon = ({ open = false }: { open?: boolean }) => (
 type LockProblem = "wrong" | "no-password" | "slow-down" | "owner-only" | "no-session" | "locked" | "failed";
 const SERVER_PROBLEMS = ["wrong", "no-password", "slow-down", "owner-only", "no-session"] as const;
 
-/* The legal pages every new store starts with. Locked by default: changing them changes what every new store's pages
-   say, so only an owner can unlock them, by typing his own password again (checked by the server, which remembers it
+/* The legal pages every new store starts with (a store keeps them as they were when it went live: server/legalPages.ts).
+   Locked by default: changing them changes what the pages say for every store that goes live after it, so only an owner can unlock them, by typing his own password again (checked by the server, which remembers it
    on this sign-in for 10 minutes and refuses to save without it). Saving locks them again, and so does leaving the page. */
 function LegalTemplates({ e, legal }: { e: Entry<"store_legal_templates">; legal: Data["legal"] }) {
   const t = useT();
@@ -487,7 +488,7 @@ function LegalTemplates({ e, legal }: { e: Entry<"store_legal_templates">; legal
             <span className={unlocked ? "text-amber-700 dark:text-amber-300" : "text-muted"}><LockIcon open={unlocked} /></span>
             {t("Store legal pages", "الصفحات القانونية للمتاجر")}
           </h2>
-          <p className="mt-0.5 text-sm text-muted">{t("The return, terms and privacy pages a new store starts with. Each store edits its own copy; stores that already have their pages keep them.", "صفحات الاسترجاع والأحكام والخصوصية التي يبدأ بها كل متجر جديد. يعدّل كل متجر نسخته؛ والمتاجر التي لديها صفحاتها تحتفظ بها.")}</p>
+          <p className="mt-0.5 text-sm text-muted">{t("The return, terms and privacy pages a store starts with. A store keeps the text it had when it went live (or the text it wrote), so a change here reaches only stores that go live after it. Stores already live keep theirs.", "صفحات الاسترجاع والأحكام والخصوصية التي يبدأ بها المتجر. يحتفظ كل متجر بالنص الذي كان لديه عند نشره (أو بالنص الذي كتبه)، لذلك يصل التغيير هنا فقط إلى المتاجر التي تُنشر بعده. والمتاجر المنشورة تحتفظ بنصوصها.")}</p>
         </div>
         {!unlocked && legal.owner && (
           <Btn kind="ghost" onClick={() => { setProblem(null); setAsking(true); }}>
@@ -499,13 +500,13 @@ function LegalTemplates({ e, legal }: { e: Entry<"store_legal_templates">; legal
 
       {unlocked ? (
         <p role="status" className="mt-4 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-500/30 dark:text-amber-200">
-          {t("Unlocked for 10 minutes. Saving changes what every new store's legal pages say, and locks them again.", "مفتوحة لمدة 10 دقائق. الحفظ يغيّر ما تقوله الصفحات القانونية لكل متجر جديد، ويعيد قفلها.")}
+          {t("Unlocked for 10 minutes. Saving changes what the legal pages say for every store that goes live after it (live stores keep theirs), and locks them again.", "مفتوحة لمدة 10 دقائق. الحفظ يغيّر ما تقوله الصفحات القانونية لكل متجر يُنشر بعده (المتاجر المنشورة تحتفظ بنصوصها)، ويعيد قفلها.")}
         </p>
       ) : (
         <p className="mt-4 flex items-start gap-2 rounded-xl bg-soft px-3 py-2 text-sm ring-1 ring-fg/10">
           <span className="mt-0.5 shrink-0 text-muted"><LockIcon /></span>
           <span>
-            {t("Locked: changing these changes what every new store's legal pages say.", "مقفلة: تغييرها يغيّر ما تقوله الصفحات القانونية لكل متجر جديد.")}
+            {t("Locked: changing these changes what the legal pages say for every store that goes live after it. Live stores keep theirs.", "مقفلة: تغييرها يغيّر ما تقوله الصفحات القانونية لكل متجر يُنشر بعده. المتاجر المنشورة تحتفظ بنصوصها.")}
             {!legal.owner && <strong className="ms-1 font-semibold">{t("Only an owner can change these.", "يستطيع المالك فقط تغيير هذه الصفحات.")}</strong>}
           </span>
         </p>
@@ -671,7 +672,7 @@ function TemplateCard({ info, onChange }: { info: Data["template"]; onChange: ()
   const reset = async () => {
     const yes = await askConfirm({
       title: t("Back to the original design", "العودة إلى التصميم الأصلي"),
-      body: t("New stores will start from Dukkan's original design again. Continue?", "ستبدأ المتاجر الجديدة من تصميم دكّان الأصلي مجددًا. متابعة؟"),
+      body: t("New stores will start from Dukkan's original design again. Continue?", "ستبدأ المتاجر الجديدة من تصميم دكان الأصلي مجددًا. متابعة؟"),
     });
     if (!yes) return;
     setBusy(true);

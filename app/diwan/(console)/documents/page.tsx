@@ -18,7 +18,7 @@ import { FilterBar } from "@/components/diwan/Filters";
 type Status = "waiting" | "approved" | "rejected";
 type Kind = "courier_proof" | "commercial_registration" | "other";
 type Row = {
-  id: string; shopId: string; shopName: string; ownerName: string; shopSlug: string | null; shopEmail: string; ownerPhone: string; storePhone: string; kind: Kind; seq: number; name: string;
+  id: string; shopId: string; shopName: string; ownerName: string; shopSlug: string | null; storePhone: string; kind: Kind; seq: number; name: string;
   partner: string; partnerKind: 0 | 1 | null; hasFile: boolean; mime: string | null; bytes: number | null;
   status: Status; note: string; reviewer: string | null; createdAt: string;
   /* when the merchant removed it (its file is gone), or null */
@@ -70,7 +70,7 @@ export default function DocumentsPage() {
     <div>
       <PageHead
         title={t("Documents", "المستندات")}
-        sub={t("Papers stores send for checking. Approve or reject each one; the merchant is told.", "الأوراق التي ترسلها المتاجر للمراجعة. اقبل كل مستند أو ارفضه، ويُبلَّغ التاجر.")}
+        sub={t("Papers stores send for checking. Approve or reject each one; the merchant is told. A store can offer delivery with its own shipping only after one of its proofs of delivery is approved.", "الأوراق التي ترسلها المتاجر للمراجعة. اقبل كل مستند أو ارفضه، ويُبلَّغ التاجر. لا يستطيع المتجر عرض التوصيل بطريقة شحنه الخاصة إلا بعد قبول أحد إثباتات التوصيل الخاصة به.")}
       />
 
       <ShopOnly id={shop} name={s.data?.shopName || (s.data?.documents[0] ? s.data.documents[0].shopName || s.data.documents[0].ownerName : null)} onClear={() => setShop("")} />
@@ -145,7 +145,8 @@ function DocCard({ row, statusName, kindName, onDone, onGone }: {
     if (!next) return;
     if (next === "rejected" && !note.trim()) return setErr(t("Say why: the merchant reads this note.", "اكتب السبب: يقرأ التاجر هذه الملاحظة."));
     setBusy(true);
-    const r = await send(`/api/diwan/documents/${row.id}`, "POST", { status: next, note });
+    /* from: the status this card shows, so a document someone else reviewed meanwhile isn't changed a second time */
+    const r = await send(`/api/diwan/documents/${row.id}`, "POST", { status: next, note, from: row.status });
     setBusy(false);
     if (r.ok) {
       setNext(null);
@@ -154,6 +155,10 @@ function DocCard({ row, statusName, kindName, onDone, onGone }: {
       /* trying again can't work: the merchant removed it meanwhile, so say so and show the list as it is now */
       setNext(null);
       onGone(t("The merchant removed this document, so it can't be approved or rejected.", "حذف التاجر هذا المستند، فلا يمكن قبوله أو رفضه."));
+    } else if (r.status === 409 && r.data?.result === "reviewed") {
+      /* another staff member got there first: nothing was changed, and the list shows the document as it is now */
+      setNext(null);
+      onGone(t("Someone else already reviewed this document, so your change wasn't saved. The list is up to date now.", "راجع شخص آخر هذا المستند قبلك، فلم يُحفظ تغييرك. القائمة محدَّثة الآن."));
     } else setErr(t("That didn't work. Try again.", "لم ينجح ذلك. حاول مجددًا."));
   };
 
@@ -214,8 +219,8 @@ function DocCard({ row, statusName, kindName, onDone, onGone }: {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Badge tone={tone[row.status]}>{statusName(row.status)}</Badge>
           {row.removedAt && <Badge tone="grey">{t("Removed by the merchant", "حذفه التاجر")}</Badge>}
-          {/* the merchant's email and mobile stay in the Contact pop-up, not printed on the card */}
-          <ContactButton info={{ owner: row.ownerName, email: row.shopEmail, phone: row.ownerPhone, storePhone: row.storePhone }} />
+          {/* the merchant's email and mobile are asked for with the staff member's password (security F08), never in the list */}
+          <ContactButton shopId={row.shopId} info={{ owner: row.ownerName, storePhone: row.storePhone }} />
         </div>
       </div>
       {row.note && <p className="mt-3 whitespace-pre-line rounded-xl bg-soft px-3 py-2 text-sm">{row.note}</p>}

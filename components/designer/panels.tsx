@@ -30,10 +30,10 @@ const why = (lang: Lang, ar: string, en: string) => (lang === "ar" ? ar : en);
 import { DeleteAsk } from "./DeleteAsk";
 import { dc, sampleTexts } from "./copy";
 import { LinkPicker, LinkTargets, PictureMover, useStorePages } from "./PageLink";
-import { emptyForCustomers, readSubscribers, sellsOf } from "../storefront/sections";
+import { emptyForCustomers, sellsOf } from "../storefront/sections";
 import { usePublicSettings } from "../platformPublic";
 import { load as loadInfoPages } from "../InfoPages";
-import { bannerSurface, cardGround, dimOn, footerColors, footerNameSize, hex, inkOn, legibleOn, mix, readsOn } from "../storefront/footerColors";
+import { bannerInk, bannerSurface, cardGround, dimOn, footerColors, footerNameSize, hex, inkOn, legibleOn, mix, readsOn } from "../storefront/footerColors";
 
 export type Identity = { name: string; description: string; color: string; phone: string };
 export type Draft = { config: StorefrontConfig; identity: Identity };
@@ -230,10 +230,8 @@ const popT = {
     nAfterMsg: "Show the thank-you message",
     nAfterLink: "Show it, then go to...",
     nSubs: "Subscribers",
-    nSubsCount: "emails saved in this browser",
-    nCsv: "Download the list (CSV)",
-    nClear: "Clear the list",
-    nSubsHint: "The emails are saved in this browser only. Download the list to keep a copy.",
+    nSubsOpen: "See the emails",
+    nSubsHint: "The emails visitors leave on your live store are saved for you in Marketing > Customer emails. Nothing is sent to them automatically.",
     colHidden: "This column is hidden, so customers don't see what you fill in here. Show it with its switch in Footer columns.",
     colHiddenOpen: "Open Footer columns",
     sizesTitle: "Footer text sizes",
@@ -336,7 +334,7 @@ const popT = {
     nButton: "Button",
     nPlaceholder: "Email field text",
     nThanks: "Thank-you message",
-    nHint: "The visitor writes an email and presses the button. The emails appear in the Subscribers list at the bottom of this panel.",
+    nHint: "The visitor writes an email and presses the button. On your live store the emails are saved for you in Marketing > Customer emails.",
     perks: "Perks", perkNew: "New perk", perkIcon: "Icon", perkTitlePh: "For example: Fast delivery", perkSubPh: "For example: Across Jordan in 2 days", perksLook: "How the boxes look", perksBg: "Box background", perksBorder: "Border", borderNone: "None", borderThin: "Thin", borderThick: "Thick", borderColor: "Border color",
     nBg: "Block color",
     nAccentColor: "Colored word color",
@@ -507,10 +505,8 @@ const popT = {
     nAfterMsg: "إظهار رسالة الشكر",
     nAfterLink: "إظهارها ثم الذهاب إلى...",
     nSubs: "المشتركون",
-    nSubsCount: "إيميل محفوظ في هذا المتصفح",
-    nCsv: "تنزيل القائمة (CSV)",
-    nClear: "مسح القائمة",
-    nSubsHint: "تُحفظ الإيميلات في هذا المتصفح فقط. نزّل القائمة لتحتفظ بنسخة منها.",
+    nSubsOpen: "عرض الإيميلات",
+    nSubsHint: "الإيميلات التي يتركها الزوّار في متجرك المنشور تُحفظ لك في التسويق > إيميلات العملاء. لا يُرسل إليهم شيء تلقائيًا.",
     colHidden: "هذا العمود مخفي، فلا يرى العملاء ما تكتبه هنا. أظهره من مفتاحه في «أعمدة التذييل».",
     colHiddenOpen: "فتح أعمدة التذييل",
     sizesTitle: "أحجام نصوص التذييل",
@@ -613,7 +609,7 @@ const popT = {
     nButton: "الزر",
     nPlaceholder: "نص حقل الإيميل",
     nThanks: "رسالة الشكر",
-    nHint: "يكتب الزائر إيميله ويضغط الزر، فيظهر الإيميل في قائمة المشتركين أسفل هذه اللوحة.",
+    nHint: "يكتب الزائر إيميله ويضغط الزر، وفي متجرك المنشور تُحفظ الإيميلات لك في التسويق > إيميلات العملاء.",
     perks: "المزايا", perkNew: "ميزة جديدة", perkIcon: "الأيقونة", perkTitlePh: "مثال: توصيل سريع", perkSubPh: "مثال: لكل مناطق الأردن خلال يومين", perksLook: "شكل المربعات", perksBg: "خلفية المربع", perksBorder: "الإطار", borderNone: "بدون", borderThin: "رفيع", borderThick: "عريض", borderColor: "لون الإطار",
     nBg: "لون الكتلة",
     nAccentColor: "لون الكلمة الملوّنة",
@@ -1769,8 +1765,9 @@ function ElementForm({ lang, section, focusField, nonce, onBack, onChange, onDel
       if (pop) return key === "title" ? page.title : key === "button" ? page.bg : pageText;
       if (orbit) return key === "title" ? page.title : key === "eyebrow" ? page.accent : key === "button" ? page.bg : key === "subtitle" && hex(pageText) && hex(page.bg) ? mix(hex(pageText), hex(page.bg), 0.8) : pageText;
       if (split) {
-        const text = splitLight ? pageText : "#ffffff";
-        return key === "button" ? (splitLight ? onColor(page.primary) : "#12262b") : key === "eyebrow" && splitLight ? page.accent : text;
+        /* the panel's words: the page's text color where it reads on the panel, else the page text's rule (surfaceInk) */
+        const text = legibleOn(pageText, splitPanel);
+        return key === "button" ? (splitLight ? onColor(page.primary) : "#12262b") : key === "eyebrow" && splitLight ? legibleOn(page.accent, splitPanel, text) : text;
       }
       return key === "button" ? "#12262b" : onBanner;
     };
@@ -4776,7 +4773,7 @@ function BannersForm({ lang, s, onChange }: { lang: Lang; s: BannersEl; onChange
                   <Seg value={x.font ?? "default"} onChange={(font) => edit(i, { font })} options={fonts} />
                 </Field>
                 <Stepper lang={lang} label={lx.titleSize} value={x.titleSize ?? (x.variant === "card" ? 64 : 84)} auto={x.titleSize === undefined} min={20} max={200} onChange={(titleSize) => edit(i, { titleSize })} onReset={() => edit(i, { titleSize: undefined })} />
-                <ColorChip lang={lang} label={lx.bannerTitleColor} value={x.titleColor} auto={x.variant === "card" ? textNow : x.panel === "light" ? "#5a3a34" : x.panel === "dark" ? "#e9dfcf" : "#ffffff"} onChange={(titleColor) => edit(i, { titleColor })} onReset={() => edit(i, { titleColor: undefined })} on={bannerSurface(x, page.primary, storeColor)} />
+                <ColorChip lang={lang} label={lx.bannerTitleColor} value={x.titleColor} auto={x.variant === "card" ? textNow : bannerInk(x, page.primary, storeColor)} onChange={(titleColor) => edit(i, { titleColor })} onReset={() => edit(i, { titleColor: undefined })} on={bannerSurface(x, page.primary, storeColor)} />
               </>
             }>
               <input value={x.title?.[lang] ?? ""} onChange={(e) => bi(i, "title", e.target.value)} placeholder={listB[lang].bannerTitlePh} aria-label={t.bannerTitle} maxLength={60} className={`${input} h-10`} />
@@ -5526,36 +5523,15 @@ function FooterColumnsForm({ lang, cfg, setCfg, go }: { lang: Lang; cfg: Storefr
   );
 }
 
-/* The emails left in the newsletter block: how many, a file to download, and a way to clear them */
+/* Where the emails left in the newsletter block are: the merchant's list on Dukkan's server (Marketing > Customer
+   emails), opened in a new tab so the designer stays as it is */
 function SubscribersBox({ lang }: { lang: Lang }) {
   const pp = popT[lang];
-  const [list, setList] = useState<{ email: string; at: number }[]>([]);
-  useEffect(() => {
-    const read = () => setList(readSubscribers());
-    read();
-    window.addEventListener("storage", read);
-    return () => window.removeEventListener("storage", read);
-  }, []);
-  const download = () => {
-    /* each cell quoted, and one that starts like a formula gets a ' first, so Excel shows it instead of running it */
-    const cell = (v: string) => `"${v.replace(/^[=+\-@\t\r]/, "'$&").replace(/"/g, '""')}"`;
-    const rows = ["email,date", ...list.map((x) => `${cell(x.email)},${new Date(x.at).toISOString().slice(0, 10)}`)].join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([rows], { type: "text/csv" }));
-    a.download = "subscribers.csv";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  };
   return (
     <div className="space-y-2 rounded-xl bg-soft/70 p-3">
-      <p className="text-sm font-semibold">{pp.nSubs}: <span dir="ltr" className="tabular-nums">{list.length}</span> {pp.nSubsCount}</p>
+      <p className="text-sm font-semibold">{pp.nSubs}</p>
       <p className="text-xs leading-relaxed text-muted">{pp.nSubsHint}</p>
-      {list.length > 0 && (
-        <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={download} className="text-sm font-semibold text-primary hover:underline">{pp.nCsv}</button>
-          <button type="button" onClick={() => { try { localStorage.removeItem("seen-subscribers"); } catch { /* storage unavailable */ } setList([]); }} className="text-sm font-semibold text-rose-600 hover:underline">{pp.nClear}</button>
-        </div>
-      )}
+      <a href="/marketing/emails" target="_blank" rel="noreferrer" className="inline-block text-sm font-semibold text-primary hover:underline">{pp.nSubsOpen}</a>
     </div>
   );
 }

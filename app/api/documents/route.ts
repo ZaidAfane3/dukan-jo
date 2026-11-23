@@ -1,8 +1,8 @@
-import { answer, readJson, tooManyFor } from "@/server/auth";
+import { answer, readJson, tooManyFor, readJsonOr, unreadable } from "@/server/auth";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal, sealBytes } from "@/server/crypto";
 import { db } from "@/server/db";
-import { ACCOUNT_BYTES, BODY_MAX, checkUpload, documentName, documentsRoute, MERCHANT_KINDS, merchantDocument, partnerKind, partnerName, PER_ACCOUNT, PER_PARTNER, type MerchantKind } from "@/server/documents";
+import { ACCOUNT_BYTES, ACTIVE, BODY_MAX, checkUpload, documentName, documentsRoute, MERCHANT_KINDS, merchantDocument, partnerKind, partnerName, PER_ACCOUNT, PER_PARTNER, REJECTED_SHOWN, type MerchantKind } from "@/server/documents";
 import { storageFull } from "@/server/media";
 import { inTransaction } from "@/server/tickets";
 import { logMerchant } from "@/server/merchantLog";
@@ -20,10 +20,17 @@ export const dynamic = "force-dynamic";
 const SELECT = `SELECT id, public_id, kind, name, partner, partner_kind, status, note, mime, bytes, data IS NOT NULL AS has_file, created_at,
   rejection_seen, seq FROM documents`;
 
-/** My documents, oldest first (the order they were added), at most what an account can keep. The ones I removed stay
-    only as a record for Diwan, never here. */
+/** My documents, oldest first (the order they were added): every one still in play (at most what an account can keep,
+    though staff turning a rejected one back to approved can add a few) and the latest REJECTED_SHOWN rejected ones,
+    since rejections have no limit. The ones I removed stay only as a record for Diwan, never here. */
 export const GET = documentsRoute(async (_req, me) => {
-  const { rows } = await (await db()).query(`${SELECT} WHERE account_id = $1 AND removed_at IS NULL ORDER BY created_at, id LIMIT ${PER_ACCOUNT * 2}`, [me.id]);
+  const { rows } = await (await db()).query(
+    `${SELECT} WHERE account_id = $1 AND removed_at IS NULL
+        AND (status <> 'rejected' OR id IN (SELECT id FROM documents WHERE account_id = $1 AND removed_at IS NULL AND status = 'rejected'
+                                             ORDER BY created_at DESC, id DESC LIMIT ${REJECTED_SHOWN}))
+      ORDER BY created_at, id LIMIT ${PER_ACCOUNT * 2 + REJECTED_SHOWN}`,
+    [me.id],
+  );
   return answer({ result: "ok", documents: rows.map(merchantDocument), limits: { perPartner: PER_PARTNER, perAccount: PER_ACCOUNT } });
 });
 
@@ -31,8 +38,9 @@ export const GET = documentsRoute(async (_req, me) => {
     partner (who delivers), partnerKind (0 company, 1 person) } */
 export const POST = documentsRoute(async (req, me) => {
   if (tooManyFor(`document:${me.id}`, 30, 10)) return answer({ result: "too-many-tries" }, 429);
-  const body = await readJson(req, BODY_MAX);
-  if (!body) return answer({ result: "too-big" }, 413);
+  const read = await readJsonOr(req, BODY_MAX);
+  if (!("body" in read)) return unreadable(read.why);
+  const body = read.body;
   const kind = MERCHANT_KINDS.includes(body.kind as MerchantKind) ? (body.kind as MerchantKind) : null;
   const file = checkUpload(body.data, body.type);
   if (!kind || !file) return answer({ result: "invalid" }, 400);
@@ -60,13 +68,15 @@ export const POST = documentsRoute(async (req, me) => {
       }
       draft = mode !== "own";
     }
-    /* the counts are of what the merchant still keeps; the bytes also count a removed file whose bytes are still stored
-       (the few minutes it can be restored in, until purgeRemovedFiles clears data and file_key), so removing and sending
-       again can't store more than the limit; the next number counts removed ones too, so it is never reused */
+    /* the counts are of what the merchant still keeps in play: a rejected file never counts (server/documents.ts
+       ACTIVE), so he can send again however many times he was rejected. The bytes also count a removed file whose bytes
+       are still stored (the few minutes it can be restored in, until purgeRemovedFiles clears data and file_key) unless
+       it was rejected, so removing and sending again can't store more than the limit; the next number counts removed
+       and rejected ones too, so it is never reused */
     const { rows } = await c.query(
-      `SELECT count(*) FILTER (WHERE removed_at IS NULL)::int AS all_n,
-              count(*) FILTER (WHERE kind = $2 AND removed_at IS NULL)::int AS kind_n,
-              COALESCE(sum(bytes) FILTER (WHERE removed_at IS NULL OR data IS NOT NULL OR file_key IS NOT NULL), 0)::bigint AS used,
+      `SELECT count(*) FILTER (WHERE ${ACTIVE})::int AS all_n,
+              count(*) FILTER (WHERE kind = $2 AND ${ACTIVE})::int AS kind_n,
+              COALESCE(sum(bytes) FILTER (WHERE status <> 'rejected' AND (removed_at IS NULL OR data IS NOT NULL OR file_key IS NOT NULL)), 0)::bigint AS used,
               COALESCE(max(seq) FILTER (WHERE kind = $2), 0)::int + 1 AS next_seq
          FROM documents WHERE account_id = $1`,
       [me.id, kind],

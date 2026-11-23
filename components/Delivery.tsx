@@ -13,7 +13,7 @@ import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 import { typedMoney } from "./records";
 import { cleanMoney } from "./safe";
 import { ACCOUNT_LIMITS } from "./safeAccount";
-import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs } from "./partnerProofs";
+import { MAX_PROOFS, ProofRows, proofsInPlay, syncProofPartner, usePartnerProofs } from "./partnerProofs";
 import { dropUndos, offerUndo, valueUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
@@ -30,8 +30,8 @@ const field =
 const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const words = {
-  en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "Customers can't order delivery until you choose how you deliver.", fee: "Delivery fee per order (JOD)", feeHint: "What customers pay for delivery at checkout. Write 0 if delivery is free.", feeEmpty: "Enter the delivery fee. Write 0 if delivery is free.", feeBad: "Enter an amount from 0 to {max} JOD, with up to 3 decimals." },
-  ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل.", fee: "رسوم التوصيل لكل طلب (د.أ)", feeHint: "ما يدفعه العميل للتوصيل عند إتمام الطلب. اكتب 0 إن كان التوصيل مجانيًا.", feeEmpty: "اكتب رسوم التوصيل. اكتب 0 إن كان التوصيل مجانيًا.", feeBad: "اكتب مبلغًا من 0 إلى {max} د.أ، بثلاث خانات عشرية على الأكثر." },
+  en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "Customers can't order delivery until you choose how you deliver.", fee: "Delivery fee per order (JOD)", feeHint: "What customers pay for delivery at checkout. Write 0 if delivery is free.", feeEmpty: "Enter the delivery fee. Write 0 if delivery is free.", feeBad: "Enter an amount from 0 to {max} JOD, with up to 3 decimals.", waiting: "Customers can't choose delivery with your own shipping yet: the Dukkan team must first approve a proof for this partner (below). Until then your checkout offers pickup only, if you turn it on below." },
+  ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل.", fee: "رسوم التوصيل لكل طلب (د.أ)", feeHint: "ما يدفعه العميل للتوصيل عند إتمام الطلب. اكتب 0 إن كان التوصيل مجانيًا.", feeEmpty: "اكتب رسوم التوصيل. اكتب 0 إن كان التوصيل مجانيًا.", feeBad: "اكتب مبلغًا من 0 إلى {max} د.أ، بثلاث خانات عشرية على الأكثر.", waiting: "لا يستطيع العملاء اختيار التوصيل بطريقة شحنك الخاصة بعد: يجب أن يوافق فريق دكان أولًا على إثبات لهذه الجهة (في الأسفل). حتى ذلك الحين يعرض متجرك عند الطلب الاستلام من المتجر فقط، إن فعّلته في الأسفل." },
 };
 
 
@@ -289,6 +289,10 @@ export function Delivery() {
 
           {mode === "own" && (
             <div className="space-y-4">
+              {/* his own shipping is offered to customers only once Dukkan's team approved a proof for it (server/courierProof.ts) */}
+              {proof.sends && proof.ready && !proof.proofs.some((f) => f.status === "approved") && (
+                <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{w.waiting}</p>
+              )}
               <div>
                 <p className="mb-2 text-sm font-semibold">{s.whoLabel}</p>
                 <div className="flex gap-2">
@@ -330,9 +334,9 @@ export function Delivery() {
                   }}
                   className="hidden"
                 />
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={proof.busy || !proof.ready || proof.proofs.length >= MAX_PROOFS} className="grid h-16 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={proof.busy || !proof.ready || proofsInPlay(proof.proofs) >= MAX_PROOFS} className="grid h-16 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
                   <span>
-                    {proof.busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proof.proofs.length}/{MAX_PROOFS})</span>
+                    {proof.busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofsInPlay(proof.proofs)}/{MAX_PROOFS})</span>
                   </span>
                 </button>
                 <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
@@ -379,7 +383,7 @@ export const payWords = {
     title: "طرق الدفع",
     sub: "اختر كيف يدفع لك العملاء عند إتمام الطلب.",
     names: { cliq: "كليك CliQ", cash: "الدفع عند الاستلام", card: "بطاقة" } as Record<Payment, string>,
-    unavailable: "غير متاح على دكّان حاليًا",
+    unavailable: "غير متاح على دكان حاليًا",
     none: "لا يستطيع العملاء إتمام الطلب حتى تفعّل طريقة دفع واحدة على الأقل.",
     save: "حفظ",
     saved: "تم الحفظ",

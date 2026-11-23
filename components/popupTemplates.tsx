@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { Lang } from "./content";
 import { isOutside } from "./popupRules";
 import { listOf, textOf, valueOf, type SlotValues, type TemplateId } from "./popupTemplateRules";
-import { findTheme } from "./themes";
+import { findTheme, MADA_THEME_ID } from "./themes";
 
 /* The pop-up templates as React components: each draws one pop-up from its slots (what they are and their limits are in
    components/popupTemplateRules.ts). The same component is shown to merchants (components/MerchantPopup.tsx) and in
@@ -78,12 +78,21 @@ const eye = (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.500-6 10-6 10 6 10 6-3.500 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.500" /></svg>
 );
 
-function ThemeGiftPopup({ slots, lang, act, titleId }: TemplateProps) {
-  /* the picture: the one given, else the chosen theme's own picture of its home page. A built-in theme's own picture
-     (/themes/…) counts as "the theme's picture", so a gift first made with Mada's picture follows the theme chosen now. */
+/* the picture of a theme with no `shot` (its preview is drawn live): Mada's is the one the landing page shows */
+const SHOT_OF: Record<string, string> = { [MADA_THEME_ID]: "/themes/mada.webp" };
+
+/** The picture a pop-up shows (merchants and Diwan's list alike): the one given, else the chosen theme's own picture of
+    its home page. A built-in theme's own picture (/themes/…) counts as "the theme's picture", so a gift first made with
+    Mada's picture follows the theme chosen now. */
+export function popupPicture(slots: SlotValues): string {
   const given = valueOf(slots, "image");
-  const own = findTheme(valueOf(slots, "theme"))?.shot || "";
-  const image = (given && !given.startsWith("/themes/") ? given : own) || given || "";
+  const theme = findTheme(valueOf(slots, "theme"));
+  const own = theme ? theme.shot || SHOT_OF[theme.id] || "" : "";
+  return (given && !given.startsWith("/themes/") ? given : own) || given || "";
+}
+
+function ThemeGiftPopup({ slots, lang, act, titleId }: TemplateProps) {
+  const image = popupPicture(slots);
   const w = (k: string) => textOf(slots, k, lang);
   return (
     /* never taller than the screen: page scrolling is off while a pop-up is open, so its buttons must stay reachable */

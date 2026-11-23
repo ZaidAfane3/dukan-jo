@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SEARCH_OPEN } from "./searchSources";
 import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { FILTER_KEYS, kindWords, productsCopy, type FilterKey } from "./productsContent";
@@ -13,7 +14,7 @@ import { FocusPicker } from "./FocusPicker";
 import { cutKeptAs, ImageCropper } from "./ImageCropper";
 import { keepPicture, uploadImage } from "./media";
 import { onServer } from "./merchantApi";
-import { PRODUCT_MAX, cleanCategory, cleanProduct, productCategories, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
+import { MAX_COUNT, PRODUCT_MAX, cleanCategory, cleanProduct, productCategories, money, parseList, productProblems, typedCount, typedMoney, type Product, type SendBy } from "./records";
 import { cleanLine, cleanLines, imageRules } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote } from "./Required";
 import { RudeNote } from "./RudeNote";
@@ -21,12 +22,13 @@ import { StockChoice, stockNeedsAnswer, stockOverMax } from "./StockChoice";
 import { Blocked } from "./designer/controls";
 import { CardPeek, type PeekField } from "./CardPeek";
 import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
-import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, type ProductKind } from "./safeOrder";
+import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, sizeTwice, type ProductKind } from "./safeOrder";
 import type { Lang } from "./content";
 import { dropUndos, listUndo, offerUndo } from "./undo";
 import { usePageTitle } from "./pageTitle";
 import { Skeleton } from "./Skeleton";
 import { leaveUnasked } from "./serverSync";
+import { merchantMoney } from "./moneyText";
 
 
 
@@ -93,10 +95,32 @@ const blank: Draft = {
 
 /* An amount typed in a field: null when empty, NaN when it is not an amount Dukkan accepts (more than a million too) */
 const num = (v: string) => (v.trim() === "" ? null : money(v) ?? NaN);
-/* An amount of money as he types it: one dot, at most two decimals (fils), no extra zeros in front ("007" becomes "7") */
+/* An amount of money as he types it: one dot, at most three decimals (fils), no extra zeros in front ("007" becomes "7") */
 const digits = (v: string) => typedMoney(v);
 /* A whole number as he types it: digits only, no extra zeros in front, and never above `max` */
 const whole = (v: string, max?: number) => typedCount(v, max);
+
+/** The stock to save for a product he edited: what he changed in the editor (each size on its own), added to the stock
+    the product has now. Pieces sold (or given back) since the editor was opened, on the store or in another tab, stay
+    counted, so his save never puts sold pieces back on sale. A size that is new or renamed gets what he typed, and a
+    product that had no limit, or now has none, gets what he typed too. */
+function stockSince(typed: { quantity: number; sizes: { name: string; quantity: number }[] }, opened: Product | null, now: Product | undefined) {
+  if (!opened || !now) return typed;
+  const keep = (n: number) => Math.max(0, Math.min(MAX_COUNT, n));
+  if (typed.sizes.length) {
+    const was = opened.sizes ?? [];
+    const has = now.sizes ?? [];
+    const key = (n: string) => n.toLowerCase();
+    const sizes = typed.sizes.map((z) => {
+      const a = was.find((x) => key(x.name) === key(z.name));
+      const b = has.find((x) => key(x.name) === key(z.name));
+      return a && b ? { ...z, quantity: keep(b.quantity + z.quantity - a.quantity) } : z;
+    });
+    return { quantity: sizes.reduce((n, z) => n + z.quantity, 0), sizes };
+  }
+  if (opened.unlimited || now.unlimited || (opened.sizes ?? []).length || (now.sizes ?? []).length) return typed;
+  return { ...typed, quantity: keep(now.quantity + typed.quantity - opened.quantity) };
+}
 
 /* What is saved is checked again when it is read: storage can hold old, broken or hand-changed products */
 function load(): Product[] {
@@ -325,6 +349,10 @@ export function Products() {
   const [photoBad, setPhotoBad] = useState<false | "bad" | "max">(false);
   /* photos still being read, and the ones that failed to show: neither counts as the product's photo */
   const [uploading, setUploading] = useState(0);
+  /* the size chart still uploading (SizesEditor): Save waits for it, as for the photos */
+  const [chartBusy, setChartBusy] = useState(false);
+  /* nothing picked is still on its way: Save is only pressed once every photo and the size chart arrived, so none is lost */
+  const sending = uploading > 0 || chartBusy;
   /* which opening of the editor photos were picked in: a photo that finishes after another product (or a new one) was
      opened is dropped, not added to whichever product is open then */
   const photoRound = useRef(0);
@@ -337,6 +365,8 @@ export function Products() {
   const [photoLive, setPhotoLive] = useState<string | null>(null);
   const [focus, setFocus] = useState({ x: 50, y: 50 });
   const fileInput = useRef<HTMLInputElement>(null);
+  /* the product as it was when the editor opened (null for a new one): its stock then, so a save keeps what sold since */
+  const opened = useRef<Product | null>(null);
   /* The editor as it was when opened or last saved, to know if there are unsaved changes */
   const [clean, setClean] = useState("");
   const snapshot = (d: Draft, imgs: string[], f: { x: number; y: number }) => JSON.stringify([d, imgs, f]);
@@ -369,6 +399,17 @@ export function Products() {
     if (hit) openEdit(hit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
+  /* ... also one picked in the search while this page is open */
+  useEffect(() => {
+    const onOpen = () => {
+      const id = Number(new URLSearchParams(window.location.search).get("open"));
+      const hit = id ? items.find((x) => x.id === id && !x.deletedAt) : undefined;
+      if (hit) openEdit(hit);
+    };
+    window.addEventListener(SEARCH_OPEN, onOpen);
+    return () => window.removeEventListener(SEARCH_OPEN, onOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   useEffect(() => {
     if (!ready || items === loadedList.current) return;
@@ -395,7 +436,7 @@ export function Products() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, filter, query, sort, lang]);
 
-  const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = merchantMoney;
 
   /* Unsaved changes are only thrown away after he says so, in the page's own box (never the browser's window): what he
      was about to do waits in `discardThen` until he answers */
@@ -436,6 +477,7 @@ export function Products() {
       restockPct: String(x.restockPct),
     };
     setEditing(x.id);
+    opened.current = x;
     /* photos still on their way belong to the product they were picked for, never to this one */
     photoRound.current++;
     setUploading(0);
@@ -455,6 +497,7 @@ export function Products() {
 
   const openNew = () => {
     setEditing("new");
+    opened.current = null;
     photoRound.current++;
     setUploading(0);
     setDraft(blank);
@@ -539,6 +582,8 @@ export function Products() {
   const peek = (f: PeekField) => <CardPeek lang={lang} field={f} values={{ name: draft.name, notes: draft.notes, badge: draft.badge, category: draft.categories[0] ?? typedCat.current, price: draft.price, sale: draft.sale, photo: photos[0], id: typeof editing === "number" ? editing : undefined }} />;
   const save = (e: React.FormEvent) => {
     e.preventDefault();
+    /* a photo or the size chart still uploading would be left out: the button says "Uploading…" until they are in */
+    if (sending) return;
     const next: typeof errors = {};
     const price = num(draft.price);
     const sale = num(draft.sale);
@@ -555,6 +600,8 @@ export function Products() {
     if (bad.includes("price")) next.price = p.errPrice;
     if (bad.includes("sale")) next.sale = p.errSale;
     if (bad.includes("sizes")) next.sizes = kw.errSizes;
+    /* two sizes with the same name would leave one of them without its stock: each size needs its own name */
+    else if (sized && sizeTwice(sizes)) next.sizes = kw.errSizesTwice(sizeTwice(sizes));
     /* above the limit the stock box says so itself (with "Make it unlimited"); the error only stops the save */
     if (!sized && stockOverMax(draft.unlimited, draft.quantity)) next.quantity = p.errQuantity;
     else if (bad.includes("quantity")) next.quantity = p.errQuantity;
@@ -609,9 +656,12 @@ export function Products() {
       const id = nextProductId(list);
       change([{ id, created: Date.now(), ...base }, ...list], (l) => productsCopy[l].undoAdded(name));
     } else {
+      /* the stock he typed, as a change from what the editor opened with: what sold meanwhile is not put back */
+      const now = list.find((x) => x.id === editing);
+      if (!base.unlimited) Object.assign(base, stockSince({ quantity: base.quantity, sizes: base.sizes }, opened.current, now));
       /* if the product was removed meanwhile (in another tab), his edits bring it back instead of being lost */
       change(
-        list.some((x) => x.id === editing) ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list],
+        now ? list.map((x) => (x.id === editing ? { ...x, ...base } : x)) : [{ id: editing as number, created: Date.now(), ...base }, ...list],
         (l) => productsCopy[l].undoEdited(name),
       );
     }
@@ -912,6 +962,8 @@ export function Products() {
                       <Label id="p-sale" hint={p.saleHint} peek={peek("sale")}>{p.sale} ({p.currency})</Label>
                       <input id="p-sale" aria-invalid={!!errors.sale} dir="ltr" inputMode="decimal" value={draft.sale} onChange={(e) => { set("sale", digits(e.target.value)); if (errors.sale) setErrors((x) => ({ ...x, sale: undefined })); }} placeholder="0.00" maxLength={10} className={`mt-auto ${field} h-12 text-start ${errors.sale ? bad : ""}`} />
                       {errors.sale && <p className="mt-1.5 text-xs text-rose-600">{errors.sale}</p>}
+                      {/* zero is allowed (the product is given free, and the store says so), but may be a slip for "no sale" */}
+                      {!errors.sale && draft.sale !== "" && Number(draft.sale) === 0 && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{p.saleZero}</p>}
                     </div>
                     <div className="sm:col-span-2">
                       <Label id="p-category" hint={p.catHint} peek={peek("category")}>{p.category}</Label>
@@ -959,7 +1011,7 @@ export function Products() {
                   {/* clothing and shoes: each size with its own quantity; the other kinds one quantity. Only the one that applies shows (not the other greyed out) */}
                   {kindHasSizes(draft.kind) ? (
                   <div>
-                    <SizesEditor lang={lang} kind={draft.kind} sizes={draft.sizes} chart={draft.sizeChart} onChart={(v) => set("sizeChart", v)} error={errors.sizes} inputClass={field} onChange={(sizes) => { set("sizes", sizes); if (errors.sizes) setErrors((x) => ({ ...x, sizes: undefined })); }} />
+                    <SizesEditor lang={lang} kind={draft.kind} sizes={draft.sizes} chart={draft.sizeChart} onChart={(v) => set("sizeChart", v)} onBusy={setChartBusy} error={errors.sizes} inputClass={field} onChange={(sizes) => { set("sizes", sizes); if (errors.sizes) setErrors((x) => ({ ...x, sizes: undefined })); }} />
                   </div>
                   ) : (
                   <div>
@@ -984,7 +1036,7 @@ export function Products() {
                 {/* the notifications (low stock, back in stock) were taken out until they work; the saved values keep their defaults */}
 
                 <div className="flex flex-wrap items-center gap-3 border-t border-fg/10 pt-6">
-                  <button type="submit" className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition hover:bg-deep">{p.save}</button>
+                  <button type="submit" disabled={sending} aria-busy={sending} className="h-11 rounded-xl bg-ink px-8 text-sm font-semibold text-onink transition enabled:hover:bg-deep disabled:cursor-wait disabled:opacity-60">{sending ? p.saveUploading : p.save}</button>
                   <button type="button" onClick={close} className="h-11 rounded-xl border border-fg/20 px-6 text-sm font-semibold transition hover:bg-soft">{p.cancel}</button>
 
                   {typeof editing === "number" &&

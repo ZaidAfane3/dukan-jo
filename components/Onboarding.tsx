@@ -24,7 +24,7 @@ import { pickPicture, toSavedLogo } from "./designer/image";
 import { ImageCropper } from "./ImageCropper";
 import { keepPicture } from "./media";
 import { merchantCall, onServer } from "./merchantApi";
-import { MAX_PROOFS, ProofRows, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
+import { MAX_PROOFS, ProofRows, proofsInPlay, syncProofPartner, usePartnerProofs, type ProofFile } from "./partnerProofs";
 import { loadConfig, saveConfig, storeIsLive } from "./storefront/storage";
 import { liveMissing, SellNeeds, sellWords, ShipDefaultNote, storeLiveNow, useSellReady } from "./ReadyToSell";
 import { ProductPhoto } from "./storefront/NoPhoto";
@@ -32,9 +32,10 @@ import { dropUndos, offerUndo } from "./undo";
 import { PRODUCT_MAX, typedMoney } from "./records";
 import { kindWords } from "./productsContent";
 import { SizesEditor } from "./SizesEditor";
-import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, type ProductKind, type SizeStock } from "./safeOrder";
+import { PRODUCT_KINDS, kindHasSizes, kindShips, sizeName, sizeTwice, type ProductKind, type SizeStock } from "./safeOrder";
 import { RudeNote } from "./RudeNote";
 import { usePageTitle } from "./pageTitle";
+import { merchantMoney } from "./moneyText";
 
 /* ====================================================================
    Types and constants
@@ -803,10 +804,14 @@ function LinkStep({ store, onSave }: StepProps) {
   const [tried, setTried] = useState(false);
   /* the link Dukkan said belongs to another store (asked on Save, like the Store link page) */
   const [taken, setTaken] = useState("");
+  /* the link Dukkan said can't be newly chosen (a reserved name): shown with the reserved-name message below */
+  const [reserved, setReserved] = useState("");
+  /* that link was another store's until recently, kept for it 2 days (server/slugHolds.ts): said so */
+  const [held, setHeld] = useState(false);
   /* the link the store already has is always fine to keep; the rules for new choices apply to a different one */
   const valid = (slug !== "" && slug === store.slug && isSlug(slug)) || isNewSlug(slug);
   /* Wrong after he leaves the field, or still empty after he pressed Save */
-  const showError = (!valid && ((touched && slug !== "") || tried)) || (taken !== "" && taken === slug);
+  const showError = (!valid && ((touched && slug !== "") || tried)) || (taken !== "" && taken === slug) || (reserved !== "" && reserved === slug);
   const suggestion = slugify(store.name);
   const canSuggest = isNewSlug(suggestion) && suggestion !== slug;
 
@@ -845,7 +850,11 @@ function LinkStep({ store, onSave }: StepProps) {
                 : !slug
                   ? c.link.errEmpty
                   : SLUG_RULE.test(slug)
-                    ? reservedSlugError[lang]
+                    ? held
+                      ? lang === "ar"
+                        ? "استخدم متجر آخر هذا الرابط حتى وقت قريب، وهو محفوظ لذلك المتجر لمدة يومين. اختر رابطًا آخر."
+                        : "Another store used this link until recently, and it is kept for that store for 2 days. Choose another one."
+                      : reservedSlugError[lang]
                     : c.link.invalid}
             </FieldError>
           ) : dropped ? (
@@ -869,8 +878,12 @@ function LinkStep({ store, onSave }: StepProps) {
             /* a store link belongs to one store: a signed-in account asks Dukkan first (the save is refused anyway if taken) */
             if (onServer() && slug !== store.slug) {
               const r = await merchantCall(`/api/shop/slug?slug=${encodeURIComponent(slug)}`, "GET");
-              if (r?.data.result === "taken") {
-                setTaken(slug);
+              if (r?.data.result === "taken" || r?.data.result === "reserved") {
+                if (r.data.result === "taken") setTaken(slug);
+                else {
+                  setReserved(slug);
+                  setHeld(!!r.data.held);
+                }
                 focusFirst(["ob-link"]);
                 return;
               }
@@ -1036,6 +1049,8 @@ function ProductStep({ store, onSave }: StepProps) {
     const savedSizes = sizes.map((z) => ({ name: sizeName(z.name), quantity: Math.max(0, Math.floor(Number(z.quantity) || 0)) })).filter((z) => z.name);
     if (sized) {
       if (!savedSizes.length) next.sizes = kw.errSizes;
+      /* two sizes with the same name would leave one of them without its stock */
+      else if (sizeTwice(savedSizes)) next.sizes = kw.errSizesTwice(sizeTwice(savedSizes));
     } else if (!unlimited && quantity === "") next.quantity = p.errQuantity;
     /* above the most that can be saved: the stock box says so itself (with "Make it unlimited"); this only stops the save */
     else if (stockOverMax(unlimited, quantity)) next.quantity = p.errQuantity;
@@ -1147,7 +1162,7 @@ function ProductStep({ store, onSave }: StepProps) {
                 aria-invalid={!!errors.price}
                 aria-describedby={errors.price ? "ob-product-price-err" : undefined}
                 value={price}
-                onChange={(e) => { setPrice(latin(e.target.value).replace(/[^\d.]/g, "").slice(0, 13)); if (errors.price) setErrors((x) => ({ ...x, price: undefined })); }}
+                onChange={(e) => { setPrice(typedMoney(e.target.value)); if (errors.price) setErrors((x) => ({ ...x, price: undefined })); }}
                 inputMode="decimal"
                 placeholder={p.pricePh}
                 className={`${inputClass} h-12 ps-14 ${errors.price ? bad : ""}`}
@@ -1249,7 +1264,7 @@ function ProductStep({ store, onSave }: StepProps) {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-lg font-bold">{shownName}</p>
                         <p className="mt-2 text-sm font-semibold">
-                          {priceNumber > 0 ? <span dir="ltr">{priceNumber.toFixed(2)} {p.currency}</span> : <span className="text-muted">-</span>}
+                          {priceNumber > 0 ? <span dir="ltr">{merchantMoney(priceNumber)} {p.currency}</span> : <span className="text-muted">-</span>}
                         </p>
                         <div className="mt-4 flex gap-2">
                           <span className="flex-1 rounded-md border border-fg/30 px-2 py-2 text-center text-[11px] font-semibold">{p.addToCart}</span>
@@ -1318,7 +1333,7 @@ function ShippingStep({ store, onSave }: StepProps) {
   const [errors, setErrors] = useState<{ city?: string; address?: string; name?: string; phone?: string; fee?: string; cities?: string; pays?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
 
-  /* Images and PDFs only, up to 5 files of 5 MB, checked from their bytes. Each one is sent with the partner as typed
+  /* Images and PDFs only, up to 5 files of 5 MB in play (rejected ones don't count), checked from their bytes. Each one is sent with the partner as typed
      now; saving the step tells the server the final name (syncProofPartner). */
   const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
@@ -1588,9 +1603,9 @@ function ShippingStep({ store, onSave }: StepProps) {
         <div>
           <Label title={s.proofLabel} hint={s.proofHint} optional={c.optional} />
           <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={onFiles} className="hidden" />
-          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !proofsReady || proofs.length >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !proofsReady || proofsInPlay(proofs) >= MAX_PROOFS} className="grid h-24 w-full place-items-center rounded-2xl border-2 border-dashed border-primary/40 text-sm font-semibold text-primary transition hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">
             <span>
-              {busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofs.length}/{MAX_PROOFS})</span>
+              {busy ? s.proofSending : s.proofAdd} <span dir="ltr" className="text-muted">({proofsInPlay(proofs)}/{MAX_PROOFS})</span>
             </span>
           </button>
           <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>

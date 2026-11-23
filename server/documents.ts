@@ -15,12 +15,19 @@ import { stripMetadata, stripPdf } from "./mediaBytes";
 export const MERCHANT_KINDS = ["courier_proof"] as const;
 export type MerchantKind = (typeof MERCHANT_KINDS)[number];
 
+/* The limits below count only the files still in play: waiting for a check or approved. A rejected file never counts
+   (nor a removed one), so a merchant can send again and be rejected as many times as it takes, and no number of
+   rejections closes or blocks anything. ACTIVE (SQL) is that test, for the queries that count. */
 /** Files per delivery partner, the same 5 the upload box promises */
 export const PER_PARTNER = 5;
 /** Files one account can keep in all, of every kind, so one store can't fill the database */
 export const PER_ACCOUNT = 20;
 /** Bytes one account can keep in all (about four full partners' worth) */
 export const ACCOUNT_BYTES = 60_000_000;
+/** A document that counts toward the limits above: not removed and not rejected */
+export const ACTIVE = `removed_at IS NULL AND status <> 'rejected'`;
+/** How many rejected files the merchant's list shows, the latest ones (Diwan keeps them all) */
+export const REJECTED_SHOWN = 20;
 /** The largest file, as the upload box says (5 MB, read the same way components/safe.ts reads it) */
 export const FILE_BYTES = imageRules.proof.max;
 /** The request body: the file as base64 (a third bigger) and a few short fields */

@@ -1,7 +1,7 @@
 import { cleanSetting, SETTING_DEFAULTS, type DukkanShip } from "@/components/diwan/platformSettings";
 import { answer } from "@/server/auth";
 import { db } from "@/server/db";
-import { ORDERS_SQL, prepareShops, shopListSql, STATUS_SQL } from "@/server/shops";
+import { ORDERS_SQL, prepareShops, REAL_STORE_ORDER, shopListSql, STATUS_SQL } from "@/server/shops";
 import { staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,8 @@ const PAGE = 50;
 
 /* The stores that deliver with Dukkan Ship (shops SHIP_SQL: chosen, or by default), newest first, 50 at a time, with the shop list's
    own search (store name or link; an owner's email or mobile only when typed in full). Each row: the store's name, its
-   owner's name, link, pickup city, status, how many orders it has and how many of them Dukkan Ship delivers (ship_orders). Never an email, a phone or an address. The shops
+   owner's name, link, pickup city, status, how many orders it has and how many of them Dukkan Ship delivers (ship_orders; like the orders count, a card or CliQ test order
+   from the merchant's preview is left out, so it is never more than the orders). Never an email, a phone or an address. The shops
    row has no date for when Dukkan Ship was chosen, so none is given. `served`: false when its pickup city is no longer on
    Dukkan Ship's list (taken off in Diwan since it was saved), so the page marks it instead of listing it as usual. */
 export const GET = staffRoute("shops.read", async (req) => {
@@ -22,7 +23,8 @@ export const GET = staffRoute("shops.read", async (req) => {
   const [rows, count, setting] = await Promise.all([
     pool.query(
       `SELECT s.account_id AS id, s.name, s.slug, a.name AS owner, s.pickup_city AS city, (${STATUS_SQL}) AS status, s.published, ${ORDERS_SQL} AS order_count,
-              (SELECT count(*)::int FROM store_orders o WHERE o.account_id = s.account_id AND o.ship_by = 'dukkan') AS ship_orders
+              (SELECT count(*)::int FROM store_orders o
+                WHERE o.account_id = s.account_id AND o.ship_by = 'dukkan' AND ${REAL_STORE_ORDER()}) AS ship_orders
        ${sql} ORDER BY s.created_at DESC, s.account_id DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`,
       params,
     ),

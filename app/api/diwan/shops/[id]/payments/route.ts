@@ -1,7 +1,7 @@
 import { answer } from "@/server/auth";
 import { plainText, seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { notify } from "@/server/notify";
+import { emailNotice, notify } from "@/server/notify";
 import { body, dayOf, jodOf, notFound, shopId, shopNameOf, textOf } from "@/server/shopActions";
 import { audit, staffRoute } from "@/server/staff";
 import { passwordAgain } from "@/server/staffConfirm";
@@ -30,14 +30,37 @@ export const POST = staffRoute("billing", async (req, staff, ctx) => {
   const refused = await passwordAgain(req, staff, b?.myPassword, "shop.payment");
   if (refused) return refused;
 
-  const { rows } = await (await db()).query(
-    `INSERT INTO payments (account_id, amount, method, reference, paid_on, marked_by, note, request_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     ON CONFLICT (account_id, request_key) WHERE request_key IS NOT NULL DO NOTHING RETURNING id`,
-    [id, amount, method, plainText(reference), paidOn, staff.id, seal(note), key],
-  );
-  /* already saved by the first press: answer as the first one did, with no second log line or message */
-  if (!rows.length) return answer({ result: "ok" });
-  await audit(req, staff.id, "shop.payment", { type: "shop", id }, note || null, { payment: String(rows[0].id), amount, method, store: await shopNameOf(id) });
-  await notify(id, "paymentReceived", { amount, method });
+  /* the payment, its line in the activity log and the merchant's message are kept together or not at all, so a retry
+     after a failure never finds the payment saved without them */
+  const c = await (await db()).connect();
+  try {
+    await c.query("BEGIN");
+    const { rows } = await c.query(
+      `INSERT INTO payments (account_id, amount, method, reference, paid_on, marked_by, note, request_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (account_id, request_key) WHERE request_key IS NOT NULL DO NOTHING RETURNING id`,
+      [id, amount, method, plainText(reference), paidOn, staff.id, seal(note), key],
+    );
+    if (!rows.length) {
+      await c.query("ROLLBACK");
+      /* already saved by an earlier press of this form: the same payment answers as the first one did (no second log
+         line or message). Sent again with another amount, way, date or reference (the first answer was lost and he
+         corrected it), it is not answered "ok" as if the new details were kept: he is told the first one is saved. */
+      const { rows: was } = await c.query(
+        `SELECT amount = $3::numeric AND method = $4 AND paid_on = $5::date AS same, reference FROM payments WHERE account_id = $1 AND request_key = $2`,
+        [id, key, amount, method, paidOn],
+      );
+      const first = was[0] as { same: boolean; reference: string | null } | undefined;
+      return first && (!first.same || (first.reference ?? "") !== reference) ? answer({ result: "key-used" }, 409) : answer({ result: "ok" });
+    }
+    await audit(req, staff.id, "shop.payment", { type: "shop", id }, note || null, { payment: String(rows[0].id), amount, method, store: await shopNameOf(id) }, c);
+    await notify(id, "paymentReceived", { amount, method }, c);
+    await c.query("COMMIT");
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    c.release();
+  }
+  emailNotice(id, "paymentReceived", { amount, method });
   return answer({ result: "ok" });
 });

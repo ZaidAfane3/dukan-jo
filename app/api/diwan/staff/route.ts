@@ -9,24 +9,25 @@ import { passwordAgain } from "@/server/staffConfirm";
 
 export const dynamic = "force-dynamic";
 
-/** Everyone on Dukkan's staff (owners only) */
+/** Everyone on Dukkan's staff (owners only). emailConfirmed: the member typed a code sent to their email (at a sign-in,
+    or when they changed it); an address an owner typed when adding them is not confirmed until then. */
 export const GET = staffRoute("staff", async (_req, me) => {
   const { rows } = await (await db()).query(
-    `SELECT id, name, email, role, active, totp_on, must_change_password, last_login_at, created_at,
+    `SELECT id, name, email, role, active, email_confirmed_at, must_change_password, last_login_at, created_at,
             (SELECT count(*) FROM staff_sessions ss WHERE ss.staff_id = s.id AND ss.verified AND ss.expires_at > now())::int AS sessions
        FROM staff s ORDER BY active DESC, role, lower(name)`,
   );
   return answer({
     me: me.id,
     staff: rows.map((r) => ({
-      id: String(r.id), name: r.name, email: r.email, role: r.role, active: r.active, totpOn: r.totp_on,
+      id: String(r.id), name: r.name, email: r.email, role: r.role, active: r.active, emailConfirmed: r.email_confirmed_at !== null,
       mustChange: r.must_change_password, lastLoginAt: r.last_login_at, createdAt: r.created_at, sessions: r.sessions,
     })),
   });
 });
 
-/** Adds a staff member with a temporary password the owner gives them; they choose their own at the first sign-in,
-    and set up their 2-step code then too. Every staff member is an owner (Diwan has no roles), so adding one needs the
+/** Adds a staff member with a temporary password the owner gives them; they choose their own at the first sign-in, with
+    the code emailed to the address typed here (which confirms it; until then it counts as not confirmed). Every staff member is an owner (Diwan has no roles), so adding one needs the
     acting member's own password with it ({ myPassword }, server/staffConfirm.ts passwordAgain).
     Answers: "ok", "taken", "invalid", "weak", "password" (403), "slow-down" (429). */
 export const POST = staffRoute("staff", async (req: NextRequest, me) => {

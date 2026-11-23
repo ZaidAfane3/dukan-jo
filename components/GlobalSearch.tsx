@@ -7,7 +7,7 @@ import { useDemo } from "./demoSandbox";
 import { latin } from "./digits";
 import { usePrefs } from "./Prefs";
 import { cleanOrder, cleanProduct, couponName, parseList, productCategories, type Coupon, type Order } from "./records";
-import { findStoreOrder, loadStoreOrders, readCoupons, readInfoPages, useStoreOrders, type SearchPage } from "./searchSources";
+import { findStoreOrder, loadStoreOrders, readCoupons, readInfoPages, SEARCH_OPEN, useStoreOrders, type SearchPage } from "./searchSources";
 
 /* The groups, in the order they are shown: products, orders, coupons, his own info pages, the dashboard's pages */
 const GROUPS = [0, 1, 2, 3, 4] as const;
@@ -27,13 +27,14 @@ const pages = [
   { href: "/marketing/reminders", en: "Automatic reminders", ar: "التذكيرات التلقائية", kw: "reminder cart email sms تذكير" },
   { href: "/marketing/coupons", en: "Coupons", ar: "الكوبونات", kw: "coupon discount code free shipping marketing خصم كود تسويق" },
   { href: "/marketing/repurchase", en: "Repurchase reminders", ar: "تذكيرات إعادة الشراء", kw: "repurchase buy again reminder marketing تسويق" },
+  { href: "/marketing/emails", en: "Customer emails", ar: "إيميلات العملاء", kw: "newsletter subscribers email back in stock remind sold out marketing نشرة بريدية مشتركين إيميل تذكير توفر نفدت تسويق" },
   { href: "/reports", en: "Store performance", ar: "أداء المتجر", kw: "reports analytics visits payments sales customers تقارير مدفوعات زيارات" },
   { href: "/store-link", en: "Store link", ar: "رابط المتجر", kw: "link address url domain رابط عنوان المتجر" },
   { href: "/themes", en: "Theme store", ar: "متجر الثيمات", kw: "themes templates buy store design ثيمات قوالب شراء تصميم" },
   { href: "/themes/mine", en: "My themes", ar: "ثيماتي", kw: "my themes bought owned ثيماتي ثيمات مشتريات" },
   { href: "/design", en: "Store design", ar: "تصميم المتجر", kw: "design theme storefront colors header footer sections editor تصميم ثيم ألوان واجهة المتجر" },
   { href: "/pages", en: "Info pages", ar: "الصفحات التعريفية", kw: "pages policy privacy terms return about صفحات سياسة الخصوصية الأحكام والشروط الاسترجاع من نحن" },
-  { href: "/from-dukkan", en: "From Dukkan", ar: "من دكّان", kw: "dukkan news guides rules help updates أخبار أدلة قواعد مساعدة تحديثات دكان" },
+  { href: "/from-dukkan", en: "From Dukkan", ar: "من دكان", kw: "dukkan news guides rules help updates أخبار أدلة قواعد مساعدة تحديثات دكان" },
   { href: "/support", en: "Support tickets", ar: "تذاكر الدعم", kw: "support help ticket contact دعم مساعدة تذكرة" },
   { href: "/settings", en: "Account settings", ar: "إعدادات الحساب", kw: "settings profile password phone email name إعدادات الملف الشخصي كلمة المرور" },
   { href: "/settings/notifications", en: "Notifications settings", ar: "إعدادات الإشعارات", kw: "notification email alerts إشعارات تنبيهات بريد" },
@@ -234,6 +235,14 @@ export function GlobalSearch() {
     setOpen(false);
     setQ("");
     input.current?.blur();
+    /* a result on the page already open: the page is not opened again, so it is told to open the item (the Orders page
+       follows its address by itself) */
+    const to = new URL(r.href, window.location.href);
+    if (to.pathname === window.location.pathname && to.searchParams.has("open") && to.pathname !== "/orders") {
+      window.history.replaceState(window.history.state, "", to.pathname + to.search + to.hash);
+      window.dispatchEvent(new Event(SEARCH_OPEN));
+      return;
+    }
     router.push(r.href);
   };
 

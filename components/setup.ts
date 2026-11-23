@@ -35,6 +35,8 @@ export type SavedSetup = {
 };
 
 const KEY = "seen-setup";
+/** The key the setup is kept under (serverSync saveNow sends it on its own) */
+export const SETUP_KEY = KEY;
 
 /* The name he signed up with, kept for this browser session by the sign-up page. */
 export function accountName(): string {

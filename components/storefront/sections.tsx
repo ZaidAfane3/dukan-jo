@@ -1,16 +1,17 @@
 "use client";
 
 import { orderPays, storeDelivery, toFils, UNLIMITED_STOCK, visitorEmail } from "../safeOrder";
+import { timeoutSignal } from "../timeoutSignal";
 import type { FreeDelivery } from "../freeDeliveryStore";
 import { cloneElement, createContext, Fragment, isValidElement, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Lang } from "../content";
 import { suggestFor } from "./Cart";
 import { displayFamily, heroTitleFamily, moveXY, type HeroFont, type PicEdit, type ProductPageStyle, type SectionConfig, type SectionMove, type SectionMoves, type TextStyle, type StorefrontConfig, type TitleLook } from "./config";
-import { basketMost, copy, currency, fillColors, icons, moneyIn, mostWords, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
+import { basketMost, copy, currency, fillColors, freeWord, icons, moneyIn, mostWords, onColor, picFill, picStyle, priceLang, priceOf, ProductImage } from "./parts";
 import { categoriesOf, inCategory, type StoreData, type StoreProduct } from "./useStoreData";
 import { productCount, searchCopy } from "./search";
-import { bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
+import { bannerInk, bannerSurface, cardGround, dimOn, hex, inkOn, legibleOn, mix, readsOn, stopsOf } from "./footerColors";
 import { onShowSlide } from "./slideSignal";
 import { useSpots } from "./spotSignal";
 import { initialOf, isBlank } from "../safe";
@@ -30,12 +31,18 @@ export type Ctx = {
   shop?: string;
   design?: Design;
   owner?: boolean;
-  /* the public store (app/[slug]): a visitor's browser, where nothing is kept for the merchant yet (no sign-ups, no orders) */
+  /* the public store (app/[slug]): a visitor's browser, where nothing is kept for the merchant (orders and newsletter
+     sign-ups go to Dukkan's server) */
   visitor?: boolean;
+  /* the public store: its newsletter block sends a visitor's email to Dukkan's server for the merchant (its link name,
+     and the info page or product page the block was on) */
+  signupTo?: { slug: string; page: number | null; product: boolean };
   interactive: boolean;
   /* The basket: how many of each product, and a way to change it */
   /* the basket: by product id, or "id|size" for a product in sizes (see basketKey) */
   qty: Record<string, number>;
+  /* the coupon's discount in the cart: free delivery counts the products after it */
+  off?: number;
   /* a product in sizes is added with its size; without one its page opens to choose it */
   setQty: (p: StoreProduct, n: number, size?: string) => void;
   /* Opens a page of the store (an info page the merchant wrote) in place of the home page */
@@ -472,8 +479,14 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
               <>
                 {/* the price and its currency stay together; the old price goes beside them, or under them when the card is narrow */}
                 <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
-                  <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
-                  <span className="text-[11px] font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                  {priceOf(p) === 0 ? (
+                    <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{freeWord(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                  ) : (
+                    <>
+                      <span className={centered ? "text-xl font-bold" : "text-base font-extrabold"} style={saleTint(ctx, p, cardOn)}>{moneyIn(priceOf(p), priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                      <span className="text-[11px] font-semibold text-sf-text/70">{currency(priceLang(ctx.config.theme.prices, ctx.lang))}</span>
+                    </>
+                  )}
                 </span>
                 {k.showOldPrice && <OldPrice p={p} ctx={ctx} size={centered ? 16 : 14} on={cardOn} />}
               </>
@@ -528,18 +541,21 @@ function ProductCard({ p, ctx }: { p: StoreProduct; ctx: Ctx }) {
             </button>
           </div>
         ) : (
+          /* sold out: where the store's product pages open, the button leads to the product's page and its "Remind me when it's back" */
           <button
             type="button"
-            disabled={out || p.price === null}
-            onClick={() => (ctx.interactive || ctx.design) && ctx.setQty(p, 1)}
-            aria-label={out ? c.soldOut : `${c.add}: ${p.name}`}
+            disabled={out ? !ctx.openProduct : p.price === null}
+            onClick={() => (out ? ctx.openProduct?.(p.id) : (ctx.interactive || ctx.design) && ctx.setQty(p, 1))}
+            aria-label={out ? (ctx.openProduct ? `${backWords[ctx.lang].button}: ${p.name}` : c.soldOut) : `${c.add}: ${p.name}`}
             className={`mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-[min(var(--sf-r),12px)] border text-sm font-bold transition ${
-              out
+              out && !ctx.openProduct
                 ? "cursor-not-allowed border-black/10 bg-black/[0.05] text-sf-text/40"
-                : "border-sf-primary/50 text-[var(--sf-primarytext,var(--sf-primary))] hover:bg-[var(--sf-primary)] hover:text-[var(--sf-on)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                : out
+                  ? "border-black/15 text-sf-text/80 hover:border-[var(--sf-text)] active:scale-[0.98]"
+                  : "border-sf-primary/50 text-[var(--sf-primarytext,var(--sf-primary))] hover:bg-[var(--sf-primary)] hover:text-[var(--sf-on)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             }`}
           >
-            {out ? c.soldOut : p.sizes?.length ? <>{icons.bag}{ctx.lang === "ar" ? "اختر المقاس" : "Choose a size"}</> : <>{icons.bag}{c.add}</>}
+            {out ? (ctx.openProduct ? backWords[ctx.lang].button : c.soldOut) : p.sizes?.length ? <>{icons.bag}{ctx.lang === "ar" ? "اختر المقاس" : "Choose a size"}</> : <>{icons.bag}{c.add}</>}
           </button>
         ))}
       </div>
@@ -739,6 +755,139 @@ function Gallery({ p, ctx, look }: { p: StoreProduct; ctx: Ctx; look: ProductPag
   return side ? <div className="flex items-start gap-3">{thumbs}<div className="min-w-0 flex-1">{main}</div></div> : <div>{main}{thumbs}</div>;
 }
 
+/* ---------------- "Remind me when it's back": a sold-out product, or a sold-out size of it ----------------
+   On the public store the email goes to Dukkan's server for the merchant (POST /api/public/store/<link>/back-in-stock,
+   server/storeSignups.ts), who sees it in Marketing > Customer emails. Nothing is sent to the visitor, and nothing is
+   kept in his browser. In the merchant's preview, the designer and the tour it answers as on the store and keeps
+   nothing. */
+
+const backWords = {
+  en: {
+    button: "Remind me when it's back",
+    label: "Your email",
+    send: "Send",
+    sending: "Sending…",
+    thanks: "Thanks! The store will let you know when it's back.",
+    bad: "Enter a valid email, like name@example.com",
+    error: "We couldn't save your email. Check your connection and try again.",
+    slow: "Too many tries. Wait a few minutes and try again.",
+    closed: "This store isn't taking requests right now.",
+    back: "Good news: it's available again. Reload the page to order it.",
+    preview: "This is a preview, so the email was not saved. Emails left on your live store appear in Marketing > Customer emails.",
+  },
+  ar: {
+    button: "ذكّرني عند توفّره",
+    label: "بريدك الإلكتروني",
+    send: "إرسال",
+    sending: "جارٍ الإرسال…",
+    thanks: "شكرًا! سيخبرك المتجر عند توفّره.",
+    bad: "اكتب بريدًا إلكترونيًا صحيحًا، مثل name@example.com",
+    error: "تعذّر حفظ بريدك. تأكّد من اتصالك وحاول مرة أخرى.",
+    slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مرة أخرى.",
+    closed: "هذا المتجر لا يستقبل الطلبات حاليًا.",
+    back: "خبر جيد: المنتج متوفّر من جديد. حدّث الصفحة لتطلبه.",
+    preview: "هذه معاينة، لذلك لم يُحفظ البريد. الإيميلات التي يتركها الزوّار في متجرك المنشور تظهر في التسويق > إيميلات العملاء.",
+  },
+};
+
+function BackInStock({ p, size, ctx, buttonClass }: { p: StoreProduct; size: string | null; ctx: Ctx; buttonClass: string }) {
+  const w = backWords[ctx.lang];
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [bad, setBad] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [done, setDone] = useState(false);
+  const [note, setNote] = useState<"" | "error" | "slow" | "closed" | "back" | "preview">("");
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (open) field.current?.focus();
+  }, [open]);
+  if (done)
+    return (
+      <div role="status" className="w-full text-sm font-semibold">
+        <p className="inline-flex items-center gap-2">{icons.check}{w.thanks}</p>
+        {note === "preview" && <p className="mt-1 text-xs font-normal opacity-70">{w.preview}</p>}
+      </div>
+    );
+  if (!open)
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`inline-flex min-w-[12rem] flex-1 items-center justify-center gap-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sf-text)] ${buttonClass}`}
+      >
+        <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
+        {w.button}
+      </button>
+    );
+  const id = `back-${p.id}`;
+  return (
+    <form
+      noValidate
+      className="w-full"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (sending) return;
+        const clean = visitorEmail(email);
+        setBad(!clean);
+        setNote("");
+        if (!clean) return;
+        const to = ctx.signupTo;
+        /* the merchant's preview, the designer or the tour: answered as on the store, nothing kept anywhere */
+        if (!to) {
+          setNote("preview");
+          setDone(true);
+          return;
+        }
+        setSending(true);
+        void fetch(`/api/public/store/${encodeURIComponent(to.slug)}/back-in-stock`, {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: timeoutSignal(SIGNUP_TIMEOUT),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: clean, lang: ctx.lang, product: p.id, ...(size ? { size } : {}) }),
+        })
+          .then(async (r) => {
+            const j = (await r.json().catch(() => null)) as { result?: string } | null;
+            if (r.ok && j?.result === "ok") return setDone(true);
+            if (r.status === 400 && j?.result === "invalid") return setBad(true);
+            setNote(r.status === 429 ? "slow" : j?.result === "in-stock" ? "back" : r.status === 409 || r.status === 404 ? "closed" : "error");
+          })
+          .catch(() => setNote("error"))
+          .finally(() => setSending(false));
+      }}
+    >
+      <label htmlFor={id} className="mb-2 block text-sm font-bold">{w.label}</label>
+      <div className="flex flex-wrap gap-2">
+        <input
+          ref={field}
+          id={id}
+          type="email"
+          dir="ltr"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setBad(false);
+            setNote("");
+          }}
+          maxLength={120}
+          aria-invalid={bad}
+          placeholder="name@example.com"
+          className="h-12 min-w-[12rem] flex-1 border-2 border-black/15 bg-white px-4 text-sm text-[#1c1a17] outline-none transition placeholder:text-[#1c1a17]/45 focus:border-[var(--sf-text)]"
+          style={{ borderRadius: "min(var(--sf-r), 12px)" }}
+        />
+        <button type="submit" disabled={sending} aria-busy={sending} className={`inline-flex shrink-0 items-center justify-center gap-2 transition disabled:cursor-wait disabled:opacity-70 ${buttonClass}`}>
+          {sending ? w.sending : w.send}
+        </button>
+      </div>
+      {bad && <p role="alert" className="mt-2 text-xs font-semibold text-rose-600">{w.bad}</p>}
+      {note && <p role="alert" className="mt-2 text-xs font-semibold">{w[note]}</p>}
+    </form>
+  );
+}
+
 /** The page of one product: its pictures, name, price, stock and the way to buy it, then what the merchant wrote about it and other products.
     It has four looks (classic, editorial, luxe, pop); a theme picks one and the merchant can switch it in the designer. */
 /** The basket's entry for a product: its id, or "id|size" for one size of a product in sizes */
@@ -774,7 +923,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   useEffect(() => { setPick(1); setMore(false); setSize(null); }, [p.id]);
   useEffect(() => setPick(1), [size]);
   const count = inBasket > 0 ? inBasket : pick;
-  /* the stepper stops at what the basket takes: the stock (of that size), at most one order's limit (99 with no limit) */
+  /* the stepper stops at what the basket takes: the stock (of that size), or with no limit one order's most (999) */
   const most = basketMost(sizeLeft);
   const setCount = (n: number) => (inBasket > 0 ? ctx.setQty(p, n, size ?? undefined) : setPick(Math.max(1, Math.min(Math.max(1, most), n))));
   /* a product in sizes waits for its size before it can be added */
@@ -794,7 +943,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
   const basket = toFils(Object.entries(ctx.qty).reduce((t, [key, n]) => {
     const x = ctx.data.products.find((y) => String(y.id) === key.split("|")[0]);
     return t + (x ? n * priceOf(x) : 0);
-  }, 0));
+  }, 0) - (ctx.off ?? 0));
   const perks: { icon: React.ReactNode; t: React.ReactNode; d?: React.ReactNode; bar?: number }[] = [];
   /* free delivery is only promised by a store that delivers to a door, on a product it delivers */
   if (fd?.on && ctx.sells.delivers && !p.noShip) {
@@ -858,8 +1007,8 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         className={`inline-flex items-baseline gap-1.5 ${pop ? "rounded-[var(--sf-pill)] border-2 border-[var(--sf-text)] px-4 py-2 shadow-[3px_3px_0_var(--sf-text)]" : ""}`}
         style={{ ...priceInk(ctx, priceOn), ...(pop ? { background: tint("--sf-accent", 20) } : {}) }}
       >
-        <span className={s.price} style={{ ...saleTint(ctx, p, ctx.config.theme.background), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{moneyIn(now, pl)}</span>
-        <span className={`text-sm font-semibold ${pop ? "text-[var(--sf-text)]" : "opacity-70"}`}>{currency(pl)}</span>
+        <span className={s.price} style={{ ...saleTint(ctx, p, ctx.config.theme.background), ...(luxe ? { fontFamily: "var(--sf-heading)" } : {}) }}>{now === 0 ? freeWord(pl) : moneyIn(now, pl)}</span>
+        {now !== 0 && <span className={`text-sm font-semibold ${pop ? "text-[var(--sf-text)]" : "opacity-70"}`}>{currency(pl)}</span>}
       </span>
       <OldPrice p={p} ctx={ctx} size={s.old} on={ctx.config.theme.background} />
       {off > 0 && <span dir="ltr" className={s.off}>-{off}%</span>}
@@ -892,7 +1041,10 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
         </div>
       )}
       {!out && p.price !== null && !needSize && count >= most && <p role="status" className="w-full text-xs font-semibold text-amber-600">{mostWords(sizeLeft, ctx.lang)}</p>}
-      {inBasket > 0 && !out ? (
+      {out ? (
+        /* sold out (or the size chosen is): the visitor can leave an email to hear when it is back */
+        <BackInStock key={`${p.id}|${size ?? ""}`} p={p} size={size} ctx={ctx} buttonClass={s.buy} />
+      ) : inBasket > 0 ? (
         <p role="status" className={`flex min-w-[12rem] flex-1 flex-wrap items-center justify-center gap-x-2 text-center ${s.added}`}>
           <span className="inline-flex items-center gap-1.5">{icons.check}{w.inCart(inBasket)}</span>
           <span className="opacity-70">– {w.total} {amount(now * inBasket)}</span>
@@ -912,7 +1064,7 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
     </div>
   );
 
-  /* the sizes, each a button; a size that ran out is crossed out and cannot be picked */
+  /* the sizes, each a button; a size that ran out is crossed out: chosen, it offers "Remind me when it's back" */
   const sizePicker = sized && (
     <div className={luxe ? "text-center" : ""}>
       <div className={`mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 ${luxe ? "justify-center" : "justify-between"}`}>
@@ -936,13 +1088,13 @@ export function ProductPage({ p, ctx, onBack, look = "classic", fd, pickup = fal
               type="button"
               role="radio"
               aria-checked={on}
-              disabled={gone}
               onClick={() => setSize(z.name)}
               title={gone ? c.soldOut : undefined}
-              className={`min-h-[44px] min-w-[3rem] border-2 px-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:line-through disabled:opacity-40 ${on ? "border-[var(--sf-text)] bg-[var(--sf-text)] text-[var(--sf-bg)]" : "border-black/15 hover:border-[var(--sf-text)]"}`}
+              className={`min-h-[44px] min-w-[3rem] border-2 px-3 text-sm font-bold transition ${gone ? (on ? "line-through" : "line-through opacity-40") : ""} ${on ? "border-[var(--sf-text)] bg-[var(--sf-text)] text-[var(--sf-bg)]" : "border-black/15 hover:border-[var(--sf-text)]"}`}
               style={{ borderRadius: pop ? "var(--sf-pill)" : "min(var(--sf-r), 12px)" }}
             >
               <bdi>{z.name}</bdi>
+              {gone && <span className="sr-only"> ({c.soldOut})</span>}
             </button>
           );
         })}
@@ -1293,7 +1445,7 @@ function SampleButton({ ctx }: { ctx: Ctx }) {
   const on = ctx.design?.sampleProducts;
   if (!on || ctx.data.products.length) return null;
   return (
-    <button type="button" data-sample-on onClick={(e) => { e.stopPropagation(); on(true); }} className="mt-3 inline-flex items-center gap-1.5 rounded-full border-2 border-[color-mix(in_srgb,var(--sf-primary)_45%,transparent)] px-5 py-2 text-xs font-bold text-[var(--sf-primary)] transition hover:bg-[color-mix(in_srgb,var(--sf-primary)_8%,transparent)]">
+    <button type="button" data-sample-on onClick={(e) => { e.stopPropagation(); on(true); }} className="mt-3 inline-flex items-center gap-1.5 rounded-full border-2 border-[color-mix(in_srgb,var(--sf-primary)_45%,transparent)] px-5 py-2 text-xs font-bold text-[var(--sf-primarytext,var(--sf-primary))] transition hover:bg-[color-mix(in_srgb,var(--sf-primary)_8%,transparent)]">
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.500-7 10-7 10 7 10 7-3.500 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
       {ctx.lang === "ar" ? "معاينة بمنتجات تجريبية" : "Preview with sample products"}
     </button>
@@ -1994,7 +2146,7 @@ function Tiles({ s, ctx }: { s: Extract<SectionConfig, { type: "tiles" }>["setti
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[4/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "معرض صور: أضف صورك من القائمة الجانبية" : "Picture tiles: add your pictures from the side panel"}
         </div>
       </section>
@@ -2075,7 +2227,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "بنرات ترويجية: أضف بنرًا من القائمة الجانبية" : "Promo banners: add a banner from the side panel"}
         </div>
       </section>
@@ -2103,9 +2255,6 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const dgo = ctx.design && pageOf(b.link ?? "") !== null ? (e: React.MouseEvent) => { if (e.ctrlKey || e.metaKey) ctx.design?.openPage?.(pageOf(b.link)!); } : undefined;
           const rich = b.panel === "light" || b.panel === "dark";
           const accent = b.accent || "var(--sf-accent)";
-          /* the store's accent as words on a frosted panel: kept where it reads on the panel, else the page text's rule */
-          const richBg = b.panel === "light" || b.panel === "dark" ? hex(b.panelColor) || (b.panel === "dark" ? "#12100d" : "#fff5f8") : "";
-          const accentWords = b.accent || !richBg ? accent : accentFor(ctx, richBg);
           const sizeClass = tall ? (ctx.compact ? "h-[420px]" : "h-[600px]") : ctx.compact ? "aspect-[4/3]" : ratio;
           const photo = b.image && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -2117,6 +2266,10 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
           const bg = { background: b.image ? "#000" : `linear-gradient(135deg, ${plain}, color-mix(in srgb, ${plain} 60%, #6fe3cf))` };
           /* his own colors for the words, where they read on what the words sit on; one that vanishes there gives way to the usual color */
           const surface = bannerSurface(b, primary, ctx.data.color);
+          /* the banner's own words color (the panel's, or white), where it reads there; else the page text's rule picks one */
+          const words = bannerInk(b, primary, ctx.data.color);
+          /* the store's accent as words on a frosted panel: kept where it reads on what the panel really shows, else the page text's rule */
+          const accentWords = b.accent || !rich ? accent : accentFor(ctx, surface);
           const ownC = (c?: string) => (c && readsOn(c, surface) ? c : undefined);
           /* a filled button keeps white words unless they vanish on his button color */
           const onBtn = (c?: string) => (c && !readsOn("#ffffff", c) ? onColor(c) : "#ffffff");
@@ -2213,7 +2366,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
             const family = displayFamily[b.font ?? "default"];
             const small = displayFamily[b.textFont ?? "default"];
             const customPanel = !!b.panelColor && /^#[0-9a-f]{6}$/i.test(b.panelColor);
-            const panelStyle = customPanel ? { background: `color-mix(in srgb, ${b.panelColor} 72%, transparent)`, color: onColor(b.panelColor!) === "#ffffff" ? "#f4efe6" : "#2a1f16" } : undefined;
+            const panelStyle = { ...(customPanel ? { background: `color-mix(in srgb, ${b.panelColor} 72%, transparent)` } : {}), color: words };
             const btn = `mt-5 inline-flex w-fit items-center rounded-full px-6 py-2.5 text-sm font-semibold transition hover:-translate-y-0.5 ${b.buttonStyle === "outline" ? "border" : "text-white"}`;
             /* an outline button in his color where it reads on the panel (else the panel's words color); a filled one keeps readable words */
             const accentHex = hex(b.accent) || hex(ctx.config.theme.accent || primary);
@@ -2222,7 +2375,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
               <div key={n} className={shell} style={bg}>
                 {photo}
                 <div
-                  className={`absolute max-w-[min(80%,24rem)] rounded-[22px] px-8 py-7 backdrop-blur-[8px] ${corner[b.position ?? "top-start"]} ${customPanel ? "" : dark ? "bg-[rgba(18,14,11,.55)] text-[#e9dfcf]" : "bg-[rgba(255,245,248,.72)] text-[#5a3a34]"}`}
+                  className={`absolute max-w-[min(80%,24rem)] rounded-[22px] px-8 py-7 backdrop-blur-[8px] ${corner[b.position ?? "top-start"]} ${customPanel ? "" : dark ? "bg-[rgba(18,14,11,.55)]" : "bg-[rgba(255,245,248,.72)]"}`}
                   style={panelStyle}
                 >
                   {eyebrow && <p className="text-xs tracking-wide" style={{ fontFamily: small, color: ownC(b.eyebrowColor) || (b.accent && !ownC(b.accent) ? "inherit" : accentWords), fontSize: b.textSize ? Math.round(b.textSize * 0.8) : b.textFont && b.textFont !== "default" ? 20 : undefined , ...tx(b.styles?.eyebrow) }}><Say>{eyebrow}</Say></p>}
@@ -2257,7 +2410,7 @@ function Banners({ s, ctx }: { s: Extract<SectionConfig, { type: "banners" }>["s
             <div key={n} className={shell} style={bg}>
               {photo}
               <span aria-hidden className={`absolute inset-0 -z-10 ${middle ? "bg-black/40" : "bg-gradient-to-t from-black/65 via-black/15 to-transparent"}`} />
-              <div className={`flex h-full flex-col p-6 text-white ${middle ? "items-center justify-center text-center" : "justify-end"}`}>
+              <div className={`flex h-full flex-col p-6 ${middle ? "items-center justify-center text-center" : "justify-end"}`} style={{ color: words }}>
                 {middle && eyebrow && <p className={`mb-2 font-bold drop-shadow ${/[؀-ۿ]/.test(eyebrow) ? "" : "uppercase tracking-[0.18em]"}`} style={{ color: ownC(b.eyebrowColor) || "inherit", fontSize: b.eyebrowSize ? scaled(b.eyebrowSize, ctx.compact) : 13, fontFamily: b.textFont && b.textFont !== "default" ? displayFamily[b.textFont] : undefined, ...tx(b.styles?.eyebrow) }}><Say>{eyebrow}</Say></p>}
                 {title && <h3 className="font-extrabold leading-tight drop-shadow" style={{ fontFamily: displayFamily[b.font ?? "default"], color: ownC(b.titleColor) || "inherit", fontSize: scaled(b.titleSize ?? 84, ctx.compact) , ...tx(b.styles?.title) }}><Say>{title}</Say></h3>}
                 {text && <p className={`mt-1.5 max-w-[85%] text-sm leading-relaxed opacity-90 ${middle ? "drop-shadow" : ""}`}><Say>{text}</Say></p>}
@@ -2304,7 +2457,7 @@ function Slides({ s, ctx }: { s: Extract<SectionConfig, { type: "slides" }>["set
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid aspect-[3/1] place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "صور متحركة: أضف صورك أو ملفات GIF من القائمة الجانبية" : "Animated pictures: add your pictures or GIFs from the side panel"}
         </div>
       </section>
@@ -2614,7 +2767,7 @@ function Products({ s, ctx }: { s: Extract<SectionConfig, { type: "products" }>[
     <section className={section(ctx.compact)}>
       <Heading title={inLang(s.title, ctx.lang)} ctx={ctx} right={items.length > cols ? railCtl.arrows : null} />
       {note && (
-        <p className="mb-4 rounded-xl border-2 border-dashed px-4 py-3 text-center text-sm font-semibold text-[var(--sf-primary)]" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
+        <p className="mb-4 rounded-xl border-2 border-dashed px-4 py-3 text-center text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]" style={{ borderColor: "color-mix(in srgb, var(--sf-primary) 35%, transparent)" }}>
           {note}
         </p>
       )}
@@ -2704,7 +2857,7 @@ function Ribbon({ s, ctx }: { s: Extract<SectionConfig, { type: "ribbon" }>["set
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "شريط الكلمات: أضف كلمات من القائمة الجانبية" : "Words ribbon: add words from the side panel"}
         </div>
       </section>
@@ -2743,7 +2896,7 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
     if (!ctx.design) return null;
     return (
       <section className={section(ctx.compact)}>
-        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primary)]">
+        <div className="grid h-16 place-items-center rounded-[var(--sf-r)] border-2 border-dashed border-sf-primary/40 text-sm font-semibold text-[var(--sf-primarytext,var(--sf-primary))]">
           {ctx.lang === "ar" ? "أزرار ملوّنة: أضف أزرارًا من القائمة الجانبية" : "Colored chips: add chips from the side panel"}
         </div>
       </section>
@@ -2846,36 +2999,40 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
   );
 }
 
-/* ---------------- Newsletter: a dark block with an email field. The emails are kept in this browser (the prototype has no mail service). ---------------- */
+/* ---------------- Newsletter: a dark block with an email field ----------------
+   On the public store the email goes to Dukkan's server for the merchant (POST /api/public/store/<link>/newsletter,
+   server/storeSignups.ts), who sees it in Marketing > Customer emails. Nothing is ever kept in the visitor's
+   own browser. In the merchant's preview and the tour the block answers as it would, and keeps nothing. */
 
-const SUBSCRIBERS = "seen-subscribers";
+/* how long a sign-up may take before the visitor is told it did not go through */
+const SIGNUP_TIMEOUT = 15_000;
 
-/** The emails people left in the newsletter block */
-export function readSubscribers(): { email: string; at: number }[] {
-  try {
-    const list: unknown = JSON.parse(localStorage.getItem(SUBSCRIBERS) ?? "[]");
-    return Array.isArray(list) ? list.filter((x): x is { email: string; at: number } => !!x && typeof x.email === "string" && !!visitorEmail(x.email)) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveSubscriber(email: string) {
-  try {
-    const list = readSubscribers();
-    if (!list.some((x) => x.email.toLowerCase() === email.toLowerCase())) localStorage.setItem(SUBSCRIBERS, JSON.stringify([...list, { email, at: Date.now() }]));
-  } catch {
-    /* storage unavailable */
-  }
-}
+const signupWords = {
+  en: {
+    sending: "Sending…",
+    error: "We couldn't sign you up. Check your connection and try again.",
+    slow: "Too many tries. Wait a few minutes and try again.",
+    closed: "This store isn't taking sign-ups right now.",
+    preview: "This is a preview, so the email was not saved. Emails left on your live store appear in Marketing > Customer emails.",
+  },
+  ar: {
+    sending: "جارٍ الإرسال…",
+    error: "تعذّر تسجيل اشتراكك. تأكّد من اتصالك وحاول مرة أخرى.",
+    slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مرة أخرى.",
+    closed: "هذا المتجر لا يستقبل اشتراكات حاليًا.",
+    preview: "هذه معاينة، لذلك لم يُحفظ البريد. الإيميلات التي يتركها الزوّار في متجرك المنشور تظهر في التسويق > إيميلات العملاء.",
+  },
+};
 
 function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "newsletter" }>["settings"]; ctx: Ctx }) {
   const imgLoad = useImgLoad();
   const [email, setEmail] = useState("");
   const [bad, setBad] = useState(false);
   const [done, setDone] = useState(false);
-  /* the public store keeps no sign-ups yet (there is nowhere on the server for them): a valid email gets "opens soon" */
-  const [soon, setSoon] = useState(false);
+  /* on its way to the server (the public store) */
+  const [sending, setSending] = useState(false);
+  /* a line under the field: why it did not go through, or (the preview) that nothing was kept */
+  const [note, setNote] = useState<"" | "error" | "slow" | "closed" | "preview">("");
   /* The pop-up after subscribing (when the merchant chose it): in the designer pressing the button shows it, to see and adjust it */
   const [pop, setPop] = useState(false);
   /* while one of the pop-up's settings is open in the designer, the pop-up shows, so he sees what he changes */
@@ -2923,7 +3080,10 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
           </Pick>
         </div>
         {done ? (
-          <p className="font-bold" style={{ color: accentInk }}><Say>{pick(s.thanks)}</Say></p>
+          <div className="min-w-0">
+            <p className="font-bold" style={{ color: accentInk }}><Say>{pick(s.thanks)}</Say></p>
+            {note === "preview" && <p role="status" className="mt-1 max-w-md text-xs opacity-80">{signupWords[l].preview}</p>}
+          </div>
         ) : (
           <form
             noValidate
@@ -2934,31 +3094,52 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
                 if (s.after === "popup") setPop(true);
                 return;
               }
-              if (!ctx.interactive) return;
+              if (!ctx.interactive || sending) return;
               const clean = visitorEmail(email);
               setBad(!clean);
-              setSoon(false);
+              setNote("");
               if (!clean) return;
-              /* never kept in the visitor's own browser storage, where the merchant would never see it */
-              if (ctx.visitor) {
-                setSoon(true);
+              /* signed up: the thank-you the merchant chose */
+              const finish = () => {
+                if (s.after === "popup") {
+                  setPop(true);
+                  setEmail("");
+                  return;
+                }
+                setDone(true);
+                /* "Go to...": after the thank-you, the visitor is taken where the merchant chose (a store page, a part of the page or a web address) */
+                if (s.after === "link" && s.link?.trim()) {
+                  const lp = linkProps(s.link, ctx);
+                  if (lp.onClick) lp.onClick({ preventDefault() {} } as React.MouseEvent<HTMLAnchorElement>);
+                  else if ("target" in lp) window.open(lp.href, "_blank", "noreferrer");
+                  /* an email or a phone number opens the visitor's mail or phone app, in this tab */
+                  else if (lp.href) window.location.href = lp.href;
+                }
+              };
+              const to = ctx.signupTo;
+              /* the merchant's preview or the tour: answered as on the store, nothing kept anywhere */
+              if (!to) {
+                setNote("preview");
+                finish();
                 return;
               }
-              saveSubscriber(clean);
-              if (s.after === "popup") {
-                setPop(true);
-                setEmail("");
-                return;
-              }
-              setDone(true);
-              /* "Go to...": after the thank-you, the visitor is taken where the merchant chose (a store page, a part of the page or a web address) */
-              if (s.after === "link" && s.link?.trim()) {
-                const lp = linkProps(s.link, ctx);
-                if (lp.onClick) lp.onClick({ preventDefault() {} } as React.MouseEvent<HTMLAnchorElement>);
-                else if ("target" in lp) window.open(lp.href, "_blank", "noreferrer");
-                /* an email or a phone number opens the visitor's mail or phone app, in this tab */
-                else if (lp.href) window.location.href = lp.href;
-              }
+              setSending(true);
+              void fetch(`/api/public/store/${encodeURIComponent(to.slug)}/newsletter`, {
+                method: "POST",
+                credentials: "same-origin",
+                cache: "no-store",
+                signal: timeoutSignal(SIGNUP_TIMEOUT),
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: clean, lang: l, ...(to.page !== null ? { page: to.page } : {}), ...(to.product ? { product: true } : {}) }),
+              })
+                .then(async (r) => {
+                  const j = (await r.json().catch(() => null)) as { result?: string } | null;
+                  if (r.ok && j?.result === "ok") return finish();
+                  if (r.status === 400 && j?.result === "invalid") return setBad(true);
+                  setNote(r.status === 429 ? "slow" : r.status === 409 || r.status === 404 ? "closed" : "error");
+                })
+                .catch(() => setNote("error"))
+                .finally(() => setSending(false));
             }}
           >
             <input
@@ -2967,6 +3148,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
               onChange={(e) => {
                 setEmail(e.target.value);
                 setBad(false);
+                if (note !== "preview") setNote("");
               }}
               maxLength={120}
               aria-invalid={bad}
@@ -2975,11 +3157,12 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
               className="h-12 min-w-0 flex-1 rounded-full bg-white px-5 text-sm text-[#1c1a17] outline-none placeholder:text-[#1c1a17]/50"
             />
             {/* the button text is dark or white, whichever reads on his button color (a gradient is judged by its first color) */}
-            <button type="submit" className="h-12 shrink-0 rounded-full px-6 text-sm font-extrabold transition hover:-translate-y-0.5" style={{ background: s.buttonColor, color: textOn(s.buttonColor) }}>
-              <Say>{pick(s.button)}</Say>
+            <button type="submit" disabled={sending} aria-busy={sending} className="h-12 shrink-0 rounded-full px-6 text-sm font-extrabold transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-70 disabled:hover:translate-y-0" style={{ background: s.buttonColor, color: textOn(s.buttonColor) }}>
+              {sending ? signupWords[l].sending : <Say>{pick(s.button)}</Say>}
             </button>
             {bad && <p role="alert" className="w-full text-xs font-semibold">{l === "ar" ? "اكتب بريدًا إلكترونيًا صحيحًا، مثل name@example.com" : "Enter a valid email, like name@example.com"}</p>}
-            {soon && <p role="status" className="w-full text-xs font-semibold">{l === "ar" ? "الاشتراك في هذا المتجر سيُتاح قريبًا. شكرًا لاهتمامك." : "Signing up to this store opens soon. Thank you for your interest."}</p>}
+            {note && note !== "preview" && <p role="alert" className="w-full text-xs font-semibold">{signupWords[l][note]}</p>}
+            {note === "preview" && <p role="status" className="w-full text-xs opacity-80">{signupWords[l].preview}</p>}
           </form>
         )}
       </div>

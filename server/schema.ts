@@ -224,8 +224,10 @@ export const DIWAN_SCHEMA = `
      customer and the merchant see). The customer's details are sealed (server/crypto.ts); items are the products as
      priced by the server (id, name, qty, price, size, image). No payment is taken online yet: payment_status is 'test',
      and 'paid' for a cash order while it is marked delivered.
-     stock_taken: the order took its products out of the shop's saved stock, so a merchant's save made before he saw
-     the order gets it taken again (server/storeOrders.ts mergeOnlineSales). */
+     stock_taken: whether the order took its stock (server/storeOrders.ts: an order placed since 2026-11-22 takes it only
+     once it is confirmed or paid, and is saved with false until then; every order placed before took it when it was
+     placed, so the default true is right for them). What an order took is counted on each product and coupon too
+     (soldOnline, usedOnline), and that is what server/storeOrders.ts mergeOnlineSales uses. */
   CREATE TABLE IF NOT EXISTS store_orders (
     id               BIGSERIAL PRIMARY KEY,
     account_id       BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -435,8 +437,8 @@ export const DIWAN_SCHEMA = `
   /* What the merchant chose on Settings, Customize notifications (app/api/notification-prefs/route.ts):
      prefs = { "<event>": { "whatsapp": true|false, "email": true|false } } for the events in components/notifyPrefs.ts
      (newOrder, storeRating, productRating, shippingRating, customerQuestion, lowStock, outOfStock). No row, or an event
-     missing from prefs: the default, both on. Nothing sends WhatsApp or email messages yet: this is what a future sender
-     reads before it sends one. The bell does not use it. */
+     missing from prefs: the default, both on. server/notify.ts reads the email choice of the events it emails
+     (notifyPrefs.ts LIVE_EMAIL); WhatsApp is not sent yet. The bell does not use it. */
   CREATE TABLE IF NOT EXISTS notification_prefs (
     account_id BIGINT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
     prefs      JSONB NOT NULL,
@@ -831,10 +833,9 @@ export const DIWAN_SCHEMA = `
   );
 
   /* ---------- a merchant's email, confirmed by a code (server/emailVerify.ts) ----------
-     email_verified: the account proved it gets the email it signs in with. Every account made before this column counts
-     as confirmed (DEFAULT true), so nobody already using Dukkan is held back; a sign-up writes false while Dukkan can
-     send email (server/email.ts emailOn), and so does a change of the email. While it is false and email is on, the
-     store can't go live (app/api/store PUT "not-ready" with "email").
+     email_verified: the account proved it gets the email it signs in with. Always true now (see "email codes" below): a
+     sign-up (server/signup.ts) and a change of the email (app/api/account/email) write true, and nothing reads it, so
+     it holds nothing back (no store waits for it to go live).
      email_verifications: the codes sent for it, apart from password_resets so a code for one can never work for the
      other. Kept only as an HMAC (crypto.ts blind) of the account, the address it went to and the code; 10 minutes, 5
      tries, once. email_hash: the address the code went to (crypto.ts emailKey), so a code sent before the email changed
@@ -918,4 +919,156 @@ export const DIWAN_SCHEMA = `
   CREATE OR REPLACE FUNCTION merchant_log_frozen() RETURNS trigger AS $f$ BEGIN RAISE EXCEPTION 'merchant_log is append-only'; END $f$ LANGUAGE plpgsql;
   DROP TRIGGER IF EXISTS merchant_log_frozen ON merchant_log;
   CREATE TRIGGER merchant_log_frozen BEFORE UPDATE ON merchant_log FOR EACH ROW EXECUTE FUNCTION merchant_log_frozen();
+
+  /* ---------- the emails visitors leave on a store (server/storeSignups.ts) ----------
+     kind 'newsletter': an email left in the store's newsletter block; source: where the block was ('home', 'page': an
+     info page, page_id its id, 'product'). kind 'back_in_stock': "Remind me when it's back" on a sold-out product;
+     product_id, size (the sold-out size, '' for the whole product) and product_name (its name then, for when it is
+     gone). Only the store's own merchant sees them (Marketing > Customer emails). email: sealed. email_hash: a keyed
+     fingerprint of the email for this shop only (the same email in two shops gives two different ones): an email is
+     kept once per shop in the newsletter, and once per product and size for back in stock. Dukkan sends them nothing.
+     They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_signups (
+    id           BIGSERIAL PRIMARY KEY,
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL CHECK (kind IN ('newsletter', 'back_in_stock')),
+    email        TEXT NOT NULL,
+    email_hash   TEXT NOT NULL,
+    lang         TEXT NOT NULL CHECK (lang IN ('ar', 'en')),
+    source       TEXT NOT NULL CHECK (source IN ('home', 'page', 'product')),
+    page_id      BIGINT,
+    product_id   BIGINT,
+    size         TEXT NOT NULL DEFAULT '',
+    product_name TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (kind <> 'back_in_stock' OR product_id IS NOT NULL)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS store_signups_newsletter ON store_signups (account_id, email_hash) WHERE kind = 'newsletter';
+  CREATE UNIQUE INDEX IF NOT EXISTS store_signups_back ON store_signups (account_id, email_hash, product_id, size) WHERE kind = 'back_in_stock';
+  CREATE INDEX IF NOT EXISTS store_signups_account ON store_signups (account_id, kind, id DESC);
+  /* ---------- Diwan: 2-step sign-in by emailed code (server/staffSignin.ts) ----------
+     Since 2026-11-22 every staff sign-in asks, after the password, for a 6-digit code sent to the member's email
+     (email_codes, refs "sl:" and "sc:"). The authenticator app is gone for staff: staff.totp_on, totp_secret and
+     totp_last_step stay but are no longer read or written.
+     email_confirmed_at: when the member typed a code sent to their email (at a sign-in, or when they changed it). NULL:
+     not confirmed yet (an owner typed it when adding them, or they haven't signed in since this came).
+     staff_signins: a password that was right, waiting for its emailed code. No staff session (no dukkan-diwan cookie)
+     exists until the code is typed; the browser holds this row's token (cookie dukkan-diwan-wait). password_hash: the
+     hash the password matched; the sign-in finishes only while the account still has it. Kept 15 minutes. */
+  ALTER TABLE staff ADD COLUMN IF NOT EXISTS email_confirmed_at TIMESTAMPTZ;
+  CREATE TABLE IF NOT EXISTS staff_signins (
+    token_hash    TEXT PRIMARY KEY,
+    staff_id      BIGINT NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at    TIMESTAMPTZ NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS staff_signins_staff ON staff_signins (staff_id);
+  /* ---------- Diwan: remembered browsers (server/staffSignin.ts, owner decision 2026-11-22) ----------
+     staff_devices: a browser where the member typed the emailed code; there the password alone signs them in later.
+     The browser holds the token (cookie dukkan-diwan-device, sent only to the /api/diwan/auth routes); only its hash is kept.
+     password_hash / email_hash: the account's when it was remembered; the row works only while the account still has
+     both. A password change, an email change and taking access away delete the member's rows. 365 days, 10 a member. */
+  CREATE TABLE IF NOT EXISTS staff_devices (
+    token_hash    TEXT PRIMARY KEY,
+    staff_id      BIGINT NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL,
+    email_hash    TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at    TIMESTAMPTZ NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS staff_devices_staff ON staff_devices (staff_id, last_used_at DESC);
+  /* ---------- Store links given up (server/slugHolds.ts, owner decision 2026-11-22, testing S-2) ----------
+     A live store that changes its link keeps its old one for 2 days (until): no other store can take it meanwhile, and a
+     visit to it shows "this store moved" with the new address. slug: the old link, in small letters. After until it is
+     free again (the row is only read while until is ahead, and old rows are cleared when a link is next given up). */
+  CREATE TABLE IF NOT EXISTS slug_holds (
+    slug       TEXT PRIMARY KEY,
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    until      TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS slug_holds_account ON slug_holds (account_id);
+  /* ---------- where each account signed in from (server/auth.ts knownSigninPlace, security audit N05) ----------
+     signin_places: who ("m:<account id>" or "s:<staff id>") fully signed in from which address: only a keyed
+     fingerprint of the address (crypto.ts blind), never the address. While wrong passwords from everywhere hold an
+     account's sign-in, a place listed here still gets through. 90 days, 20 a person (the newest). */
+  CREATE TABLE IF NOT EXISTS signin_places (
+    who      TEXT NOT NULL,
+    place    TEXT NOT NULL,
+    last_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (who, place)
+  );
+  CREATE INDEX IF NOT EXISTS signin_places_at ON signin_places (last_at);
+  /* ---------- Diwan: correcting a recorded payment (app/api/diwan/payments/[id], testing D-5) ----------
+     version: 1 when it was recorded, one more at each correction. A correction is saved only from the version its form
+     showed, so two staff correcting the same payment at once can't overwrite each other. edited_at / edited_by: the
+     last correction. The values before each one are kept in its activity-log line ("shop.payment_edit"). */
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS edited_by BIGINT REFERENCES staff (id);
+  /* ---------- whether a store order's delivery fee was left for the store to confirm (server/storeOrders.ts) ----------
+     fee_open: true when his own courier had no fee set and the delivery was not free (the customer was told "Confirmed by
+     the store"), false when not. Empty on orders placed before it was kept: the Orders page works it out from the
+     settings then, as before. Kept with the order, so changing the delivery settings later never changes what an order
+     was told. */
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS fee_open BOOLEAN;
+  /* ---------- Diwan: the red number beside a page in the sidebar (server/badges.ts) ----------
+     staff_seen: when each staff member last opened each page that shows one ("tickets", "documents"...). What came in
+     after it is new to them; opening the page again moves it to now. A page they never opened starts from the first
+     time their Diwan asked for the numbers, so what was there before isn't counted as new. */
+  CREATE TABLE IF NOT EXISTS staff_seen (
+    staff_id BIGINT NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
+    tab      TEXT NOT NULL,
+    seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (staff_id, tab)
+  );
+  /* sent_at: when a document reached Diwan: when it was sent, or for a courier proof sent as a draft, when the merchant
+     saved his delivery choice and it was handed over (app/api/store PUT). Rows from before take the day they were sent. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+  UPDATE documents SET sent_at = created_at WHERE sent_at IS NULL;
+  ALTER TABLE documents ALTER COLUMN sent_at SET DEFAULT now();
+  /* the numbers look only at what came in lately, so each count goes through a short index rather than the whole table */
+  CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
+  CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';
+  CREATE INDEX IF NOT EXISTS store_orders_ship_new ON store_orders (created_at) WHERE ship_by = 'dukkan';
+  CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at);
+  CREATE INDEX IF NOT EXISTS store_reports_created ON store_reports (created_at);
+  CREATE INDEX IF NOT EXISTS payments_created ON payments (created_at);
+  CREATE INDEX IF NOT EXISTS theme_purchases_paid ON theme_purchases (paid_at) WHERE price > 0;
+
+  /* ---------- carts customers leave on a store (server/storeCarts.ts, Marketing > Abandoned carts) ----------
+     A visitor's basket, kept once he has typed a valid email or Jordan mobile at checkout, so the merchant can remind
+     him of it. key_hash: a keyed fingerprint of the random key his browser keeps for this store's basket (never the key
+     itself). items: the lines as the server priced them from the store's own products (id, name, qty, price, size,
+     picture), never the browser's prices; subtotal: their sum then. email, phone, name: sealed; email_hash: a keyed
+     fingerprint of the email for this shop only (as store_signups), phone_hash the same for the mobile, so an order
+     with that email or mobile marks his carts here as recovered. lang: the language he shopped in (the reminder's language). recovered_at / order_number: the order
+     that ended it. reminders / reminded_at: emails sent (at most 3, one a day: storeCarts.ts). A cart with no change
+     for an hour counts as abandoned; carts untouched for 30 days are deleted. They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_carts (
+    id           BIGSERIAL PRIMARY KEY,
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    key_hash     TEXT NOT NULL,
+    email        TEXT,
+    email_hash   TEXT,
+    phone        TEXT,
+    phone_hash   TEXT,
+    name         TEXT,
+    lang         TEXT NOT NULL DEFAULT 'ar' CHECK (lang IN ('ar', 'en')),
+    items        JSONB NOT NULL DEFAULT '[]',
+    subtotal     NUMERIC(12, 3) NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    recovered_at TIMESTAMPTZ,
+    order_number INTEGER,
+    reminders    INTEGER NOT NULL DEFAULT 0,
+    reminded_at  TIMESTAMPTZ
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS store_carts_key ON store_carts (account_id, key_hash);
+  CREATE INDEX IF NOT EXISTS store_carts_account ON store_carts (account_id, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS store_carts_email ON store_carts (account_id, email_hash) WHERE recovered_at IS NULL;
+  CREATE INDEX IF NOT EXISTS store_carts_phone ON store_carts (account_id, phone_hash) WHERE recovered_at IS NULL;
+  CREATE INDEX IF NOT EXISTS store_carts_updated ON store_carts (updated_at);
 `;

@@ -114,11 +114,14 @@ type Copy = {
   restockMin: string;
   restockMinHint: string;
   save: string;
+  /* the Save button while a photo or the size chart is still uploading (it waits for them) */
+  saveUploading: string;
   cancel: string;
   delete: string;
   errName: string;
   errPrice: string;
   priceZero: string;
+  saleZero: string;
   discardAsk: string;
   discardKeep: string;
   discardYes: string;
@@ -245,15 +248,17 @@ export const productsCopy: Record<Lang, Copy> = {
     byWhatsapp: "WhatsApp",
     byEmail: "Email",
     byBoth: "Both",
-    lowAtHint: "At this number or below, the product shows under low stock in Reports.",
+    lowAtHint: "At this number or below, the product shows under low stock in Reports, and when an order brings it there you get a notification (choose email in Settings, Customize notifications).",
     restockMin: "Notify subscribed customers when quantity is above",
     restockMinHint: "Avoids sending alerts when only a few pieces come back. Default 15.",
     save: "Save",
+    saveUploading: "Uploading…",
     cancel: "Cancel",
     delete: "Delete product",
     errName: "Enter the product name",
     errPrice: "Enter a valid price",
     priceZero: "The price is zero. Is this product free?",
+    saleZero: "A sale price of 0 makes this product free. Leave it empty for no sale.",
     discardAsk: "You have changes that are not saved. Leave without saving?",
     discardKeep: "Keep editing",
     discardYes: "Leave without saving",
@@ -376,15 +381,17 @@ export const productsCopy: Record<Lang, Copy> = {
     byWhatsapp: "واتساب",
     byEmail: "البريد الإلكتروني",
     byBoth: "الاثنان",
-    lowAtHint: "عند هذا الرقم أو أقل يظهر المنتج ضمن المنتجات قليلة الكمية في التقارير.",
+    lowAtHint: "عند هذا الرقم أو أقل يظهر المنتج ضمن المنتجات قليلة الكمية في التقارير، وعندما يوصله طلب إليه يصلك إشعار (اختر البريد الإلكتروني من الإعدادات، تخصيص الإشعارات).",
     restockMin: "إشعار العملاء المشتركين عند توفر كمية أكبر من",
     restockMinHint: "لتجنب إرسال الإشعارات عند توفر كمية محدودة من المنتج. القيمة الافتراضية 15.",
     save: "حفظ",
+    saveUploading: "جارٍ الرفع…",
     cancel: "إلغاء",
     delete: "حذف المنتج",
     errName: "أدخل اسم المنتج",
     errPrice: "أدخل سعرًا صحيحًا",
     priceZero: "السعر صفر، هل المنتج مجاني؟",
+    saleZero: "سعر التخفيض 0 يجعل المنتج مجانيًا. اتركه فارغًا إن لم يكن هناك تخفيض.",
     discardAsk: "لديك تعديلات لم تُحفظ. هل تريد الخروج دون حفظ؟",
     discardKeep: "متابعة التعديل",
     discardYes: "الخروج دون حفظ",
@@ -423,7 +430,7 @@ export const productsCopy: Record<Lang, Copy> = {
 
 /* What kind of product it is, and the sizes of clothing and shoes: the product form (Products.tsx) and the setup's
    first product (Onboarding.tsx) both read these, so the two always offer the same kinds with the same words */
-export const kindWords: Record<Lang, { kind: string; kindHint: string; names: Record<ProductKind, string>; about: Record<ProductKind, string>; chart: string; optional: string; chartHint: string; chartUpload: string; chartBusy: string; chartChange: string; chartRemove: string; chartBad: string; sizes: string; sizesHint: string; quick: string; addSize: string; sizeName: string; sizeQty: string; removeSize: string; total: string; errSizes: string; shipOff: (k: string) => string }> = {
+export const kindWords: Record<Lang, { kind: string; kindHint: string; names: Record<ProductKind, string>; about: Record<ProductKind, string>; chart: string; optional: string; chartHint: string; chartUpload: string; chartBusy: string; chartChange: string; chartRemove: string; chartBad: string; sizes: string; sizesHint: string; quick: string; addSize: string; sizeName: string; sizeQty: string; removeSize: string; total: string; errSizes: string; errSizesTwice: (name: string) => string; shipOff: (k: string) => string }> = {
   ar: {
     kind: "نوع المنتج",
     kindHint: "يحدد ما يحتاجه المنتج: المقاسات والشحن والكمية.",
@@ -452,6 +459,7 @@ export const kindWords: Record<Lang, { kind: string; kindHint: string; names: Re
     removeSize: "حذف المقاس",
     total: "مجموع الكمية",
     errSizes: "أضف مقاسًا واحدًا على الأقل واكتب اسمه.",
+    errSizesTwice: (name) => `المقاس "${name}" مكتوب مرتين (الأحرف الكبيرة والمسافات لا تجعله مقاسًا آخر). اكتب لكل مقاس اسمًا مختلفًا، أو اجمع قطعهما في مقاس واحد.`,
     shipOff: (k) => `غير متاح لأن نوع المنتج «${k}» لا يُشحن.`,
   },
   en: {
@@ -482,6 +490,7 @@ export const kindWords: Record<Lang, { kind: string; kindHint: string; names: Re
     removeSize: "Remove size",
     total: "Total quantity",
     errSizes: "Add at least one size and write its name.",
+    errSizesTwice: (name) => `The size "${name}" is there twice (capitals and spaces don't make it another size). Give each size its own name, or put their pieces in one size.`,
     shipOff: (k) => `Not available because a “${k}” is not shipped.`,
   },
 };

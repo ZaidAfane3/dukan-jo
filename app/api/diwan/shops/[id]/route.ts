@@ -11,6 +11,7 @@ import { FREE_THEME_IDS } from "@/components/platformDefaults";
 import { CODE_THEME_IDS, type Bi } from "@/components/themeListing";
 import { themePrice } from "@/components/themePrices";
 import { enforcedPaidThemes } from "@/server/themeOwnership";
+import { courierApproved } from "@/server/courierProof";
 import { sellPlatform } from "@/server/storeOrders";
 import { cleanSetup } from "@/components/safeAccount";
 import { readyToSell, type SellNeed } from "@/components/safeOrder";
@@ -86,7 +87,9 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
               ${ORDERS_SQL} AS order_count, ${SALES_SQL} AS total_sales, ${STORE_PAGE_SQL}, s.first_product_at, s.published_at, s.last_seen_at, s.created_at,
               /* the oldest order: the one the merchant's saved orders give, or an older one customers placed on its page */
               LEAST(s.first_order_at, (SELECT min(o.created_at) FROM store_orders o WHERE o.account_id = s.account_id)) AS first_order_at,
-              a.name AS owner, a.email, a.phone, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
+              /* never the owner's email or mobile (security F08): "Contact the merchant" asks for them with the password
+                 (app/api/diwan/shops/[id]/contacts) */
+              a.name AS owner, a.last_login_at, a.login_count, a.totp_on, a.created_at AS signed_up,
               /* how many orders customers placed on its public page (in order_count too), and the card/CliQ test orders
                  left out of both: counts only, never the orders (they are the shop's) */
               so.n AS storefront_orders, so.test AS storefront_test,
@@ -167,7 +170,7 @@ export const GET = staffRoute("shops.read", async (req, staff, ctx) => {
     /* visitors of its store at its link over the last 30 days: a count only (server/storeVisits.ts) */
     shop[0] ? shopVisitors30(pool, id) : 0,
     shop[0] ? q(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`) : [],
-    shop[0] ? sellPlatform() : null,
+    shop[0] ? Promise.all([sellPlatform(), courierApproved(pool, id)]).then(([p, courier]) => ({ ...p, courierApproved: courier })) : null,
     /* what the merchant did with the account and the store (server/merchantLog.ts): the newest lines and how many */
     Promise.all([
       q(`${MERCHANT_LOG_SELECT} WHERE l.account_id = $1 ORDER BY l.id DESC LIMIT ${FEW}`),

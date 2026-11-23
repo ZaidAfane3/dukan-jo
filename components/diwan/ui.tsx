@@ -8,6 +8,8 @@ import { ArchOutline, type IconName } from "./icons";
 import { DIWAN_NAV, NAV_GROUPS } from "./nav";
 import type { Role } from "./perms";
 import { timeoutSignal } from "../timeoutSignal";
+import { arManyAt } from "../undo";
+import { toSignIn } from "./signInAgain";
 
 /* Diwan's shared building blocks, so every page looks and behaves the same. Every page reads live data from
    /api/diwan/... with useApi; there is no sample data anywhere in Diwan. Merchant text is always shown as plain text
@@ -26,7 +28,8 @@ export function useT() {
 
 export type ApiState<T> = { data: T | null; error: string | null; loading: boolean; reload: () => void };
 
-/** Loads JSON from a Diwan API route. A signed-out answer sends the page to the sign-in. */
+/** Loads JSON from a Diwan API route. A signed-out answer sends the page to the sign-in, keeping the text typed on it
+    and coming back here afterwards (signInAgain.tsx toSignIn). */
 export function useApi<T>(url: string | null): ApiState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +45,7 @@ export function useApi<T>(url: string | null): ApiState<T> {
     fetch(url, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000, stop.signal) })
       .then(async (r) => {
         if (r.status === 401) {
-          window.location.href = "/diwan/login";
+          toSignIn();
           return;
         }
         const j = await r.json().catch(() => null);
@@ -105,8 +108,24 @@ export async function send(url: string, method: "POST" | "PUT" | "PATCH" | "DELE
   } catch {
     return { ok: false, status: 0, data: null };
   }
-  if (r.status === 401) window.location.href = "/diwan/login";
+  if (r.status === 401) toSignIn();
+  /* a change was made: the sidebar's red numbers are asked again (components/diwan/badges.tsx) */
+  if (r.ok) window.dispatchEvent(new Event(DIWAN_CHANGED));
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
+}
+
+/** The window event send() raises after every change that worked */
+export const DIWAN_CHANGED = "diwan:changed";
+
+/** What a refusal of the sign-in or of the request itself means, in words (null for any other answer). Diwan has no
+    roles, so a 403 is not about what someone may do: "forbidden" is a change sent from a page opened at another address
+    or left open from before (server/auth.ts sameOrigin), "not-allowed" what the account can't do; a 401 is a session
+    that ended (the page is on its way to the sign-in). */
+export function refusedWords(t: (en: string, ar: string) => string, r: { status: number; data: any }): string | null {
+  if (r.status === 401) return t("You were signed out. Sign in again and try once more.", "انتهت جلستك. سجّل الدخول مجددًا وحاول مرة أخرى.");
+  if (r.status !== 403) return null;
+  if (r.data?.result === "not-allowed") return t("This account can't do this.", "لا يستطيع هذا الحساب القيام بذلك.");
+  return t("This page is out of date or was opened from another address. Reload it from Dukkan's own address and try again.", "هذه الصفحة قديمة أو فُتحت من عنوان آخر. أعد تحميلها من عنوان دكان نفسه وحاول مجددًا.");
 }
 
 /* ---------------- formatting ---------------- */
@@ -141,7 +160,7 @@ export function useFmt() {
       if (n === 1) return ar.one;
       if (n === 2) return ar.two;
       const r = Math.abs(n) % 100;
-      return `${num} ${n === 0 || (r >= 3 && r <= 10) ? ar.few : ar.many}`;
+      return `${num} ${n === 0 || (r >= 3 && r <= 10) ? ar.few : arManyAt(n, ar.many)}`;
     },
     ago: (v: string | number | null | undefined) => {
       if (!v) return "—";
@@ -528,6 +547,13 @@ export type MoreState<T> = ApiState<T> & { more: () => void; hasMore: boolean; m
     `page=2` or `before=123`, or null when there is no more) and adds its rows below the ones shown, so the page stays
     where it is. New filters or a reload start again from the first batch. data.rows is every row loaded so far; the
     rest of data comes from the newest batch. */
+/* a row's identity in a list (its id or number, and its kind where two kinds share numbers: Payments) */
+const rowKey = (r: unknown): string | null => {
+  const o = r as Record<string, unknown> | null;
+  const id = o && typeof o === "object" ? o.id ?? o.number : undefined;
+  return typeof id === "string" || typeof id === "number" ? `${String(o?.kind ?? "")}|${id}` : null;
+};
+
 export function useMore<T extends { rows: unknown[] }>(url: string | null, nextOf: (d: T, loaded: number) => string | null): MoreState<T> {
   const first = useApi<T>(url);
   /* the batches after the first, kept only while the first batch they follow is the one shown */
@@ -550,14 +576,21 @@ export function useMore<T extends { rows: unknown[] }>(url: string | null, nextO
     fetch(`${url}${url.includes("?") ? "&" : "?"}${next}`, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000) })
       .then(async (r) => {
         if (r.status === 401) {
-          window.location.href = "/diwan/login";
+          toSignIn();
           return;
         }
         const j = (await r.json().catch(() => null)) as T | null;
         if (!r.ok || !j?.rows) return setMoreFailed(true);
         setExtra((e) => {
           const prev = e.base === base ? e : { base, rows: [] as T["rows"], last: null, loaded: 1 };
-          return { base, rows: [...prev.rows, ...j.rows] as T["rows"], last: j, loaded: prev.loaded + 1 };
+          /* a list sorted by something that moves (the last update) can give again a row already shown when rows
+             moved up since the first batch: it is shown once */
+          const shown = new Set([...base.rows, ...prev.rows].map(rowKey).filter((k): k is string => k !== null));
+          const added = j.rows.filter((r) => {
+            const k = rowKey(r);
+            return k === null || !shown.has(k);
+          });
+          return { base, rows: [...prev.rows, ...added] as T["rows"], last: j, loaded: prev.loaded + 1 };
         });
       })
       .catch(() => setMoreFailed(true))
@@ -611,7 +644,7 @@ export type SavedNoteState = { id: string; text: string; step: 0 | 1 | 2; n: num
     lit for a moment (`ring`, on an element with id `row-<id>`), brought into view if the closed form left it off screen,
     and a line above the list (SavedNote) says what happened. `data` is the list's useApi data. */
 export function useJustSaved<D, R extends { id: string }>(data: D | null) {
-  const [fresh, setFresh] = useState<{ base: D | null; row: R; names?: Record<string, { name: string; email: string }> } | null>(null);
+  const [fresh, setFresh] = useState<{ base: D | null; row: R; names?: Record<string, { name: string; slug?: string | null }> } | null>(null);
   const [note, setNote] = useState<SavedNoteState | null>(null);
   const n = note?.n;
   const id = note?.id;
@@ -635,7 +668,7 @@ export function useJustSaved<D, R extends { id: string }>(data: D | null) {
   const now = fresh && fresh.base === data ? fresh : null;
   return {
     /** the saved row, the confirmation's words, and the names of shops chosen in it that the list may not know yet */
-    show: (row: R, text: string, names?: Record<string, { name: string; email: string }>) => {
+    show: (row: R, text: string, names?: Record<string, { name: string; slug?: string | null }>) => {
       setFresh({ base: data, row, names });
       setNote((x) => ({ id: row.id, text, step: 0, n: (x?.n ?? 0) + 1 }));
     },
@@ -647,7 +680,7 @@ export function useJustSaved<D, R extends { id: string }>(data: D | null) {
       return order ? out.sort(order) : out;
     },
     /** the list's shop names with the saved row's */
-    names: <N extends Record<string, { name: string; email: string }>>(base: N): N => (now?.names ? { ...base, ...now.names } : base),
+    names: <N extends Record<string, { name: string; slug?: string | null }>>(base: N): N => (now?.names ? { ...base, ...now.names } : base),
     /** the classes of a row: a soft ring while it is lit, fading in and out (no fade with reduced motion) */
     ring: (rowId: string) => `transition-shadow duration-700 motion-reduce:transition-none ${note?.id === rowId && note.step === 0 ? "!ring-2 !ring-primary/45" : ""}`,
     note,

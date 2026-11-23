@@ -18,8 +18,8 @@ export const fromDukkanWords = {
     signedOut: "Sign in to your account to read Dukkan's pages.", pinned: "Pinned", unread: "New", back: "All pages", missing: "This page is not available.", failed: "Could not load. Check your connection and try again.", retry: "Try again",
   },
   ar: {
-    title: "من دكّان", sub: "أدلة وأخبار وقواعد من فريق دكّان.", empty: "لا يوجد شيء من دكّان بعد. ستظهر هنا الأدلة والأخبار الجديدة.",
-    signedOut: "سجّل الدخول إلى حسابك لقراءة صفحات دكّان.", pinned: "مثبّتة", unread: "جديد", back: "كل الصفحات", missing: "هذه الصفحة غير متاحة.", failed: "تعذّر التحميل. تحقق من الاتصال وحاول مجددًا.", retry: "حاول مجددًا",
+    title: "من دكان", sub: "أدلة وأخبار وقواعد من فريق دكان.", empty: "لا يوجد شيء من دكان بعد. ستظهر هنا الأدلة والأخبار الجديدة.",
+    signedOut: "سجّل الدخول إلى حسابك لقراءة صفحات دكان.", pinned: "مثبّتة", unread: "جديد", back: "كل الصفحات", missing: "هذه الصفحة غير متاحة.", failed: "تعذّر التحميل. تحقق من الاتصال وحاول مجددًا.", retry: "حاول مجددًا",
   },
 };
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { askConfirm } from "@/components/diwan/dialogs";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { THEME_CHECKOUT_CHARGES } from "@/components/diwan/platformSettings";
 import { ThemesSkeleton } from "@/components/diwan/skeletons";
 import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
 import { ThemePreview } from "@/components/ThemePreview";
@@ -99,7 +100,7 @@ export default function ThemesPage() {
               </section>
               <section>
                 <h2 className="mb-1 text-lg font-bold">{t("Free designs every store has", "التصاميم المجانية لكل متجر")}</h2>
-                <p className="mb-3 text-sm text-muted">{t("Not sold: every store has them. Their look is in Dukkan's code.", "لا تُباع: كل متجر يملكها. شكلها في كود دكّان.")}</p>
+                <p className="mb-3 text-sm text-muted">{t("Not sold: every store has them. Their look is in Dukkan's code.", "لا تُباع: كل متجر يملكها. شكلها في كود دكان.")}</p>
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {FREE.map((th) => <ThemeCard key={th.id} theme={th} nums={d.nums[th.id] ?? noNums} onOpen={() => setOpenId(th.id)} />)}
                 </div>
@@ -276,7 +277,7 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
             <Badge tone={statusTone[row.status]}>{w.status(row.status)}</Badge>
             <PriceBadge price={row.price} />
             {row.featured && <Badge tone="amber">★ {t("Featured", "مميّز")}</Badge>}
-            <Badge tone={row.source === "design" ? "blue" : "grey"}>{row.source === "design" ? t("Made in Diwan", "صُنع في الديوان") : t("In Dukkan's code", "في كود دكّان")}</Badge>
+            <Badge tone={row.source === "design" ? "blue" : "grey"}>{row.source === "design" ? t("Made in Diwan", "صُنع في الديوان") : t("In Dukkan's code", "في كود دكان")}</Badge>
           </div>
           <div className="mx-5 mt-4 flex gap-1 rounded-xl bg-soft p-1" role="tablist">
             {(["release", "details"] as const).map((k) => (
@@ -290,7 +291,8 @@ function ThemePanel({ entry: { row, theme: th }, nums: n, reload, onClose }: { e
               <div className="grid grid-cols-3 gap-2">
                 <Num label={t("Stores using it", "متاجر تستخدمه")} value={f.num(n.stores)} />
                 <Num label={t("Bought", "مرات الشراء")} value={f.num(n.bought)} />
-                <Num label={t("Money in", "الدخل")} value={f.jod(n.revenue)} />
+                {/* the theme checkout takes no money yet (THEME_CHECKOUT_CHARGES): a theme bought brought nothing in */}
+                <Num label={t("Money in", "الدخل")} value={THEME_CHECKOUT_CHARGES ? f.jod(n.revenue) : t("Not charged", "دون تحصيل")} />
               </div>
               <div className="space-y-2">
                 <p className="text-sm font-bold">{t("Where it is", "أين هو الآن")}</p>
@@ -411,7 +413,7 @@ function DetailsForm({ row, code, reload }: { row: ListingRow; code: ThemeInfo |
 
   return (
     <form onSubmit={save} className="space-y-4 p-5">
-      {code && <p className="rounded-xl bg-soft px-3 py-2 text-xs text-muted">{t("A theme in Dukkan's code: an empty box keeps the code's own words (shown grey).", "ثيم في كود دكّان: الخانة الفارغة تُبقي كلمات الكود (تظهر باهتة).")}</p>}
+      {code && <p className="rounded-xl bg-soft px-3 py-2 text-xs text-muted">{t("A theme in Dukkan's code: an empty box keeps the code's own words (shown grey).", "ثيم في كود دكان: الخانة الفارغة تُبقي كلمات الكود (تظهر باهتة).")}</p>}
       {Pair({ label: t("Name", "الاسم"), v: name, set: setName, max: LISTING_LIMITS.name, phv: code ? { en: ph(code.name, "en"), ar: ph(code.name, "ar") } : undefined })}
       {Pair({ label: t("Short line", "سطر قصير"), v: tagline, set: setTagline, max: LISTING_LIMITS.tagline, phv: code ? { en: ph(code.tagline, "en"), ar: ph(code.tagline, "ar") } : undefined })}
       {Pair({ label: t("About it", "عنه"), v: about, set: setAbout, max: LISTING_LIMITS.about, ml: true, phv: code ? { en: ph(code.about, "en"), ar: ph(code.about, "ar") } : undefined })}
@@ -467,7 +469,7 @@ function FreePanel({ theme: th, nums: n, onClose }: { theme: ThemeInfo; nums: Nu
         <div className="space-y-5 border-t border-fg/10 p-5 lg:overflow-y-auto lg:border-s lg:border-t-0">
           <Num label={t("Stores using it", "متاجر تستخدمه")} value={f.num(n.stores)} />
           {about && <p className="text-sm leading-relaxed">{about}</p>}
-          <p className="text-xs text-muted">{t("Free for every store, so it is not in the theme store. Its look changes with Dukkan's code; the starter design new stores get is in Platform settings.", "مجاني لكل متجر، لذلك ليس في متجر الثيمات. شكله يتغير مع كود دكّان، والتصميم الذي تبدأ به المتاجر الجديدة في إعدادات المنصة.")}</p>
+          <p className="text-xs text-muted">{t("Free for every store, so it is not in the theme store. Its look changes with Dukkan's code; the starter design new stores get is in Platform settings.", "مجاني لكل متجر، لذلك ليس في متجر الثيمات. شكله يتغير مع كود دكان، والتصميم الذي تبدأ به المتاجر الجديدة في إعدادات المنصة.")}</p>
           <a href={th.id === "dukkan" ? "/store?original=1" : `/store?theme=${th.id}`} target="_blank" rel="noreferrer" className="block rounded-xl border border-fg/15 px-3 py-2 text-center text-sm font-semibold hover:bg-soft">
             {t("Open the full sample store", "فتح المتجر التجريبي كاملًا")}
           </a>
@@ -499,7 +501,7 @@ function NewTheme({ from, taken, onClose, onMade }: { from: ThemeInfo[]; taken: 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const close = useCallback(onClose, [onClose]);
-  const choices = useMemo(() => [{ id: "starter", label: t("The starter design (Platform settings)", "التصميم الأساسي (إعدادات المنصة)") }, { id: "original", label: t("Dukkan's original design", "تصميم دكّان الأصلي") }, ...[madaTheme, ...from].map((x) => ({ id: `theme:${x.id}`, label: t(`A copy of ${x.name.en}`, `نسخة من ${x.name.ar}`) }))], [from, t]);
+  const choices = useMemo(() => [{ id: "starter", label: t("The starter design (Platform settings)", "التصميم الأساسي (إعدادات المنصة)") }, { id: "original", label: t("Dukkan's original design", "تصميم دكان الأصلي") }, ...[madaTheme, ...from].map((x) => ({ id: `theme:${x.id}`, label: t(`A copy of ${x.name.en}`, `نسخة من ${x.name.ar}`) }))], [from, t]);
 
   const make = async (e: React.FormEvent) => {
     e.preventDefault();

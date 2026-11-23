@@ -24,6 +24,8 @@ export type Detail = {
   titles?: { en: string; ar: string };
   /* a document review: the status it left (said even when only the note changed) and the document, when it is still known */
   status?: string; document?: DocumentFacts;
+  /* a staff sign-in: with the emailed code, or the password alone on a remembered browser */
+  via?: "email" | "remembered";
 };
 export type ActivityRow = {
   id: string;
@@ -45,6 +47,7 @@ const FIELD: Record<string, [string, string]> = {
   priority: ["priority", "الأولوية"],
   assignee: ["assigned to", "مسندة إلى"],
   role: ["role", "الدور"],
+  email: ["email", "البريد"],
   active: ["access", "الدخول"],
   notes: ["notes", "الملاحظات"],
   note: ["note", "الملاحظة"],
@@ -65,6 +68,11 @@ const FIELD: Record<string, [string, string]> = {
   title: ["title", "العنوان"],
   body: ["text", "النص"],
   slug: ["address", "العنوان في الرابط"],
+  /* a corrected payment (shop.payment_edit) */
+  amount: ["amount", "المبلغ"],
+  method: ["method", "الطريقة"],
+  paidOn: ["paid on", "تاريخ الدفع"],
+  reference: ["reference", "المرجع"],
 };
 
 /* statuses of the other things Diwan changes (store reports, documents, pop-ups, pages, themes, developers' work) */
@@ -97,6 +105,13 @@ function valueWords(t: T, action: string, field: string, v: string | null): stri
   if (field === "reason" && REASON_WORDS[v as ReportReason]) return t(REASON_WORDS[v as ReportReason].en, REASON_WORDS[v as ReportReason].ar);
   if (field === "active") return v === "true" ? t("has access", "له دخول") : t("no access", "بلا دخول");
   if (field === "featured") return v === "true" ? t("yes", "نعم") : t("no", "لا");
+  if (action === "shop.payment_edit" && field === "method") return methodText(t, v);
+  if (action === "shop.payment_edit" && field === "amount") {
+    /* written as Diwan writes an amount (ui.tsx f.jod): "30", "12.50", "4.125", not the stored "30.000" */
+    const n = Number(v);
+    const x = !Number.isFinite(n) ? String(v) : Math.round(n * 1000) % 1000 === 0 ? String(Math.round(n)) : n.toFixed(3).replace(/0$/, "");
+    return t(`${x} JOD`, `${x} د.أ`);
+  }
   if (field === "status") {
     if (v === "new") return t("New", "جديد");
     if (v === "closed") return t("Closed", "مغلق");
@@ -253,6 +268,9 @@ export function ActivityText({ row }: { row: ActivityRow }) {
     ...(more ? [more] : []),
   ];
   if (typeof d.count === "number" && (row.action === "shops.export" || row.action === "payments.export")) said.push(f.count(d.count, ["row", "rows"], { one: "صف واحد", two: "صفّان", few: "صفوف", many: "صفًا" }));
+  if (row.action === "staff.login" && d.via === "remembered") said.push(t("with the password, on a remembered browser (no code)", "بكلمة المرور، من متصفح محفوظ (دون رمز)"));
+  if (row.action === "staff.login" && d.via === "email") said.push(t("with the password and the emailed code", "بكلمة المرور ورمز البريد"));
+  if (typeof d.count === "number" && row.action === "staff.devices_forgotten") said.push(f.count(d.count, ["browser", "browsers"], { one: "متصفح واحد", two: "متصفحان", few: "متصفحات", many: "متصفحًا" }));
   if (typeof d.count === "number" && row.action === "tickets.canned.save") said.push(f.count(d.count, ["ready reply", "ready replies"], { one: "رد جاهز واحد", two: "ردّان جاهزان", few: "ردود جاهزة", many: "ردًا جاهزًا" }));
   return (
     <>

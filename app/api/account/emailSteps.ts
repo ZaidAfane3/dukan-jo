@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { emailKey, seal } from "@/server/crypto";
+import { emailKey } from "@/server/crypto";
 import { db } from "@/server/db";
 import { sendEmailSoon } from "@/server/email";
 import { type CodeLang, maskEmail, sendCodeEmail, type SendResult } from "@/server/emailVerify";
@@ -11,7 +11,8 @@ import { type CodeLang, maskEmail, sendCodeEmail, type SendResult } from "@/serv
    - "new": a code to the new email proves it is typed right and belongs to him (ref "c:<account id>"); typing it moves
      the account there (app/api/account/email).
    The "old" step's code row carries the new email it approves (email_codes.new_email, sealed), so a reload, another
-   device or the next step all know which address is waiting, and nothing is kept in the server's memory. */
+   device or the next step all know which address is waiting, and nothing is kept in the server's memory. It is written
+   when the code is made and never changed: the code approves that address only. */
 
 export const oldRef = (accountId: string) => `co:${accountId}`;
 export const newRef = (accountId: string) => `c:${accountId}`;
@@ -28,28 +29,31 @@ export async function pendingOldStep(accountId: string): Promise<{ email: string
   return r && !r.confirmed_at && !r.cancelled_at && r.new_email ? { email: String(r.new_email), live: !!r.live } : null;
 }
 
-/** Sends the approval code to the account's current email for a change to `newEmail`, and writes the new email on that
-    code's row (its newest one: a code reused within a minute takes the address asked for last) */
+/** Sends the approval code to the account's current email for a change to `newEmail`. The new email is written on the
+    code's row when it is made and never changed after, and is part of the code (server/emailVerify.ts sendCodeEmail): a
+    code approves that one address only, and asking for another address ends it and sends a new one. */
 export async function sendOldStep(req: NextRequest, accountId: string, current: string, newEmail: string, lang: CodeLang): Promise<SendResult> {
-  const sent = await sendCodeEmail(req, "change-old", oldRef(accountId), current, lang);
-  /* "sent" and "failed" leave a row (a failed one can be sent again from the page); a refusal writes nothing */
-  if (sent === "sent" || sent === "failed")
-    await (await db()).query(
-      `UPDATE email_codes SET new_email = $2
-        WHERE id = (SELECT id FROM email_codes WHERE ref = $1 ORDER BY id DESC LIMIT 1) AND confirmed_at IS NULL AND cancelled_at IS NULL`,
-      [oldRef(accountId), seal(newEmail)],
-    );
-  return sent;
+  return sendCodeEmail(req, "change-old", oldRef(accountId), current, lang, newEmail);
 }
 
 /** The waiting approval was given with a recovery code instead of the emailed one: its row is marked approved, so it is
-    no longer waiting and its code can't be used any more */
-export async function approveOldStep(accountId: string): Promise<void> {
-  await (await db()).query(
-    `UPDATE email_codes SET used_at = COALESCE(used_at, now()), confirmed_at = now()
-      WHERE id = (SELECT id FROM email_codes WHERE ref = $1 ORDER BY id DESC LIMIT 1) AND confirmed_at IS NULL AND cancelled_at IS NULL`,
+    no longer waiting and its code can't be used any more. Only while it still approves `newEmail` (the address the page
+    showed): the new email it approved, or null when another address is waiting by now (nothing is approved). */
+export async function approveOldStep(accountId: string, newEmail: string): Promise<string | null> {
+  const pool = await db();
+  const { rows } = await pool.query(
+    `SELECT id, new_email FROM email_codes WHERE ref = $1 ORDER BY id DESC LIMIT 1`,
     [oldRef(accountId)],
   );
+  const r = rows[0];
+  if (!r?.new_email || emailKey(String(r.new_email)) !== emailKey(newEmail)) return null;
+  const done = await pool.query(
+    `UPDATE email_codes SET used_at = COALESCE(used_at, now()), confirmed_at = now()
+      WHERE id = $2 AND ref = $1 AND confirmed_at IS NULL AND cancelled_at IS NULL
+        AND id = (SELECT id FROM email_codes WHERE ref = $1 ORDER BY id DESC LIMIT 1)`,
+    [oldRef(accountId), r.id],
+  );
+  return done.rowCount === 1 ? String(r.new_email) : null;
 }
 
 /** Another account has this email (checked before any code is sent, and again before each step) */
@@ -77,11 +81,11 @@ export function noticeOldEmail(oldEmail: string, newEmail: string, lang: CodeLan
   const e =
     lang === "ar"
       ? {
-          subject: "تغيّر البريد الإلكتروني لحسابك في دكّان",
+          subject: "تغيّر البريد الإلكتروني لحسابك في دكان",
           heading: "تغيّر بريد حسابك",
-          text: `تغيّر البريد الإلكتروني لحسابك في دكّان إلى ${isolate(masked)}.
-من الآن تصل رسائل دكّان ورموز تسجيل الدخول إلى البريد الجديد، لا إلى هذا البريد.
-إذا لم تكن أنت من غيّره، فغيّر كلمة المرور فورًا وتواصل مع دعم دكّان.`,
+          text: `تغيّر البريد الإلكتروني لحسابك في دكان إلى ${isolate(masked)}.
+من الآن تصل رسائل دكان ورموز تسجيل الدخول إلى البريد الجديد، لا إلى هذا البريد.
+إذا لم تكن أنت من غيّره، فغيّر كلمة المرور فورًا وتواصل مع دعم دكان.`,
         }
       : {
           subject: "Your Dukkan email was changed",

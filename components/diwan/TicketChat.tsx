@@ -10,8 +10,9 @@ import { usePrefs } from "@/components/Prefs";
 import { arCount } from "@/components/undo";
 import { ContactButton } from "@/components/diwan/Contact";
 import { ShopAndOwner } from "@/components/diwan/shopBits";
-import { area, Badge, Btn, card, field, Loaded, send, useApi, useFmt, useT } from "@/components/diwan/ui";
+import { area, Badge, Btn, card, field, Loaded, refusedWords, send, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { ChatSkeleton } from "@/components/diwan/skeletons";
+import { BACKGROUND, toSignIn } from "@/components/diwan/signInAgain";
 import { ticketPicture } from "@/components/diwan/TicketBits";
 import { CATEGORY, KIND, PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER, systemLine, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 
@@ -29,7 +30,7 @@ type Msg = { id: string; author: "merchant" | "staff" | "system"; internal: bool
 type Ticket = {
   number: number; kind: TKind; category: number; subject: string; status: TStatus; priority: TPriority; assigneeId: string | null;
   where: string; created: string; updated: string;
-  shop: { accountId: string; name: string; owner: string; email: string; phone: string; storePhone: string; slug: string | null; status: string | null };
+  shop: { accountId: string; name: string; owner: string; storePhone: string; slug: string | null; status: string | null };
   messages: Msg[];
 };
 type Data = { ticket: Ticket; staff: { id: string; name: string; role: string }[]; me: string };
@@ -102,9 +103,11 @@ function TicketView({ first }: { first: Data }) {
   const refresh = useCallback(async () => {
     const n = ++asked.current;
     try {
-      const r = await fetch(`/api/diwan/tickets/${first.ticket.number}`, { credentials: "same-origin", cache: "no-store" });
+      /* a load the page makes by itself, not something the staff member did: it does not keep the session from
+         ending after 60 minutes with nothing done (server/staff.ts staffFromToken) */
+      const r = await fetch(`/api/diwan/tickets/${first.ticket.number}`, { credentials: "same-origin", cache: "no-store", headers: BACKGROUND });
       if (r.status === 401) {
-        window.location.href = "/diwan/login";
+        toSignIn();
         return;
       }
       const j = r.ok ? await r.json() : null;
@@ -178,11 +181,10 @@ function TicketView({ first }: { first: Data }) {
       /* back to what is really saved */
       setPending((p) => ({ ...p, [k]: undefined }));
       setErr(
-        r.status === 403
-          ? t("Your role can't change this, or the page is out of date. Reload it and try again.", "دورك لا يسمح بهذا التغيير، أو الصفحة قديمة. أعد تحميلها وحاول مجددًا.")
-          : offline(r.status) || r.ok
+        refusedWords(t, r) ??
+          (offline(r.status) || r.ok
             ? t("It could not be saved. Check the connection and try again.", "تعذّر الحفظ. تحقّق من الاتصال وحاول مرة أخرى.")
-            : t("The change was not saved. Try again.", "لم يُحفظ التغيير. حاول مجددًا."),
+            : t("The change was not saved. Try again.", "لم يُحفظ التغيير. حاول مجددًا.")),
       );
     } else {
       setSaved(k);
@@ -266,7 +268,7 @@ function TicketView({ first }: { first: Data }) {
       continue;
     }
     const staffSide = m.author === "staff";
-    const who = staffSide ? m.staff?.name ?? t("Dukkan team", "فريق دكّان") : merchantName;
+    const who = staffSide ? m.staff?.name ?? t("Dukkan team", "فريق دكان") : merchantName;
     /* an internal note is a sticky note on the thread (app/globals.css), never a chat bubble */
     const bubble = m.internal
       ? "sticky-note !rounded-[3px] mt-2 -rotate-[0.6deg] rtl:rotate-[0.6deg]"
@@ -366,7 +368,7 @@ function TicketView({ first }: { first: Data }) {
             <ShopAndOwner id={tk.shop.accountId} shop={tk.shop.name} owner={tk.shop.owner} className="mt-1 text-lg" />
             {tk.shop.status === "suspended" && <div className="mt-2"><Badge tone="red">{t("Suspended", "موقوف")}</Badge></div>}
             <p className="mt-3 text-xs text-muted">{t("Opened", "فُتحت")} {f.dateTime(tk.created)} · {t("last activity", "آخر نشاط")} {f.ago(tk.updated)}</p>
-            <ContactButton info={{ owner: tk.shop.owner, email: tk.shop.email, phone: tk.shop.phone, storePhone: tk.shop.storePhone }} className="mt-3" />
+            <ContactButton shopId={tk.shop.accountId} info={{ owner: tk.shop.owner, storePhone: tk.shop.storePhone }} className="mt-3" />
           </section>
 
           <section className={`${card} space-y-3`}>
@@ -524,7 +526,7 @@ function Composer({ number, merchant, canned, manage, onManage, onSent }: { numb
         {note ? (
           <p className="flex items-center gap-1.5 rounded-lg bg-amber-100 px-2.5 py-1.5 text-xs font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-200">
             {lockIcon}
-            {t("Only Dukkan staff see this note. The merchant is not told.", "لا يرى هذه الملاحظة إلا فريق دكّان. لا يُبلَّغ التاجر.")}
+            {t("Only Dukkan staff see this note. The merchant is not told.", "لا يرى هذه الملاحظة إلا فريق دكان. لا يُبلَّغ التاجر.")}
           </p>
         ) : (
           <div className="flex flex-wrap items-center gap-2">

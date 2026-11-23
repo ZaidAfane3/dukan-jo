@@ -57,7 +57,7 @@ const MUTED = "#78716c";
 
 const FONT = { ar: "Tahoma,Arial,sans-serif", en: "-apple-system,'Segoe UI',Roboto,Arial,sans-serif" };
 const FOOT = {
-  ar: { sent: "أُرسلت هذه الرسالة من دكّان، ولا يُستقبل الرد عليها.", help: "للمساعدة استخدم صفحة الدعم في لوحة التحكم." },
+  ar: { sent: "أُرسلت هذه الرسالة من دكان، ولا يُستقبل الرد عليها.", help: "للمساعدة استخدم صفحة الدعم في لوحة التحكم." },
   en: { sent: "Sent by Dukkan. Replies to this email aren't read.", help: "For help, use Support in your dashboard." },
 };
 const footLine = (lang: "ar" | "en", help: Email["help"]) => `${FOOT[lang].sent}${help === "dashboard" ? ` ${FOOT[lang].help}` : ""}`;
@@ -90,7 +90,7 @@ export function htmlOf(e: Omit<Email, "to">): string {
   const langs: ("ar" | "en")[] = parts ? parts.map((x) => x.lang) : [e.lang];
   const first = langs[0];
   const rtl = first === "ar";
-  const brand = parts ? "دكّان · Dukkan" : rtl ? "دكّان" : "Dukkan";
+  const brand = parts ? "دكان · Dukkan" : rtl ? "دكان" : "Dukkan";
   const rule = `<div style="height:1px;background:#e7e5e4;margin:22px 0"></div>`;
   const body = parts
     ? parts.map((x, n) => (n ? rule : "") + blockOf(x.lang, x.heading, x.text, x.button, n === 0 ? e.code : undefined)).join("")
@@ -144,7 +144,7 @@ export async function sendEmail(e: Email): Promise<void> {
      domain).
    Only codes really sent count (noteCodeMail), so asking again while refused never uses the allowance up. Password reset
    codes are not counted here: they keep their own limits (passwordReset.ts). */
-export type CodeKind = "signup" | "login" | "change" | "twostep" | "change-old";
+export type CodeKind = "signup" | "login" | "change" | "twostep" | "change-old" | "staff-login" | "staff-change" | "staff-change-old";
 export const CODE_LIMITS: Record<CodeKind, { visitorHour: number; hour: number; day: number }> = {
   /* every sign-in with 2-step on sends one */
   login: { visitorHour: 8, hour: 20, day: 60 },
@@ -152,6 +152,11 @@ export const CODE_LIMITS: Record<CodeKind, { visitorHour: number; hour: number; 
   change: { visitorHour: 5, hour: 8, day: 20 },
   twostep: { visitorHour: 5, hour: 8, day: 20 },
   "change-old": { visitorHour: 5, hour: 8, day: 20 },
+  /* Diwan staff (server/staffSignin.ts): every staff sign-in sends one; a new email in Diwan as "change" */
+  "staff-login": { visitorHour: 8, hour: 20, day: 60 },
+  "staff-change": { visitorHour: 5, hour: 8, day: 20 },
+  /* a staff member's new email, approved first from the current address (as "change-old") */
+  "staff-change-old": { visitorHour: 5, hour: 8, day: 20 },
 };
 
 const mailKeys = (to: string, kind: CodeKind, visitor: string) => {

@@ -11,7 +11,11 @@ import { arCount, dropUndos, offerUndo } from "./undo";
    queue for staff to check, and the list shows what the server holds, with the team's answer. Removing a file removes it
    from the server too. In the platform tour, or signed out, nothing is sent: the files stay in this browser, as before. */
 
+/* Files waiting for a check or approved, at most MAX_PROOFS. A rejected file never counts (server/documents.ts ACTIVE):
+   the merchant can send again however many times he was rejected */
 export const MAX_PROOFS = 5;
+/** How many of the files count toward MAX_PROOFS: all but the rejected ones */
+export const proofsInPlay = (list: ProofFile[]) => list.filter((f) => f.status !== "rejected").length;
 
 /* the undo note at the bottom (UndoToast.tsx) */
 const undoWords = {
@@ -123,14 +127,15 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
     };
   }, []);
 
-  /** Checks and adds the picked files: images or PDF only (read from their bytes), 5 MB each, 5 in all */
+  /** Checks and adds the picked files: images or PDF only (read from their bytes), 5 MB each, 5 in play (rejected ones
+      don't count) */
   const add = async (picked: File[], partner: { name: string; kind: number }) => {
     if (!ready) return;
     let message = "";
     setBusy(true);
     const added: ProofFile[] = [];
     for (const file of picked) {
-      if (current.current.length >= MAX_PROOFS) {
+      if (proofsInPlay(current.current) >= MAX_PROOFS) {
         message = s.proofMax;
         break;
       }
@@ -217,7 +222,7 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
       scope: "proofs",
       label: (l) => undoWords[l].removed(f.name),
       undo: async () => {
-        if (current.current.some((x) => x.id === f.id) || current.current.length >= MAX_PROOFS) return false;
+        if (current.current.some((x) => x.id === f.id) || (f.status !== "rejected" && proofsInPlay(current.current) >= MAX_PROOFS)) return false;
         let back = f;
         if (id) {
           const r = await merchantCall(`/api/documents/${id}/restore`, "POST", {});

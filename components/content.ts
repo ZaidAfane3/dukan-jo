@@ -63,6 +63,8 @@ export type Content = {
     errTaken: string;
     errPhoneTaken: string;
     errServer: string;
+    /* the server answered but has a problem of its own (its data key, say): not the visitor's connection */
+    errServerDown: string;
     errWrongPassword: string;
     errTooMany: string;
     errSignupMany: string;
@@ -393,6 +395,13 @@ export type Content = {
       shipCityGone: string;
       /* Dukkan switched off the last way to pay his store had on */
       payOff: string;
+      /* Dukkan's team turned his 2-step sign-in off */
+      twoStepOff: string;
+      /* an order took a product down to his low-stock number ({left} still there), or took its last piece */
+      lowStock: string;
+      outOfStock: string;
+      /* he turned it off himself in Settings */
+      twoStepOffSelf: string;
       statusWords: Record<string, string>;
       sep: string;
       announcement: string;
@@ -547,9 +556,10 @@ export const content: Record<Lang, Content> = {
       errTaken: "This email is already in use.",
       errPhoneTaken: "This mobile number is already in use.",
       errServer: "We couldn't reach Dukkan right now. Check your connection and try again.",
+      errServerDown: "Dukkan has a problem on its side right now. Your password was not checked. Please try again later.",
       errWrongPassword: "The email, number or password is not right. Try again.",
       errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
-      errSignupMany: "Too many accounts were created from this connection in the last hour. Wait an hour and try again.",
+      errSignupMany: "Too many sign-up tries from this connection in the last hour. Wait an hour and try again.",
       terms: {
         before: "By creating an account, you agree to Dukkan's ",
         terms: "Terms of Service",
@@ -651,10 +661,10 @@ export const content: Record<Lang, Content> = {
         proofLabel: "Proof for this partner",
         proofHint: "Add any documents that show who they are, such as a commercial registration, ID, a contract or delivery receipts.",
         proofAdd: "Upload your documents",
-        proofLimit: "Up to 5 files, 5 MB each. PNG, JPG, WebP or PDF.",
+        proofLimit: "Up to 5 files, 5 MB each. PNG, JPG, WebP or PDF. Files that were not accepted don't count, so you can send new ones any time.",
         proofTooBig: "That file is larger than 5 MB.",
         proofType: "Only PNG, JPG, WebP or PDF files are allowed (not HEIC or GIF). Take a screenshot of it, or save it as JPG.",
-        proofMax: "You can add up to 5 files.",
+        proofMax: "You can have up to 5 files waiting or approved. Remove one to add another (files that were not accepted don't count).",
         localNote: "In this prototype your files stay on your device and are not uploaded.",
         serverNote: "Your files are sent to the Dukkan team to check. Only the team can see them.",
         proofSending: "Uploading…",
@@ -776,7 +786,7 @@ export const content: Record<Lang, Content> = {
           { id: "v-pages", kind: "list", title: "Most visited pages", desc: "The pages in your store that visitors opened most often.", items: ["Home page", "All products", "Daily Backpack"] },
         ],
         payments: [
-          { id: "p-methods", kind: "breakdown", title: "Payment methods used", desc: "Shows how your payments are split by payment method in the selected period.", items: ["Card", "CliQ", "Cash on delivery", "PayPal"] },
+          { id: "p-methods", kind: "breakdown", title: "Payment methods used", desc: "Shows how your payments are split by payment method in the selected period.", items: ["Card", "CliQ", "Cash on delivery"] },
           { id: "p-online", kind: "rate", tone: "good", rateRange: [55, 92], title: "Share of electronic payments", desc: "The share of electronic payments out of all payment methods in the selected period.", items: ["Electronic payments", "All payments"] },
         ],
         inventory: [
@@ -851,7 +861,7 @@ export const content: Record<Lang, Content> = {
       cartsLink: "View the full report",
     },
     marketing: {
-      menu: ["Abandoned carts", "Coupons", "Repurchase reminders", "Free delivery"],
+      menu: ["Abandoned carts", "Coupons", "Repurchase reminders", "Free delivery", "Customer emails"],
       tabs: ["Abandoned carts", "Automatic reminders"],
       title: "Abandoned carts at a glance",
       sub: "Follow the key abandoned-cart numbers and how many you win back over the selected period.",
@@ -975,7 +985,7 @@ export const content: Record<Lang, Content> = {
         ticketReplied: "Dukkan replied to your ticket #{number}: {subject}",
         ticketSolved: "Your ticket #{number} was marked as solved: {subject}",
         ticketClosed: "Your ticket #{number} was closed: {subject}",
-        documentApproved: "Your document “{name}” was approved",
+        documentApproved: "Your document “{name}” was approved{note}",
         documentRejected: "Your document “{name}” was not accepted{note}",
         documentOther: "Your document “{name}”: {status}{note}",
         shopSuspended: "Your store was suspended{reason}",
@@ -988,6 +998,10 @@ export const content: Record<Lang, Content> = {
         shipFailed: "Dukkan Ship couldn't deliver order #{number}{note}",
         shipCityGone: "Dukkan Ship no longer picks up from {city}. Choose another pickup city on Delivery options so your orders can be collected.",
         payOff: "Dukkan switched off a way to pay your store used, so customers can't complete an order now. Turn on another way to pay.",
+        twoStepOff: "Dukkan's team turned off 2-step sign-in on your account. You can turn it on again in Settings. If you did not ask for this, change your password now.",
+        lowStock: "“{name}” is almost out of stock: {left} left",
+        outOfStock: "“{name}” has run out. Customers can't order it until you add more.",
+        twoStepOffSelf: "2-step sign-in was turned off on your account in Settings. You can turn it on again there. If this wasn't you, change your password now.",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
         announcement: "From Dukkan",
@@ -1136,10 +1150,11 @@ export const content: Record<Lang, Content> = {
       guest: "المتابعة بدون حساب",
       errTaken: "هذا البريد مستخدم بالفعل.",
       errPhoneTaken: "رقم الجوال هذا مستخدم بالفعل.",
-      errServer: "تعذّر الاتصال بدكّان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
+      errServer: "تعذّر الاتصال بدكان الآن. تحقّق من اتصالك وحاول مرة أخرى.",
+      errServerDown: "يواجه دكان مشكلة من جهته الآن، ولم تُفحص كلمة المرور. حاول مرة أخرى لاحقًا.",
       errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
       errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
-      errSignupMany: "أُنشئت حسابات كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
+      errSignupMany: "محاولات تسجيل كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
       terms: {
         before: "بإنشائك حسابًا، فإنك توافق على ",
         terms: "شروط الاستخدام",
@@ -1241,17 +1256,17 @@ export const content: Record<Lang, Content> = {
         proofLabel: "إثباتات هذه الجهة",
         proofHint: "أضف أي مستندات تثبت هويتهم، مثل السجل التجاري أو الهوية أو عقد التعاون أو إيصالات التسليم.",
         proofAdd: "ارفع مستنداتك",
-        proofLimit: "حتى 5 ملفات، 5 ميغابايت لكل ملف، بصيغة PNG أو JPG أو WebP أو PDF.",
+        proofLimit: "حتى 5 ملفات، 5 ميغابايت لكل ملف، بصيغة PNG أو JPG أو WebP أو PDF. الملفات غير المقبولة لا تُحسب، فيمكنك إرسال ملفات جديدة في أي وقت.",
         proofTooBig: "حجم الملف أكبر من 5 ميغابايت.",
         proofType: "يُسمح بملفات PNG وJPG وWebP وPDF فقط (لا HEIC ولا GIF). التقط صورة شاشة له أو احفظه بصيغة JPG.",
-        proofMax: "يمكنك إضافة 5 ملفات كحد أقصى.",
+        proofMax: "يمكن أن يكون لديك 5 ملفات كحد أقصى بانتظار المراجعة أو مقبولة. احذف ملفًا لتضيف غيره (الملفات غير المقبولة لا تُحسب).",
         localNote: "في هذا النموذج الأولي تبقى ملفاتك على جهازك ولا تُرفع.",
         serverNote: "تُرسَل ملفاتك إلى فريق دكان لمراجعتها، ولا يراها أحد غيرهم.",
         proofSending: "جارٍ الرفع…",
         proofFailed: "تعذّر رفع الملف. تأكد من اتصالك بالإنترنت وحاول مرة أخرى.",
         proofFull: "لا توجد مساحة لملفات أخرى في حسابك. احذف ملفًا أولًا.",
         proofSlow: "محاولات كثيرة في وقت قصير. انتظر بضع دقائق ثم أضف الملف مرة أخرى.",
-        proofBusy: "لا تستطيع دكّان استقبال ملفات جديدة الآن. حاول لاحقًا.",
+        proofBusy: "لا تستطيع دكان استقبال ملفات جديدة الآن. حاول لاحقًا.",
         proofWaiting: "بانتظار مراجعة الفريق",
         proofApproved: "مقبول",
         proofRejected: "غير مقبول",
@@ -1364,7 +1379,7 @@ export const content: Record<Lang, Content> = {
           { id: "v-pages", kind: "list", title: "أكثر الصفحات زيارة", desc: "الصفحات في متجرك التي فتحها الزوار أكثر من غيرها.", items: ["الصفحة الرئيسية", "كل المنتجات", "حقيبة يومية"] },
         ],
         payments: [
-          { id: "p-methods", kind: "breakdown", title: "طرق الدفع المستخدمة", desc: "يوضّح توزيع المدفوعات حسب طريقة الدفع في الفترة الزمنية المحددة.", items: ["بطاقة", "كليك", "الدفع عند الاستلام", "باي بال"] },
+          { id: "p-methods", kind: "breakdown", title: "طرق الدفع المستخدمة", desc: "يوضّح توزيع المدفوعات حسب طريقة الدفع في الفترة الزمنية المحددة.", items: ["بطاقة", "كليك", "الدفع عند الاستلام"] },
           { id: "p-online", kind: "rate", tone: "good", rateRange: [55, 92], title: "نسبة المدفوعات الإلكترونية", desc: "نسبة المدفوعات الإلكترونية من إجمالي طرق الدفع خلال الفترة الزمنية المحددة.", items: ["المدفوعات الإلكترونية", "إجمالي المدفوعات"] },
         ],
         inventory: [
@@ -1439,7 +1454,7 @@ export const content: Record<Lang, Content> = {
       cartsLink: "عرض التقرير الكامل",
     },
     marketing: {
-      menu: ["السلات المتروكة", "الكوبونات", "تذكيرات إعادة الشراء", "التوصيل المجاني"],
+      menu: ["السلات المتروكة", "الكوبونات", "تذكيرات إعادة الشراء", "التوصيل المجاني", "إيميلات العملاء"],
       tabs: ["السلات المتروكة", "التذكيرات التلقائية"],
       title: "نظرة سريعة على أداء السلات المتروكة",
       sub: "تتبّع أهم مؤشرات السلات المتروكة ومعدل استعادتها خلال الفترة المحددة.",
@@ -1560,25 +1575,29 @@ export const content: Record<Lang, Content> = {
         ticketCreated: "تم إنشاء تذكرة الدعم {id}",
       },
       server: {
-        ticketReplied: "ردّ دكّان على تذكرتك رقم {number}: {subject}",
+        ticketReplied: "ردّ دكان على تذكرتك رقم {number}: {subject}",
         ticketSolved: "تم حل تذكرتك رقم {number}: {subject}",
         ticketClosed: "أُغلقت تذكرتك رقم {number}: {subject}",
-        documentApproved: "تمت الموافقة على مستندك «{name}»",
+        documentApproved: "تمت الموافقة على مستندك «{name}»{note}",
         documentRejected: "لم يُقبل مستندك «{name}»{note}",
         documentOther: "مستندك «{name}»: {status}{note}",
         shopSuspended: "تم إيقاف متجرك{reason}",
         shopReactivated: "عاد متجرك للعمل",
-        paymentReceived: "استلم دكّان دفعتك بقيمة {amount} د.أ عبر {method}",
+        paymentReceived: "استلم دكان دفعتك بقيمة {amount} د.أ عبر {method}",
         methods: { bank: "تحويل بنكي", cliq: "كليك", cash: "نقدًا", card: "بطاقة" },
-        supportViewed: "فتح فريق دعم دكّان متجرك لمساعدتك",
+        supportViewed: "فتح فريق دعم دكان متجرك لمساعدتك",
         orderPlaced: "طلب تجريبي جديد رقم {number} من {name}: {total} د.أ، غير مدفوع",
-        shipDelivered: "سلّم شحن دكّان الطلب رقم {number}",
-        shipFailed: "تعذّر على شحن دكّان تسليم الطلب رقم {number}{note}",
+        shipDelivered: "سلّم شحن دكان الطلب رقم {number}",
+        shipFailed: "تعذّر على شحن دكان تسليم الطلب رقم {number}{note}",
         shipCityGone: "لم يعد شحن دكان يستلم الطلبات من {city}. اختر مدينة استلام أخرى في خيارات التوصيل ليتمكّن من استلام طلباتك.",
-        payOff: "أوقف دكّان طريقة دفع كان متجرك يستخدمها، لذلك لا يستطيع العملاء إتمام الطلب الآن. فعّل طريقة دفع أخرى.",
+        payOff: "أوقف دكان طريقة دفع كان متجرك يستخدمها، لذلك لا يستطيع العملاء إتمام الطلب الآن. فعّل طريقة دفع أخرى.",
+        twoStepOff: "أوقف فريق دكان التحقق بخطوتين في حسابك. يمكنك تشغيله من جديد من الإعدادات. إذا لم تطلب هذا، فغيّر كلمة المرور الآن.",
+        lowStock: "قاربت كمية «{name}» على النفاد: بقي {left}",
+        outOfStock: "نفدت كمية «{name}». لن يستطيع العملاء طلبه حتى تضيف كمية جديدة.",
+        twoStepOffSelf: "أُوقف التحقق بخطوتين في حسابك من الإعدادات. يمكنك تشغيله من جديد من هناك. إذا لم تكن أنت، فغيّر كلمة المرور الآن.",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",
-        announcement: "من دكّان",
+        announcement: "من دكان",
         dismiss: "إخفاء",
       },
     },
@@ -1615,7 +1634,7 @@ export const content: Record<Lang, Content> = {
       errSubject: "أدخل موضوع التذكرة.",
       errMessage: "اشرح مشكلتك في 10 أحرف على الأقل.",
       server: {
-        note: "يقرأ فريق دعم دكّان كل تذكرة ويرد عليك هنا.",
+        note: "يقرأ فريق دعم دكان كل تذكرة ويرد عليك هنا.",
         cols: ["التذكرة", "التصنيف", "الحالة", "آخر نشاط", "إجراءات"],
         statuses: { open: "مفتوحة", reply: "بانتظار ردّك", solved: "تم الحل", closed: "مغلقة" },
         newReply: "رد جديد",
@@ -1628,7 +1647,7 @@ export const content: Record<Lang, Content> = {
         picturesBad: "تعذّر إرسال إحدى الصور. احذفها وحاول مرة أخرى.",
         picturesRoom: "أرسلت صورًا كثيرة إلى الدعم هذا الشهر. أرسل رسالتك دون صور أو بصور أقل.",
         you: "أنت",
-        dukkan: "دعم دكّان",
+        dukkan: "دعم دكان",
         where: "المكان",
         replyLabel: "ردّك",
         replyPh: "اكتب ردّك…",
@@ -1639,7 +1658,7 @@ export const content: Record<Lang, Content> = {
         enlarge: "فتح الصورة",
         retry: "حاول مرة أخرى",
         notFound: "لم نجد هذه التذكرة.",
-        system: { closedByYou: "أغلقت هذه التذكرة", reopenedByYou: "أعدت فتح هذه التذكرة", solved: "حدّد دكّان هذه التذكرة كمحلولة", closed: "أغلق دكّان هذه التذكرة" },
+        system: { closedByYou: "أغلقت هذه التذكرة", reopenedByYou: "أعدت فتح هذه التذكرة", solved: "حدّد دكان هذه التذكرة كمحلولة", closed: "أغلق دكان هذه التذكرة" },
       },
     },
     settings: {

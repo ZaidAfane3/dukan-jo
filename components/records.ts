@@ -28,9 +28,10 @@ export function count(v: unknown, fallback = 0, max = MAX_COUNT, min = 0): numbe
   return n === null || n < min ? fallback : n;
 }
 
-/** An amount as he types it: Arabic digits become Latin, one dot, at most `decimals` decimals, no extra zeros in
-    front ("007" becomes "7"). Letters, minus signs and exponents ("1e9") are dropped. */
-export const typedMoney = (v: string, decimals = 2) =>
+/** An amount as he types it: Arabic digits become Latin, one dot, at most `decimals` decimals (3 for JOD: its fils, the
+    same as money() keeps), no extra zeros in front ("007" becomes "7"). Letters, minus signs and exponents ("1e9") are
+    dropped. */
+export const typedMoney = (v: string, decimals = 3) =>
   latin(v).replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1").replace(new RegExp(`^(\\d*\\.\\d{0,${decimals}}).*$`), "$1").replace(/^0+(?=\d)/, "").slice(0, 10);
 
 /** A whole number as he types it: what comes after a decimal point is dropped ("1.5" is 1, not 15), no extra zeros
@@ -239,6 +240,13 @@ export type Order = {
   /* Orders from the store: the delivery fee the customer paid (already in the total; 0 when delivery was free). Older
      orders and orders added by hand have none, so Reports leaves their delivery out instead of guessing it */
   delivery?: number;
+  /* Orders from the store: true when no fee was in the total because the store confirms it (his own courier with no fee
+     set), false when the delivery was free or charged. Older orders have none (the Orders page works it out as before) */
+  feeOpen?: boolean;
+  /* An order from his own store preview: whether it took its stock from the products saved in this browser. Since
+     2026-11-22 it takes it only once he confirms it (safeOrder holdsStockAfter), and is saved with false until then;
+     left out on older ones, which took it when they were placed (they hold it unless cancelled or refunded). */
+  held?: boolean;
   created: number;
 };
 
@@ -253,7 +261,8 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     const image = picture(i.image);
     const id = recordId(i.id);
     const size = cleanLine(i.size, 12);
-    const qty = count(i.qty, 1, 9999, 1);
+    /* up to the most a line can have (safeOrder ORDER_LIMITS.qty: a product's whole stock) */
+    const qty = count(i.qty, 1, MAX_COUNT, 1);
     const took = typeof i.took === "number" && Number.isSafeInteger(i.took) && i.took >= 0 ? Math.min(i.took, qty) : null;
     return name && price !== null ? { ...(id ? { id } : {}), name, qty, price, ...(image ? { image } : {}), ...(size ? { size } : {}), ...(took !== null ? { took } : {}) } : null;
   });
@@ -276,6 +285,8 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
     ...(x.pay !== undefined ? { pay: oneOf(x.pay, ["cliq", "cash", "card"] as const, "cash") } : {}),
     ...(couponOf(x.coupon) ? { coupon: couponOf(x.coupon) } : {}),
     ...(money(x.delivery) !== null ? { delivery: money(x.delivery) as number } : {}),
+    ...(typeof x.feeOpen === "boolean" ? { feeOpen: x.feeOpen } : {}),
+    ...(typeof x.held === "boolean" ? { held: x.held } : {}),
     created: time(x.created, 0),
   };
 }

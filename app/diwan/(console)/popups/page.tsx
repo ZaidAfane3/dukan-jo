@@ -12,13 +12,12 @@ import { latin } from "@/components/digits";
 import { menuEntries } from "@/components/DashboardBar";
 import { POPUP_IMAGE_MAX, POPUP_NEXT, type PopupStatus } from "@/components/popupRules";
 import {
-  biOf, isBiKind, POPUP_TEMPLATE_RULES, TEMPLATE_IDS, templateRule, valueOf,
+  biOf, isBiKind, POPUP_TEMPLATE_RULES, TEMPLATE_IDS, templateRule,
   type BiList, type PopupPlacement, type SlotDef, type SlotValues, type TemplateId,
 } from "@/components/popupTemplateRules";
-import { PopupTemplate } from "@/components/popupTemplates";
+import { PopupTemplate, popupPicture } from "@/components/popupTemplates";
 import { checkImage, uploadProblemFor } from "@/components/safe";
 import type { ListingRow } from "@/components/themeListing";
-import { findTheme } from "@/components/themes";
 import { useCatalog } from "@/components/catalog";
 
 /* Pop-ups to merchants, in Diwan's marketing pages: one of the coded templates (components/popupTemplateRules.ts) with
@@ -58,7 +57,7 @@ const blank = (): Form => ({
 const SHOWN_TONE: Record<Shown, Tone> = { draft: "grey", scheduled: "blue", showing: "green", expired: "amber", ended: "grey" };
 
 /** The picture a pop-up shows in the list: its own, else its theme's */
-const pictureOf = (r: { slots: SlotValues }) => valueOf(r.slots, "image") || findTheme(valueOf(r.slots, "theme"))?.shot || "";
+const pictureOf = (r: { slots: SlotValues }) => popupPicture(r.slots);
 
 export default function PopupsPage() {
   /* the theme store's list, so a theme gift made with a theme designed in Diwan shows its picture here as merchants see it */
@@ -106,7 +105,7 @@ export default function PopupsPage() {
     /* one released with its end already passed belongs under Past, which the reload above brings it into */
     if (row.shown === "expired" || row.shown === "ended") return;
     /* the names of the shops chosen in it, which the list may not know until it has loaded again */
-    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
+    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, slug: x.slug ?? null }])) : undefined;
     js.show(row, wasEdit ? t("Saved", "تم الحفظ") : t("Saved as draft", "حُفظت كمسودة"), names);
   };
 
@@ -385,7 +384,7 @@ function SlotField({ def, value, onChange, onLang }: { def: SlotDef; value: Slot
       <div>
         <label className={label} htmlFor={id}>{t(def.label.en, def.label.ar)}{star}</label>
         <input id={id} dir="ltr" className={field} maxLength={300} placeholder="/themes  ·  https://…" value={one} onChange={(e) => onChange(e.target.value)} />
-        <p className="mt-1 text-xs text-muted">{t("A Dukkan page (like /themes) or an https address (opens in a new tab).", "صفحة في دكّان (مثل /themes) أو عنوان https (يفتح في تبويب جديد).")}</p>
+        <p className="mt-1 text-xs text-muted">{t("A Dukkan page (like /themes) or an https address (opens in a new tab).", "صفحة في دكان (مثل /themes) أو عنوان https (يفتح في تبويب جديد).")}</p>
       </div>
     );
   }
@@ -461,8 +460,8 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
       const names = group.map((k) => rule.slots.find((s) => s.key === k)!).map((s) => t(s.label.en, s.label.ar)).join(t(" and ", " و"));
       return t(`${names} go together: fill in all of them (words in English and Arabic) or leave them all empty.`, `${names} معًا: املأها كلها (الكلمات بالعربية والإنجليزية) أو اتركها كلها فارغة.`);
     }
-    if (def.kind === "image") return t("The picture must be a PNG, JPG or WebP up to 400 KB, a picture on Dukkan (/...), or an https address.", "يجب أن تكون الصورة PNG أو JPG أو WebP حتى 400 ك.ب، أو صورة على دكّان (/...)، أو عنوان https.");
-    if (def.kind === "link") return t(`${name} must be a Dukkan page (starting with /) or an https address.`, `${name} يجب أن يكون صفحة في دكّان (يبدأ بـ /) أو عنوان https.`);
+    if (def.kind === "image") return t("The picture must be a PNG, JPG or WebP up to 400 KB, a picture on Dukkan (/...), or an https address.", "يجب أن تكون الصورة PNG أو JPG أو WebP حتى 400 ك.ب، أو صورة على دكان (/...)، أو عنوان https.");
+    if (def.kind === "link") return t(`${name} must be a Dukkan page (starting with /) or an https address.`, `${name} يجب أن يكون صفحة في دكان (يبدأ بـ /) أو عنوان https.`);
     if (def.kind === "theme") return t("Choose a theme from the list.", "اختر تصميمًا من القائمة.");
     if (def.kind === "list") return t(`Write ${name} in English and Arabic, at most ${def.maxItems} lines each.`, `اكتب ${name} بالعربية والإنجليزية، ${def.maxItems} أسطر على الأكثر لكل لغة.`);
     return def.required

@@ -1,7 +1,7 @@
 "use client";
 
 import { demoActive } from "./demoSandbox";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { brandName, content } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { pushNotification } from "./notifications";
@@ -10,6 +10,9 @@ import { cleanOrder, parseList } from "./records";
 import { initialOf } from "./safe";
 import { AnimatedNumber, Money, mulberry32, pctDecimals } from "./reportBits";
 import { usePageTitle } from "./pageTitle";
+import { merchantMoney } from "./moneyText";
+import { merchantCall, onServer } from "./merchantApi";
+import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
 
 const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
 const RANGE_SCALE = [1, 3.6, 2.4];
@@ -23,15 +26,120 @@ type Row = {
   updatedDays: number;
   sent: boolean;
   color: string;
+  /* a real cart of the merchant's store (the sample carts of the tour have none) */
+  cart?: Cart;
 };
 
 const SWATCHES = ["#ffaa63", "#ffb270", "#e67726", "#d9c9b5", "#c4621c", "#ffe3c4", "#e0806e", "#5b8dd6"];
+
+/* A real cart customers left on the merchant's live store (server/storeCarts.ts CartRow, GET /api/abandoned-carts) */
+type Cart = {
+  id: string;
+  /* the name the customer typed, or "" */
+  name: string;
+  /* his email, else his mobile */
+  contact: string;
+  channel: "email" | "phone";
+  items: number;
+  products: string[];
+  image: string;
+  total: number;
+  createdAt: string;
+  updatedAt: string;
+  reminders: number;
+  remindedAt: string | null;
+  nextAt: string | null;
+  canRemind: boolean;
+  recovered: boolean;
+  order: number | null;
+};
+
+/* the words of the real carts (the sample carts of the tour keep content.ts marketing) */
+const words = {
+  en: {
+    about: "A cart shows here when a customer typed an email or mobile at checkout and left without ordering for an hour. Reminders go by email: one a day, at most 3 per cart. WhatsApp reminders are coming soon.",
+    loading: "Loading carts…",
+    loadFail: "The carts couldn't load. Check your connection and try again.",
+    retry: "Try again",
+    more: "Show more",
+    moreLoading: "Loading…",
+    moreFail: "More carts couldn't load. Check your connection and try again.",
+    showing: "Showing {n} of {m} carts. Search and filters look at the carts shown.",
+    minAgo: "{n} min ago",
+    hoursAgo: "{n} h ago",
+    recovered: "Recovered: order #{n}",
+    sending: "Sending…",
+    again: "Send another reminder",
+    whatsapp: "WhatsApp: coming soon",
+    whatsappTip: "This customer left only a mobile number. Reminders by WhatsApp are coming soon.",
+    maxed: "3 reminders sent",
+    maxedTip: "A cart gets at most 3 reminders.",
+    waitMin: "Again in {n} min",
+    waitHours: "Again in {n} h",
+    waitTip: "One reminder a day per cart, once the customer has left it for an hour.",
+    done: "Reminder emailed to {name}.",
+    stub: "Email isn't set up on this server: the reminder was written to the server's console instead, nothing was sent.",
+    why: {
+      "no-sender": "Email isn't set up yet, so the reminder couldn't be sent.",
+      failed: "The email couldn't be sent. Try again later.",
+      wait: "This cart was reminded less than a day ago.",
+      max: "This cart already got 3 reminders, the most.",
+      recovered: "This customer already placed the order.",
+      active: "The customer is still shopping. Try again in an hour.",
+      closed: "Your store isn't open now, so the link in the email wouldn't work.",
+      "no-email": "This customer left only a mobile number.",
+      "slow-down": "Too many reminders for now. Try again tomorrow.",
+      suspended: "Your store is suspended, so nothing can be sent.",
+      none: "This cart is no longer there.",
+      offline: "Couldn't reach the server. Check your connection and try again.",
+    } as Record<string, string>,
+  },
+  ar: {
+    about: "تظهر السلة هنا عندما يكتب العميل بريده الإلكتروني أو رقم جواله عند الطلب ثم يغادر دون إتمامه لمدة ساعة. يُرسل التذكير بالبريد الإلكتروني: تذكير واحد في اليوم، و3 تذكيرات كحد أقصى لكل سلة. التذكير عبر واتساب قريبًا.",
+    loading: "جارٍ تحميل السلات…",
+    loadFail: "تعذّر تحميل السلات. تحقّق من اتصالك وحاول مجددًا.",
+    retry: "حاول مجددًا",
+    more: "عرض المزيد",
+    moreLoading: "جارٍ التحميل…",
+    moreFail: "تعذّر تحميل المزيد من السلات. تحقّق من اتصالك وحاول مجددًا.",
+    showing: "يظهر {n} من {m} سلة. البحث والتصفية يشملان السلات الظاهرة.",
+    minAgo: "منذ {n} دقيقة",
+    hoursAgo: "منذ {n} ساعة",
+    recovered: "استُردت: الطلب رقم {n}",
+    sending: "جارٍ الإرسال…",
+    again: "إرسال تذكير آخر",
+    whatsapp: "واتساب: قريبًا",
+    whatsappTip: "ترك هذا العميل رقم جواله فقط. التذكير عبر واتساب قريبًا.",
+    maxed: "أُرسلت 3 تذكيرات",
+    maxedTip: "تحصل السلة على 3 تذكيرات كحد أقصى.",
+    waitMin: "مجددًا بعد {n} دقيقة",
+    waitHours: "مجددًا بعد {n} ساعة",
+    waitTip: "تذكير واحد في اليوم لكل سلة، بعد أن يتركها العميل ساعة.",
+    done: "أُرسل التذكير إلى {name} بالبريد الإلكتروني.",
+    stub: "البريد غير مفعّل على هذا الخادم: كُتب التذكير في سجل الخادم بدلًا من إرساله، ولم يُرسل شيء.",
+    why: {
+      "no-sender": "لم يُفعّل إرسال البريد بعد، فلم يُرسل التذكير.",
+      failed: "تعذّر إرسال البريد. حاول لاحقًا.",
+      wait: "أُرسل تذكير لهذه السلة قبل أقل من يوم.",
+      max: "وصلت هذه السلة 3 تذكيرات، وهو الحد الأقصى.",
+      recovered: "أكمل هذا العميل طلبه بالفعل.",
+      active: "ما زال العميل يتسوّق. حاول بعد ساعة.",
+      closed: "متجرك غير مفتوح الآن، فلن يعمل الرابط في الرسالة.",
+      "no-email": "ترك هذا العميل رقم جواله فقط.",
+      "slow-down": "أرسلت تذكيرات كثيرة الآن. حاول غدًا.",
+      suspended: "متجرك موقوف، فلا يمكن إرسال شيء.",
+      none: "لم تعد هذه السلة موجودة.",
+      offline: "تعذّر الوصول إلى الخادم. تحقّق من اتصالك وحاول مجددًا.",
+    } as Record<string, string>,
+  },
+};
 
 export function AbandonedCarts() {
   const { lang } = usePrefs();
   const m = content[lang].marketing;
   const r = content[lang].reports;
   const cur = r.currency;
+  const t = words[lang];
 
   const [sample, setSample] = useState(false);
   /* In the platform tour the carts are already there, so there is no switch */
@@ -45,6 +153,19 @@ export function AbandonedCarts() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [reminded, setReminded] = useState<Record<number, number>>({});
   const [toast, setToast] = useState("");
+  /* a signed-in merchant's store (not the tour): its real carts, from Dukkan's server (null: not read yet, or failed) */
+  const [live, setLive] = useState(false);
+  const [carts, setCarts] = useState<Cart[] | null>(null);
+  const [stats, setStats] = useState({ count: 0, recovered: 0, average: 0 });
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  /* where the next page of carts starts (null: all are shown), and its loading */
+  const [next, setNext] = useState<string | null>(null);
+  const [moreLoading, setMoreLoading] = useState(false);
+  const [moreFailed, setMoreFailed] = useState(false);
+  /* the cart whose reminder is on its way */
+  const [sending, setSending] = useState<string | null>(null);
+  const reading = useRef(0);
 
   usePageTitle(`${brandName(lang)} | ${m.menu[0]}`);
 
@@ -58,8 +179,50 @@ export function AbandonedCarts() {
       } catch {
         /* the sample names stay */
       }
+    } else setLive(onServer());
+  }, []);
+
+  /* the store's real carts for the range picked */
+  const read = useCallback(async (rg: number) => {
+    const n = ++reading.current;
+    setLoading(true);
+    setFailed(false);
+    setMoreFailed(false);
+    setMoreLoading(false);
+    const res = await merchantCall(`/api/abandoned-carts?range=${rg}`, "GET");
+    if (n !== reading.current) return;
+    setLoading(false);
+    if (res?.status === 200 && res.data.result === "ok" && Array.isArray(res.data.carts)) {
+      setCarts(res.data.carts as Cart[]);
+      setNext(typeof res.data.next === "string" ? res.data.next : null);
+      setStats({ count: Number(res.data.count) || 0, recovered: Number(res.data.recovered) || 0, average: Number(res.data.average) || 0 });
+    } else {
+      setCarts(null);
+      setNext(null);
+      setFailed(true);
     }
   }, []);
+  /* the next page of carts, added under the ones shown (a cart already shown is not added twice) */
+  const loadMore = async () => {
+    if (!next || moreLoading) return;
+    const n = reading.current;
+    setMoreLoading(true);
+    setMoreFailed(false);
+    const res = await merchantCall(`/api/abandoned-carts?range=${range}&before=${encodeURIComponent(next)}`, "GET");
+    if (n !== reading.current) return;
+    setMoreLoading(false);
+    if (res?.status === 200 && res.data.result === "ok" && Array.isArray(res.data.carts)) {
+      setCarts((all) => {
+        const seen = new Set((all ?? []).map((x) => x.id));
+        return [...(all ?? []), ...(res.data.carts as Cart[]).filter((x) => !seen.has(x.id))];
+      });
+      setNext(typeof res.data.next === "string" ? res.data.next : null);
+      setStats({ count: Number(res.data.count) || 0, recovered: Number(res.data.recovered) || 0, average: Number(res.data.average) || 0 });
+    } else setMoreFailed(true);
+  };
+  useEffect(() => {
+    if (live) void read(range);
+  }, [live, range, read]);
 
   /* A fixed set of sample carts (empty for a store with no abandoned carts). */
   const rows: Row[] = useMemo(() => {
@@ -78,37 +241,92 @@ export function AbandonedCarts() {
     }));
   }, [sample, range, m.names, tourNames]);
 
+  /* the real carts in the shape of the table's rows (the rest is in `cart`) */
+  const realRows: Row[] = useMemo(
+    () => (carts ?? []).map((c, i) => ({ id: i, name: c.name || c.contact, createdDays: 0, items: c.items, total: c.total, updatedDays: 0, sent: c.reminders > 0, color: "", cart: c })),
+    [carts],
+  );
+  const allRows = sample ? rows : realRows;
+
+  /* how long ago a real cart last changed: minutes, then hours, then days */
+  const agoOf = (iso: string) => {
+    const min = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
+    if (min < 60) return t.minAgo.replace("{n}", String(Math.max(1, min)));
+    if (min < 24 * 60) return t.hoursAgo.replace("{n}", String(Math.floor(min / 60)));
+    return m.ago.replace("{n}", String(Math.floor(min / (24 * 60))));
+  };
+
   /* A cart can be reminded again and again: this counts every reminder sent, including the one already sent before */
-  const timesSent = (row: Row) => (row.sent ? 1 : 0) + (reminded[row.id] ?? 0);
+  const timesSent = (row: Row) => (row.cart ? row.cart.reminders : (row.sent ? 1 : 0) + (reminded[row.id] ?? 0));
   const isSent = (row: Row) => timesSent(row) > 0;
 
-  const shown = rows.filter((row) => {
+  const shown = allRows.filter((row) => {
     if (status === 1 && !isSent(row)) return false;
     if (status === 2 && isSent(row)) return false;
-    return query.trim() === "" || row.name.toLowerCase().includes(query.trim().toLowerCase());
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    /* a real cart is found by its customer's name, email or mobile, or one of its products */
+    const texts = row.cart ? [row.name, row.cart.contact, ...row.cart.products] : [row.name];
+    return texts.some((x) => x.toLowerCase().includes(q));
   });
 
-  const count = rows.length;
-  const recovered = count ? Math.round((rows.filter((x) => x.sent).length / count) * 1000) / 10 : 0;
-  const average = count ? rows.reduce((a, b) => a + b.total, 0) / count : 0;
+  const count = sample ? rows.length : stats.count;
+  const recovered = sample ? (count ? Math.round((rows.filter((x) => x.sent).length / count) * 1000) / 10 : 0) : stats.recovered;
+  const average = sample ? (count ? rows.reduce((a, b) => a + b.total, 0) / count : 0) : stats.average;
 
-  /* PLACEHOLDER (QA 70): nothing can send a reminder yet (no WhatsApp/email sending, no real cart tracking). Only the
-     platform tour acts it out; a real store sees the button as "coming soon" and nothing is said to be sent. When
-     sending exists: track carts on the server, send through the chosen channel here, then drop the `tour` check. */
-  const remind = (id: number, name: string) => {
-    if (!tour) return;
-    pushNotification("reminderSent", { name });
-    setReminded((s) => ({ ...s, [id]: (s[id] ?? 0) + 1 }));
-    setToast(m.notice);
-    window.setTimeout(() => setToast(""), 2600);
+  const say = (text: string, ms = 2600) => {
+    setToast(text);
+    window.setTimeout(() => setToast((x) => (x === text ? "" : x)), ms);
   };
+
+  /* The platform tour acts a reminder out on its sample carts (nothing is sent). A real cart is reminded by email through
+     Dukkan's server, which holds every limit (server/storeCarts.ts); the bell says so only when an email really went
+     out. WhatsApp is not built: a cart with only a mobile shows it as coming soon. */
+  const remind = async (row: Row) => {
+    const c = row.cart;
+    if (!c) {
+      if (!tour) return;
+      pushNotification("reminderSent", { name: row.name });
+      setReminded((s) => ({ ...s, [row.id]: (s[row.id] ?? 0) + 1 }));
+      return say(m.notice);
+    }
+    if (!c.canRemind || sending) return;
+    setSending(c.id);
+    const res = await merchantCall(`/api/abandoned-carts/${encodeURIComponent(c.id)}/remind`, "POST");
+    setSending(null);
+    if (res?.status === 200 && res.data.result === "ok") {
+      /* in development without email the server only writes the email to its console: no bell, it was not sent */
+      const stub = res.data.stub === true;
+      const next = typeof res.data.nextAt === "string" ? res.data.nextAt : null;
+      setCarts((all) => (all ?? []).map((x) => (x.id === c.id ? { ...x, reminders: Number(res.data.reminders) || x.reminders + 1, remindedAt: new Date().toISOString(), canRemind: false, nextAt: next } : x)));
+      if (!stub) pushNotification("reminderSent", { name: row.name });
+      return say(stub ? t.stub : t.done.replace("{name}", row.name), stub ? 6000 : 2600);
+    }
+    const why = res ? String(res.data.result ?? "") : "offline";
+    say(t.why[why] ?? t.why.offline, 4000);
+    /* the cart changed since the list was read (an order, a reminder from another tab): the list is read again */
+    if (["recovered", "max", "wait", "active", "none", "no-email"].includes(why)) void read(range);
+  };
+
+  /* what a real cart's button says, and why it can't be pressed now */
+  const actionOf = (c: Cart): { label: string; tip?: string; can: boolean } => {
+    if (sending === c.id) return { label: t.sending, can: false };
+    if (c.channel === "phone") return { label: t.whatsapp, tip: t.whatsappTip, can: false };
+    if (c.reminders >= 3) return { label: t.maxed, tip: t.maxedTip, can: false };
+    if (c.canRemind) return { label: c.reminders ? t.again : m.remind, can: true };
+    const min = c.nextAt ? Math.max(1, Math.ceil((new Date(c.nextAt).getTime() - Date.now()) / 60_000)) : 1;
+    return { label: min < 60 ? t.waitMin.replace("{n}", String(min)) : t.waitHours.replace("{n}", String(Math.ceil(min / 60))), tip: t.waitTip, can: false };
+  };
+  const statusOf = (row: Row) => (row.cart?.recovered ? t.recovered.replace("{n}", String(row.cart.order ?? "")) : isSent(row) ? m.sent : m.notSent);
 
   /* Download exactly what the table currently shows, as a spreadsheet file. */
   const exportCsv = () => {
     const cols = m.cols.filter((_, i) => i < 5 && visible[i]);
     const lines = [cols.join(",")];
     for (const row of shown) {
-      const all = [row.name, String(row.items), row.total.toFixed(2), String(row.updatedDays), isSent(row) ? m.sent : m.notSent];
+      const c = row.cart;
+      const who = c ? (c.name ? `${c.name} (${c.contact})` : c.contact) : row.name;
+      const all = [who, String(row.items), merchantMoney(row.total).replace(/,/g, ""), c ? agoOf(c.updatedAt) : String(row.updatedDays), statusOf(row)];
       /* a cell that starts like a formula (= + - @, tab, return) gets a ' first, so Excel shows it instead of running it:
          the name is typed by store visitors */
       lines.push(all.filter((_, i) => visible[i]).map((v) => `"${v.replace(/^[=+\-@\t\r]/, "'$&").replace(/"/g, '""')}"`).join(","));
@@ -136,11 +354,7 @@ export function AbandonedCarts() {
             <div>
               <h1 className="text-lg font-extrabold">{m.title}</h1>
               <p className="mt-1 text-sm text-muted">{m.sub}</p>
-              {!tour && (
-                <p className="mt-2 inline-flex rounded-lg bg-soft px-2.5 py-1 text-xs font-semibold text-muted">
-                  {lang === "ar" ? "قريبًا: تتبّع السلات المتروكة وإرسال تذكير للعميل عبر واتساب أو البريد." : "Coming soon: tracking abandoned carts and sending customers a reminder by WhatsApp or email."}
-                </p>
-              )}
+              {!tour && <p className="mt-2 max-w-3xl rounded-lg bg-soft px-2.5 py-1.5 text-xs font-semibold leading-relaxed text-muted">{t.about}</p>}
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <a href="/reports" className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">{m.viewFull}<svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg></a>
@@ -229,15 +443,23 @@ export function AbandonedCarts() {
                 {shown.map((row) => {
                   const sent = isSent(row);
                   const times = timesSent(row);
+                  const c = row.cart;
+                  const act = c ? actionOf(c) : null;
                   return (
-                    <tr key={row.id} className="transition-colors hover:bg-soft/40">
+                    <tr key={c ? c.id : row.id} className="transition-colors hover:bg-soft/40">
                       {visible[0] && (
                         <td className={td}>
                           <div className="flex items-center gap-3">
                             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/20 text-sm font-bold text-primary">{initialOf(row.name)}</span>
-                            <div>
-                              <p className="font-semibold">{row.name}</p>
-                              <p className="text-xs text-muted">{m.created.replace("{n}", String(row.createdDays))}</p>
+                            <div className="min-w-0">
+                              {/* (a cart with no name shows its email or mobile, written left to right) */}
+                              <p dir={c && !c.name ? "ltr" : undefined} className={`font-semibold ${c && !c.name ? "rtl:text-right" : ""}`}>{row.name}</p>
+                              {/* a real cart: how to reach the customer (his email, else his mobile) under the name he typed */}
+                              {c ? (
+                                c.name && <p dir="ltr" className="truncate text-xs text-muted rtl:text-right">{c.contact}</p>
+                              ) : (
+                                <p className="text-xs text-muted">{m.created.replace("{n}", String(row.createdDays))}</p>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -245,32 +467,47 @@ export function AbandonedCarts() {
                       {visible[1] && (
                         <td className={td}>
                           <div className="flex items-center gap-3">
-                            <span className="h-10 w-10 shrink-0 rounded-lg" style={{ backgroundColor: row.color }} />
-                            <span className="text-muted">{lang === "en" && row.items === 1 ? "1 item" : m.items.replace("{n}", String(row.items))}</span>
+                            {c ? (
+                              <ProductPhoto src={c.image} hue={noPhotoHue(c.id)} className="h-10 w-10 shrink-0 rounded-lg ring-1 ring-black/10" />
+                            ) : (
+                              <span className="h-10 w-10 shrink-0 rounded-lg" style={{ backgroundColor: row.color }} />
+                            )}
+                            <span className="text-muted" title={c ? c.products.join(lang === "ar" ? "، " : ", ") : undefined}>{lang === "en" && row.items === 1 ? "1 item" : m.items.replace("{n}", String(row.items))}</span>
                           </div>
                         </td>
                       )}
-                      {visible[2] && <td className={`${td} font-semibold`}><span dir="ltr">{row.total.toFixed(2)} {cur}</span></td>}
-                      {visible[3] && <td className={`${td} text-muted`}>{m.ago.replace("{n}", String(row.updatedDays))}</td>}
+                      {visible[2] && <td className={`${td} font-semibold`}><span dir="ltr">{merchantMoney(row.total)} {cur}</span></td>}
+                      {visible[3] && <td className={`${td} text-muted`}>{c ? agoOf(c.updatedAt) : m.ago.replace("{n}", String(row.updatedDays))}</td>}
                       {visible[4] && (
                         <td className={td}>
-                          <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${sent ? "bg-primary/15 text-deep dark:text-primary" : "bg-fg/10 text-muted"}`}>
-                            <span className={`h-2 w-2 rounded-full ${sent ? "bg-primary" : "bg-fg/40"}`} />
-                            {sent ? m.sent : m.notSent}
-                            {times > 1 && <span dir="ltr" className="font-extrabold">×{times}</span>}
-                          </span>
+                          {c?.recovered ? (
+                            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                              {statusOf(row)}
+                            </span>
+                          ) : (
+                            <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${sent ? "bg-primary/15 text-deep dark:text-primary" : "bg-fg/10 text-muted"}`}>
+                              <span className={`h-2 w-2 rounded-full ${sent ? "bg-primary" : "bg-fg/40"}`} />
+                              {sent ? m.sent : m.notSent}
+                              {times > 1 && <span dir="ltr" className="font-extrabold">×{times}</span>}
+                            </span>
+                          )}
                         </td>
                       )}
                       <td className={td}>
-                        <button
-                          type="button"
-                          onClick={() => remind(row.id, row.name)}
-                          disabled={!tour}
-                          title={!tour ? (lang === "ar" ? "إرسال التذكير قريبًا" : "Sending reminders is coming soon") : undefined}
-                          className="rounded-lg border border-primary/50 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:border-fg/15 disabled:text-muted disabled:hover:bg-transparent"
-                        >
-                          {!tour ? (lang === "ar" ? "قريبًا" : "Coming soon") : sent ? (lang === "ar" ? "إرسال تذكير آخر" : "Send another reminder") : m.remind}
-                        </button>
+                        {c?.recovered ? (
+                          <span className="text-xs text-muted">—</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void remind(row)}
+                            disabled={c ? !act?.can : !tour}
+                            title={c ? act?.tip : !tour ? (lang === "ar" ? "إرسال التذكير قريبًا" : "Sending reminders is coming soon") : undefined}
+                            className="rounded-lg border border-primary/50 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:border-fg/15 disabled:text-muted disabled:hover:bg-transparent"
+                          >
+                            {c ? act?.label : !tour ? (lang === "ar" ? "قريبًا" : "Coming soon") : sent ? t.again : m.remind}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -278,14 +515,33 @@ export function AbandonedCarts() {
               </tbody>
             </table>
 
-            {rows.length === 0 && (
+            {!sample && loading && carts === null ? (
+              <p className="px-4 py-14 text-center text-sm text-muted" aria-live="polite">{t.loading}</p>
+            ) : !sample && failed ? (
+              <div className="px-4 py-14 text-center">
+                <p className="text-sm text-muted">{t.loadFail}</p>
+                <button type="button" onClick={() => void read(range)} className="mt-3 rounded-lg border border-fg/20 px-3 py-1.5 text-xs font-semibold transition hover:bg-soft">{t.retry}</button>
+              </div>
+            ) : allRows.length === 0 ? (
               <div className="px-4 py-14 text-center">
                 <p className="font-bold">{m.empty}</p>
                 <p className="mt-1 text-sm text-muted">{m.emptyHint}</p>
               </div>
+            ) : (
+              shown.length === 0 && <p className="px-4 py-10 text-center text-sm text-muted">{m.noMatch}</p>
             )}
-            {rows.length > 0 && shown.length === 0 && <p className="px-4 py-10 text-center text-sm text-muted">{m.noMatch}</p>}
           </div>
+
+          {/* more carts than one page: how many are shown, and the next page */}
+          {!sample && carts && next && (
+            <div className="mt-4 flex flex-col items-center gap-2 text-center">
+              <p className="text-xs text-muted" aria-live="polite">{t.showing.replace("{n}", String(carts.length)).replace("{m}", String(Math.max(stats.count, carts.length)))}</p>
+              <button type="button" onClick={() => void loadMore()} disabled={moreLoading} className="h-10 rounded-xl border border-fg/20 px-4 text-sm font-semibold transition hover:bg-soft disabled:cursor-wait disabled:opacity-60">
+                {moreLoading ? t.moreLoading : t.more}
+              </button>
+              {moreFailed && <p role="alert" className="text-xs text-rose-600">{t.moreFail}</p>}
+            </div>
+          )}
         </section>
       </main>
 

@@ -1,20 +1,22 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Dialog } from "@/components/diwan/dialogs";
 import { askOwnPassword, OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
+import { ChangeEmailDialog } from "@/components/diwan/StaffEmail";
 import { PasswordField, ShowPasswordOnce, usePasswordProblem } from "@/components/diwan/StaffPassword";
 import { passwordWords, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
 import { Badge, Btn, card, DataTable, field, Loaded, PageHead, send, td, useApi, useFmt, useT } from "@/components/diwan/ui";
 import { StaffSkeleton } from "@/components/diwan/skeletons";
 
-/* Dukkan's staff: who they are, whether they can sign in and use a 2-step code. Every staff member is an owner and may do
-   everything (Diwan has no roles). They add staff with a temporary password, take access away (which signs them out
-   everywhere), reset a lost 2-step code or a forgotten password. Diwan always keeps one staff member who can sign in;
-   the server refuses anything that would leave none. */
+/* Dukkan's staff: who they are, whether they can sign in and whether their email is confirmed (a sign-in on a browser not
+   remembered yet asks for a code sent to it; "Sign out my other browsers" ends their sessions and makes all but this one ask again). Every staff member is an owner and may do everything (Diwan has no roles). They add staff with a
+   temporary password, take access away (which signs them out everywhere) or reset a forgotten password, and change their
+   own email. Diwan always keeps one staff member who can sign in; the server refuses anything that would leave none. */
 
 type Member = {
-  id: string; name: string; email: string; active: boolean; totpOn: boolean; mustChange: boolean;
+  id: string; name: string; email: string; active: boolean; emailConfirmed: boolean; mustChange: boolean;
   lastLoginAt: string | null; createdAt: string; sessions: number;
 };
 type Data = { me: string; staff: Member[] };
@@ -25,6 +27,7 @@ type Shown = { name: string; password: string; self?: boolean };
 export default function StaffPage() {
   const t = useT();
   const f = useFmt();
+  const router = useRouter();
   const s = useApi<Data>("/api/diwan/staff");
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -32,12 +35,18 @@ export default function StaffPage() {
   /* the member whose new password is being typed, and a saved password shown once to copy */
   const [pwFor, setPwFor] = useState<Member | null>(null);
   const [shown, setShown] = useState<Shown | null>(null);
+  /* the signed-in member changing their own email */
+  const [emailFor, setEmailFor] = useState<Member | null>(null);
+  /* another member whose email, not confirmed yet, is being corrected */
+  const [fixFor, setFixFor] = useState<Member | null>(null);
 
   const why = (r: { data: any }) => {
     const res = r.data?.result;
     if (res === "last-owner") return t("Diwan needs at least one staff member who can sign in.", "يحتاج الديوان إلى عضو واحد على الأقل يستطيع الدخول.");
     if (res === "self") return t("You can't take away your own access. Ask another staff member.", "لا يمكنك إزالة صلاحية دخولك بنفسك. اطلب من عضو آخر.");
     if (res === "taken") return t("Someone on the staff already has this email.", "يوجد عضو في الفريق بهذا البريد.");
+    if (res === "confirmed") return t("This member has confirmed this email, so only they can change it.", "أكّد هذا العضو بريده، فلا يغيّره إلا هو.");
+    if (res === "same") return t("This is already their email.", "هذا بريده الحالي.");
     const w = passwordWords[r.data?.problem as keyof typeof passwordWords];
     if (res === "weak" && w) return t(w.en, w.ar);
     if (res === "invalid") return t("Check the name and the email.", "تحقق من الاسم والبريد.");
@@ -58,6 +67,21 @@ export default function StaffPage() {
       setMsg({ ok: true, text: t("Saved.", "تم الحفظ.") });
       s.reload();
     } else setMsg({ ok: false, text: why(r) });
+  };
+
+  /* every browser remembered for me except this one asks for the emailed code again (app/api/diwan/auth/devices) */
+  /* "Sign out my other browsers": asked first (it ends sessions at once), then the list reloads its session counts */
+  const [forgetAsk, setForgetAsk] = useState<Member | null>(null);
+  const forgetOthers = async (m: Member) => {
+    setBusy(m.id);
+    setMsg(null);
+    const r = await send("/api/diwan/auth/devices", "POST");
+    setBusy(null);
+    setForgetAsk(null);
+    setMsg(r.ok
+      ? { ok: true, text: t("Done. Your other browsers are signed out, and they will ask for the emailed code at their next sign-in.", "تم. خرجت متصفحاتك الأخرى، وستطلب رمز البريد عند الدخول القادم.") }
+      : { ok: false, text: why(r) });
+    if (r.ok) s.reload();
   };
 
   return (
@@ -93,6 +117,49 @@ export default function StaffPage() {
           }}
         />
       )}
+      {forgetAsk && (
+        <Dialog
+          title={t("Sign out your other browsers?", "تسجيل خروج متصفحاتك الأخرى؟")}
+          body={t(
+            "Every other browser or device signed in to Diwan as you is signed out now, and asks for the code sent to your email at its next sign-in. This browser stays signed in.",
+            "يخرج الآن كل متصفح أو جهاز آخر داخل الديوان باسمك، ويطلب الرمز المرسل إلى بريدك عند الدخول القادم. يبقى هذا المتصفح داخلًا.",
+          )}
+          busy={busy === forgetAsk.id}
+          onClose={() => setForgetAsk(null)}
+          onSubmit={() => void forgetOthers(forgetAsk)}
+          footer={
+            <>
+              <Btn type="button" kind="ghost" disabled={busy === forgetAsk.id} onClick={() => setForgetAsk(null)}>{t("Cancel", "إلغاء")}</Btn>
+              <Btn type="submit" disabled={busy === forgetAsk.id}>{t("Sign them out", "تسجيل خروجها")}</Btn>
+            </>
+          }
+        />
+      )}
+      {emailFor && (
+        <ChangeEmailDialog
+          current={emailFor.email}
+          onClose={() => setEmailFor(null)}
+          onDone={() => {
+            setEmailFor(null);
+            setMsg({ ok: true, text: t("Your email was changed. Your sign-in codes go to the new address from now on.", "تغيّر بريدك. تصل رموز الدخول إلى البريد الجديد من الآن.") });
+            s.reload();
+            /* the header (the console layout, read on the server) shows the new address without a reload */
+            router.refresh();
+          }}
+        />
+      )}
+      {fixFor && (
+        <FixEmailDialog
+          m={fixFor}
+          why={why}
+          onClose={() => setFixFor(null)}
+          onSaved={(email) => {
+            setFixFor(null);
+            setMsg({ ok: true, text: t(`Saved. ${fixFor.name}'s sign-in codes go to ${email} from now on.`, `تم الحفظ. تصل رموز دخول ${fixFor.name} إلى ⁨${email}⁩ من الآن.`) });
+            s.reload();
+          }}
+        />
+      )}
       {shown && (
         <ShowPasswordOnce
           name={shown.name}
@@ -107,7 +174,7 @@ export default function StaffPage() {
         {(d) => (
           <>
             <DataTable
-              head={[t("Name", "الاسم"), t("Access", "الدخول"), t("2-step code", "التحقق بخطوتين"), t("Last sign-in", "آخر دخول"), ""]}
+              head={[t("Name", "الاسم"), t("Access", "الدخول"), t("Email", "البريد"), t("Last sign-in", "آخر دخول"), ""]}
               empty={d.staff.length ? false : t("No staff yet.", "لا يوجد فريق بعد.")}
             >
               {d.staff.map((m) => {
@@ -122,10 +189,14 @@ export default function StaffPage() {
                       {m.active ? <Badge tone="green">{t("Active", "نشط")}</Badge> : <Badge tone="red">{t("No access", "بلا دخول")}</Badge>}
                       {m.mustChange && <p className="mt-1 text-xs text-muted">{t("Temporary password", "كلمة مرور مؤقتة")}</p>}
                     </td>
-                    <td className={td}>{m.totpOn ? <Badge tone="green">{t("On", "مفعّل")}</Badge> : <Badge tone="amber">{t("Not set up yet", "لم يُعدّ بعد")}</Badge>}</td>
+                    <td className={td}>
+                      {/* confirmed: a code sent to it was typed (at a sign-in, or when it was changed) */}
+                      {m.emailConfirmed ? <Badge tone="green">{t("Confirmed", "مؤكَّد")}</Badge> : <Badge tone="amber">{t("Not confirmed yet", "غير مؤكَّد بعد")}</Badge>}
+                      {!m.emailConfirmed && <p className="mt-1 text-xs text-muted">{t("Confirmed at their next sign-in", "يتأكّد عند دخوله القادم")}</p>}
+                    </td>
                     <td className={td}>
                       <span title={f.dateTime(m.lastLoginAt)}>{m.lastLoginAt ? f.ago(m.lastLoginAt) : t("Never", "أبدًا")}</span>
-                      {m.sessions > 0 && <p className="text-xs text-muted">{t(`${m.sessions} open session(s)`, `${m.sessions} جلسة مفتوحة`)}</p>}
+                      {m.sessions > 0 && <p className="text-xs text-muted">{f.count(m.sessions, ["open session", "open sessions"], { one: "جلسة مفتوحة واحدة", two: "جلستان مفتوحتان", few: "جلسات مفتوحة", many: "جلسة مفتوحة" })}</p>}
                     </td>
                     <td className={`${td} text-end`}>
                       <div className="flex flex-wrap justify-end gap-2">
@@ -146,25 +217,31 @@ export default function StaffPage() {
                             {t("Deactivate", "إيقاف")}
                           </Btn>
                         ) : (
-                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => act(m, { action: "active", active: true })}>
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => act(m, { action: "active", active: true }, {
+                              title: t("Reactivate", "إعادة التفعيل"),
+                              body: t(`Give ${m.name} access to Diwan again? They can sign in with their password. Type your own password to confirm.`, `إعادة دخول ${m.name} إلى الديوان؟ سيستطيع الدخول بكلمة مروره. اكتب كلمة مرورك للتأكيد.`),
+                              confirm: t("Reactivate", "إعادة التفعيل"),
+                              danger: false,
+                            })}>
                             {t("Reactivate", "إعادة التفعيل")}
                           </Btn>
                         ))}
-                        <Btn
-                          kind="ghost"
-                          className="h-8 px-3 text-xs"
-                          disabled={busy === m.id || !m.totpOn}
-                          onClick={() =>
-                            act(m, { action: "reset2step" }, {
-                              title: t("Reset 2-step", "إعادة ضبط التحقق"),
-                              body: t(`Reset ${m.name}'s 2-step code? They set up a new one at the next sign-in, and are signed out now. Type your own password to confirm.`, `إعادة ضبط رمز التحقق لـ ${m.name}؟ سيعدّ رمزًا جديدًا عند الدخول التالي، ويُخرج الآن. اكتب كلمة مرورك للتأكيد.`),
-                              confirm: t("Reset", "إعادة الضبط"),
-                              danger: true,
-                            })
-                          }
-                        >
-                          {t("Reset 2-step", "إعادة ضبط التحقق")}
-                        </Btn>
+                        {/* another member's email, only while they have not confirmed it (a typo when they were added) */}
+                        {!self && !m.emailConfirmed && (
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => setFixFor(m)}>
+                            {t("Correct email", "تصحيح البريد")}
+                          </Btn>
+                        )}
+                        {self && (
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" onClick={() => setEmailFor(m)}>
+                            {t("Change my email", "تغيير بريدي")}
+                          </Btn>
+                        )}
+                        {self && (
+                          <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => setForgetAsk(m)}>
+                            {t("Sign out my other browsers", "تسجيل خروج متصفحاتي الأخرى")}
+                          </Btn>
+                        )}
                         <Btn kind="ghost" className="h-8 px-3 text-xs" disabled={busy === m.id} onClick={() => setPwFor(m)}>
                           {t("New password", "كلمة مرور جديدة")}
                         </Btn>
@@ -233,6 +310,51 @@ function NewPasswordDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: {
   );
 }
 
+/** Corrects another member's email while they have not confirmed it (app/api/diwan/staff/[id], action "email") */
+function FixEmailDialog({ m, why, onClose, onSaved }: { m: Member; why: (r: { data: any }) => string; onClose: () => void; onSaved: (email: string) => void }) {
+  const t = useT();
+  const [email, setEmail] = useState(m.email);
+  const [myPassword, setMyPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const submit = async () => {
+    setErr("");
+    if (!email.trim()) return setErr(t("Type the right email.", "اكتب البريد الصحيح."));
+    if (!myPassword) return setErr(t("Type your own password to confirm.", "اكتب كلمة مرورك للتأكيد."));
+    setBusy(true);
+    const r = await send(`/api/diwan/staff/${m.id}`, "PATCH", { action: "email", email, myPassword });
+    setBusy(false);
+    if (r.ok) onSaved(email.trim().toLowerCase());
+    else setErr(r.data?.result === "invalid" ? t("Check the email address.", "تحقّق من البريد الإلكتروني.") : why(r));
+  };
+  return (
+    <Dialog
+      title={t(`Correct ${m.name}'s email`, `تصحيح بريد ${m.name}`)}
+      body={t(
+        `${m.name} has not confirmed this email yet, so it can still be corrected. Their sign-in codes go to the new address; a sign-in waiting for a code sent to the old one ends. Once they confirm an email, only they can change it.`,
+        `لم يؤكّد ${m.name} هذا البريد بعد، لذا يمكن تصحيحه. تصل رموز دخوله إلى البريد الجديد، وينتهي أي دخول ينتظر رمزًا أُرسل إلى القديم. بعد أن يؤكّد بريده لا يغيّره إلا هو.`,
+      )}
+      wide
+      busy={busy}
+      onClose={onClose}
+      onSubmit={submit}
+      footer={
+        <>
+          <Btn type="button" kind="ghost" disabled={busy} onClick={onClose}>{t("Cancel", "إلغاء")}</Btn>
+          <Btn type="submit" disabled={busy}>{busy ? t("Saving…", "جارٍ الحفظ…") : t("Save the email", "حفظ البريد")}</Btn>
+        </>
+      }
+    >
+      <label htmlFor="st-fix-email" className="mb-1.5 block text-sm font-medium">{t("The right email", "البريد الصحيح")}</label>
+      <input id="st-fix-email" type="email" dir="ltr" className={field} required maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} data-autofocus />
+      <div className="mt-4">
+        <OwnPasswordField t={t} value={myPassword} onChange={setMyPassword} />
+      </div>
+      {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
+    </Dialog>
+  );
+}
+
 function AddForm({ onDone, why }: { onDone: (text: string, added: Shown) => void; why: (r: { data: any }) => string }) {
   const t = useT();
   const problemOf = usePasswordProblem();
@@ -251,7 +373,7 @@ function AddForm({ onDone, why }: { onDone: (text: string, added: Shown) => void
     setBusy(false);
     if (r.ok)
       onDone(
-        t(`${v.name} was added. Give them the temporary password; they choose their own and set up a 2-step code at the first sign-in at /diwan/login.`, `تمت إضافة ${v.name}. أعطه كلمة المرور المؤقتة؛ سيختار كلمته ويعدّ رمز التحقق عند أول دخول من ‎/diwan/login.`),
+        t(`${v.name} was added. Give them the temporary password. At the first sign-in at /diwan/login, a code goes to ${v.email.trim()}: typing it confirms that email, and they choose their own password.`, `تمت إضافة ${v.name}. أعطه كلمة المرور المؤقتة. عند أول دخول من ‎/diwan/login يصل رمز إلى ⁨${v.email.trim()}⁩: كتابته تؤكّد هذا البريد، ثم يختار كلمة مروره.`),
         { name: v.name, password: v.password },
       );
     else setErr(why(r));

@@ -8,11 +8,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.10.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
-    "@opentelemetry/instrumentation-http": "^0.300.0",
-    "@opentelemetry/instrumentation-pg": "^0.77.0",
-    "@opentelemetry/sdk-node": "^0.300.0",
     "framer-motion": "^14.14.0",
     "next": "16.4.6",
     "pg": "^8.23.1",

@@ -39,9 +39,9 @@ export default function MarketplacePage() {
   const s = useApi<Data>("/api/diwan/marketplace");
   return (
     <div>
-      <PageHead title={t("Developers", "المطورون")} sub={t("Themes and apps made by outside developers. Dukkan's own theme store is on the Themes page.", "ثيمات وتطبيقات من مطورين خارجيين. متجر ثيمات دكّان في صفحة الثيمات.")} />
+      <PageHead title={t("Developers", "المطورون")} sub={t("Themes and apps made by outside developers. Dukkan's own theme store is on the Themes page.", "ثيمات وتطبيقات من مطورين خارجيين. متجر ثيمات دكان في صفحة الثيمات.")} />
       <p className="mb-6 rounded-xl bg-amber-500/15 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
-        {t("There is no developer portal yet: developers send their work to Dukkan directly, and staff enter it here.", "لا توجد بوابة للمطورين بعد: يرسل المطورون أعمالهم إلى دكّان مباشرة، ويدخلها الفريق هنا.")}
+        {t("There is no developer portal yet: developers send their work to Dukkan directly, and staff enter it here.", "لا توجد بوابة للمطورين بعد: يرسل المطورون أعمالهم إلى دكان مباشرة، ويدخلها الفريق هنا.")}
       </p>
       <Loaded s={s} skeleton={<MarketplaceSkeleton />}>
         {(d) => (
@@ -104,7 +104,7 @@ function Items({ data, reload }: { data: Data; reload: () => void }) {
               <p className="text-xs text-muted">{it.kind === "theme" ? t("Theme", "ثيم") : t("App", "تطبيق")} · <code dir="ltr">{it.key}</code></p>
               {it.description && <p className="mt-1 max-w-sm text-xs text-muted">{it.description}</p>}
             </td>
-            <td className={td}>{it.developerName ?? t("Dukkan", "دكّان")}</td>
+            <td className={td}>{it.developerName ?? t("Dukkan", "دكان")}</td>
             <td className={`${td} whitespace-nowrap`}>{it.price > 0 ? f.jod(it.price) : t("Free", "مجاني")}</td>
             <td className={td}>
               <Badge tone={itemTone[it.status]}>{w.item(it.status)}</Badge>
@@ -165,7 +165,7 @@ function ItemForm({ item, devs, onDone }: { item: Item | null; devs: Dev[]; onDo
       <div>
         <label htmlFor="it-dev" className={label}>{t("Developer", "المطور")}</label>
         <select id="it-dev" className={field} value={v.developerId} onChange={(e) => setV({ ...v, developerId: e.target.value })}>
-          <option value="">{t("Dukkan", "دكّان")}</option>
+          <option value="">{t("Dukkan", "دكان")}</option>
           {devs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
       </div>

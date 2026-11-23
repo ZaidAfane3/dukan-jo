@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { askConfirm, Dialog } from "./dialogs";
-import { area, Badge, Btn, card, Empty, field, Loaded, LoadMore, send, useFmt, useMore, useT, type Tone } from "./ui";
+import { area, Badge, Btn, card, Empty, field, Loaded, LoadMore, refusedWords, send, useFmt, useMore, useT, type Tone } from "./ui";
 
 /* Dukkan Ship's orders: every customer order of a store that delivers with Dukkan Ship, for Dukkan's staff to pick up
    at the store and deliver. Staff mark each one delivered or not delivered (with the reason). Marking it delivered
@@ -93,7 +93,7 @@ export function ShipOrders() {
       : tab === "delivered" ? t("No order has been delivered yet.", "لم يُوصَّل أي طلب بعد.")
         : tab === "failed" ? t("No order is marked not delivered.", "لا يوجد طلب مُعلَّم بأنه لم يُسلَّم.")
           : tab === "cancelled" ? t("No store cancelled an order before delivery.", "لم يلغِ أي متجر طلبًا قبل توصيله.")
-            : t("No Dukkan Ship order yet.", "لا توجد طلبات شحن دكّان بعد.");
+            : t("No Dukkan Ship order yet.", "لا توجد طلبات شحن دكان بعد.");
 
   return (
     <section>
@@ -305,7 +305,7 @@ function Details({ o }: { o: ShipOrder }) {
         <h3 className={head}>{t("Status", "الحالة")}</h3>
         <dl>
           <Row label={t("The store's status", "حالة الطلب عند المتجر")}>{t(MERCHANT_STATUS[o.status].en, MERCHANT_STATUS[o.status].ar)}</Row>
-          <Row label={t("Dukkan delivery", "توصيل دكّان")}><Badge tone={STATE[stateOf(o)].tone}>{t(STATE[stateOf(o)].en, STATE[stateOf(o)].ar)}</Badge></Row>
+          <Row label={t("Dukkan delivery", "توصيل دكان")}><Badge tone={STATE[stateOf(o)].tone}>{t(STATE[stateOf(o)].en, STATE[stateOf(o)].ar)}</Badge></Row>
           {o.ship.state !== "waiting" && (
             <Row label={t("Marked", "عُلِّم")}>
               {f.dateTime(o.ship.at)}
@@ -330,7 +330,8 @@ function useWhy() {
     const res = r.data?.result;
     if (res === "cancelled" || r.status === 409) return t("Not saved: the store cancelled or refunded this order.", "لم يُحفظ: ألغى المتجر هذا الطلب أو استرجعه.");
     if (res === "none" || r.status === 404) return t("Not saved: this order is no longer there.", "لم يُحفظ: هذا الطلب لم يعد موجودًا.");
-    if (res === "not-allowed" || r.status === 403) return t("Your role can't mark deliveries. Ask an owner if you need it.", "دورك لا يسمح بتعليم التوصيل. اطلب من المالك إن احتجت إليه.");
+    const refused = refusedWords(t, r);
+    if (refused) return `${t("Not saved:", "لم يُحفظ:")} ${refused}`;
     if (res === "invalid" || r.status === 400) return t("Not saved: the server refused this. Check the reason.", "لم يُحفظ: رفض الخادم هذا. تحقق من السبب.");
     return t("Not saved. Try again.", "لم يُحفظ. حاول مجددًا.");
   };

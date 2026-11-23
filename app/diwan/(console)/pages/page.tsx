@@ -70,7 +70,7 @@ export default function PagesPage() {
     /* the server's copy when it answered with one, else the row built from what was sent */
     const row = answered?.id === id ? answered : built;
     /* the names of the shops chosen in it, which the list may not know until it has loaded again */
-    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
+    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, slug: x.slug ?? null }])) : undefined;
     js.show(row, wasEdit ? t("Saved", "تم الحفظ") : t("Saved as draft", "حُفظت كمسودة"), names);
   };
 
@@ -87,7 +87,7 @@ export default function PagesPage() {
     <div>
       <PageHead
         title={t("Pages", "الصفحات")}
-        sub={t("Guides, news and rules merchants read inside their dashboard (From Dukkan).", "أدلة وأخبار وقواعد يقرؤها التجار داخل لوحة التحكم (من دكّان).")}
+        sub={t("Guides, news and rules merchants read inside their dashboard (From Dukkan).", "أدلة وأخبار وقواعد يقرؤها التجار داخل لوحة التحكم (من دكان).")}
         actions={!form && <Btn onClick={() => setForm(blank())}>{t("New page", "صفحة جديدة")}</Btn>}
       />
       <Loaded s={s} skeleton={<PagesSkeleton />}>
@@ -330,7 +330,7 @@ function Editor({ form, setForm, onSaved }: { form: Form; setForm: (f: Form | nu
             setLook={setLook}
             tools={<PreviewTabs value={view} onChange={setView} label={t("View", "العرض")} items={[["list", t("In the list", "في القائمة")], ["page", t("Opened", "مفتوحة")]]} />}
             caption={view === "list"
-              ? t("Under “From Dukkan” in their side menu, in the list of Dukkan's pages.", "تحت «من دكّان» في القائمة الجانبية، ضمن قائمة صفحات دكّان.")
+              ? t("Under “From Dukkan” in their side menu, in the list of Dukkan's pages.", "تحت «من دكان» في القائمة الجانبية، ضمن قائمة صفحات دكان.")
               : t("The page, when they open it from the list.", "الصفحة عندما يفتحونها من القائمة.")}
           >
             <Screens phone={look.phone}>

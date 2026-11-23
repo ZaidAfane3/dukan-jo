@@ -520,6 +520,32 @@ export function adoptVersions(data: Record<string, string>, versions: unknown, k
 
 const staleTries = new Map<string, number>();
 
+/* The marks of the list items this tab sent that the server has not confirmed yet, per account and list. A save whose
+   answer was lost may still have been kept, so the server's list can hold this tab's own copy of an item: that copy is
+   what this tab's newer one goes on from (its base), not another device's change. Without this, an item added and then
+   edited before the answer came would be kept twice, and one edited and then removed would come back (mergeStale). */
+const sentItems = new Map<string, Map<string, Set<number>>>();
+const sentKey = (owner: string, k: string) => `${owner}\n${k}`;
+function noteSent(owner: string, set: Record<string, string>) {
+  for (const [k, v] of Object.entries(set)) {
+    if (!LIST_KEYS.has(k)) continue;
+    const m = listMarks(v);
+    if (!m) continue;
+    const ids = sentItems.get(sentKey(owner, k)) ?? new Map<string, Set<number>>();
+    for (const [id, h] of Object.entries(m)) ids.set(id, (ids.get(id) ?? new Set<number>()).add(h));
+    sentItems.set(sentKey(owner, k), ids);
+  }
+}
+/* the base marks, with each server item that is a copy this tab sent counted as the base */
+function withOwnCopies(owner: string, k: string, base: ItemMarks, theirs: string | null): ItemMarks {
+  const ids = sentItems.get(sentKey(owner, k));
+  const now = ids && listMarks(theirs);
+  if (!ids || !now) return base;
+  const out = { ...base };
+  for (const [id, h] of Object.entries(now)) if (ids.get(id)?.has(h)) out[id] = h;
+  return out;
+}
+
 /* The server's list changed since this copy (another device saved it): merged item by item with this browser's newest
    copy, shown, and sent again with the server's version. A list that can not be merged goes whole, as before.
    False when this tab is no longer that account's (signed out while the save was on its way): the change is not
@@ -543,7 +569,7 @@ function mergeStale(who: string | null, k: string, sent: string, theirs: Stale):
   staleTries.set(k, tries);
   const mine = accountValue(k) ?? sent;
   const base = readBases(owner)[k];
-  const next = (base && mergeList(k, base.m, mine, theirs.value)) ?? mine;
+  const next = (base && mergeList(k, withOwnCopies(owner, k, base.m, theirs.value), mine, theirs.value)) ?? mine;
   if (next === mine || replaceAccountValue(k, next, mine)) {
     writeBases(owner, { [k]: { v: theirs.v, m: listMarks(theirs.value) ?? {} } });
     /* the pages showing it read it again: the other device's items appear */
@@ -590,6 +616,7 @@ async function request(set: Record<string, string>, remove: string[], owner: str
   const based = (k: string) => !!bases[k] && (LIST_KEYS.has(k) || (VERSION_KEYS.has(k) && replay.has(k)));
   const base = Object.fromEntries(Object.keys(set).filter(based).map((k) => [k, bases[k].v]));
   const body = JSON.stringify(Object.keys(base).length ? { set, remove, base } : { set, remove });
+  noteSent(me, set);
   /* keepalive lets the request finish if the tab closes while it is on its way. Browsers allow it only while all such
      requests still on their way carry at most 64 KiB together, counted in bytes (an Arabic letter takes 2): one that
      does not fit goes the normal way (cut off by the closing tab, it stays in the outbox for the next load) */
@@ -668,6 +695,29 @@ function takeBackRefused(held: Record<string, Held> | undefined, sent: Record<st
   if (notReady) refused("not-ready");
 }
 
+/* A setup refused for its store link (taken by another store, or a reserved name): this browser takes the server's link
+   back into it (none on the server: no link), unless the page changed the setup again since, and the rest of the setup
+   goes again. Left as it was, the refused link would stay in his saved setup, and every later save of the setup would be
+   refused for it (testing S-3). */
+const SETUP = "seen-setup";
+async function takeBackSlug(owner: string | null, mine: string) {
+  const theirs = await serverValue(SETUP);
+  if (theirs === undefined || halted || signedInAs() !== follow(owner)) return;
+  try {
+    const setup = JSON.parse(mine) as Record<string, unknown>;
+    const server = theirs === null ? null : (JSON.parse(theirs) as Record<string, unknown> | null);
+    const slug = server && typeof server.slug === "string" ? server.slug : "";
+    if (!setup || typeof setup !== "object" || setup.slug === slug) return;
+    const back = JSON.stringify({ ...setup, slug });
+    if (!replaceAccountValue(SETUP, back, mine)) return;
+    showAgain(SETUP);
+    window.dispatchEvent(new Event(SETUP));
+    queueSave(SETUP, back);
+  } catch {
+    /* not a setup: the pages read it back as none */
+  }
+}
+
 /* `keep` gets the keys that must stay waiting in the outbox although the server answered (a "changed elsewhere" answer
    that came after this tab's account signed out); `removed`: the keys the save removed */
 function outcome(r: Reply, sent: Record<string, string>, owner: string | null = signedInAs(), keep?: Set<string>, removed: string[] = []): Outcome {
@@ -679,6 +729,7 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
     for (const [k, v] of Object.entries(r.versions ?? {})) {
       if (typeof v !== "string" || typeof sent[k] !== "string") continue;
       staleTries.delete(k);
+      if (me) sentItems.delete(sentKey(me, k));
       kept[k] = { v, m: (LIST_KEYS.has(k) && listMarks(r.rewritten?.[k] ?? sent[k])) || {} };
     }
     /* removed on the server: a later save of it must find none there */
@@ -728,6 +779,7 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
      would not help, so the page says it was not kept (SaveNotice.tsx) */
   if (r.status === 403 || r.status === 409 || r.status === 423 || r.status === 400 || r.status === 413) {
     refused(r.status === 413 ? "too-big" : r.status === 400 ? "invalid" : r.result);
+    if (r.status === 409 && (r.result === "slug-taken" || r.result === "slug-reserved") && typeof sent[SETUP] === "string") void takeBackSlug(owner, sent[SETUP]);
     return "stop";
   }
   /* too many tries, or the server is not ready: later */
@@ -802,7 +854,14 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
   /* the keys to send again later */
   const again = new Set<string>();
   const oneByOne = async () => {
-    const asks: [string[], Record<string, string>, string[]][] = Object.keys(set).map((k) => [[k], { [k]: set[k] }, []]);
+    /* the setup and the keys that open the store go in one request: the designer's first save marks the last setup step
+       done and opens the store at once, and the server checks the store is ready against the setup in the same save
+       (app/api/store PUT "not-ready"). Sent apart, the design would come first and be refused. */
+    const together = ["seen-setup", "seen-storefront", "seen-maintenance"].filter((k) => Object.hasOwn(set, k));
+    const asks: [string[], Record<string, string>, string[]][] = Object.keys(set)
+      .filter((k) => together.length < 2 || !together.includes(k))
+      .map((k) => [[k], { [k]: set[k] }, []]);
+    if (together.length >= 2) asks.unshift([together, Object.fromEntries(together.map((k) => [k, set[k]])), []]);
     if (remove.length) asks.push([remove, {}, remove]);
     const run = async ([keys, s, r]: (typeof asks)[number]) => {
       /* taken by a later save while the ones before it went (saveNow): that one sends it */
@@ -813,9 +872,14 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
       const o = outcome(await put(Object.fromEntries(Object.entries(s).filter(([k]) => ks.includes(k))), rm, owner), s, owner, keep, rm);
       ks.forEach((k) => (o === "retry" ? again.add(k) : !keep.has(k) && settle(owner, k, sent.get(k))));
     };
-    /* closing: all at once, there may be no time to wait; otherwise in order */
-    if (quick) await Promise.all(asks.map(run));
-    else for (const a of asks) await run(a);
+    /* closing: two at a time, there may be no time to wait (the server runs at most two saves of an account at once
+       and asks the others to wait: app/api/store PUT); otherwise in order */
+    if (quick) {
+      let next = 0;
+      await Promise.all([0, 1].map(async () => {
+        while (next < asks.length) await run(asks[next++]);
+      }));
+    } else for (const a of asks) await run(a);
   };
 
   if (size > SPLIT && batch.size > 1) await oneByOne();
@@ -845,16 +909,33 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
 /** Sends again, once, the keys of this browser that still hold pictures inside them (saved before pictures went to the
     server as files, or the background kept only in this browser): they are moved out on the way (see sendBatch). Called
     once the tab has the store as the server has it (accounts.ts syncOnOpen), or keeps its own because changes were
-    still waiting: those go first (resumeSaves). */
-export async function resendOldPictures(data: Record<string, string>) {
+    still waiting: those go first (resumeSaves).
+    `check`: the tab did not ask the server for the store on this load (it synced earlier), so its copy may be older than
+    what another device saved since: a key is sent again only when the server still has exactly this browser's copy of
+    it, never over a newer one. Only a key with a picture that can still become a file is sent (a tiny icon is kept inside
+    its key for good, and would otherwise go again on every load). */
+export async function resendOldPictures(data: Record<string, string>, { check = false }: { check?: boolean } = {}) {
   resumeSaves();
   const { holdsPictures } = await import("./media");
-  let any = false;
-  for (const [k, v] of Object.entries(data)) {
-    if (!pending.has(k) && holdsPictures(k, v)) {
-      pending.set(k, v);
-      any = true;
+  const { picturesIn } = await import("./mediaRules");
+  const me = signedInAs();
+  let keys = Object.keys(data).filter((k) => !pending.has(k) && holdsPictures(k, data[k]) && (picturesIn(data[k]).length > 0 || /"media":"bg-[a-z0-9]+"/i.test(data[k])));
+  if (keys.length && check) {
+    try {
+      const r = await fetch(`/api/store?keys=${keys.map(encodeURIComponent).join(",")}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader(), signal: timeoutSignal(20_000) });
+      if (!r.ok || halted || signedInAs() !== me) return;
+      const j = (await r.json()) as { data?: Record<string, unknown> };
+      keys = keys.filter((k) => j.data?.[k] === data[k] && accountValue(k) === data[k]);
+    } catch {
+      /* offline: the next page load tries again */
+      return;
     }
+  }
+  let any = false;
+  for (const k of keys) {
+    if (pending.has(k)) continue;
+    pending.set(k, data[k]);
+    any = true;
   }
   /* a save already coming takes them along */
   if (any && !timer) schedule(2_000);
@@ -936,6 +1017,27 @@ export async function saveNow(key: string, before: string): Promise<boolean> {
   const real = await serverValue(key);
   if (value !== null && !halted && signedInAs() === owner) replaceAccountValue(key, real ?? before, value);
   return false;
+}
+
+/** The server's copy of one key, put in this browser when it has none (nothing is sent back), with its version for the
+    next save of it. For a page that would otherwise start the key from its defaults: the Info pages take the legal pages
+    the server kept for a live store (server/legalPages.ts) instead of making them again from Diwan's newest text. True
+    when it took one. */
+export async function takeServerCopy(key: string): Promise<boolean> {
+  const owner = signedInAs();
+  if (halted || !owner) return false;
+  try {
+    const r = await fetch(`/api/store?keys=${encodeURIComponent(key)}`, { credentials: "same-origin", cache: "no-store", headers: accountHeader(owner), signal: timeoutSignal(20_000) });
+    if (!r.ok || halted || signedInAs() !== owner) return false;
+    const j = (await r.json()) as { data?: Record<string, unknown>; versions?: Record<string, unknown> };
+    const v = j.data?.[key];
+    if (typeof v !== "string" || !restoreAccountValue(key, v, null)) return false;
+    const ver = j.versions?.[key];
+    if (typeof ver === "string") writeBases(owner, { [key]: { v: ver, m: (LIST_KEYS.has(key) && listMarks(v)) || {} } });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /* One key as the server has it: null when it has none, undefined when it can't be asked */

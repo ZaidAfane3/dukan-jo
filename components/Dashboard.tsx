@@ -25,6 +25,7 @@ import { onServer } from "./merchantApi";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { ShareMenu } from "./ShareMenu";
 import { usePageTitle } from "./pageTitle";
+import { merchantMoney } from "./moneyText";
 
 const TOTAL_TASKS = 6;
 
@@ -335,9 +336,9 @@ export function Dashboard() {
   const lost = sample ? Math.round(abandoned * (18 + rndSmall() * 14) * 100) / 100 : 0;
   const latest: { name: string; total: string; status: string; id?: number }[] =
     tour && tourOrders.length
-      ? tourOrders.map((x) => ({ ...x, status: ordersCopy[lang].statuses[x.status] }))
+      ? tourOrders.map((x) => ({ ...x, total: sampleMoney(x.total), status: ordersCopy[lang].statuses[x.status] }))
       : sample
-        ? h.latestSample
+        ? h.latestSample.map((x) => ({ ...x, total: sampleMoney(x.total) }))
         : latestOrders(data.orders).map((o) => ({ id: o.id, name: o.customer, total: fmt(o.total), status: ordersCopy[lang].statuses[o.status] }));
 
   const goalProgress = goal > 0 ? Math.min((netSales / goal) * 100, 100) : 0;
@@ -481,7 +482,7 @@ export function Dashboard() {
                     onMouseLeave={() => setHover(null)}
                     onFocus={() => setHover(i)}
                     onBlur={() => setHover(null)}
-                    aria-label={`${mode === "daily" ? i + 1 : monthShort(i)}: ${v} ${cur}`}
+                    aria-label={`${mode === "daily" ? i + 1 : monthShort(i)}: ${fmt(v)} ${cur}`}
                     className={`flex-1 rounded-sm transition-all duration-500 ${i === shown ? "bg-deep" : i === current ? "bg-primary" : "bg-primary/35 hover:bg-primary/60"}`}
                     style={{ height: `${v ? Math.max((v / peak) * 100, 12) : 28}%`, opacity: v || i === current ? 1 : 0.55 }}
                   />
@@ -738,4 +739,6 @@ export function Dashboard() {
   );
 }
 
-const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = merchantMoney;
+/* a sample order's total (written as a plain number in content.ts) as the real ones are shown */
+const sampleMoney = (t: string) => (/^\d+(\.\d+)?$/.test(t) ? fmt(Number(t)) : t);

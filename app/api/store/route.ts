@@ -1,16 +1,19 @@
-import type { NextRequest } from "next/server";
-import { answer, currentAccount, guarded, otherAccount, readJson, sameOrigin, tooManyFor } from "@/server/auth";
+import type { NextRequest, NextResponse } from "next/server";
+import { answer, currentAccount, guarded, otherAccount, sameOrigin, startRunning, tooManyFor, readJsonOr, unreadable, type SessionAccount } from "@/server/auth";
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
+import { courierApproved } from "@/server/courierProof";
 import { db } from "@/server/db";
 import { movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
-import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, type OnlineKey } from "@/server/storeOrders";
-import { readyToSell, type SellNeed } from "@/components/safeOrder";
+import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, sizesNamedTwice, type OnlineKey } from "@/server/storeOrders";
+import { liveMissing, readyToSell, shipsByDefaultFor, type SellNeed } from "@/components/safeOrder";
 import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership";
 import { stripPaidLooks } from "@/components/themeLooks";
 import { valueVersion } from "@/server/storeVersion";
+import { keepLegalPages } from "@/server/legalPages";
+import { slugHeld } from "@/server/slugHolds";
 import { LIST_KEYS, VERSION_KEYS } from "@/components/listMerge";
 import { lastOrderNumber, ORDER_NUMBER_KEY } from "@/components/orderNumbers";
 
@@ -115,10 +118,30 @@ export const PUT = guarded(async (req: NextRequest) => {
   /* a tab still on the account signed in before must not save its data under this one */
   if (otherAccount(req, a)) return answer({ result: "other-account" }, 409);
   if (a.suspended) return answer({ result: "suspended" }, 423);
-  /* the heaviest write (up to 8 MB): the pages save at most every few seconds */
-  if (tooManyFor(`store-save:${a.id}`, 120, 10)) return answer({ result: "slow-down" }, 429);
-  const body = await readJson(req, MAX_BODY);
-  if (!body) return answer({ result: "too-big" }, 413);
+  /* the heaviest write (up to 8 MB): at most SAVES_AT_ONCE of one account's saves run at the same time (security audit
+     N01). Each holds its body in memory and, while it waits for the account's save lock, one of the server's few
+     database connections, so one account sending many at once would hold up every other store. The others are told
+     at once to wait ("slow-down"); the pages send their saves one after the other and try a refused one again a few
+     seconds later (components/serverSync.ts). */
+  const done = startRunning(`store-save:${a.id}`, SAVES_AT_ONCE);
+  if (!done) return answer({ result: "slow-down" }, 429);
+  try {
+    /* and the pages save at most every few seconds */
+    if (tooManyFor(`store-save:${a.id}`, 120, 10)) return answer({ result: "slow-down" }, 429);
+    return await save(req, a);
+  } finally {
+    done();
+  }
+});
+
+/* one account's saves running at the same time, at most (PUT) */
+const SAVES_AT_ONCE = 2;
+
+/* PUT's save itself, once it may run */
+async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> {
+  const read = await readJsonOr(req, MAX_BODY);
+  if (!("body" in read)) return unreadable(read.why);
+  const body = read.body;
   const set = body.set && typeof body.set === "object" && !Array.isArray(body.set) ? Object.entries(body.set as Record<string, unknown>) : [];
   const remove = Array.isArray(body.remove) ? body.remove : [];
   if (set.length + remove.length > 500) return answer({ result: "invalid" }, 400);
@@ -196,7 +219,8 @@ export const PUT = guarded(async (req: NextRequest) => {
      this save leaves them: two devices saving at once (one taking away the last way to pay of a paused store, the other
      reopening it) are checked one after the other, so the second sees what the first kept. */
   const touchesLive = [...set.map(([k]) => k), ...(remove as string[])].some((k) => LIVE_KEYS.includes(k));
-  const platform = touchesLive ? await sellPlatform() : null;
+  /* with whether Diwan approved his own courier's proof: until then that courier does not deliver (safeOrder readyToSell) */
+  const platform = touchesLive ? { ...(await sellPlatform()), courierApproved: await courierApproved(await db(), a.id) } : null;
 
   /* a store link belongs to one shop only */
   const setup = set.find(([k]) => k === "seen-setup");
@@ -208,6 +232,8 @@ export const PUT = guarded(async (req: NextRequest) => {
       /* not JSON: the pages read it back as no setup */
     }
     if (slug && (await slugTaken(slug, a.id))) return answer({ result: "slug-taken" }, 409);
+    /* another store's old link, still held for it for a couple of days (server/slugHolds.ts) */
+    if (slug && (await slugHeld(slug, a.id))) return answer({ result: "slug-reserved" }, 409);
     /* a name reserved later (safe.ts RESERVED_FOR_NEW) stays with a store that already had it, but can't be newly chosen */
     if (slug && reservedForNew(slug)) {
       const cur = await (await db()).query(`SELECT slug FROM shops WHERE account_id = $1`, [a.id]);
@@ -262,14 +288,19 @@ export const PUT = guarded(async (req: NextRequest) => {
       };
       const before = (k: string) => was.get(k) ?? null;
       const isLive = (get: (k: string) => string | null) => get("seen-storefront") !== null && !pausedIn(get("seen-maintenance"));
-      const now = readyToSell(setupIn(after("seen-setup")), platform);
+      const afterSetup = setupIn(after("seen-setup"));
+      const now = readyToSell(afterSetup, platform);
       const then = readyToSell(setupIn(before("seen-setup")), platform);
+      /* a store that was live and is paused opens again by the rule that keeps a live store selling (safeOrder
+         liveMissing: setup steps left, or Dukkan Ship by default, don't stop it); only going live the first time needs
+         every setup step (testing S-1) */
+      const opening = before("seen-storefront") !== null ? liveMissing(now.missing, shipsByDefaultFor(afterSetup, platform.shipCities)) : now.missing;
       let hold: string[] = [];
-      if (isLive(after) && !isLive(before) && !now.ok) hold = ["seen-storefront", "seen-maintenance"];
+      if (isLive(after) && !isLive(before) && opening.length) hold = ["seen-storefront", "seen-maintenance"];
       else if (isLive(after) && isLive(before) && now.missing.some((m) => !then.missing.includes(m))) hold = ["seen-setup"];
       hold = hold.filter((k) => set.some(([s]) => s === k) || remove.includes(k));
       if (hold.length) {
-        const missing = hold.includes("seen-setup") ? now.missing.filter((m) => !then.missing.includes(m)) : now.missing;
+        const missing = hold.includes("seen-setup") ? now.missing.filter((m) => !then.missing.includes(m)) : opening;
         for (const k of hold) {
           const i = set.findIndex(([s]) => s === k);
           if (i >= 0) set.splice(i, 1);
@@ -288,6 +319,12 @@ export const PUT = guarded(async (req: NextRequest) => {
     if (online.length) {
       for (const entry of online) {
         if (Object.hasOwn(stale, entry[0])) continue;
+        /* a product with two sizes of the same name ("M" and "m") is not kept: one of them would lose its stock. The page
+           says it was not saved (the product form refuses it before it is sent) */
+        if (entry[0] === "seen-products" && (await sizesNamedTwice(client, a.id, entry[1] as string))) {
+          await client.query("ROLLBACK");
+          return answer({ result: "invalid", why: "size-twice" }, 400);
+        }
         const kept = await mergeOnlineSales(client, a.id, entry[0] as OnlineKey, entry[1] as string);
         if (kept !== entry[1]) {
           entry[1] = kept;
@@ -349,6 +386,14 @@ export const PUT = guarded(async (req: NextRequest) => {
     }
   }
   touchShop(a.id);
+  /* a live store that never saved its pages keeps the legal pages' text as it is now (server/legalPages.ts): on the
+     save that opens it, or the first save of a store live from before. Saved already: a problem here is tried again. */
+  if (!set.some(([k]) => k === "seen-pages")) {
+    const pool = await db();
+    const { rows } = await pool.query(`SELECT key FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [a.id, ["seen-storefront", "seen-pages"]]);
+    if (rows.some((r) => r.key === "seen-storefront") && !rows.some((r) => r.key === "seen-pages"))
+      await keepLegalPages(pool, a.id).catch((e) => console.error("[pages] keeping legal pages", a.id, e));
+  }
   /* his delivery choice saved with his own courier: the courier proofs he sent for it go to Diwan to be checked */
   const savedSetup = set.find(([k]) => k === "seen-setup");
   if (savedSetup) {
@@ -360,7 +405,7 @@ export const PUT = guarded(async (req: NextRequest) => {
     }
     if (mode === "own")
       await (await db())
-        .query(`UPDATE documents SET draft = false WHERE account_id = $1 AND draft AND kind = 'courier_proof'`, [a.id])
+        .query(`UPDATE documents SET draft = false, sent_at = now() WHERE account_id = $1 AND draft AND kind = 'courier_proof'`, [a.id])
         .catch((e) => console.error("[documents] hand over", a.id, e));
   }
   /* a picture the pages no longer use doesn't stay public for long */
@@ -375,4 +420,4 @@ export const PUT = guarded(async (req: NextRequest) => {
     ...(Object.keys(stale).length ? { stale } : {}),
     ...(Object.keys(refused).length ? { refused } : {}),
   });
-});
+}

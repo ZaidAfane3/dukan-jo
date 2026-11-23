@@ -10,11 +10,12 @@ import { readPhoto } from "./designer/image";
 import { keepPicture } from "./media";
 import { kindWords, productsCopy, sizePresets } from "./productsContent";
 import { RequiredMark } from "./Required";
-import { SIZE_MAX, type ProductKind } from "./safeOrder";
+import { SIZE_MAX, sizeTwice, type ProductKind } from "./safeOrder";
 
 /** The sizes of a piece of clothing or a pair of shoes: one press adds a usual size, each size has its own quantity.
-    Without `onChart` the size chart part is left out (setup leaves it for the Products page). */
-export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart = "", onChart, error, inputClass }: { id?: string; lang: Lang; kind: ProductKind; sizes: { name: string; quantity: string }[]; onChange: (v: { name: string; quantity: string }[]) => void; chart?: string; onChart?: (v: string) => void; error?: string; inputClass: string }) {
+    Without `onChart` the size chart part is left out (setup leaves it for the Products page). `onBusy` hears when the size
+    chart starts and finishes uploading, so the form waits for it before saving. */
+export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart = "", onChart, onBusy, error, inputClass }: { id?: string; lang: Lang; kind: ProductKind; sizes: { name: string; quantity: string }[]; onChange: (v: { name: string; quantity: string }[]) => void; chart?: string; onChart?: (v: string) => void; onBusy?: (busy: boolean) => void; error?: string; inputClass: string }) {
   const w = kindWords[lang];
   /* the size chart: a picture he uploads (a file that is not a picture says so) */
   const chartInput = useRef<HTMLInputElement>(null);
@@ -23,15 +24,23 @@ export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart
   const pickChart = async (f?: File) => {
     if (!f) return;
     setChartBusy(true);
-    const read = f.size <= 8_000_000 ? await readPhoto(f, 1400) : null;
-    /* a signed-in store keeps it on the server (components/media.ts); otherwise, or if it can't be sent now, it stays here */
-    const url = read && (await keepPicture(read, "product"));
-    setChartBusy(false);
+    onBusy?.(true);
+    let url: string | null = null;
+    try {
+      const read = f.size <= 8_000_000 ? await readPhoto(f, 1400) : null;
+      /* a signed-in store keeps it on the server (components/media.ts); otherwise, or if it can't be sent now, it stays here */
+      url = read ? await keepPicture(read, "product") : null;
+    } finally {
+      setChartBusy(false);
+      onBusy?.(false);
+    }
     setChartBad(!url);
     if (url) onChart?.(url);
   };
   const has = (n: string) => sizes.some((z) => z.name.trim().toLowerCase() === n.toLowerCase());
   const presets = (sizePresets[kind] ?? sizePresets.clothing ?? []).filter((n) => !has(n));
+  /* two sizes with the same name (only capitals or spaces apart): said at once, and the form refuses to save it */
+  const twice = sizeTwice(sizes);
   const total = sizes.reduce((n, z) => n + Math.max(0, Math.floor(Number(z.quantity) || 0)), 0);
   const edit = (i: number, patch: Partial<{ name: string; quantity: string }>) => onChange(sizes.map((z, j) => (j === i ? { ...z, ...patch } : z)));
   return (
@@ -72,7 +81,7 @@ export function SizesEditor({ id = "p-sizes", lang, kind, sizes, onChange, chart
         <button type="button" onClick={() => onChange([...sizes, { name: "", quantity: "0" }])} className="text-sm font-semibold text-primary hover:underline">{w.addSize}</button>
       )}
       {sizes.length > 0 && <p className="text-xs font-semibold">{w.total}: {productsCopy[lang].pieces(total)}</p>}
-      {error && <p role="alert" className="text-xs font-semibold text-rose-600">{error}</p>}
+      {(error || twice) && <p role="alert" className="text-xs font-semibold text-rose-600">{error || w.errSizesTwice(twice)}</p>}
       {/* the size chart: optional, a picture customers open from the product page beside the sizes */}
       {onChart && (
       <div className="rounded-xl bg-soft/70 p-3">

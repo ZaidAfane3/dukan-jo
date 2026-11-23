@@ -97,12 +97,12 @@ These are the logos and icons the prototype uses today. Remember that most of th
 | <img src="public/logos/visa.png" height="28" alt="Visa"> | Visa, payment methods | `public/logos/visa.png` |
 | <img src="public/logos/applepay.png" height="28" alt="Apple Pay"> | Apple Pay, payment methods | `public/logos/applepay.png` |
 | <img src="public/logos/cliq.png" height="40" alt="CliQ"> | CliQ, payment methods | `public/logos/cliq.png` (`cliq-tight.png` is the same logo without the empty space, used in the footer) |
-| <img src="public/logos/paypal.png" height="24" alt="PayPal"> | PayPal, payment methods | `public/logos/paypal.png` |
+| <img src="public/logos/paypal.png" height="24" alt="PayPal"> | PayPal, only for old payment records in Diwan (Dukkan no longer takes PayPal, so the main page does not show it) | `public/logos/paypal.png` |
 | <img src="public/logos/jo-ministry.png" height="56" alt="Ministry emblem"> | Ministry emblem next to the commercial registration (check that its use is allowed before launch) | `public/logos/jo-ministry.png` |
 | <img src="public/demo/perfume/logo.png" width="48" alt="Demo store logo"> | Logo of the demo perfume store used in the platform tour | `public/demo/perfume/logo.png` |
 
 ## Open question for the team
 
-The payment methods shown in the footer of the main page (Visa, Apple Pay, CliQ, PayPal) feel a bit out of place to Saad. Should they stay in the footer, move somewhere else, or be removed? What do you think, guys?
+The payment methods shown in the footer of the main page (Visa, Apple Pay, CliQ) feel a bit out of place to Saad. Should they stay in the footer, move somewhere else, or be removed? What do you think, guys?
 
 The footer in general needs suggestions. Saad thinks it looks ugly as it is, so any ideas for a better layout, spacing or content are welcome.

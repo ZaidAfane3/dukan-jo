@@ -4,7 +4,7 @@ import { type StaffChange, staffChangeEmail, wordsIn } from "./emailWords";
 import { DEV_EMAIL } from "./staff";
 
 /* Tells Diwan's other owners by email that the staff changed (a member added, their access turned off or back on, their
-   password or 2-step reset): what changed, who did it and when, with a link to Diwan's Activity page. Every staff
+   password or 2-step reset, their email corrected before they confirmed it): what changed, who did it and when, with a link to Diwan's Activity page. Every staff
    member is an owner, so it goes to every active member except the one who made the change, one email each (nobody
    sees the others' addresses), each in that member's saved language (staff.lang, server/lang.ts), or Arabic then English
    while none is saved. Never waited for and never

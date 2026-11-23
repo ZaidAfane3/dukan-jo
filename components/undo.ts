@@ -192,11 +192,19 @@ export function storageUndo(before: Record<string, string | null>, after: Record
 
 /* ---------------- words ---------------- */
 
-/** Arabic counted noun: 1 «منتج واحد», 2 «منتجان», 3–10 «3 منتجات», 11 and more «11 منتجًا» */
+/** Arabic counted noun: 1 «منتج واحد», 2 «منتجان», 3–10 «3 منتجات», 11 and more «11 منتجًا», but 100, 101, 102, 200…
+    «100 منتج» (after a hundred the noun is singular, without the ending ًا) */
 export function arCount(n: number, w: { one: string; two: string; few: string; many: string }): string {
   if (n === 1) return w.one;
   if (n === 2) return w.two;
   const r = n % 100;
   if (r >= 3 && r <= 10) return `${n} ${w.few}`;
-  return `${n} ${w.many}`;
+  return `${n} ${arManyAt(n, w.many)}`;
 }
+
+/** The "many" words for a count: as they are from 11 to 99 of each hundred; from 100 with 0, 1 or 2 after the hundreds
+    (100, 101, 102, 1000…) each word loses its ending ًا («متجرًا مطابقًا» -> «متجر مطابق») */
+export const arManyAt = (n: number, many: string): string => {
+  const r = Math.abs(n) % 100;
+  return Math.abs(n) >= 100 && r <= 2 ? many.replace(/ًا(?=[^؀-ۿ]|$)/g, "") : many;
+};

@@ -4,19 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import { brandName } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { merchantCall, onServer } from "./merchantApi";
-import { NOTIFY_CHANNELS, NOTIFY_EVENTS, OLD_LOCAL_KEY, fromOldLocal, fullNotifyPrefs, defaultNotifyPrefs, type NotifyChannel, type NotifyEvent, type NotifyPrefs } from "./notifyPrefs";
+import { NOTIFY_CHANNELS, NOTIFY_EVENTS, OLD_LOCAL_KEY, fromOldLocal, fullNotifyPrefs, defaultNotifyPrefs, notifyLive, type NotifyChannel, type NotifyEvent, type NotifyPrefs } from "./notifyPrefs";
 import { usePrefs } from "./Prefs";
 import { bounceIfSuspended } from "./suspended";
 import { dropUndos, offerUndo } from "./undo";
 import { usePageTitle } from "./pageTitle";
 
-/* Which events should reach him, and how: by WhatsApp, by email, or both (each one has its own switch).
-   A signed-in merchant's choices are kept on Dukkan's server (/api/notification-prefs, table notification_prefs), where
-   a future WhatsApp/email sender reads them: nothing sends those messages yet, and the page says so. Each switch is saved
-   as it is flipped (shown at once, put back if the server refuses it). Choices this browser kept before that are handed
-   to the server once, if it has none yet, then forgotten here. In the tour (or signed out) nothing is sent: the choices
-   stay in this browser's storage, as before (the tour's storage is its own copy, demoSandbox.ts). The bell does not use
-   these choices. */
+/* Which events should reach him by email (and, later, by WhatsApp: each one has its own switch).
+   A signed-in merchant's choices are kept on Dukkan's server (/api/notification-prefs, table notification_prefs), and
+   server/notify.ts reads the email switch of an event before it emails him about it. Only the switches that do something
+   today can be flipped (notifyPrefs.ts notifyLive: new orders and the two stock alerts, by email). WhatsApp is not built,
+   and customers can't send ratings or questions to Dukkan yet, so those switches are shown off, can't be flipped and
+   say "Coming soon"; what was saved for them before stays saved as it was. Each switch is saved as it is flipped (shown
+   at once, put back if the server refuses it). Choices this browser kept before that are handed to the server once, if
+   it has none yet, then forgotten here. In the tour (or signed out) nothing is sent: the choices stay in this browser's
+   storage, as before (the tour's storage is its own copy, demoSandbox.ts). The bell shows every event whatever he
+   chose here: it is his record of what happened. */
 
 const rows: Record<"en" | "ar", Record<NotifyEvent, string>> = {
   en: {
@@ -52,8 +55,9 @@ const copy = {
     loading: "Loading your choices…",
     loadFailed: "Couldn't load your choices. Check your connection and try again.",
     retry: "Try again",
-    hint: "Choose which events reach you, by WhatsApp, by email, or both.",
-    notYet: "Dukkan doesn't send WhatsApp or email messages yet. Your choices are saved and will be used when it does.",
+    hint: "Choose which events Dukkan emails you about. Every one also shows in the bell, whatever you choose.",
+    notYet: "WhatsApp messages, ratings and customer questions are coming soon.",
+    soon: "Coming soon",
     /* the undo note at the bottom (UndoToast.tsx) */
     undoOn: (ch: string, row: string) => `${ch} turned on for “${row}”`,
     undoOff: (ch: string, row: string) => `${ch} turned off for “${row}”`,
@@ -70,8 +74,9 @@ const copy = {
     loading: "جارٍ تحميل اختياراتك…",
     loadFailed: "تعذّر تحميل اختياراتك. تحقق من اتصالك وحاول مجددًا.",
     retry: "حاول مجددًا",
-    hint: "اختر الأحداث التي تصلك، عبر واتساب أو البريد الإلكتروني أو الاثنين.",
-    notYet: "لا يرسل دكان رسائل واتساب أو بريدًا إلكترونيًا بعد. اختياراتك محفوظة وستُعتمد عندما يبدأ بإرسالها.",
+    hint: "اختر الأحداث التي يرسل لك دكان عنها بريدًا إلكترونيًا. كلها تظهر أيضًا في الإشعارات مهما اخترت.",
+    notYet: "رسائل واتساب والتقييمات وأسئلة العملاء قريبًا.",
+    soon: "قريبًا",
     undoOn: (ch: string, row: string) => `فُعّل ${ch} لـ«${row}»`,
     undoOff: (ch: string, row: string) => `أُوقف ${ch} لـ«${row}»`,
   },
@@ -185,7 +190,8 @@ export function NotificationPrefs() {
   }, [attempt]);
 
   const toggle = (event: NotifyEvent, ch: NotifyChannel, undoing = false) => {
-    if (phase !== "ready") return;
+    /* a "Coming soon" switch is never flipped: its saved value waits as it is */
+    if (phase !== "ready" || !notifyLive(event, ch)) return;
     const was = current.current[event][ch];
     setPrefs((p) => ({ ...p, [event]: { ...p[event], [ch]: !was } }));
     /* an Undo flips it back the same way (saved like any flip), unless it was flipped again since */
@@ -250,7 +256,11 @@ export function NotificationPrefs() {
           <div className="flex bg-soft/70 px-5 py-3 text-xs font-bold text-muted sm:px-7">
             <span className="flex-1">{c.type}</span>
             {NOTIFY_CHANNELS.map((ch) => (
-              <span key={ch} className="w-20 text-center sm:w-28">{c[ch]}</span>
+              <span key={ch} className="w-20 text-center sm:w-28">
+                {c[ch]}
+                {/* WhatsApp is not built yet: the whole column waits */}
+                {!NOTIFY_EVENTS.some((e) => notifyLive(e, ch)) && <span className="block text-[10px] font-semibold text-primary">{c.soon}</span>}
+              </span>
             ))}
           </div>
 
@@ -267,12 +277,26 @@ export function NotificationPrefs() {
               {NOTIFY_EVENTS.map((event) => (
                 <li key={event}>
                   <div className="flex items-center px-5 py-4 text-sm sm:px-7">
-                    <span className="flex-1 font-medium">{labels[event]}</span>
+                    <span className="flex-1 font-medium">
+                      {labels[event]}
+                      {/* nothing can tell Dukkan about this event yet (no ratings or questions reach it) */}
+                      {!NOTIFY_CHANNELS.some((ch) => notifyLive(event, ch)) && (
+                        <span className="ms-2 inline-block rounded-full bg-primary/10 px-2 py-0.5 align-middle text-[10px] font-semibold text-primary">{c.soon}</span>
+                      )}
+                    </span>
                     {NOTIFY_CHANNELS.map((ch) =>
                       phase === "loading" ? (
                         /* nothing is shown as on or off before the server says which */
                         <span key={ch} className="grid w-20 place-items-center sm:w-28">
                           <span aria-hidden className="block h-6 w-11 animate-pulse rounded-full bg-fg/10 motion-reduce:animate-none" />
+                        </span>
+                      ) : !notifyLive(event, ch) ? (
+                        /* "Coming soon": shown off and can't be flipped, whatever was saved for it */
+                        <span key={ch} title={c.soon} className="grid w-20 cursor-not-allowed place-items-center sm:w-28">
+                          <input type="checkbox" role="switch" checked={false} disabled readOnly className="sr-only" aria-label={`${labels[event]}: ${c[ch]} (${c.soon})`} />
+                          <span aria-hidden dir="ltr" className="relative h-6 w-11 rounded-full bg-fg/10">
+                            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white/70 shadow" />
+                          </span>
                         </span>
                       ) : (
                         <label key={ch} className="grid w-20 cursor-pointer place-items-center sm:w-28">

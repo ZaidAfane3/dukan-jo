@@ -2,6 +2,7 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import type { PoolClient } from "pg";
 import { SITE_HOST } from "@/components/siteAddress";
+import { blind } from "./crypto";
 import { db } from "./db";
 import { cookieLang } from "./lang";
 
@@ -65,7 +66,11 @@ export async function startSession(
 ): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   const minutes = opts.minutes ?? DAYS * 1440;
+  /* the session this browser held before (whatever account it was): its cookie is replaced now, so it ends too, and a
+     token the browser brought never lives on beside the new one */
+  const brought = req.cookies.get(COOKIE)?.value;
   await underAccountLock(accountId, async (c) => {
+    if (brought && brought.length <= 100) await c.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash(brought)]);
     await c.query(
       `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(mins => $3), $4)`,
       [tokenHash(token), accountId, minutes, !!opts.pendingTotp],
@@ -196,22 +201,34 @@ export async function pendingAccount(req: NextRequest): Promise<{ id: string; em
   return { id: String(r.a.id), email: r.a.email, name: r.a.name, phone: r.a.phone, ref: `l:${tokenHash(r.token)}` };
 }
 
-/** The code was right: the waiting session becomes a full one (60 days), and the cookie with it */
-export async function finishPendingSession(res: NextResponse, req: NextRequest): Promise<void> {
-  const token = req.cookies.get(COOKIE)?.value;
-  if (!token) return;
+/** The code was right: the waiting session ends and a full one (60 days) starts in its place, with a brand-new token
+    and cookie. The waiting session's token is never made the signed-in one: a token the browser brought (which someone
+    else could have planted there, or seen while it waited) never becomes a signed-in session. */
+export async function finishPendingSession(res: NextResponse, req: NextRequest): Promise<boolean> {
+  const old = req.cookies.get(COOKIE)?.value;
+  if (!old) return false;
   /* whose session it is, to take that account's sign-in lock (see underAccountLock) */
-  const { rows: owner } = await (await db()).query(`SELECT account_id FROM sessions WHERE token_hash = $1`, [tokenHash(token)]);
-  if (owner[0])
-    await underAccountLock(String(owner[0].account_id), async (c) => {
-      const { rows } = await c.query(
-        `UPDATE sessions SET pending_totp = false, expires_at = now() + make_interval(days => $2) WHERE token_hash = $1 AND replaced_at IS NULL RETURNING account_id`,
-        [tokenHash(token), DAYS],
-      );
-      /* the sign-in is complete now: it is the account's only session (see ONE DEVICE AT A TIME) */
-      if (rows[0]) await onlyThisSession(c, String(rows[0].account_id), tokenHash(token));
-    });
-  res.cookies.set(COOKIE, token, cookieOptions(req, DAYS * 86400));
+  const { rows: owner } = await (await db()).query(`SELECT account_id FROM sessions WHERE token_hash = $1`, [tokenHash(old)]);
+  if (!owner[0]) return false;
+  const token = randomBytes(32).toString("base64url");
+  let made = false;
+  await underAccountLock(String(owner[0].account_id), async (c) => {
+    const { rows } = await c.query(
+      `DELETE FROM sessions WHERE token_hash = $1 AND pending_totp AND replaced_at IS NULL AND expires_at > now() RETURNING account_id`,
+      [tokenHash(old)],
+    );
+    if (!rows[0]) return;
+    const accountId = String(rows[0].account_id);
+    await c.query(
+      `INSERT INTO sessions (token_hash, account_id, expires_at, pending_totp) VALUES ($1, $2, now() + make_interval(days => $3), false)`,
+      [tokenHash(token), accountId, DAYS],
+    );
+    /* the sign-in is complete now: it is the account's only session (see ONE DEVICE AT A TIME) */
+    await onlyThisSession(c, accountId, tokenHash(token));
+    made = true;
+  });
+  if (made) res.cookies.set(COOKIE, token, cookieOptions(req, DAYS * 86400));
+  return made;
 }
 
 /** Notes a full sign-in (for Diwan: when, and how many times), and the language the page is in (server/lang.ts) */
@@ -305,17 +322,34 @@ function ipv6Block(ip: string): string {
 
 /* Counts tries per key in memory (enough for one server; they start again after a deploy). The window slides: the
    last window's count still weighs in as it ages, so nobody gets twice the limit by trying at the edge of a window.
-   The map is kept in order of last use and never holds more than MAX_KEYS (the oldest go first), and expired keys are
-   swept at most once a minute, so random keys can't make it grow or slow every request down. */
+   Each kind of limit (a key's name up to its first ":") keeps its own list, in order of last use, of at most MAX_KEYS
+   keys (the oldest go first), and expired keys are swept at most once a minute, so random keys can't make it grow or
+   slow every request down. Lists apart: a flood of new keys of one kind (one try each from very many addresses, say)
+   only pushes out older keys of that same kind, never another limit's count, such as a store's orders, one mailbox's
+   codes or a staff member's wrong passwords. A limit per visitor (tooMany) is a kind of its own, apart from a limit
+   for one account or store with the same name. Only a try that counts makes a key: a look (limitReached) makes none. */
 type Window = { start: number; n: number; prev: number; ms: number };
-const tries = new Map<string, Window>();
+const tries = new Map<string, Map<string, Window>>();
 const MAX_KEYS = 50_000;
 let swept = 0;
 
+/** A key's kind: its name up to the first ":" */
+const kindOf = (key: string) => {
+  const i = key.indexOf(":");
+  return i < 0 ? key : key.slice(0, i);
+};
+function listOf<T>(lists: Map<string, Map<string, T>>, key: string): Map<string, T> {
+  const kind = kindOf(key);
+  let m = lists.get(kind);
+  if (!m) lists.set(kind, (m = new Map()));
+  return m;
+}
+
 function windowOf(key: string, minutes: number, now: number): Window {
   const ms = minutes * 60_000;
-  let w = tries.get(key);
-  if (w) tries.delete(key);
+  const list = listOf(tries, key);
+  let w = list.get(key);
+  if (w) list.delete(key);
   if (!w || w.ms !== ms) w = { start: now, n: 0, prev: 0, ms };
   else if (now - w.start >= ms) {
     const passed = Math.floor((now - w.start) / ms);
@@ -323,24 +357,38 @@ function windowOf(key: string, minutes: number, now: number): Window {
     w.start += passed * ms;
     w.n = 0;
   }
-  tries.set(key, w);
+  list.set(key, w);
   if (now - swept > 60_000) {
     swept = now;
-    tries.forEach((v, k) => now - v.start >= 2 * v.ms && tries.delete(k));
+    tries.forEach((m, kind) => {
+      m.forEach((v, k) => now - v.start >= 2 * v.ms && m.delete(k));
+      if (!m.size) tries.delete(kind);
+    });
   }
-  if (tries.size > MAX_KEYS) {
-    /* the least recently used first (the map keeps them in that order) */
-    const drop = tries.size - Math.floor(MAX_KEYS * 0.9);
-    Array.from(tries.keys()).slice(0, drop).forEach((k) => tries.delete(k));
+  if (list.size > MAX_KEYS) {
+    /* the least recently used of this kind first (the list keeps them in that order) */
+    const drop = list.size - Math.floor(MAX_KEYS * 0.9);
+    Array.from(list.keys()).slice(0, drop).forEach((k) => list.delete(k));
   }
   return w;
 }
 
 const used = (w: Window, now: number) => w.prev * (1 - (now - w.start) / w.ms) + w.n;
 
+/** What is used of this key's limit now, without making or moving its key (the same sums as windowOf, read only) */
+function usedNow(key: string, minutes: number, now: number): number {
+  const ms = minutes * 60_000;
+  const w = tries.get(kindOf(key))?.get(key);
+  if (!w || w.ms !== ms) return 0;
+  const passed = Math.floor((now - w.start) / ms);
+  if (passed <= 0) return used(w, now);
+  /* the window ran out since: its count weighs in as the last window's, as windowOf would roll it */
+  return passed === 1 ? w.n * (1 - (now - w.start - ms) / ms) : 0;
+}
+
 /** A limit per visitor: this try counts, and true when it is over `max` tries in `minutes` */
 export function tooMany(req: NextRequest, what: string, max: number, minutes: number): boolean {
-  return tooManyFor(`${what}:${visitorIp(req)}`, max, minutes);
+  return tooManyFor(`${what}@visitor:${visitorIp(req)}`, max, minutes);
 }
 
 /** The same limit for anything else than a visitor, such as one account from any address, or one store for all its
@@ -355,8 +403,7 @@ export function tooManyFor(key: string, max: number, minutes: number): boolean {
 /** Whether `max` tries for this key in `minutes` are already used, without counting one: for limits that count only
     what went through (countTry), such as orders a store really got, so failed tries by a stranger can't use them up */
 export function limitReached(key: string, max: number, minutes: number): boolean {
-  const now = Date.now();
-  return used(windowOf(key, minutes, now), now) >= max;
+  return usedNow(key, minutes, Date.now()) >= max;
 }
 
 /** Counts one try for this key, for limitReached */
@@ -364,80 +411,190 @@ export function countTry(key: string, minutes: number): void {
   windowOf(key, minutes, Date.now()).n++;
 }
 
+/** limitReached and countTry in one step, for a limit that counts only what went through when that is known only after
+    a wait (the database): null when `max` tries are used already, else one try is counted at once, before anything is
+    waited for, so tries sent at the same moment can't all pass the look while the first ones are still waiting. Call
+    the function it gives when the try turned out not to count: the try is given back (and a key left with nothing
+    counted is dropped, so failed tries leave no keys behind). */
+export function reserveTry(key: string, max: number, minutes: number): (() => void) | null {
+  const now = Date.now();
+  if (usedNow(key, minutes, now) >= max) return null;
+  const w = windowOf(key, minutes, now);
+  w.n++;
+  const start = w.start;
+  let back = false;
+  return () => {
+    if (back) return;
+    back = true;
+    const list = tries.get(kindOf(key));
+    if (!list || list.get(key) !== w) return;
+    /* counted in this window, or in the one before if the window moved on meanwhile */
+    if (w.start === start) w.n = Math.max(0, w.n - 1);
+    else if (w.start === start + w.ms) w.prev = Math.max(0, w.prev - 1);
+    if (!w.n && !w.prev) list.delete(key);
+  };
+}
+
+/* Requests running right now, per key (in memory, like the counts above): for the heaviest ones, a limit on how many of
+   one account's run at the same time, not only on how many it sends in a while. Holds a key only while a request runs. */
+const running = new Map<string, number>();
+
+/** Starts one request under this key when fewer than `max` of its kind are running, and gives the function to call when
+    it is done (in a finally); null when `max` already run: the request is answered at once instead of waiting */
+export function startRunning(key: string, max: number): (() => void) | null {
+  const n = running.get(key) ?? 0;
+  if (n >= max) return null;
+  running.set(key, n + 1);
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    const left = (running.get(key) ?? 1) - 1;
+    if (left > 0) running.set(key, left);
+    else running.delete(key);
+  };
+}
+
 /** Forgets what was counted for this key */
 export function forgetTries(key: string): void {
-  tries.delete(key);
+  tries.get(kindOf(key))?.delete(key);
 }
 
 /* Wrong tries counted per account (or per anything else named by `key`), whatever address they come from: after `max`
    wrong tries in `minutes` the key waits. Only wrong tries count, and a right one clears them, so someone who knows the
-   password is never slowed down by their own sign-ins. Kept in memory, like the limit above. */
-const fails = new Map<string, { n: number; until: number }>();
+   password is never slowed down by their own sign-ins. Kept in memory, like the limit above, in a list per kind of key
+   too, so wrong sign-ins with endless made-up emails can't push out a staff member's lock on wrong passwords. */
+const fails = new Map<string, Map<string, { n: number; until: number }>>();
+const failOf = (key: string) => fails.get(kindOf(key))?.get(key);
 /** True while this key has had too many wrong tries */
 export function failedTooOften(key: string, max: number): boolean {
-  const f = fails.get(key);
+  const f = failOf(key);
   return !!f && f.until > Date.now() && f.n >= max;
 }
 /** Notes one wrong try for this key */
 export function noteFailure(key: string, minutes: number): void {
   const now = Date.now();
-  if (fails.size > 10_000) fails.forEach((v, k) => v.until < now && fails.delete(k));
-  /* still full (random keys that haven't expired): the oldest go */
-  if (fails.size > MAX_KEYS) Array.from(fails.keys()).slice(0, fails.size - Math.floor(MAX_KEYS * 0.9)).forEach((k) => fails.delete(k));
-  const f = fails.get(key);
-  if (!f || f.until < now) fails.set(key, { n: 1, until: now + minutes * 60_000 });
+  const list = listOf(fails, key);
+  if (list.size > 10_000) list.forEach((v, k) => v.until < now && list.delete(k));
+  /* still full (random keys that haven't expired): the oldest of this kind go */
+  if (list.size > MAX_KEYS) Array.from(list.keys()).slice(0, list.size - Math.floor(MAX_KEYS * 0.9)).forEach((k) => list.delete(k));
+  const f = list.get(key);
+  if (!f || f.until < now) list.set(key, { n: 1, until: now + minutes * 60_000 });
   else f.n++;
 }
 /** Forgets the wrong tries of this key (the right password was given), and those counted for it per address
     (signInTries) */
 export function clearFailures(key: string): void {
-  fails.delete(key);
-  fails.forEach((_v, k) => k.startsWith(`${key}|`) && fails.delete(k));
+  const list = fails.get(kindOf(key));
+  if (!list) return;
+  list.delete(key);
+  list.forEach((_v, k) => k.startsWith(`${key}|`) && list.delete(k));
 }
 
 /* Wrong passwords (or 2-step codes) at a sign-in. Someone who only knows a merchant's or a staff member's email or mobile
    must not be able to keep the real owner out by typing wrong passwords. So the wrong tries are counted twice:
    - per account AND address: after `max` of them in `minutes`, that address waits ("slow-down") for this account. The
      owner, on his own address, is not held back by tries from somewhere else.
-   - per account, from every address together: never a refusal, only a wait before the password is checked that grows
-     with the wrong tries (slowDown), so guessing from many addresses gets slow while the right password still always gets
-     in. The wait comes before the check, for a right and a wrong password alike, so it gives nothing away.
+   - per account, from every address together: a wait before the password is checked that grows with the wrong tries
+     (slowDown), so guessing from many addresses gets slow. The wait comes before the check, for a right and a wrong
+     password alike, so it gives nothing away. And a ceiling (security audit N05): once ACCOUNT_CAP wrong tries came from
+     everywhere together within `minutes`, the account's sign-in is held for HOLD_MINUTES (held): no password is
+     checked, the answer is "slow-down", and each wrong try after the hold, while the count still stands, holds it
+     again. Many addresses together then get about ACCOUNT_CAP guesses in `minutes`, not 10 each. The sign-in routes
+     let through, while held, only an address that signed in to the account before (knownSigninPlace) or, for staff, a
+     remembered browser: a stranger can hold the account for minutes at a time, but never keeps the owner out where he
+     usually signs in.
    A try is counted (failed) right after the look (blocked) and before the password is checked, so tries sent all at
    once can't all pass the look while the first ones are still being checked, and the right password forgets them again (passed). A new password set by a reset
    forgets them from every address (clearFailures). `key` names the account, or
    for an email nobody has what was typed, so an unknown account waits the same way as a real one. */
+export const ACCOUNT_CAP = 50;
+export const HOLD_MINUTES = 5;
+/* until when each account's sign-in is held (only accounts that reached ACCOUNT_CAP have one) */
+const holds = new Map<string, number>();
 export function signInTries(req: NextRequest, key: string, max: number, minutes: number) {
   const here = `${key}|${visitorIp(req)}`;
   return {
     /** True while this address has had too many wrong tries for this account */
     blocked: () => failedTooOften(here, max),
+    /** True while the account's sign-in is held, after ACCOUNT_CAP wrong tries from everywhere together (see above) */
+    held: () => (holds.get(key) ?? 0) > Date.now(),
     /** The growing wait, after `failed`: none for the first five tries on the account since its last right one, then
         0.5 s, doubling, at most 8 s */
     slowDown: async () => {
-      const f = fails.get(key);
+      const f = failOf(key);
       const n = f && f.until > Date.now() ? f.n : 0;
       if (n > 5) await new Promise((r) => setTimeout(r, Math.min(500 * 2 ** (n - 6), 8_000)));
     },
-    /** Counts one try as wrong, for the account and for this address */
+    /** Counts one try as wrong, for the account and for this address; at ACCOUNT_CAP the account's sign-in is held */
     failed: () => {
       noteFailure(key, minutes);
       noteFailure(here, minutes);
+      const f = failOf(key);
+      if (f && f.n >= ACCOUNT_CAP) {
+        const now = Date.now();
+        if (holds.size > 10_000) holds.forEach((until, k) => until < now && holds.delete(k));
+        holds.set(key, now + HOLD_MINUTES * 60_000);
+      }
     },
     /** The right password (or code): the account's wrong tries are forgotten, and this address's. Another address
-        that was guessing stays held back. */
+        that was guessing stays held back, and a hold runs to its end (the owner's own places pass it anyway). */
     passed: () => {
-      fails.delete(key);
-      fails.delete(here);
+      fails.get(kindOf(key))?.delete(key);
+      fails.get(kindOf(here))?.delete(here);
     },
   };
+}
+
+/* ---------------- where an account signed in before ----------------
+   Kept for the sign-in hold above: a keyed fingerprint (server/crypto.ts blind) of each address an account fully signed
+   in from (never the address itself), in signin_places, for PLACE_DAYS, at most PLACE_MAX per account (the newest).
+   `who`: "m:<account id>" for a merchant, "s:<staff id>" for staff. */
+const PLACE_DAYS = 90;
+const PLACE_MAX = 20;
+const placeOf = (req: NextRequest) => blind(`signin-place:${visitorIp(req)}`);
+
+/** Notes that `who` fully signed in from this request's address. Never holds up or breaks the sign-in. */
+export async function noteSigninPlace(req: NextRequest, who: string): Promise<void> {
+  try {
+    const pool = await db();
+    await pool.query(
+      `INSERT INTO signin_places (who, place) VALUES ($1, $2) ON CONFLICT (who, place) DO UPDATE SET last_at = now()`,
+      [who, placeOf(req)],
+    );
+    await pool.query(
+      `DELETE FROM signin_places WHERE who = $1 AND (last_at < now() - make_interval(days => $2)
+         OR place IN (SELECT place FROM signin_places WHERE who = $1 ORDER BY last_at DESC OFFSET $3))`,
+      [who, PLACE_DAYS, PLACE_MAX],
+    );
+    if (Math.random() < 0.02) pool.query(`DELETE FROM signin_places WHERE last_at < now() - make_interval(days => $1)`, [PLACE_DAYS]).catch(() => {});
+  } catch (e) {
+    console.error("[sign-in] noting the address", (e as Error)?.message ?? e);
+  }
+}
+
+/** True when `who` fully signed in from this request's address within PLACE_DAYS */
+export async function knownSigninPlace(req: NextRequest, who: string): Promise<boolean> {
+  const { rows } = await (await db()).query(
+    `SELECT 1 FROM signin_places WHERE who = $1 AND place = $2 AND last_at > now() - make_interval(days => $3)`,
+    [who, placeOf(req), PLACE_DAYS],
+  );
+  return rows.length > 0;
 }
 
 /** Reads a JSON object body of at most `max` bytes, or null. The body is read piece by piece and dropped as soon as it
     is longer than `max`, so a huge body (sent without a Content-Length, or with a false one) is never held in memory. */
 export async function readJson(req: NextRequest, max: number): Promise<Record<string, unknown> | null> {
-  if (Number(req.headers.get("content-length") ?? 0) > max) return null;
+  const r = await readJsonOr(req, max);
+  return "body" in r ? r.body : null;
+}
+
+/** readJson, telling a body over the limit ("too-big") from one that is not a JSON object ("invalid"), so a route can
+    answer each for what it is (a broken body was answered "too-big", testing round NF-2) */
+export async function readJsonOr(req: NextRequest, max: number): Promise<{ body: Record<string, unknown> } | { why: "too-big" | "invalid" }> {
+  if (Number(req.headers.get("content-length") ?? 0) > max) return { why: "too-big" };
   const reader = req.body?.getReader();
-  if (!reader) return null;
+  if (!reader) return { why: "invalid" };
   const parts: Uint8Array[] = [];
   let size = 0;
   for (;;) {
@@ -446,18 +603,21 @@ export async function readJson(req: NextRequest, max: number): Promise<Record<st
     size += value.byteLength;
     if (size > max) {
       await reader.cancel().catch(() => {});
-      return null;
+      return { why: "too-big" };
     }
     parts.push(value);
   }
   const text = Buffer.concat(parts).toString("utf8");
   try {
     const v = JSON.parse(text);
-    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+    return v && typeof v === "object" && !Array.isArray(v) ? { body: v } : { why: "invalid" };
   } catch {
-    return null;
+    return { why: "invalid" };
   }
 }
+
+/** The answer for a body readJsonOr could not take: 413 "too-big" or 400 "invalid" */
+export const unreadable = (why: "too-big" | "invalid") => answer({ result: why }, why === "too-big" ? 413 : 400);
 
 export const answer = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 

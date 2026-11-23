@@ -9,6 +9,10 @@ import { serverMode } from "./notifications";
 import { publicSettings } from "./platformPublic";
 import { cleanCoupon, cleanOrder, parseList, type Coupon, type Order } from "./records";
 
+/** Fired on window when a search result is picked for the page already open (its address got a new ?open=ID): that
+    page opens the item, as it does when it opens with ?open (Products, Coupons, Info pages) */
+export const SEARCH_OPEN = "dukkan-search-open";
+
 type Bi = { en: string; ar: string };
 
 /* ---------------------------------------------------------------- the store's orders (server) */

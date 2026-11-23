@@ -13,12 +13,22 @@ export const ORDER_LIMITS = {
   address: 200,
   note: 300,
   email: 120,
-  /* the most of one product in a single order, and the most different products */
-  qty: 99,
+  /* the most of one product (or one size) in a single order: its stock, never more than the most stock a product can
+     have (stock() below), and the most different products */
+  qty: 1_000_000,
+  /* a product with no limit on its stock: at most this many of it in one order */
+  unlimitedQty: 999,
   lines: 50,
   /* no price in JOD can be higher than this */
   price: 100_000,
+  /* no order's products can come to more than this, in JOD (the most any amount in a store can be: records.ts MAX_MONEY) */
+  total: 1_000_000,
 };
+
+/** Whether the store's free delivery offer covers an order: it is on, and what the products come to AFTER the coupon's
+    discount (`discount`) reaches its amount. The checkout (storefront/Cart.tsx), the server (server/storeOrders.ts) and
+    the Orders page all decide with this, so they agree. */
+export const freeDeliveryFor = (fd: { on: boolean; min: number }, subtotal: number, discount = 0): boolean => fd.on && toFils(subtotal - discount) >= fd.min;
 
 /** The cities orders are delivered to today. Anything else sent as a city for a new order is refused. */
 export const CITIES = {
@@ -145,12 +155,15 @@ type SellSetup = {
     first save, the profile menu's open switch, app/api/store PUT "not-ready"); a live one is never taken offline by it,
     but he can't make a change that leaves it so. `platform`: what Diwan has on now (platformPublic storePays and
     shipCityLists on the pages; server/storeOrders.ts sellPlatform on the server). */
-export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment[]; shipCities: { en: readonly string[]; ar: readonly string[] } }): { ok: boolean; missing: SellNeed[] } {
+/* `courierApproved`: whether Diwan approved his own courier's proof (server/courierProof.ts). Only the server knows; left
+   out (the browser's own check) it is not counted. Until it is approved his own courier does not deliver (testing T-5),
+   so a store with only that and no pickup can't take an order and can't go live (owner decision 2026-11-23). */
+export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment[]; shipCities: { en: readonly string[]; ar: readonly string[] }; courierApproved?: boolean }): { ok: boolean; missing: SellNeed[] } {
   const missing: SellNeed[] = [];
   if (orderPays(platform.pays, setup?.pays ? savedPays(setup.pays) : undefined).length === 0) missing.push("pay");
   const ship = setup?.shipping;
   const offer = storeDelivery(ship?.mode, { price: 0, cities: platform.shipCities }, { fee: ship?.fee, cities: ship?.cities });
-  const courierOk = ship?.mode !== "own" || (visibleLength(ship.name ?? "") >= 2 && isJordanMobile(ship.phone ?? ""));
+  const courierOk = ship?.mode !== "own" || (visibleLength(ship.name ?? "") >= 2 && isJordanMobile(ship.phone ?? "") && platform.courierApproved !== false);
   const delivers = !!offer && offer.cities.en.length > 0 && courierOk;
   if (setup?.pickup !== true && !delivers) missing.push("delivery");
   /* every setup step finished (its Done pressed), not only the ones selling needs */
@@ -158,6 +171,16 @@ export function readyToSell(setup: SellSetup, platform: { pays: readonly Payment
   if (done.length < SETUP_STEPS || done.slice(0, SETUP_STEPS).some((d) => d !== true)) missing.push("setup");
   return { ok: missing.length === 0, missing };
 }
+
+/** What a store that was live (its design saved once) still needs to take orders, from readyToSell's `missing`: setup
+    steps left don't stop it (only going live the first time needs them), and with no delivery choice saved it delivers
+    with Dukkan Ship by default while Ship serves a city (checkoutShipMode, `shipDefault`). The same rule keeps a live
+    store selling (its pages, ReadyToSell liveMissing) and lets a paused one open again (app/api/store PUT). */
+export const liveMissing = (missing: SellNeed[], shipDefault: boolean): SellNeed[] =>
+  missing.filter((m) => m !== "setup" && !(shipDefault && m === "delivery"));
+
+/** A store with no delivery choice saved that delivers with Dukkan Ship by default (Ship serves a city) */
+export const shipsByDefaultFor = (setup: SellSetup, shipCities: { en: readonly string[] }) => !setup?.shipping && shipCities.en.length > 0;
 
 /* ============================== catalog ============================== */
 
@@ -176,7 +199,7 @@ export function stock(v: unknown): number {
 }
 
 /** The stock a product with no limit counts as: never sold out and never "only a few left". A visitor can still
-    order at most ORDER_LIMITS.qty of it at a time. */
+    order at most ORDER_LIMITS.unlimitedQty of it at a time (lineMost). */
 export const UNLIMITED_STOCK = 1_000_000;
 
 /** The stock had no limit. Saved products say so with `unlimited: true`. Products saved before that flag existed
@@ -207,6 +230,38 @@ export type SizeStock = { name: string; quantity: number };
 export const SIZE_MAX = { name: 12, count: 30 };
 /** A size's name as it is saved: one short line, or "" */
 export const sizeName = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, SIZE_MAX.name) : "");
+/** Two sizes are the same size when their names differ only in capitals or spaces ("M", "m", " M ", "X L" and "XL"):
+    a product can't have both, or one of them would lose its stock */
+export const sizeKey = (v: unknown) => sizeName(v).toLowerCase().replace(/\s/g, "");
+/** The first size named twice in a list (see sizeKey), as he typed it, or "" when each size has its own name */
+export function sizeTwice(sizes: unknown): string {
+  if (!Array.isArray(sizes)) return "";
+  const seen = new Set<string>();
+  for (const x of sizes) {
+    const name = x && typeof x === "object" ? sizeName((x as { name?: unknown }).name) : "";
+    if (!name) continue;
+    if (seen.has(sizeKey(name))) return name;
+    seen.add(sizeKey(name));
+  }
+  return "";
+}
+/** A save of the products (`incoming`) that names a size twice in a product sold in sizes, where the server's copy of
+    that product (`stored`) does not already have exactly those sizes (an old product saved that way before this rule is
+    not held against a save that leaves it as it is). The server refuses such a save. */
+export function newSizeTwice(incoming: unknown[], stored: unknown[]): boolean {
+  const before = new Map<number, string>();
+  for (const s of stored) {
+    const id = s && typeof s === "object" && !Array.isArray(s) ? productId((s as Record<string, unknown>).id) : null;
+    if (id !== null) before.set(id, JSON.stringify((s as Record<string, unknown>).sizes ?? null));
+  }
+  return incoming.some((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+    const p = raw as Record<string, unknown>;
+    if (!kindHasSizes(productKind(p.kind)) || !sizeTwice(p.sizes)) return false;
+    const id = productId(p.id);
+    return id === null || before.get(id) !== JSON.stringify(p.sizes ?? null);
+  });
+}
 /** The sizes of a product (only a kind sold in sizes has them): each named once, with a whole stock */
 export function productSizes(p: { kind?: unknown; sizes?: unknown }): SizeStock[] {
   if (!kindHasSizes(productKind(p.kind)) || !Array.isArray(p.sizes)) return [];
@@ -254,10 +309,18 @@ export function unitPrice(p: { price: unknown; sale?: unknown }): number | null 
   return salePrice(price, p.sale) ?? price;
 }
 
-/** A quantity a visitor asks for, cut to what can be sold: a whole number from 0 to the stock (and the per order limit). */
+/** The most of one product (or one size) a single order takes, from its stock: all of it (at most ORDER_LIMITS.qty),
+    and for a product with no limit (UNLIMITED_STOCK) ORDER_LIMITS.unlimitedQty. The cart's + button, the checkout and
+    the server all stop there. */
+export function lineMost(available: unknown): number {
+  const s = stock(available);
+  return s >= UNLIMITED_STOCK ? ORDER_LIMITS.unlimitedQty : Math.min(s, ORDER_LIMITS.qty);
+}
+
+/** A quantity a visitor asks for, cut to what can be sold: a whole number from 0 to the stock (lineMost). */
 export function cartQty(n: unknown, available: unknown): number {
   const v = typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : 0;
-  return Math.max(0, Math.min(v, stock(available), ORDER_LIMITS.qty));
+  return Math.max(0, Math.min(v, lineMost(available)));
 }
 
 export type PricedLine = { id: number; name: string; qty: number; price: number; /* the size chosen (clothing and shoes) */ size?: string };
@@ -435,6 +498,31 @@ export function stockTaken<T extends { id?: unknown; qty: number; size?: string 
     return { ...it, took };
   });
   return { lines, short };
+}
+
+/* ============================== when an order takes its stock ==============================
+   Placing an order takes no stock (anyone can place one, for free, F05): the store refuses only an order larger than the
+   stock there is. The stock is taken when the order is really on: a cash order (on delivery or at pickup) once the
+   merchant confirms it (moves it to one of CONFIRMED_STATUSES), a card or CliQ order once its payment is confirmed. It is
+   checked again then, and the confirmation is refused when there is not enough left. Cancelling or refunding gives back
+   what was taken, once; an order that took nothing gives nothing back. A cash order moved back to New or Awaiting review
+   (an undo of its confirmation) gives it back too. Orders placed before this rule took their stock when they were placed
+   and keep it. The server (server/storeOrders.ts) and the merchant's own preview orders (Orders.tsx) both decide with
+   holdsStockAfter. */
+
+/** The statuses that mean the merchant confirmed an order paid in cash */
+export const CONFIRMED_STATUSES: readonly string[] = ["processing", "shipping", "delivered"];
+const stockOff = (status: string) => status === "cancelled" || status === "refunded";
+
+/** Whether an order holds its stock after its status moves from `from` to `to`. `held`: whether it holds it now; `paid`:
+    a card or CliQ order whose payment is confirmed. */
+export function holdsStockAfter(o: { pay?: string; paid?: boolean }, held: boolean, from: string, to: string): boolean {
+  if (stockOff(to)) return false;
+  if (o.pay === "card" || o.pay === "cliq") return held || o.paid === true;
+  if (CONFIRMED_STATUSES.includes(to)) return true;
+  /* back to New or Awaiting review from a confirmed status: not confirmed any more */
+  if (CONFIRMED_STATUSES.includes(from)) return false;
+  return held;
 }
 
 /** The lines of an order whose pieces can't go back to the saved stock when it is cancelled: the product is now sold in

@@ -79,7 +79,7 @@ export default function AnnouncementsPage() {
     /* one saved with its end already passed belongs under Past, which the reload above brings it into */
     if (row.status === "ended") return;
     /* the names of the shops chosen in it, which the list may not know until it has loaded again */
-    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, email: x.email }])) : undefined;
+    const names = form?.audience.who === "accounts" ? Object.fromEntries(form.audience.shops.map((x) => [x.id, { name: x.name, slug: x.slug ?? null }])) : undefined;
     js.show(row, wasEdit ? t("Saved", "تم الحفظ") : row.status === "scheduled" ? t("Scheduled", "تمت الجدولة") : t("Published", "تم النشر"), names);
   };
 

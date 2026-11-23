@@ -7,7 +7,7 @@ import type { PublicSettings } from "./diwan/platformSettings";
 import { shipCityLists, storePays, usePublicSettings, useSettingsChecked } from "./platformPublic";
 
 type PublicSettingsLike = Pick<PublicSettings, "payment_methods" | "dukkan_ship">;
-import { readyToSell, type SellNeed } from "./safeOrder";
+import { liveMissing, readyToSell, SETUP_STEPS, shipsByDefaultFor, type SellNeed } from "./safeOrder";
 import { loadSetup, type SavedSetup } from "./setup";
 import { storeIsLive } from "./storefront/storage";
 
@@ -36,7 +36,7 @@ export const sellWords = {
     liveNotReady: "متجرك منشور، لكن العملاء لا يستطيعون إتمام الطلب:",
     livePay: "متجرك منشور: أبقِ طريقة دفع واحدة على الأقل مفعّلة.",
     liveDelivery: "متجرك منشور: أبقِ طريقة يستلم بها العملاء طلباتهم (توصيل أو استلام).",
-    shipDefault: "لم تختر طريقة التوصيل بعد، لذلك تُوصَل طلبات متجرك بشحن دكّان تلقائيًا.",
+    shipDefault: "لم تختر طريقة التوصيل بعد، لذلك تُوصَل طلبات متجرك بشحن دكان تلقائيًا.",
     shipDefaultCta: "اختر طريقة التوصيل",
   },
 };
@@ -53,14 +53,17 @@ export const sellCheck = (s: PublicSettingsLike, setup: SavedSetup | null = load
 /** A store that never chose how it delivers (one from before a choice was asked for) delivers with Dukkan Ship by default
     while Dukkan Ship serves a city (safeOrder checkoutShipMode): once live, his pages say so and ask him to choose,
     rather than "customers can't complete an order" */
-export const shipsByDefault = (s: PublicSettingsLike, setup: SavedSetup | null | undefined) => !setup?.shipping && shipCityLists(s).en.length > 0;
+export const shipsByDefault = (s: PublicSettingsLike, setup: SavedSetup | null | undefined) => shipsByDefaultFor(setup, shipCityLists(s));
 
 /** Whether customers can see the store now: its design was saved once and it is not under maintenance */
 export const storeLiveNow = () => storeIsLive() && !loadMaintenance().on;
 
 /** The store's readiness, read again when the setup changes (this tab or another). `checked`: Diwan's settings came
-    from the server, so a warning about them is not a flash of the starting values. */
-export function useSellReady() {
+    from the server, so a warning about them is not a flash of the starting values. `designSaving`: asked by the
+    designer, whose save is the last setup step (Store design) itself: that step counts as done, since the save marks it
+    and the server checks the setup it sends. Asking it to be done before the save made a new store unable ever to go
+    live (testing round FL1-01). */
+export function useSellReady({ designSaving = false }: { designSaving?: boolean } = {}) {
   const platform = usePublicSettings();
   const checked = useSettingsChecked();
   const [setup, setSetup] = useState<SavedSetup | null | undefined>(undefined);
@@ -74,15 +77,14 @@ export function useSellReady() {
       window.removeEventListener("storage", again);
     };
   }, []);
-  const r = readyToSell(setup ?? null, sellPlatformOf(platform));
+  const asked = designSaving && setup ? { ...setup, done: Array.from({ length: SETUP_STEPS }, (_, i) => (i === SETUP_STEPS - 1 ? true : setup.done?.[i] === true)) } : setup;
+  const r = readyToSell(asked ?? null, sellPlatformOf(platform));
   return { ...r, read: setup !== undefined, checked, shipDefault: setup !== undefined && shipsByDefault(platform, setup) };
 }
 
 /** What a live store is missing, with "delivery" left out when it delivers with Dukkan Ship by default (shipsByDefault:
     ShipDefaultNote says so instead), and "setup" left out (only going live needs it) */
-export const liveMissing = (missing: SellNeed[], shipDefault: boolean): SellNeed[] =>
-  /* a store already live keeps selling with setup steps left (customers can still order): only going live needs them */
-  missing.filter((m) => m !== "setup" && !(shipDefault && m === "delivery"));
+export { liveMissing };
 
 /** A live store that delivers with Dukkan Ship by default: says so, with a link to choose on Delivery options */
 export function ShipDefaultNote({ lang, className = "" }: { lang: Lang; className?: string }) {

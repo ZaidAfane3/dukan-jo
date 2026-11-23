@@ -1,5 +1,5 @@
 /* The activity log in plain words. Diwan's log keeps what staff changed and their sign-ins, never what they only looked
-   at: the old "opened a page" lines (any "….view") and the half-way "password right, waiting for the code" stay in the database,
+   at (but for a merchant's contacts shown, "shop.contacts", the one reading of private details that is logged): the old "opened a page" lines (any "….view") and the half-way "password right, waiting for the code" stay in the database,
    which allows no deleting, but are left out of every list (HIDDEN_ACTIONS, read by the routes). */
 
 export const HIDDEN_ACTIONS = ["staff.password_ok"];
@@ -12,8 +12,13 @@ const W: Record<string, [en: string, ar: string]> = {
   "staff.logout": ["Signed out", "سجّل الخروج"],
   "staff.login_failed": ["Sign-in failed", "فشل تسجيل الدخول"],
   "staff.code_failed": ["Wrong 2-step code", "رمز تحقق خاطئ"],
+  /* the emailed sign-in code (since 2026-11-22) */
+  "staff.email_confirmed": ["Confirmed their email with a sign-in code", "أكّد بريده برمز الدخول"],
+  "staff.email_changed": ["Changed their email", "غيّر بريده الإلكتروني"],
   "staff.2step_on": ["Turned on 2-step sign-in", "فعّل التحقق بخطوتين"],
   "staff.password_changed": ["Changed their password", "غيّر كلمة المرور"],
+  /* remembered browsers (since 2026-11-22): a sign-in there says so in its details (server/activityDetail.ts) */
+  "staff.devices_forgotten": ["Made their other browsers ask for a code again", "جعل متصفحاته الأخرى تطلب الرمز من جديد"],
   "staff.setup": ["Created the first owner", "أنشأ المالك الأول"],
   "staff.setup_wrong_key": ["Wrong setup key", "مفتاح إعداد خاطئ"],
   "staff.password_again_failed": ["Typed a wrong password to confirm a change", "كتب كلمة مرور خاطئة لتأكيد تغيير"],
@@ -24,13 +29,18 @@ const W: Record<string, [en: string, ar: string]> = {
   "staff.reactivate": ["Gave a member access again", "أعاد دخول عضو"],
   "staff.reset_2step": ["Reset a member's 2-step sign-in", "أعاد ضبط التحقق بخطوتين لعضو"],
   "staff.reset_password": ["Reset a member's password", "أعاد ضبط كلمة مرور عضو"],
+  "staff.email_fixed": ["Corrected a member's email before they confirmed it", "صحّح بريد عضو قبل أن يؤكّده"],
   /* stores */
   "shop.suspend": ["Suspended a store", "أوقف متجرًا"],
   "shop.reactivate": ["Reopened a store", "أعاد تشغيل متجر"],
   "shop.payment": ["Marked a payment as received", "سجّل دفعة"],
+  /* testing D-5: a recorded payment corrected (the values before are in the line's details) */
+  "shop.payment_edit": ["Corrected a recorded payment", "صحّح دفعة مسجّلة"],
   /* no longer written (Dukkan has no plans or free trial since 2026-11-16); kept so older log lines still read in words */
   "shop.plan": ["Changed a store's plan", "غيّر باقة متجر"],
   "shop.totp.off": ["Turned off a merchant's 2-step sign-in", "أوقف التحقق بخطوتين لتاجر"],
+  /* "Show contacts" (security F08): a merchant's email and mobile shown, after the staff member's password */
+  "shop.contacts": ["Looked at a merchant's email and mobile", "اطّلع على بريد تاجر وجواله"],
   /* no longer written ("Log in as merchant" was removed on 2026-11-16); kept so older log lines still read in words */
   "shop.impersonate.start": ["Opened a store as its merchant", "دخل متجرًا كتاجر"],
   "shop.impersonate.end": ["Left a store opened as its merchant", "خرج من متجر دخله كتاجر"],
@@ -45,6 +55,8 @@ const W: Record<string, [en: string, ar: string]> = {
   "tickets.canned.save": ["Saved the ready replies", "حفظ الردود الجاهزة"],
   "complaint.add": ["Added a store report", "أضاف بلاغًا عن متجر"],
   "complaint.update": ["Changed a store report", "عدّل بلاغًا عن متجر"],
+  /* written by Dukkan itself, not by staff: a store got more customer reports in an hour than are kept (app/api/store-reports) */
+  "store_report.over_cap": ["Too many customer reports about this store in an hour: the ones after the first 30 were not kept", "بلاغات عملاء كثيرة عن هذا المتجر خلال ساعة: لم تُحفظ البلاغات بعد أول 30 بلاغًا"],
   "document.review": ["Reviewed a document", "راجع مستندًا"],
   /* marketing */
   "announcement.create": ["Created an announcement", "أنشأ إعلانًا"],
@@ -57,7 +69,7 @@ const W: Record<string, [en: string, ar: string]> = {
   "popup.status": ["Changed a pop-up's status", "غيّر حالة نافذة منبثقة"],
   "popup.restart": ["Started a pop-up again", "شغّل نافذة منبثقة مجددًا"],
   "popup.delete": ["Deleted a pop-up", "حذف نافذة منبثقة"],
-  "ship.order.mark": ["Marked a Dukkan Ship order", "علّم طلب شحن دكّان"],
+  "ship.order.mark": ["Marked a Dukkan Ship order", "علّم طلب شحن دكان"],
   "page.create": ["Created a page", "أنشأ صفحة"],
   "page.edit": ["Edited a page", "عدّل صفحة"],
   "page.status": ["Changed a page's status", "غيّر حالة صفحة"],
@@ -104,7 +116,7 @@ export const actionWords = (t: (en: string, ar: string) => string, action: strin
    (components/diwan/platformSettings.ts says why each went). */
 const SETTING: Record<string, [en: string, ar: string]> = {
   payment_methods: ["Payment methods", "طرق الدفع"],
-  dukkan_ship: ["Dukkan Ship", "شحن دكّان"],
+  dukkan_ship: ["Dukkan Ship", "شحن دكان"],
   store_legal_templates: ["Store legal pages", "الصفحات القانونية للمتاجر"],
   support_contact: ["Support contact", "التواصل مع الدعم"],
   support_reply_hours: ["Support reply time", "مدة الرد على الدعم"],
@@ -139,4 +151,4 @@ export const documentKindWords = (t: (en: string, ar: string) => string, kind: s
 export const documentNumber = (seq: number) => `#${String(seq).padStart(3, "0")}`;
 
 /** Sign-in lines, for the "Sign-ins only" filter */
-export const SIGN_IN_ACTIONS = ["staff.login", "staff.logout", "staff.login_failed", "staff.code_failed", "staff.setup_wrong_key"];
+export const SIGN_IN_ACTIONS = ["staff.login", "staff.logout", "staff.login_failed", "staff.code_failed", "staff.email_confirmed", "staff.setup_wrong_key", "staff.devices_forgotten"];

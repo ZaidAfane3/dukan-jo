@@ -5,19 +5,22 @@ import { usePageTitle } from "@/components/pageTitle";
 import { LangSwitch, ThemeToggle } from "@/components/Prefs";
 import { DiwanMark } from "@/components/diwan/icons";
 import { PAPER } from "@/components/diwan/Shell";
-import { passwordWords, STAFF_2FA_REQUIRED, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
+import { passwordWords, STAFF_PASSWORD_MIN } from "@/components/diwan/staffRules";
+import { nextPage } from "@/components/diwan/signInAgain";
 import { Btn, field, useT } from "@/components/diwan/ui";
 import { latin } from "@/components/digits";
 
-/* The staff sign-in: email and password, then the 6-digit code of an authenticator app. On the first sign-in the app is
-   set up here (the secret to type in, or the otpauth link), and a temporary password given by an owner is replaced.
+/* The staff sign-in: email and password, then the 6-digit code Diwan emails to the member's address on file
+   (server/staffSignin.ts), with "Send a new code" (a minute between codes). A temporary password given by an owner is
+   replaced in the same step as the code. Nobody is signed in before the code is right. A browser where the code was
+   typed is remembered: there, next time, the password alone signs in (the server answers step "done").
    While Diwan has no staff at all, the first owner can be made here with the server's setup key.
-   TODO(2FA): while STAFF_2FA_REQUIRED is off, the password is enough ("done"), or a temporary one is replaced first
-   ("new-password"); the "new-password" step goes once it is on.
    The look is kept quiet on purpose: Diwan's mark and name, one card with a title and a line under it, plain labels
    over plain fields, one button. */
 
-type Step = "password" | "enroll" | "code" | "new-password" | "setup";
+type Step = "password" | "code" | "setup";
+/* a minute between two codes, as the server waits (server/emailVerify.ts RESEND_SECONDS) */
+const RESEND_SECONDS = 60;
 type Reply = { status: number; data: Record<string, any> | null };
 
 async function post(url: string, body: unknown): Promise<Reply> {
@@ -46,13 +49,13 @@ export function LoginForm() {
   const [newPassword, setNewPassword] = useState("");
   const [newPassword2, setNewPassword2] = useState("");
   const [mustChange, setMustChange] = useState(false);
-  const [secret, setSecret] = useState("");
-  const [link, setLink] = useState("");
+  /* where the code went (partly hidden), and the seconds left before a new one can be asked for */
+  const [to, setTo] = useState("");
+  const [wait, setWait] = useState(0);
   const [setup, setSetup] = useState({ key: "", name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
-  const [copied, setCopied] = useState("");
 
   /* the tab's title in the staff's language, again on a language switch and when Next's metadata title lands after it */
   usePageTitle(t("Diwan | Sign in", "ديوان | تسجيل الدخول"));
@@ -64,10 +67,22 @@ export function LoginForm() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (wait <= 0) return;
+    const id = window.setTimeout(() => setWait((w) => w - 1), 1000);
+    return () => window.clearTimeout(id);
+  }, [wait]);
+
+  /* why a code could not be sent: the email failed, too many codes lately, or too many wrong ones this hour */
+  const notSent = (why: unknown) =>
+    why === "locked" ? t("Too many wrong codes. For your safety, wait an hour and try again.", "رموز خاطئة كثيرة. حفاظًا على الأمان، انتظر ساعة ثم حاول مرة أخرى.")
+      : why === "slow-down" ? t("Too many codes were sent to your email lately. Try again later.", "أُرسلت رموز كثيرة إلى بريدك مؤخرًا. حاول مرة أخرى لاحقًا.")
+        : t("We couldn't send the code to your email. Try again later.", "تعذّر إرسال الرمز إلى بريدك. حاول مرة أخرى لاحقًا.");
+
   const common = (r: Reply) => {
     if (r.status === 0 || r.status >= 500) return t("Diwan can't be reached right now. Try again in a moment.", "تعذر الوصول إلى الديوان الآن. حاول بعد قليل.");
     if (r.status === 429) return t("Too many tries. Wait 15 minutes and try again.", "محاولات كثيرة. انتظر 15 دقيقة ثم حاول مجددًا.");
-    if (r.status === 403 && r.data?.result === "forbidden") return t("Open this page from Dukkan's own address.", "افتح هذه الصفحة من عنوان دكّان نفسه.");
+    if (r.status === 403 && r.data?.result === "forbidden") return t("Open this page from Dukkan's own address.", "افتح هذه الصفحة من عنوان دكان نفسه.");
     return "";
   };
 
@@ -76,22 +91,25 @@ export function LoginForm() {
     setBusy(true);
     setError("");
     const r = await post("/api/diwan/auth/login", { email, password });
-    setBusy(false);
-    if (r.data?.result === "ok") {
-      setMustChange(!!r.data.mustChange);
-      setCode("");
-      if (r.data.step === "done") {
-        window.location.href = "/diwan";
-        return;
-      }
-      if (r.data.step === "new-password") setStep("new-password");
-      else if (r.data.step === "enroll") {
-        setSecret(r.data.secret ?? "");
-        setLink(r.data.link ?? "");
-        setStep("enroll");
-      } else setStep("code");
+    if (r.data?.result === "ok" && r.data.step === "done") {
+      window.location.href = nextPage();
       return;
     }
+    setBusy(false);
+    if (r.data?.result === "ok" && r.data.step === "code") {
+      setMustChange(!!r.data.mustChange);
+      setCode("");
+      setTo(String(r.data.to ?? ""));
+      setNote("");
+      setStep("code");
+      if (r.data.sent === false) {
+        setError(notSent(r.data.why));
+        setWait(0);
+      } else setWait(RESEND_SECONDS);
+      return;
+    }
+    if (r.data?.result === "no-email")
+      return setError(t("Diwan can't send sign-in codes by email right now, so nobody can sign in. Try again later.", "لا يستطيع الديوان إرسال رموز الدخول بالبريد الآن، لذا لا يمكن لأحد الدخول. حاول مرة أخرى لاحقًا."));
     setError(common(r) || (r.data?.result === "invalid" ? t("Enter your email and password.", "أدخل بريدك وكلمة المرور.") : t("The email or the password is not right.", "البريد أو كلمة المرور غير صحيحة.")));
   };
 
@@ -102,26 +120,54 @@ export function LoginForm() {
       if (newPassword.length < STAFF_PASSWORD_MIN) return setError(t(passwordWords.short.en, passwordWords.short.ar));
       if (newPassword !== newPassword2) return setError(t("The two new passwords are not the same.", "كلمتا المرور الجديدتان غير متطابقتين."));
     }
+    const six = code.replace(/\s/g, "");
+    if (six.length !== 6) return setError(t("Type the 6 digits from the email.", "اكتب الأرقام الستة الموجودة في الرسالة."));
     setBusy(true);
-    const r = await post("/api/diwan/auth/totp", { ...(step === "new-password" ? {} : { code: code.replace(/\s/g, "") }), ...(mustChange ? { newPassword } : {}) });
+    setNote("");
+    const r = await post("/api/diwan/auth/code", { code: six, ...(mustChange ? { newPassword } : {}) });
     if (r.data?.result === "ok") {
-      window.location.href = "/diwan";
+      window.location.href = nextPage();
       return;
     }
     setBusy(false);
     const why = r.data?.result;
-    if (why === "signed-out") {
-      setStep("password");
-      setError(t("That took too long. Sign in again.", "استغرق الأمر وقتًا طويلًا. سجّل الدخول مجددًا."));
-      return;
-    }
+    if (why === "gone") return backAgain();
     const w = passwordWords[r.data?.problem as keyof typeof passwordWords];
     setError(
-      common(r) ||
-        (why === "weak" && w ? t(w.en, w.ar)
-          : why === "same" ? t("Choose a password different from the temporary one.", "اختر كلمة مرور غير المؤقتة.")
-            : t("That code is not right. Check the time on your phone and use the newest code.", "الرمز غير صحيح. تأكد من الوقت في هاتفك واستخدم أحدث رمز.")),
+      why === "weak" && w ? t(w.en, w.ar)
+        : why === "same" ? t("Choose a password different from the temporary one.", "اختر كلمة مرور غير المؤقتة.")
+          : why === "wrong" ? t("That code isn't right. Use the code in the newest email from Diwan.", "الرمز غير صحيح. استخدم الرمز الموجود في أحدث رسالة من الديوان.")
+            : why === "expired" ? t("This code has expired. Send a new code.", "انتهت صلاحية هذا الرمز. اطلب رمزًا جديدًا.")
+              : why === "too-many" ? t("Too many wrong tries for this code. Send a new code.", "محاولات خاطئة كثيرة لهذا الرمز. اطلب رمزًا جديدًا.")
+                : why === "locked" ? notSent("locked")
+                  : common(r) || t("That didn't work. Try again.", "لم ينجح ذلك. حاول مجددًا."),
     );
+  };
+
+  /* the waiting sign-in ran out (15 minutes) or ended: back to the password */
+  const backAgain = () => {
+    setStep("password");
+    setNote("");
+    setError(t("That took too long. Sign in again.", "استغرق الأمر وقتًا طويلًا. سجّل الدخول مجددًا."));
+  };
+
+  const resend = async () => {
+    setError("");
+    setNote("");
+    setBusy(true);
+    const r = await post("/api/diwan/auth/code", { resend: true });
+    setBusy(false);
+    const why = r.data?.result;
+    if (why === "ok") {
+      setCode("");
+      setWait(RESEND_SECONDS);
+      setNote(t("We sent a new code. Use the code in the newest email; it works for 10 minutes.", "أرسلنا رمزًا جديدًا. استخدم الرمز الموجود في أحدث رسالة، وهو صالح لمدة 10 دقائق."));
+      return;
+    }
+    if (why === "gone") return backAgain();
+    /* refused for now: wait a minute before the next try, so pressing again can't use the allowance up */
+    setWait(RESEND_SECONDS);
+    setError(why === "send-failed" || why === "slow-down" || why === "locked" ? notSent(why === "send-failed" ? "failed" : why) : common(r) || notSent("failed"));
   };
 
   const makeOwner = async (e: React.FormEvent) => {
@@ -136,9 +182,7 @@ export function LoginForm() {
       setEmail(setup.email.trim().toLowerCase());
       setPassword("");
       setStep("password");
-      setNote(STAFF_2FA_REQUIRED
-        ? t("The first owner is ready. Sign in now to set up your 2-step code.", "المالك الأول جاهز. سجّل الدخول الآن لإعداد رمز التحقق بخطوتين.")
-        : t("The first owner is ready. Sign in now.", "المالك الأول جاهز. سجّل الدخول الآن."));
+      setNote(t("The first owner is ready. Sign in now: a code will be sent to your email.", "المالك الأول جاهز. سجّل الدخول الآن، وسيصلك رمز على بريدك."));
       return;
     }
     const w = passwordWords[r.data?.problem as keyof typeof passwordWords];
@@ -152,14 +196,7 @@ export function LoginForm() {
     );
   };
 
-  const copy = (what: string, text: string) => {
-    navigator.clipboard?.writeText(text).then(() => {
-      setCopied(what);
-      setTimeout(() => setCopied(""), 2000);
-    }).catch(() => {});
-  };
-
-  const back = () => { setStep("password"); setError(""); };
+  const back = () => { setStep("password"); setError(""); setNote(""); };
 
   /* the one place a problem is shown, just above the button; role="alert" reads it out as soon as it appears */
   const problem = error ? <p role="alert" className="rounded-xl bg-red-500/10 px-3.5 py-2.5 text-sm leading-relaxed text-red-700 dark:text-red-300">{error}</p> : null;
@@ -206,17 +243,19 @@ export function LoginForm() {
 
   const title =
     step === "setup" ? t("Create the first owner", "إنشاء المالك الأول")
-      : step === "enroll" ? t("Set up your 2-step code", "إعداد رمز التحقق بخطوتين")
-        : step === "code" ? t("Enter your 2-step code", "أدخل رمز التحقق")
-          : step === "new-password" ? t("Choose your password", "اختر كلمة مرورك")
-            : t("Sign in to Diwan", "تسجيل الدخول إلى الديوان");
+      : step === "code" ? t("Check your email", "تحقّق من بريدك")
+        : t("Sign in to Diwan", "تسجيل الدخول إلى الديوان");
   /* the setup step does not name the server setting that holds the key: this page's script is sent to every visitor */
-  const sub =
+  const sub: React.ReactNode =
     step === "setup" ? t("Diwan has no staff yet. The setup key is in the server's settings.", "لا يوجد فريق في الديوان بعد. مفتاح الإعداد موجود في إعدادات الخادم.")
-      : step === "enroll" ? t("Diwan asks for a code from an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password…) every time you sign in.", "يطلب الديوان رمزًا من تطبيق المصادقة (Google Authenticator أو Microsoft Authenticator أو 1Password…) في كل مرة تدخل فيها.")
-        : step === "code" ? t("Open your authenticator app and type the code shown for Diwan.", "افتح تطبيق المصادقة واكتب الرمز الظاهر للديوان.")
-          : step === "new-password" ? t("You signed in with a temporary password. Choose your own now.", "دخلت بكلمة مرور مؤقتة. اختر كلمة مرورك الآن.")
-            : t("Use the email and password of your Diwan account.", "استخدم البريد وكلمة المرور لحسابك في الديوان.");
+      : step === "code" ? (
+          <>
+            {t("We sent a 6-digit code to", "أرسلنا رمزًا من 6 أرقام إلى")}{" "}
+            <bdi dir="ltr" className="font-medium text-fg">{to}</bdi>
+            {t(". It works for 10 minutes.", "، وهو صالح لمدة 10 دقائق.")}
+          </>
+        )
+        : t("Use the email and password of your Diwan account.", "استخدم البريد وكلمة المرور لحسابك في الديوان.");
 
   return (
     <div className={`min-h-screen text-fg ${PAPER}`}>
@@ -260,53 +299,22 @@ export function LoginForm() {
             </form>
           )}
 
-          {step === "enroll" && (
-            <form onSubmit={verify} className="mt-6 space-y-5">
-              <ol className="list-decimal space-y-1.5 ps-5 text-sm leading-relaxed marker:text-muted">
-                <li>{t("In your authenticator app, add an account by typing a key (or open the link below on your phone).", "في تطبيق المصادقة، أضف حسابًا بكتابة مفتاح (أو افتح الرابط أدناه من هاتفك).")}</li>
-                <li>{t("Then type the 6-digit code the app shows.", "ثم اكتب الرمز المكوّن من 6 أرقام الذي يظهر في التطبيق.")}</li>
-              </ol>
-              <div className="divide-y divide-fg/10 rounded-xl border border-fg/10">
-                <div className="p-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium text-muted">{t("Key", "المفتاح")}</p>
-                    <CopyButton done={copied === "key"} onClick={() => copy("key", secret)}>{t("Copy the key", "نسخ المفتاح")}</CopyButton>
-                  </div>
-                  <p dir="ltr" className="mt-1.5 break-all font-mono text-base font-semibold tracking-wider">{secret.match(/.{1,4}/g)?.join(" ")}</p>
-                </div>
-                <div className="p-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium text-muted">{t("Link for authenticator apps", "رابط لتطبيقات المصادقة")}</p>
-                    <CopyButton done={copied === "link"} onClick={() => copy("link", link)}>{t("Copy the link", "نسخ الرابط")}</CopyButton>
-                  </div>
-                  <p dir="ltr" className="mt-1.5 break-all font-mono text-xs text-fg/80">{link}</p>
-                </div>
-              </div>
-              {codeField}
-              {newPasswordSection}
-              {problem}
-              <Submit busy={busy} busyText={t("Checking…", "جارٍ التحقق…")}>{t("Turn on and sign in", "تفعيل والدخول")}</Submit>
-              <QuietLink onClick={back}>{t("Back", "رجوع")}</QuietLink>
-            </form>
-          )}
-
           {step === "code" && (
             <form onSubmit={verify} className="mt-6 space-y-5">
               {codeField}
+              <p className="-mt-2 text-xs leading-relaxed text-muted">{t("This browser will be remembered, so next time only your password is needed.", "سيتذكّر ديوان هذا المتصفح، فلن تحتاج في المرة القادمة إلا كلمة المرور.")}</p>
               {newPasswordSection}
               {problem}
               <Submit busy={busy} busyText={t("Checking…", "جارٍ التحقق…")}>{t("Sign in", "دخول")}</Submit>
-              <p className="text-center text-xs leading-relaxed text-muted">{t("Lost your phone? Ask an owner to reset your 2-step code.", "فقدت هاتفك؟ اطلب من المالك إعادة ضبط رمز التحقق.")}</p>
-              <QuietLink onClick={back}>{t("Back", "رجوع")}</QuietLink>
-            </form>
-          )}
-
-          {step === "new-password" && (
-            <form onSubmit={verify} className="mt-6 space-y-5">
-              {/* the line about the temporary password is the card's own line here, so only the fields */}
-              {mustChange && newPasswordInputs}
-              {problem}
-              <Submit busy={busy} busyText={t("Saving…", "جارٍ الحفظ…")}>{t("Save and sign in", "حفظ والدخول")}</Submit>
+              <button
+                type="button"
+                onClick={resend}
+                disabled={busy || wait > 0}
+                className="mx-auto block rounded-md px-2 py-1 text-sm font-semibold text-primary transition-colors hover:underline disabled:cursor-default disabled:font-normal disabled:text-muted disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                {wait > 0 ? t(`Send a new code in ${wait} s`, `إرسال رمز جديد بعد ${wait} ث`) : t("Send a new code", "إرسال رمز جديد")}
+              </button>
+              <p className="text-center text-xs leading-relaxed text-muted">{t("Can't find it? Check your spam or junk folder.", "لم تجده؟ تحقّق من مجلد الرسائل غير المرغوب فيها.")}</p>
               <QuietLink onClick={back}>{t("Back", "رجوع")}</QuietLink>
             </form>
           )}
@@ -403,16 +411,6 @@ function QuietLink({ onClick, primary = false, children }: { onClick: () => void
       className={`mx-auto block rounded-md px-2 py-1 text-sm transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${primary ? "font-semibold text-primary" : "text-muted hover:text-fg"}`}
     >
       {children}
-    </button>
-  );
-}
-
-/** Copy the key or the link; says Copied for two seconds */
-function CopyButton({ done, onClick, children }: { done: boolean; onClick: () => void; children: React.ReactNode }) {
-  const t = useT();
-  return (
-    <button type="button" onClick={onClick} className="shrink-0 rounded-md text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-      <span aria-live="polite">{done ? t("Copied", "تم النسخ") : children}</span>
     </button>
   );
 }

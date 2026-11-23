@@ -10,7 +10,7 @@ import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, jordanNumber, phoneError, savedMobile, typedAnyPhone } from "./phone";
 import { ORDER_MAX, cleanOrder, countCouponUse, money, orderMatches, parseList, typedMoney, type Order, type OrderItem } from "./records";
 import { cleanLine, visibleLength } from "./safe";
-import { KNOWN_CITIES, ORDER_LIMITS, deliveryCities, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
+import { CONFIRMED_STATUSES, KNOWN_CITIES, ORDER_LIMITS, deliveryCities, freeDeliveryFor, holdsStockAfter, inLang, isCity, stockNotBack, stockTaken, takeStock, type Fulfil } from "./safeOrder";
 import { nextOrderNumber } from "./orderNumbers";
 import { shipCityLists, usePublicSettings } from "./platformPublic";
 import { loadSetup } from "./setup";
@@ -25,6 +25,7 @@ import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
 import { Skeleton } from "./Skeleton";
 import { noPhotoHue, ProductPhoto } from "./storefront/NoPhoto";
+import { merchantMoney } from "./moneyText";
 
 
 /* Kept in this browser so orders are still there when he comes back. */
@@ -63,16 +64,28 @@ const fromStore = (x: Row) => !!x.pay && (x.channel === 1 || x.payment === "test
 
 /** How a store order is paid, worked out from its way to pay and its status (nothing is kept for it in the browser):
     cash is "Cash on delivery" (or on pickup) until it is delivered, then "Paid (cash)", the same rule the home page and
-    Reports count a sale by (storeNumbers.ts saleState); card and CliQ take no money yet, so they say nothing was charged.
+    Reports count a sale by (storeNumbers.ts saleState); card and CliQ take no money online, so they say nothing was
+    charged until he marks the payment received ("Payment received": `payment` "paid"), then "Paid (card)" / "Paid (CliQ)".
     Null for an order he added himself. */
 function payLine(x: Row, o: Copy): { text: string; hint?: string; tone: "paid" | "due" | "test" | "off" } | null {
   if (!fromStore(x)) return null;
-  if (x.pay === "card" || x.pay === "cliq") return { text: x.pay === "card" ? o.testCard : o.testCliq, hint: o.testOrderHint, tone: "test" };
+  if ((x.pay === "card" || x.pay === "cliq") && x.payment === "paid") {
+    if (x.status === "cancelled") return { text: o.cancelledPaid, tone: "off" };
+    if (x.status === "refunded") return { text: o.refundedPay, tone: "off" };
+    return { text: x.pay === "card" ? o.paidCard : o.paidCliq, tone: "paid" };
+  }
+  /* a store order on the server can be marked paid (canMarkPaid); one from his own preview stays a test */
+  if (x.pay === "card" || x.pay === "cliq") return { text: x.pay === "card" ? o.testCard : o.testCliq, hint: canMarkPaid(x) ? o.payDueHint : o.testOrderHint, tone: "test" };
   if (x.status === "delivered") return { text: o.paidCash, tone: "paid" };
   if (x.status === "cancelled") return { text: o.cancelledPay, tone: "off" };
   if (x.status === "refunded") return { text: o.refundedPay, tone: "off" };
   const pickup = x.fulfil === "pickup";
   return { text: pickup ? o.cashPickup : o.payNames.cash, hint: pickup ? o.cashPickupHint : o.cashHint, tone: "due" };
+}
+
+/** A card or CliQ order from his public store whose payment he can mark received: not paid yet, not cancelled or refunded */
+function canMarkPaid(x: Row) {
+  return !!x.serverId && (x.pay === "card" || x.pay === "cliq") && x.payment !== "paid" && x.status !== "cancelled" && x.status !== "refunded";
 }
 
 /** A status as the page names it for this order: a new cash order says how it is paid ("Cash on delivery"), not just "New" */
@@ -128,10 +141,11 @@ function savedList(key: string): unknown[] | null {
   }
 }
 
-/** An order from his own store preview took its products out of the stock saved in this browser (storefront/Cart.tsx
-    saveOrder), and counted its coupon's use. Cancelling or refunding it gives back exactly what each line took
-    (`take` false), as the server does for store orders; moving it out of those again takes it again (`take` true),
-    refused ("short") when a product still in the store no longer has enough. `dry`: only says whether it can.
+/** An order from his own store preview takes its products out of the stock saved in this browser by the same rule as
+    the server's store orders (safeOrder holdsStockAfter): a cash order once he confirms it, never when it is placed
+    (storefront/Cart.tsx saveOrder; older preview orders took it then, `held` left out). Taking it (`take` true) is
+    refused ("short") when a product still in the store no longer has enough; giving it back (`take` false: cancelled,
+    refunded, or a cash order moved back to New) gives exactly what each line took. `dry`: only says whether it can.
     Gives the order's lines as they are after it (each with what it took this time) and the pieces that could not go
     back (their size no longer exists). */
 function moveLocalStock(order: Order, take: boolean, dry = false): { ok: true; items?: OrderItem[]; notBack: StockLine[] } | { ok: false; short: StockLine[] } {
@@ -158,14 +172,26 @@ function moveLocalStock(order: Order, take: boolean, dry = false): { ok: true; i
         localStorage.setItem("seen-products", JSON.stringify(takeStock(products, lines.map((it) => ({ ...it, qty: -it.took })))));
       }
     }
-    if (dry) return { ok: true, notBack };
-    const coupons = order.coupon ? savedList("seen-coupons") : null;
-    if (order.coupon && coupons) localStorage.setItem("seen-coupons", JSON.stringify(countCouponUse(coupons, order.coupon.code, { by: take ? 1 : -1 })));
   } catch {
     /* storage full or blocked: the status still changes */
   }
+  if (dry) return { ok: true, notBack };
   return { ok: true, items: next, notBack };
 }
+
+/** An order from his own store preview counted its coupon's use when it was placed: cancelling or refunding it gives
+    that back (`by` -1), bringing it back counts it again (1) */
+function moveLocalCoupon(order: Order, by: 1 | -1) {
+  try {
+    const coupons = order.coupon ? savedList("seen-coupons") : null;
+    if (order.coupon && coupons) localStorage.setItem("seen-coupons", JSON.stringify(countCouponUse(coupons, order.coupon.code, { by })));
+  } catch {
+    /* storage full or blocked: the status still changes */
+  }
+}
+
+/** Whether an order from his own store preview holds its stock now (one he added by hand never took any) */
+const localHeld = (x: Order) => x.channel === 1 && x.held !== false && x.status !== "cancelled" && x.status !== "refunded";
 
 /* ?open=<number> in the address (a notification, the search or the home page link here): read every time it changes,
    also while the page is already open, and then taken out of the address, so the same link opens it again later and a
@@ -227,6 +253,9 @@ export function Orders() {
   /* one deletion per dialog, even on a double click */
   const deleting = useRef(false);
   const [askStatus, setAskStatus] = useState<StatusKey | null>(null);
+  /* "Payment received" is asked first (it takes the stock); `paying`: the order (its server id) on its way */
+  const [askPaid, setAskPaid] = useState(false);
+  const [paying, setPaying] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -457,6 +486,7 @@ export function Orders() {
   useEffect(() => {
     setConfirmDelete(false);
     setAskStatus(null);
+    setAskPaid(false);
   }, [selected]);
 
   useEffect(() => {
@@ -535,7 +565,7 @@ export function Orders() {
         setMoreLoading(false);
       });
   };
-  const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = merchantMoney;
   const dateOf = (t: number, time = false) => {
     const day = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" }).format(new Date(t));
     if (!time) return day;
@@ -589,22 +619,28 @@ export function Orders() {
     const serverId = row.serverId;
     const was = row.status;
     const key = keyOf(row);
-    /* cancelling or refunding gives the order's stock (and its coupon's use) back, and leaving those takes it again */
-    const stockMoved = off(was) !== off(s);
     if (!serverId) {
-      /* an order from his own store preview: its stock is in this browser (moveLocalStock); one he added by hand took none */
-      const local = row.channel === 1 && stockMoved;
-      const m = local ? moveLocalStock(row, !off(s)) : null;
+      /* an order from his own store preview: its stock is in this browser (moveLocalStock), taken once he confirms it and
+         given back when he cancels it; its coupon's use goes with cancelling. One he added by hand took none. */
+      const local = row.channel === 1;
+      const heldNow = localHeld(row);
+      const holdsNext = local && holdsStockAfter({ pay: row.pay }, heldNow, was, s);
+      const stockGo = heldNow !== holdsNext;
+      const couponGo = local && off(was) !== off(s);
+      const m = stockGo ? moveLocalStock(row, holdsNext) : null;
       if (m && !m.ok) return setNotice({ key, text: o.noStock.replace("{items}", itemsText(m.short)) });
       setNotice(m?.notBack.length ? { key, text: o.notBack.replace("{items}", itemsText(m.notBack)), warn: true } : null);
-      const after: Order = { ...row, status: s, ...(m?.items ? { items: m.items } : {}) };
+      if (couponGo) moveLocalCoupon(row, off(s) ? -1 : 1);
+      const after: Order = { ...row, status: s, ...(local ? { held: holdsNext } : {}), ...(m?.items ? { items: m.items } : {}) };
       return change(
         ordersNow.current.map((x) => (x.id === row.id ? after : x)),
         statusLabel(row.id, s),
         (undone) => {
           if (!undone || !local) return;
+          if (couponGo) moveLocalCoupon(row, off(s) ? 1 : -1);
+          if (!stockGo) return;
           /* the stock goes back the other way; taken again, each line keeps what it took this time */
-          const back = moveLocalStock(after, off(s));
+          const back = moveLocalStock(after, heldNow);
           if (back.ok && back.items) {
             const next = ordersNow.current.map((x) => (x.id === row.id ? { ...x, items: back.items } : x));
             ordersNow.current = next;
@@ -612,7 +648,7 @@ export function Orders() {
           }
         },
         /* an undo that would take the stock again only while there is enough */
-        () => !local || moveLocalStock(after, off(s), true).ok,
+        () => !stockGo || moveLocalStock(after, heldNow, true).ok,
       );
     }
     /* an order from his public store: shown at once, saved on the server, and put back if the server did not take it */
@@ -634,7 +670,8 @@ export function Orders() {
         .catch(() => {
           /* offline: the next list brings it */
         });
-    type Sent = { ok: true; notBack: StockLine[] } | { ok: false; why: "offline" | "changed" | "no-stock" | "failed"; short?: StockLine[] };
+    /* `moved`: the order took its stock or gave it back (confirming, cancelling...): the products are fetched again */
+    type Sent = { ok: true; notBack: StockLine[]; moved: boolean } | { ok: false; why: "offline" | "changed" | "no-stock" | "failed"; short?: StockLine[] };
     /* `from`: always the status the page showed, so the server changes it only while the order still has it (a change
        or an undo never overwrites a newer change made elsewhere) */
     const send = async (st: StatusKey, from: StatusKey): Promise<Sent> => {
@@ -644,8 +681,8 @@ export function Orders() {
       } catch {
         return { ok: false, why: "offline" };
       }
-      const j = (await r.json().catch(() => null)) as { result?: unknown; notBack?: unknown; short?: unknown } | null;
-      if (r.ok) return { ok: true, notBack: stockLines(j?.notBack) };
+      const j = (await r.json().catch(() => null)) as { result?: unknown; notBack?: unknown; short?: unknown; moved?: unknown } | null;
+      if (r.ok) return { ok: true, notBack: stockLines(j?.notBack), moved: j?.moved === true };
       if (r.status === 409 && j?.result === "no-stock") return { ok: false, why: "no-stock", short: stockLines(j.short) };
       if (r.status === 409 && j?.result === "changed") return { ok: false, why: "changed" };
       return { ok: false, why: "failed" };
@@ -667,7 +704,7 @@ export function Orders() {
         else void reload();
         return;
       }
-      if (stockMoved) void pullOnlineKeys();
+      if (r.moved) void pullOnlineKeys();
       if (r.notBack.length) setNotice({ key, text: o.notBack.replace("{items}", itemsText(r.notBack)), warn: true });
       /* a status change sends the customer nothing, so it can be undone: the old status goes back the same way */
       offerUndo({
@@ -680,7 +717,7 @@ export function Orders() {
           const back = await send(was, s);
           if (back.ok) {
             put(was);
-            if (stockMoved) void pullOnlineKeys();
+            if (back.moved) void pullOnlineKeys();
             return true;
           }
           if (back.why === "offline") return "offline";
@@ -699,16 +736,85 @@ export function Orders() {
       setOrderStatus(row, s);
     }
   };
+  /* "Payment received" on a card or CliQ order from his public store (canMarkPaid): the server marks it paid and takes
+     its stock then (POST /api/orders/<id>/paid), or refuses when a product no longer has enough (nothing changes). Paid,
+     it shows so, and the products are fetched again (the stock moved). Not undone from here: the stock it took goes back
+     when he cancels or refunds the order. */
+  const markPaid = async (row: Row) => {
+    const serverId = row.serverId;
+    if (!serverId || paying) return;
+    const key = keyOf(row);
+    setPaying(serverId);
+    setNotice(null);
+    let r: Response | null = null;
+    try {
+      r = await fetch(`/api/orders/${serverId}/paid`, { method: "POST", credentials: "same-origin" });
+    } catch {
+      r = null;
+    }
+    const j = r ? ((await r.json().catch(() => null)) as { result?: unknown; moved?: unknown; short?: unknown } | null) : null;
+    setPaying(null);
+    setAskPaid(false);
+    if (r?.ok) {
+      const paid = (x: Row): Row => (x.serverId === serverId ? { ...x, payment: "paid" } : x);
+      serverNow.current = serverNow.current.map(paid);
+      setServerOrders((list) => list.map(paid));
+      if (j?.moved === true) void pullOnlineKeys();
+      return;
+    }
+    if (r?.status === 409 && j?.result === "no-stock") return setNotice({ key, text: o.noStock.replace("{items}", itemsText(stockLines(j.short))) });
+    if (r?.status === 400 || r?.status === 404) {
+      /* changed elsewhere (cancelled meanwhile, or gone): the order as the server has it now */
+      setNotice({ key, text: o.statusChanged });
+      fetch(`/api/orders?number=${row.id}`, { credentials: "same-origin", cache: "no-store" })
+        .then((x) => (x.ok ? x.json() : null))
+        .then((g: { orders?: unknown } | null) => {
+          const got = serverRows(g?.orders).find((x) => x.serverId === serverId);
+          if (!got) return;
+          serverNow.current = serverNow.current.map((x) => (x.serverId === serverId ? got : x));
+          setServerOrders((list) => list.map((x) => (x.serverId === serverId ? got : x)));
+        })
+        .catch(() => {
+          /* offline: the next list brings it */
+        });
+      return;
+    }
+    setNotice({ key, text: o.payFailed });
+  };
   /* Deleting needs a reason; the reason is kept with the deletion (orderDeletions.ts) */
   const remove = (id: number) => {
     if (deleting.current || !deleteReasonOk(reason)) return;
     deleting.current = true;
     logDeletion(id, cleanDeleteReason(reason));
+    /* an order from his own store preview that still holds its stock (it took it and is not cancelled or refunded,
+       which gave it back already) gives it back, once, the way a cancel does (moveLocalStock: the saved products, which
+       go to the server like any change); one not cancelled or refunded gives its coupon's use back too */
+    const row = ordersNow.current.find((x) => x.id === id);
+    const held = !!row && localHeld(row);
+    const couponOn = !!row && row.channel === 1 && !off(row.status);
+    const m = held && row ? moveLocalStock(row, false) : null;
+    if (couponOn && row) moveLocalCoupon(row, -1);
+    const gone: Order | undefined = row && m?.ok && m.items ? { ...row, items: m.items } : row;
     /* an Undo puts the order back and takes the deletion's record back with it. The record also goes when the undo had
-       nothing to do because the order is in the list again anyway (another device's copy brought it back). */
-    change(ordersNow.current.filter((x) => x.id !== id), (l) => undoWords[l].deleted(id), () => {
-      if (ordersNow.current.some((x) => x.id === id)) unlogDeletion(id);
-    });
+       nothing to do because the order is in the list again anyway (another device's copy brought it back). An order
+       that gave its stock back takes it again, so the undo waits while a product no longer has enough. */
+    change(
+      ordersNow.current.filter((x) => x.id !== id),
+      (l) => undoWords[l].deleted(id),
+      (undone) => {
+        if (undone && couponOn && row) moveLocalCoupon(row, 1);
+        if (undone && held && gone) {
+          const back = moveLocalStock(gone, true);
+          if (back.ok && back.items) {
+            const next = ordersNow.current.map((x) => (x.id === id ? { ...x, items: back.items } : x));
+            ordersNow.current = next;
+            setOrders(next);
+          }
+        }
+        if (ordersNow.current.some((x) => x.id === id)) unlogDeletion(id);
+      },
+      () => !held || !gone || moveLocalStock(gone, true, true).ok,
+    );
     setSelected(null);
     setConfirmDelete(false);
   };
@@ -965,10 +1071,11 @@ export function Orders() {
                           Nothing charged: "Free", or, delivered by his own courier with no fee set (not free by his offer
                           or a free delivery coupon), the store confirms the fee, as the customer was told */}
                       {current.delivery !== undefined && current.fulfil !== "pickup" && (() => {
-                        const ship = current.delivery === 0 ? loadSetup()?.shipping : null;
+                        /* what the order was told when it was placed (kept with it since); an older order: worked out from the settings now */
+                        const ship = current.delivery === 0 && current.feeOpen === undefined ? loadSetup()?.shipping : null;
                         const fd = ship ? loadFreeDelivery() : null;
                         const sub = (current.items ?? []).reduce((n, it) => n + it.qty * it.price, 0);
-                        const open = !!ship && ship.mode === "own" && ship.fee === undefined && !(current.coupon && current.coupon.discount === 0) && !(fd?.on && sub >= fd.min);
+                        const open = current.delivery === 0 && current.feeOpen !== undefined ? current.feeOpen : !!ship && ship.mode === "own" && ship.fee === undefined && !(current.coupon && current.coupon.discount === 0) && !(fd && freeDeliveryFor(fd, sub, current.coupon?.discount ?? 0));
                         return (
                           <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm font-semibold">
                             <span>{lang === "ar" ? "التوصيل" : "Delivery"}</span>
@@ -1008,12 +1115,31 @@ export function Orders() {
                   </p>
                 </div>
 
+                {/* a card or CliQ order from his store: he marks it paid once the customer paid him (it takes the stock then) */}
+                {canMarkPaid(current) && (
+                  <div className="mt-4">
+                    {!askPaid ? (
+                      <button type="button" onClick={() => setAskPaid(true)} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700">{o.payReceived}</button>
+                    ) : (
+                      <div role="alert" className="flex flex-wrap items-center gap-3">
+                        <p className="text-sm font-semibold">{o.payReceivedAsk}</p>
+                        <button type="button" disabled={!!paying} onClick={() => void markPaid(current)} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60">
+                          {paying === current.serverId ? o.paySaving : o.payReceivedYes}
+                        </button>
+                        <button type="button" disabled={!!paying} onClick={() => setAskPaid(false)} className="rounded-lg border border-fg/20 px-4 py-2 text-sm font-semibold transition hover:bg-soft disabled:opacity-60">{o.payReceivedNo}</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="mt-6 max-w-xs">
                   <label htmlFor="o-status" className="mb-2 block text-sm font-semibold">{o.changeStatus}</label>
                   <select id="o-status" value={askStatus ?? current.status} onChange={(e) => pickStatus(current, e.target.value as StatusKey)} className={`${field} h-11`}>
                     {STATUS_KEYS.map((k) => <option key={k} value={k}>{statusName(current, k, o)}</option>)}
                   </select>
                 </div>
+                {/* moved on before its payment was marked received: it takes no stock until then */}
+                {canMarkPaid(current) && CONFIRMED_STATUSES.includes(current.status) && current.ship?.state !== "delivered" && <p role="status" className="mt-3 text-sm font-semibold text-amber-700 dark:text-amber-400">{o.payNotYet}</p>}
                 {askStatus && (
                   <div role="alert" className="mt-3 flex flex-wrap items-center gap-3">
                     <p className="text-sm text-rose-600">{o.statusAsk.replace("{status}", o.statuses[askStatus])}</p>

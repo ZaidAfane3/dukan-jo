@@ -1,7 +1,9 @@
 /* What a merchant chose on Settings, Customize notifications: for each event, whether it should reach him by WhatsApp
    and whether by email. Shared by the page (components/NotificationPrefs.tsx) and the server
-   (app/api/notification-prefs/route.ts, table notification_prefs in server/schema.ts). Nothing sends these messages
-   yet: a future WhatsApp/email sender reads the saved choices. No browser or server code here, so both sides can use it. */
+   (app/api/notification-prefs/route.ts, table notification_prefs in server/schema.ts). The email choice of the events in
+   LIVE_EMAIL is read by server/notify.ts before it emails him; WhatsApp is not built yet, and the other events have no
+   source yet (see LIVE_EMAIL), so their switches show "Coming soon". No browser or server code here, so both sides can
+   use it. */
 
 /** The events the page lists, in the page's order. The ids are stored in the database: never rename one. */
 export const NOTIFY_EVENTS = ["newOrder", "storeRating", "productRating", "shippingRating", "customerQuestion", "lowStock", "outOfStock"] as const;
@@ -11,6 +13,19 @@ export type NotifyChannel = (typeof NOTIFY_CHANNELS)[number];
 
 export type NotifyChoice = Record<NotifyChannel, boolean>;
 export type NotifyPrefs = Record<NotifyEvent, NotifyChoice>;
+
+/** The events Dukkan really emails today (server/notify.ts), each only while its email switch is on:
+    - newOrder    a customer placed an order on the store's page (server/storeOrders.ts placeStoreOrder);
+    - lowStock    an order took a product's stock down to its "warn me at" number (the product's lowAt) or below;
+    - outOfStock  an order took its last piece.
+    Customers can't rate a store, a product or a shipping company on Dukkan yet, and "Ask about this product" on the
+    store opens a WhatsApp chat with the merchant, so nothing of storeRating, productRating, shippingRating or
+    customerQuestion ever reaches the server: those rows say "Coming soon". WhatsApp is not built, for any event: every
+    WhatsApp switch says "Coming soon". The saved values of those switches are kept as they are, for when they come. */
+export const LIVE_EMAIL: readonly NotifyEvent[] = ["newOrder", "lowStock", "outOfStock"];
+
+/** Whether a switch does something today (the page shows the others as "Coming soon", and can't flip them) */
+export const notifyLive = (event: NotifyEvent, channel: NotifyChannel): boolean => channel === "email" && LIVE_EMAIL.includes(event);
 
 /** The default, for an account that never chose (and for any event missing from what was saved): every event by
     WhatsApp and by email, as the page always started. */

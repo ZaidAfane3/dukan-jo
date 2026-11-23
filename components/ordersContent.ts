@@ -66,6 +66,20 @@ type OrdersCopy = {
   cashPickupHint: string;
   testCard: string;
   testCliq: string;
+  /* a card or CliQ store order: nothing is charged online, so he marks it paid once the customer paid him ("Payment
+     received", POST /api/orders/<id>/paid: its stock is taken then); paid, it says so, also once cancelled */
+  payDueHint: string;
+  paidCard: string;
+  paidCliq: string;
+  cancelledPaid: string;
+  payReceived: string;
+  payReceivedAsk: string;
+  payReceivedYes: string;
+  payReceivedNo: string;
+  paySaving: string;
+  payFailed: string;
+  /* such an order moved on (Processing, Out for delivery, Delivered) before its payment was marked received */
+  payNotYet: string;
   /* reaching the customer from the order: a call, WhatsApp with a first message ({n}: order number, {store}: store name) */
   call: string;
   whatsapp: string;
@@ -79,7 +93,8 @@ type OrdersCopy = {
   statusFailed: string;
   /* the order changed meanwhile (another tab or device): it was loaded again */
   statusChanged: string;
-  /* bringing an order back out of cancelled or refunded: a product no longer has enough stock for it ({items}) */
+  /* confirming an order (it takes its stock then), or bringing it back out of cancelled or refunded: a product no longer
+     has enough stock for it ({items}) */
   noStock: string;
   /* a cancel gave the stock back, but some pieces had no size left to go back to ({items}) */
   notBack: string;
@@ -173,6 +188,17 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     cashPickupHint: "The customer pays at your store when collecting the order. Mark it Delivered once you have the cash.",
     testCard: "Card (test, nothing charged)",
     testCliq: "CliQ (test, nothing charged)",
+    payDueHint: "Nothing was charged on your store's page. Once the customer has paid you, press “Payment received”.",
+    paidCard: "Paid (card)",
+    paidCliq: "Paid (CliQ)",
+    cancelledPaid: "Cancelled after it was paid",
+    payReceived: "Payment received",
+    payReceivedAsk: "Mark this order as paid? This takes the pieces from your stock.",
+    payReceivedYes: "Yes, it's paid",
+    payReceivedNo: "Not yet",
+    paySaving: "Saving…",
+    payFailed: "The payment couldn't be saved. Check your connection and try again.",
+    payNotYet: "Payment not received yet. The pieces stay in your stock until you press “Payment received”.",
     call: "Call",
     whatsapp: "WhatsApp",
     waText: "Hello, about your order #{n} from {store}",
@@ -182,7 +208,7 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     shipWhy: "Why",
     statusFailed: "The status couldn't be saved. Check your connection and try again.",
     statusChanged: "This order was changed elsewhere in the meantime. It now shows its latest status: change it again if you need to.",
-    noStock: "There is not enough stock left to bring this order back: {items}. Add stock on the Products page, then try again.",
+    noStock: "Not enough stock left for this order: {items}. Add stock on the Products page, then try again.",
     notBack: "The order is cancelled, but some pieces could not go back to stock because their size no longer exists: {items}. Update the stock on the Products page.",
     newOrderWait: "Wait until your store's orders have loaded.",
     storeShown: "Showing {n} of {total} orders from your store page",
@@ -249,7 +275,7 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     delete: "حذف الطلب",
     deleteAsk: "هل تريد حذف هذا الطلب؟ لا يمكن التراجع عن ذلك.",
     deleteReason: "لماذا تحذف هذا الطلب؟",
-    deleteReasonPh: "سيتم إرسال هذا السبب إلى دكّان في حال حدوث أي مشكلة.",
+    deleteReasonPh: "سيتم إرسال هذا السبب إلى دكان في حال حدوث أي مشكلة.",
     deleteReasonHint: "اكتب {min} أحرف على الأقل.",
     deleteYes: "نعم، احذف",
     cancel: "إلغاء",
@@ -269,16 +295,27 @@ export const ordersCopy: Record<Lang, OrdersCopy> = {
     cashPickupHint: "يدفع العميل في متجرك عند استلام الطلب. غيّر الحالة إلى «تم التوصيل» بعد استلام المبلغ.",
     testCard: "بطاقة (تجريبي، لم يُخصم شيء)",
     testCliq: "كليك (تجريبي، لم يُخصم شيء)",
+    payDueHint: "لم يُخصم أي مبلغ عبر صفحة متجرك. بعد أن يدفع لك العميل، اضغط «تم استلام الدفع».",
+    paidCard: "مدفوع (بطاقة)",
+    paidCliq: "مدفوع (كليك)",
+    cancelledPaid: "أُلغي بعد أن دُفع",
+    payReceived: "تم استلام الدفع",
+    payReceivedAsk: "هل تريد تسجيل هذا الطلب كمدفوع؟ سيتم خصم القطع من مخزونك.",
+    payReceivedYes: "نعم، تم الدفع",
+    payReceivedNo: "ليس بعد",
+    paySaving: "جارٍ الحفظ…",
+    payFailed: "تعذّر حفظ الدفع. تأكد من اتصالك وحاول مرة أخرى.",
+    payNotYet: "لم يُستلم الدفع بعد. تبقى القطع في مخزونك حتى تضغط «تم استلام الدفع».",
     call: "اتصال",
     whatsapp: "واتساب",
     waText: "مرحبًا، بخصوص طلبك رقم {n} من {store}",
     waTextNoStore: "مرحبًا، بخصوص طلبك رقم {n}",
-    shipTitle: "التوصيل عبر شحن دكّان",
-    shipStates: { waiting: "بانتظار أن يوصله شحن دكّان", delivered: "سلّمه شحن دكّان", failed: "تعذّر على شحن دكّان تسليمه" },
+    shipTitle: "التوصيل عبر شحن دكان",
+    shipStates: { waiting: "بانتظار أن يوصله شحن دكان", delivered: "سلّمه شحن دكان", failed: "تعذّر على شحن دكان تسليمه" },
     shipWhy: "السبب",
     statusFailed: "تعذّر حفظ الحالة. تأكد من اتصالك وحاول مرة أخرى.",
     statusChanged: "تغيّر هذا الطلب من مكان آخر في هذه الأثناء. تظهر الآن آخر حالة له: غيّرها مرة أخرى إن احتجت.",
-    noStock: "لا يكفي المخزون المتبقي لإعادة هذا الطلب: {items}. أضف مخزونًا من صفحة المنتجات ثم حاول مرة أخرى.",
+    noStock: "لا يكفي المخزون المتبقي لهذا الطلب: {items}. أضف مخزونًا من صفحة المنتجات ثم حاول مرة أخرى.",
     notBack: "أُلغي الطلب، لكن بعض القطع لم تعد إلى المخزون لأن مقاسها لم يعد موجودًا: {items}. عدّل المخزون من صفحة المنتجات.",
     newOrderWait: "انتظر حتى يكتمل تحميل طلبات متجرك.",
     storeShown: "يظهر {n} من {total} طلبًا من صفحة متجرك",

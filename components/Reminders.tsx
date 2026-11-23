@@ -171,11 +171,19 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
   usePageTitle(`${brandName(lang)} | ${c.title}`);
 
   useEffect(() => {
-    const l = load(KEY);
-    loadedList.current = l;
-    setList(l);
+    const read = () => {
+      const l = load(KEY);
+      loadedList.current = l;
+      setList(l);
+    };
+    read();
     setReady(true);
-  }, []);
+    /* His save was merged with another device's reminders (serverSync.ts mergeStale), or another tab changed them: take
+       that list, so this page never writes its older one back over it */
+    const onStorage = (e: StorageEvent) => e.key === KEY && read();
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [KEY]);
 
   useEffect(() => {
     if (!ready || list === loadedList.current) return;

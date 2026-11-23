@@ -5,6 +5,7 @@ import { isTestOrder, saleState } from "@/components/storeNumbers";
 import { lookupKeys, NAME_KEYS_VERSION, nameKeys, nameSearchKeys, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { logMerchant, type MerchantAction, type MerchantMeta } from "./merchantLog";
+import { holdOldSlug } from "./slugHolds";
 import { SETUP_STEPS } from "@/components/safeOrder";
 
 /* The shops table: one row per merchant account, worked out on the server from what the merchant's pages sync to
@@ -177,6 +178,9 @@ export async function syncShop(
     await c.query(sql, [...values.slice(0, 2), null, ...values.slice(3)]);
     slugKept = null;
   }
+  /* a live store's old link is held for it for a while (server/slugHolds.ts): a problem there never fails the save */
+  if (was?.published && (was.slug ?? "").toLowerCase() !== (slugKept ?? "").toLowerCase())
+    await holdOldSlug(c, accountId, was.slug ?? "", slugKept).catch((e) => console.error("[shops] holding old link", accountId, e));
   if (was)
     logShopChanges(accountId, was, {
       name: values[1] as string,
@@ -284,12 +288,15 @@ export const likeText = (s: string) => `%${s.replace(/[\u0000-\u001f\u007f]/g, "
 
 /** The orders customers placed on the store's page (store_orders) of the shop `s`, as a LATERAL subquery: counted the
     way the merchant's Home counts them (components/storeNumbers.ts). Every one is a store order, so one paid by card or
-    CliQ is a test order (no payment is taken yet: isTestOrder) and is not counted; a cash one is an order whatever its
-    status, and a sale once delivered (saleState). n: its orders; test: the test orders left out; sales: what the
-    delivered ones brought in. Only counts and a total leave the database, never the orders. */
-export const STORE_ORDERS_SQL = (s = "s") => `(SELECT count(*) FILTER (WHERE o.payment_method NOT IN ('card', 'cliq'))::int AS n,
-         count(*) FILTER (WHERE o.payment_method IN ('card', 'cliq'))::int AS test,
-         COALESCE(sum(o.total) FILTER (WHERE o.payment_method NOT IN ('card', 'cliq') AND o.status = 'delivered'), 0) AS sales
+    CliQ is a test order (no payment is taken online yet: isTestOrder) and is not counted, until the merchant marks its
+    payment received (payment_status 'paid'): then it is an order, and a sale while not cancelled or refunded; a cash one
+    is an order whatever its status, and a sale once delivered (saleState). n: its orders; test: the test orders left
+    out; sales: what the sales brought in. Only counts and a total leave the database, never the orders. */
+export const REAL_STORE_ORDER = (o = "o") => `(${o}.payment_method NOT IN ('card', 'cliq') OR ${o}.payment_status = 'paid')`;
+export const STORE_ORDERS_SQL = (s = "s") => `(SELECT count(*) FILTER (WHERE ${REAL_STORE_ORDER()})::int AS n,
+         count(*) FILTER (WHERE NOT ${REAL_STORE_ORDER()})::int AS test,
+         COALESCE(sum(o.total) FILTER (WHERE (o.payment_method NOT IN ('card', 'cliq') AND o.status = 'delivered')
+           OR (o.payment_method IN ('card', 'cliq') AND o.payment_status = 'paid' AND o.status NOT IN ('cancelled', 'refunded'))), 0) AS sales
     FROM store_orders o WHERE o.account_id = ${s}.account_id)`;
 /** A shop's orders and sales as the merchant's Home shows them: the shops row's (the orders kept in store_data) and its
     store page's (STORE_ORDERS_SQL, joined as `so`) together */
@@ -351,6 +358,12 @@ export function shopListSql(p: URLSearchParams): { sql: string; params: unknown[
   return { sql, params, order: SORTS[p.get("sort") ?? ""] ?? SORTS.newest };
 }
 
-export const SHOP_LIST_COLUMNS = `s.account_id AS id, s.name, s.slug, a.name AS owner, a.email, a.phone,
+/** The shop list's columns. Never the owner's email or mobile (security F08): the paged list could be walked for every
+    merchant's contacts with no password and no trace. They come one store at a time behind the staff member's password
+    (app/api/diwan/shops/[id]/contacts), or all together in the export (SHOP_EXPORT_COLUMNS), which needs it too. The
+    search still finds an owner by the full email or mobile typed (their fingerprints, shopListSql). */
+export const SHOP_LIST_COLUMNS = `s.account_id AS id, s.name, s.slug, a.name AS owner,
   (${STATUS_SQL}) AS status, s.setup_done, s.published, s.paused, s.ship_mode, s.product_count, ${STORE_PAGE_SQL},
   s.last_seen_at, s.created_at`;
+/** The same with the owner's email and mobile, for the password-protected CSV export only */
+export const SHOP_EXPORT_COLUMNS = `${SHOP_LIST_COLUMNS}, a.email, a.phone`;

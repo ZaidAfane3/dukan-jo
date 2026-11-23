@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 import { countTry, limitReached, tooMany, visitorIp } from "./auth";
 import { blind, emailKey, seal } from "./crypto";
 import { db } from "./db";
-import { codeMailLimited, emailOn, freshCodeMail, noteCodeMail, sendEmail } from "./email";
+import { codeMailLimited, type EmailPart, emailOn, freshCodeMail, noteCodeMail, sendEmail } from "./email";
 import { cookieLang } from "./lang";
 
 /* 6-digit codes sent by email, for three things (while Dukkan can send email, server/email.ts emailOn):
@@ -16,9 +16,13 @@ import { cookieLang } from "./lang";
    - "change": a new email in Settings. The account keeps its old email until the new one's code is typed
      (app/api/account/email), so a mistyped address never becomes the account's.
 
+   - "staff-login" / "staff-change": the same for Diwan's staff, every sign-in and a new email (server/staffSignin.ts);
+     "staff-change-old": a staff member's new email approved first from the current one, as "change-old" is for merchants.
+
    One table, email_codes. `ref` names what a code is for: "s:<signup_pending id>", "l:<session token hash>" or
-   "c:<account id>". A code is kept only as an HMAC with the server's key (crypto.ts blind) of its ref, the address it went
-   to and the code; it lives CODE_MINUTES, takes CODE_TRIES tries and works once, and a new code for the same ref ends
+   "c:<account id>" (staff: "sl:<waiting sign-in token hash>", "sco:<staff id>" then "sc:<staff id>"). A code is kept only as an HMAC with
+   the server's key (crypto.ts blind) of its ref, the address it went to and the code (and, for a "change-old" approval,
+   the new address it approves); it lives CODE_MINUTES, takes CODE_TRIES tries and works once, and a new code for the same ref ends
    the ones before it once its email went out (so only the newest email's code works; if the new email can't be sent,
    the code before it keeps working). Typing the code of an earlier email answers "expired" and costs no try: the
    person only has to look at the newest email.
@@ -42,8 +46,15 @@ export const REF_TRIES = 10;
 export const SEND_PER_REF = { max: 3, minutes: 15 };
 export const SEND_PER_IP = { max: 20, minutes: 60 };
 
-/* "change-old": with 2-step sign-in on, a new email is first approved from the current one (app/api/account/email) */
-export type CodePurpose = "signup" | "login" | "change" | "twostep" | "change-old";
+/* "change-old": with 2-step sign-in on, a new email is first approved from the current one (app/api/account/email).
+   "staff-login" / "staff-change": Diwan staff's sign-in code and a new email in Diwan (server/staffSignin.ts); their
+   words come with them (CodeEmailWords), in the member's saved language or both. */
+export type MerchantCodePurpose = "signup" | "login" | "change" | "twostep" | "change-old";
+export type CodePurpose = MerchantCodePurpose | "staff-login" | "staff-change" | "staff-change-old";
+/** The approvals from the current email (merchants' and staff's): each code row names the new address it approves */
+const isApproval = (purpose: string) => purpose === "change-old" || purpose === "staff-change-old";
+/** An email's own words, for codes whose words aren't in codeWords (parts: both languages, server/emailWords.ts bothLangs) */
+export type CodeEmailWords = { subject: string; heading: string; text: string; parts?: EmailPart[] };
 export type CodeLang = "ar" | "en";
 
 /** The language of the email: what the page asked for, else the page's saved language (server/lang.ts), else the
@@ -57,19 +68,21 @@ export function verifyLang(req: NextRequest, asked?: unknown): CodeLang {
 }
 
 /** The words of each email */
-export function codeWords(purpose: CodePurpose, lang: CodeLang) {
+export function codeWords(purpose: MerchantCodePurpose, lang: CodeLang, approves = "") {
   const m = CODE_MINUTES;
+  /* an approval names the address it approves (partly hidden), so the owner sees at once a change to an address not his */
+  const to = approves ? maskEmail(approves) : "";
   if (lang === "ar") {
     const w = {
-      signup: ["رمز إنشاء حسابك في دكّان", "أكّد بريدك الإلكتروني", `أهلًا بك في دكّان! هذا رمز إنشاء حسابك.\nاكتبه في صفحة التسجيل، وينتهي خلال ${m} دقائق.\nإذا لم تطلبه فتجاهل هذه الرسالة.`],
-      login: ["رمز تسجيل الدخول إلى دكّان", "رمز تسجيل الدخول", `هذا رمز تسجيل دخولك إلى دكّان.\nاكتبه في صفحة تسجيل الدخول، وينتهي خلال ${m} دقائق.\nإذا لم تحاول تسجيل الدخول فغيّر كلمة المرور الآن.`],
-      twostep: ["رمز التحقق بخطوتين في دكّان", "رمز التحقق بخطوتين", `هذا رمزك لتغيير إعداد التحقق بخطوتين في دكّان.
+      signup: ["رمز إنشاء حسابك في دكان", "أكّد بريدك الإلكتروني", `أهلًا بك في دكان! هذا رمز إنشاء حسابك.\nاكتبه في صفحة التسجيل، وينتهي خلال ${m} دقائق.\nإذا لم تطلبه فتجاهل هذه الرسالة.`],
+      login: ["رمز تسجيل الدخول إلى دكان", "رمز تسجيل الدخول", `هذا رمز تسجيل دخولك إلى دكان.\nاكتبه في صفحة تسجيل الدخول، وينتهي خلال ${m} دقائق.\nإذا لم تحاول تسجيل الدخول فغيّر كلمة المرور الآن.`],
+      twostep: ["رمز التحقق بخطوتين في دكان", "رمز التحقق بخطوتين", `هذا رمزك لتغيير إعداد التحقق بخطوتين في دكان.
 اكتبه في صفحة الإعدادات، وينتهي خلال ${m} دقائق.
 إذا لم تطلبه فغيّر كلمة المرور الآن.`],
-      "change-old": ["رمز الموافقة على تغيير بريدك في دكّان", "الموافقة على تغيير البريد", `طُلب تغيير بريد حسابك في دكّان. هذا رمز الموافقة على التغيير.
+      "change-old": ["رمز الموافقة على تغيير بريدك في دكان", "الموافقة على تغيير البريد", `طُلب تغيير بريد حسابك في دكان${to ? ` إلى ⁨${to}⁩` : ""}. هذا رمز الموافقة على التغيير، وهو لهذا البريد وحده.
 اكتبه في صفحة الإعدادات، وينتهي خلال ${m} دقائق.
 إذا لم تطلبه فلا تكتبه لأحد، وغيّر كلمة المرور الآن.`],
-      change: ["أكّد بريدك الجديد في دكّان", "تأكيد البريد الإلكتروني الجديد", `هذا رمز تأكيد بريدك الإلكتروني الجديد في دكّان.\nاكتبه في صفحة الإعدادات، وينتهي خلال ${m} دقائق.\nإذا لم تطلبه فتجاهل هذه الرسالة.`],
+      change: ["أكّد بريدك الجديد في دكان", "تأكيد البريد الإلكتروني الجديد", `هذا رمز تأكيد بريدك الإلكتروني الجديد في دكان.\nاكتبه في صفحة الإعدادات، وينتهي خلال ${m} دقائق.\nإذا لم تطلبه فتجاهل هذه الرسالة.`],
     }[purpose];
     return { subject: w[0], heading: w[1], text: w[2] };
   }
@@ -79,7 +92,7 @@ export function codeWords(purpose: CodePurpose, lang: CodeLang) {
     twostep: ["Your Dukkan 2-step code", "2-step sign-in code", `Here is your code to change 2-step sign-in on Dukkan.
 Type it in Settings. It expires in ${m} minutes.
 If you didn't ask for it, change your password now.`],
-    "change-old": ["Approve the change of your Dukkan email", "Approve the email change", `Someone asked to change the email of your Dukkan account. Here is the code to approve it.
+    "change-old": ["Approve the change of your Dukkan email", "Approve the email change", `Someone asked to change the email of your Dukkan account${to ? ` to ${to}` : ""}. Here is the code to approve it, for that address only.
 Type it in Settings. It expires in ${m} minutes.
 If it wasn't you, don't share this code, and change your password now.`],
     change: ["Confirm your new Dukkan email", "Confirm your new email", `Here is the code to confirm your new Dukkan email address.\nType it in Settings. It expires in ${m} minutes.\nIf you didn't ask for it, you can ignore this email.`],
@@ -87,7 +100,12 @@ If it wasn't you, don't share this code, and change your password now.`],
   return { subject: w[0], heading: w[1], text: w[2] };
 }
 
-const codeHash = (ref: string, emailHash: string, code: string) => blind(`email-code:${ref}:${emailHash}:${code}`);
+/* a "change-old" code also covers the new address it approves (`approves`: its emailKey), so it approves that one only */
+const codeHash = (ref: string, emailHash: string, code: string, approves = "") => blind(`email-code:${ref}:${emailHash}${approves ? `>${approves}` : ""}:${code}`);
+const approvesOf = (purpose: string, newEmail: string | null | undefined) => (isApproval(purpose) && newEmail ? emailKey(newEmail) : "");
+/** The hash a code row must have for `code`: its ref, its address and, for an approval, the address it approves */
+const rowHash = (ref: string, row: { purpose: string; email_hash: string; new_email: string | null }, code: string) =>
+  codeHash(ref, row.email_hash, code, approvesOf(row.purpose, row.new_email));
 const sameHex = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 /** True while this ref had REF_TRIES wrong tries in the last hour: no checking and no new codes until it passes */
@@ -146,9 +164,11 @@ export async function freshSignInCodes(accountId: string | number): Promise<void
 
 export type SendResult = "sent" | "failed" | "slow-down" | "locked" | "off";
 
-/** Makes a new code for `ref` (the ones before it end once it went out) and emails it to `email`, waiting for the send. `newEmail`: the
-    address a "change" code moves the account to (the same as `email`). */
-export async function sendCodeEmail(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang): Promise<SendResult> {
+/** Makes a new code for `ref` (the ones before it end once it went out) and emails it to `email`, waiting for the send.
+    `approves`: for a "change-old" code, the new address it approves. It is written on the code's row when the row is
+    made, never changed after, and is part of the code's hash: one approval code approves that one address only.
+    `words`: the email's own words (staff codes). */
+export async function sendCodeEmail(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang, approves = "", words?: CodeEmailWords): Promise<SendResult> {
   /* one at a time for each ref, each address and each connection: many clicks at the same moment (or many sign-ups with
      one address) wait for each other instead of all passing the caps before the first send is counted. Always taken in
      this order (ref, address, connection), so two sends can never each wait for the other. */
@@ -157,13 +177,23 @@ export async function sendCodeEmail(req: NextRequest, purpose: CodePurpose, ref:
   return inTurn(async () => {
     /* a code sent to this address for this ref less than a minute ago, still good: no new email (it costs, and the
        person already has a code that works). Clicking again and again sends one email. */
-    const { rows } = await (await db()).query(
-      `SELECT 1 FROM email_codes WHERE ref = $1 AND email_hash = $2 AND used_at IS NULL AND expires_at > now()
-          AND created_at > now() - make_interval(secs => $3) LIMIT 1`,
+    const pool = await db();
+    const { rows } = await pool.query(
+      `SELECT purpose, new_email FROM email_codes WHERE ref = $1 AND email_hash = $2 AND used_at IS NULL AND expires_at > now()
+          AND created_at > now() - make_interval(secs => $3) ORDER BY id DESC LIMIT 1`,
       [ref, emailKey(email), RESEND_SECONDS],
     );
-    if (rows.length) return "sent";
-    return sendNewCode(req, purpose, ref, email, lang);
+    const want = isApproval(purpose) ? emailKey(approves) : "";
+    /* an approval is reused only for the same new address */
+    if (rows[0] && approvesOf(String(rows[0].purpose), rows[0].new_email) === want) return "sent";
+    /* an approval asked for another new address: the codes still good for the one before end as soon as the new one is
+       written (even if its email can't be sent), so no code approves an address the page no longer shows */
+    let endOthers = false;
+    if (isApproval(purpose)) {
+      const { rows: live } = await pool.query(`SELECT purpose, new_email FROM email_codes WHERE ${LIVE}`, [ref]);
+      endOthers = live.some((x) => approvesOf(String(x.purpose), x.new_email) !== want);
+    }
+    return sendNewCode(req, purpose, ref, email, lang, approves, endOthers, words);
   });
 }
 
@@ -184,7 +214,7 @@ async function oneAtATime<T>(key: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang): Promise<SendResult> {
+async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang, approves: string, endOthers: boolean, words?: CodeEmailWords): Promise<SendResult> {
   /* without an email provider nothing can be confirmed, except on the dev server, where the code is shown in its console */
   const devConsole = !emailOn() && process.env.NODE_ENV === "development";
   if (!emailOn() && !devConsole) return "off";
@@ -200,15 +230,24 @@ async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, 
   const { rows } = await pool.query(
     `INSERT INTO email_codes (ref, purpose, email_hash, new_email, code_hash, expires_at, used_at)
      VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6), now()) RETURNING id`,
-    [ref, purpose, key, purpose === "change" ? seal(email) : null, codeHash(ref, key, code), CODE_MINUTES],
+    [
+      ref,
+      purpose,
+      key,
+      purpose === "change" || purpose === "staff-change" ? seal(email) : isApproval(purpose) ? seal(approves) : null,
+      codeHash(ref, key, code, isApproval(purpose) ? emailKey(approves) : ""),
+      CODE_MINUTES,
+    ],
   );
   const id = String(rows[0].id);
+  if (endOthers) await pool.query(`UPDATE email_codes SET used_at = now() WHERE ref = $1 AND used_at IS NULL AND id <> $2`, [ref, id]);
   /* now and then, clear out what ran out more than a day ago */
   if (Math.random() < 0.05) pool.query(`DELETE FROM email_codes WHERE expires_at < now() - interval '1 day'`).catch(() => {});
-  const w = codeWords(purpose, lang);
+  /* the staff codes always bring their words (server/staffSignin.ts) */
+  const w = words ?? codeWords(purpose as MerchantCodePurpose, lang, purpose === "change-old" ? approves : "");
   try {
     if (devConsole) console.info(`[email] (dev, no email provider) the ${purpose} code for ${email}: ${code}`);
-    else await sendEmail({ to: email, subject: w.subject, heading: w.heading, text: w.text, lang, code });
+    else await sendEmail({ to: email, subject: w.subject, heading: w.heading, text: w.text, lang, code, parts: words?.parts });
   } catch (e) {
     /* logged without the code. Nobody got this code, so it stays ended. The ones before it stay good when they went to
        this same address (the person still has that email); one sent to another address ends, since the person moved on
@@ -267,34 +306,34 @@ export async function checkCodeFor(ref: string, code: string): Promise<CheckResu
   const { rows } = await pool.query(
     `UPDATE email_codes SET attempts = attempts + 1
       WHERE id = (SELECT id FROM email_codes WHERE ${LIVE} ORDER BY id DESC LIMIT 1) AND attempts < $2
-      RETURNING id, email_hash, new_email, code_hash, attempts`,
+      RETURNING id, purpose, email_hash, new_email, code_hash, attempts`,
     [ref, CODE_TRIES],
   );
-  const r = rows[0] as { id: string; email_hash: string; new_email: string | null; code_hash: string; attempts: number } | undefined;
+  const r = rows[0] as { id: string; purpose: string; email_hash: string; new_email: string | null; code_hash: string; attempts: number } | undefined;
   if (!r) {
     giveBack();
     /* just used by the same right code (a second tab): "ok" again, for a few minutes only */
     const { rows: done } = await pool.query(
-      `SELECT email_hash, new_email, code_hash FROM email_codes WHERE ref = $1 AND confirmed_at > now() - interval '5 minutes' ORDER BY id DESC LIMIT 1`,
+      `SELECT purpose, email_hash, new_email, code_hash FROM email_codes WHERE ref = $1 AND confirmed_at > now() - interval '5 minutes' ORDER BY id DESC LIMIT 1`,
       [ref],
     );
-    if (done[0] && sameHex(codeHash(ref, done[0].email_hash, code), done[0].code_hash))
+    if (done[0] && sameHex(rowHash(ref, done[0], code), done[0].code_hash))
       return { result: "ok", emailHash: done[0].email_hash, newEmail: done[0].new_email ?? null, again: true };
     /* this code's tries are used up, or there is no good code (never sent, ran out, used, or a newer one was sent) */
     const { rows: live } = await pool.query(`SELECT 1 FROM email_codes WHERE ${LIVE} LIMIT 1`, [ref]);
     return { result: live.length ? "too-many" : "expired" };
   }
-  if (!sameHex(codeHash(ref, r.email_hash, code), r.code_hash)) {
+  if (!sameHex(rowHash(ref, r, code), r.code_hash)) {
     /* the code of an earlier email of this ref (a newer one was sent since): not a guess, so the try is given back and
        the answer is "expired", which tells the person to use the newest email. Matching an old code gives nothing away:
        it can't be used any more. */
     const { rows: before } = await pool.query(
-      `SELECT email_hash, code_hash FROM email_codes
+      `SELECT purpose, email_hash, new_email, code_hash FROM email_codes
         WHERE ref = $1 AND id < $2 AND confirmed_at IS NULL AND created_at > now() - interval '1 hour'
         ORDER BY id DESC LIMIT 10`,
       [ref, r.id],
     );
-    if ((before as { email_hash: string; code_hash: string }[]).some((b) => sameHex(codeHash(ref, b.email_hash, code), b.code_hash))) {
+    if ((before as { purpose: string; email_hash: string; new_email: string | null; code_hash: string }[]).some((b) => sameHex(rowHash(ref, b, code), b.code_hash))) {
       await pool.query(`UPDATE email_codes SET attempts = attempts - 1 WHERE id = $1 AND attempts > 0`, [r.id]);
       giveBack();
       return { result: "expired" };

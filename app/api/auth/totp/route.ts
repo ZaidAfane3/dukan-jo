@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { latin } from "@/components/digits";
-import { answer, finishPendingSession, guarded, noteLogin, pendingAccount, readJson, sameOrigin, tooMany, visitorIp } from "@/server/auth";
+import { answer, finishPendingSession, guarded, noteLogin, noteSigninPlace, pendingAccount, readJson, sameOrigin, tooMany, visitorIp } from "@/server/auth";
 import { checkCodeFor, sendCodeEmail, verifyLang } from "@/server/emailVerify";
 import { useRecoveryCode } from "@/server/recovery";
 import { touchShop } from "@/server/shops";
@@ -83,8 +83,10 @@ export const POST = guarded(async (req: NextRequest) => {
     logMerchant(a.id, "twostep.recovery-used");
   }
   const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone }, totpOn: true });
-  await finishPendingSession(res, req);
+  /* the waiting sign-in ended meanwhile (another device signed in, it ran out): sign in again */
+  if (!(await finishPendingSession(res, req))) return answer({ result: "gone" }, 401);
   await noteLogin(a.id, req);
+  await noteSigninPlace(req, `m:${a.id}`);
   logMerchant(a.id, "signin", { twoStep: true, recovery: !/^\d{6}$/.test(six) });
   touchShop(a.id);
   return res;

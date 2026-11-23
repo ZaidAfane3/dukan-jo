@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SEARCH_OPEN } from "./searchSources";
 import { brandName, content, dateLocale, type Lang } from "./content";
 import { DashboardBar } from "./DashboardBar";
 import { pushNotification } from "./notifications";
@@ -12,6 +13,7 @@ import { dropUndos, listUndo, offerUndo } from "./undo";
 import { LengthCounter, lineLength, nameTooLong } from "./LengthCounter";
 import { usePageTitle } from "./pageTitle";
 import { leaveUnasked } from "./serverSync";
+import { merchantMoney } from "./moneyText";
 
 /* ====================================================================
    Types
@@ -406,14 +408,19 @@ export function Coupons() {
      address loses ?open so a reload doesn't open it again. */
   useEffect(() => {
     if (!ready) return;
-    const url = new URL(window.location.href);
-    const id = url.searchParams.get("open");
-    if (id === null) return;
-    const hit = coupons.find((x) => x.id === id);
-    if (hit) setDialog({ type: hit.type, coupon: hit });
-    url.searchParams.delete("open");
-    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const openFromAddress = () => {
+      const url = new URL(window.location.href);
+      const id = url.searchParams.get("open");
+      if (id === null) return;
+      const hit = couponsNow.current.find((x) => x.id === id);
+      if (hit) setDialog({ type: hit.type, coupon: hit });
+      url.searchParams.delete("open");
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    };
+    openFromAddress();
+    /* also a coupon picked in the search while this page is open */
+    window.addEventListener(SEARCH_OPEN, openFromAddress);
+    return () => window.removeEventListener(SEARCH_OPEN, openFromAddress);
   }, [ready]);
 
   useEffect(() => {
@@ -508,7 +515,7 @@ export function Coupons() {
     URL.revokeObjectURL(url);
   };
 
-  const discountText = (c: Coupon) => (c.kind === "shipping" ? m.freeShipping : c.kind === "percent" ? `${c.value}%` : `${c.value} ${currency}`);
+  const discountText = (c: Coupon) => (c.kind === "shipping" ? m.freeShipping : c.kind === "percent" ? `${c.value}%` : `${merchantMoney(c.value)} ${currency}`);
   const dateText = (iso: string, fallback: string) => (iso ? new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" }).format(new Date(iso + "T00:00:00")) : fallback);
 
   const th = "px-4 py-3 text-start text-xs font-bold text-muted";

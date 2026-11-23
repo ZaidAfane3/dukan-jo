@@ -5,12 +5,14 @@ import { useRef, useState, use } from "react";
 import { ActivityText, type ActivityRow } from "@/components/diwan/ActivityLine";
 import { MerchantLineText, type MerchantLine } from "@/components/diwan/merchantLogWords";
 import { usePrefs } from "@/components/Prefs";
-import { ContactDialog } from "@/components/diwan/Contact";
+import { askShopContacts, ContactDialog, type ContactInfo } from "@/components/diwan/Contact";
 import { ticketHref } from "@/components/diwan/TicketChat";
 import { MARK_METHODS, MethodBadge, methodText, Select, STATUS_LOOK, StatusBadge, StatusIcon, storeLink, storeLinkHref, todayJo, type ShopStatus } from "@/components/diwan/shopBits";
 import { PRIORITY, STATUS as TICKET_STATUS, KIND, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 import { area, Badge, Btn, card, field, Loaded, PageHead, send, useApi, useFmt, useT, type Tone } from "@/components/diwan/ui";
+import { THEME_CHECKOUT_CHARGES } from "@/components/diwan/platformSettings";
 import { ShopSkeleton } from "@/components/diwan/skeletons";
+import { EditPaymentDialog } from "@/components/diwan/PaymentEdit";
 import { OwnPasswordField, passwordAgainWords } from "@/components/diwan/passwordAgain";
 import { REASON_WORDS, type ReportReason } from "@/components/storeReports";
 import type { Bi } from "@/components/storefront/config";
@@ -60,8 +62,6 @@ type Shop = {
   last_seen_at: string | null;
   created_at: string;
   owner: string;
-  email: string;
-  phone: string;
   last_login_at: string | null;
   login_count: number;
   totp_on: boolean;
@@ -105,7 +105,7 @@ const reportTone: Record<ReportRow["status"], Tone> = { new: "red", checking: "a
    documents, reports about it, deleted orders, the activity log), each part with its count, its newest rows and a "See
    all" to the full list narrowed to this store. A part shows only to staff whose role may open its own page (the server
    sends nothing for the others). The actions are only shown to staff whose role allows them (the server checks again).
-   The owner's email and mobile are behind the Contact button, not printed on the page. */
+   The owner's email and mobile are behind the Contact button and the staff member's password, not sent with the page. */
 export default function ShopPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const t = useT();
@@ -113,7 +113,10 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
   const { lang } = usePrefs();
   const s = useApi<Detail>(`/api/diwan/shops/${encodeURIComponent(params.id)}`);
   const [panel, setPanel] = useState<Panel>(null);
-  const [contact, setContact] = useState(false);
+  /* the owner's email and mobile, once asked for with the staff member's password (security F08) */
+  const [contact, setContact] = useState<ContactInfo | null>(null);
+  /* the payment being corrected (testing D-5) */
+  const [editing, setEditing] = useState<string | null>(null);
   /* a suspend or reactivate the server just confirmed, shown at once over the page it was made on: loading the whole
      page again takes a few seconds, and until then it would still show the old state. The fresh page replaces it. */
   const [changed, setChanged] = useState<{ on: Detail; shop: Partial<Shop> } | null>(null);
@@ -152,7 +155,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
               const look = STATUS_LOOK[key];
               const line =
                 key === "suspended"
-                  ? t(`Suspended by Dukkan on ${f.date(sh.suspended_at)}`, `أوقفته دكّان في ${f.date(sh.suspended_at)}`)
+                  ? t(`Suspended by Dukkan on ${f.date(sh.suspended_at)}`, `أوقفته دكان في ${f.date(sh.suspended_at)}`)
                   : key === "paused"
                     ? t("Under maintenance: its merchant paused the store", "تحت الصيانة: أوقف التاجر متجره مؤقتًا")
                     : sh.published
@@ -189,14 +192,17 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
               <ActionCard
                 icon="mail"
                 title={t("Contact the merchant", "التواصل مع التاجر")}
-                line={t("Email, call or WhatsApp the owner.", "راسل المالك أو اتصل به أو عبر واتساب.")}
-                onClick={() => setContact(true)}
+                line={t("The owner's email and mobile, after your own password.", "بريد المالك وجواله، بعد كتابة كلمة مرورك.")}
+                onClick={async () => {
+                  const got = await askShopContacts(t, id, { owner: sh.owner, storePhone: sh.store_phone });
+                  if (got) setContact(got);
+                }}
               />
               {d.can.billing && (
                 <ActionCard
                   icon="cash"
                   title={t("Mark a payment as received", "تسجيل دفعة مستلمة")}
-                  line={t("Record money the store paid Dukkan.", "سجّل مبلغًا دفعه المتجر لدكّان.")}
+                  line={t("Record money the store paid Dukkan.", "سجّل مبلغًا دفعه المتجر لدكان.")}
                   onClick={() => setPanel("paid")}
                 />
               )}
@@ -226,7 +232,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                   />
                 ))}
             </section>
-            {contact && <ContactDialog info={{ owner: sh.owner, email: sh.email, phone: sh.phone, storePhone: sh.store_phone }} onClose={() => setContact(false)} />}
+            {contact && <ContactDialog info={contact} onClose={() => setContact(null)} />}
 
             {panel && (
               <ActionPanel
@@ -297,13 +303,13 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                   v={(() => {
                     const way =
                       sh.ship_mode === "seen"
-                        ? t("Dukkan Ship", "شحن دكّان")
+                        ? t("Dukkan Ship", "شحن دكان")
                         : sh.ship_mode === "own"
                           ? sh.ship_name
                             ? t(`Own courier: ${sh.ship_name}`, `مندوب خاص: ${sh.ship_name}`)
                             : t("Own courier", "مندوب خاص")
                           : sh.published
-                            ? t("Dukkan Ship (default, not chosen)", "شحن دكّان (تلقائي، لم يُختر)")
+                            ? t("Dukkan Ship (default, not chosen)", "شحن دكان (تلقائي، لم يُختر)")
                             : null;
                     if (way) return sh.pickup ? `${way}${t(" · pickup too", " · والاستلام من المتجر")}` : way;
                     return sh.pickup ? t("Pickup only", "استلام من المتجر فقط") : t("Not chosen yet", "لم يُختر بعد");
@@ -311,7 +317,7 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 />
                 <Line
                   k={t("Ways to pay", "طرق الدفع")}
-                  v={sh.store_pays == null ? t("All Dukkan has on (not chosen)", "كل ما يتيحه دكّان (لم يختر)") : sh.store_pays === "" ? t("None yet", "لا شيء بعد") : sh.store_pays.split(",").map((p) => (p === "cliq" ? t("CliQ", "كليك") : p === "cash" ? t("Cash on delivery", "الدفع عند الاستلام") : t("Card", "بطاقة"))).join(" · ")}
+                  v={sh.store_pays == null ? t("All Dukkan has on (not chosen)", "كل ما يتيحه دكان (لم يختر)") : sh.store_pays === "" ? t("None yet", "لا شيء بعد") : sh.store_pays.split(",").map((p) => (p === "cliq" ? t("CliQ", "كليك") : p === "cash" ? t("Cash on delivery", "الدفع عند الاستلام") : t("Card", "بطاقة"))).join(" · ")}
                 />
                 {sh.ship_mode === "seen" && (
                   <>
@@ -343,14 +349,14 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 <p className="pt-2 text-xs text-muted">
                   {t(
                     "Store page figures are counted by Dukkan from the orders customers placed; added figures are the orders the merchant added himself, which Dukkan can't check. Card and CliQ test orders are not counted, and sales are the paid orders (delivered, or marked paid when added by hand), without cancelled and refunded ones.",
-                    "أرقام صفحة المتجر يحسبها دكّان من الطلبات التي قدّمها العملاء، والأرقام المضافة هي طلبات أضافها التاجر بنفسه ولا يستطيع دكّان التحقق منها. الطلبات التجريبية بالبطاقة وكليك غير محسوبة، والمبيعات هي الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
+                    "أرقام صفحة المتجر يحسبها دكان من الطلبات التي قدّمها العملاء، والأرقام المضافة هي طلبات أضافها التاجر بنفسه ولا يستطيع دكان التحقق منها. الطلبات التجريبية بالبطاقة وكليك غير محسوبة، والمبيعات هي الطلبات المدفوعة (المُسلَّمة، أو المدفوعة إن أُضيفت يدويًا)، دون الملغاة والمستردة.",
                   )}
                 </p>
               </Info>
             </div>
 
             {/* the store's history with Dukkan, newest first in each part */}
-            <h2 className="mb-4 mt-10 text-xl font-extrabold tracking-tight">{t("History with Dukkan", "السجل مع دكّان")}</h2>
+            <h2 className="mb-4 mt-10 text-xl font-extrabold tracking-tight">{t("History with Dukkan", "السجل مع دكان")}</h2>
             <div className="grid gap-4 lg:grid-cols-2">
               {d.payments && (
                 <Part
@@ -362,10 +368,25 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                 >
                   {d.payments.rows.map((r) => (
                     <Item key={r.id} lead={<b className="tabular-nums">{f.jod(r.amount)}</b>} sub={[f.date(r.paid_on), r.marked_by ? t(`marked by ${r.marked_by}`, `سجّلها ${r.marked_by}`) : "", r.reference].filter(Boolean).join(" · ")}>
-                      <MethodBadge method={r.method} />
+                      <span className="flex items-center gap-2">
+                        <MethodBadge method={r.method} />
+                        <Btn kind="ghost" className="h-7 px-2 text-xs" onClick={() => setEditing(String(r.id))}>
+                          {t("Correct", "تصحيح")}
+                        </Btn>
+                      </span>
                     </Item>
                   ))}
                 </Part>
+              )}
+              {editing && (
+                <EditPaymentDialog
+                  id={editing}
+                  onClose={() => setEditing(null)}
+                  onSaved={() => {
+                    setEditing(null);
+                    s.reload();
+                  }}
+                />
               )}
               {d.themes && (
                 <Part
@@ -378,7 +399,8 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
                     <Item
                       key={r.id}
                       lead={<b>{themeName(r)}</b>}
-                      sub={[f.date(r.paid_at), Number(r.price) > 0 ? f.jod(r.price) : t("Free", "مجاني")].join(" · ")}
+                      /* the theme checkout takes no money yet (THEME_CHECKOUT_CHARGES): the price is the listed one, not paid */
+                      sub={[f.date(r.paid_at), Number(r.price) > 0 ? (THEME_CHECKOUT_CHARGES ? f.jod(r.price) : t(`${f.jod(r.price)}, not charged`, `${f.jod(r.price)}، دون تحصيل`)) : t("Free", "مجاني")].join(" · ")}
                     >
                       <span className="flex flex-col items-end gap-1">
                         {Number(r.price) > 0 ? <MethodBadge method={r.method} /> : <Badge>{t("Free", "مجاني")}</Badge>}
@@ -680,6 +702,8 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
     "reason-needed": t("Write a reason (at least 5 characters).", "اكتب السبب (5 أحرف على الأقل)."),
     invalid: t("Check the fields.", "تحقق من الحقول."),
     already: t("Already done.", "تم ذلك بالفعل."),
+    /* Mark a payment pressed again with other details after an answer that never came: the first one is saved */
+    "key-used": t("A payment from this form was already saved, with other details. Reload the page to see it, and edit it there if it is wrong.", "حُفظت دفعة من هذا النموذج من قبل بتفاصيل أخرى. أعد تحميل الصفحة لتراها، وعدّلها من هناك إن كانت خاطئة."),
     "not-allowed": t("Your role can't do this.", "صلاحياتك لا تسمح بذلك."),
   };
 
@@ -752,8 +776,8 @@ function ActionPanel({ panel, d, close, done }: { panel: Exclude<Panel, null>; d
       <>
         <p className="text-sm text-muted">
           {t(
-            "Only after checking it is really the owner (for example a call to the mobile on the account). Their next sign-in needs only the password.",
-            "فقط بعد التأكد من أنه المالك فعلًا (مثلًا باتصال على جوال الحساب). يحتاج دخوله التالي إلى كلمة المرور فقط.",
+            "Only after checking it is really the owner (for example a call to the mobile on the account). Their next sign-in needs only the password. The merchant is told in Dukkan and by email.",
+            "فقط بعد التأكد من أنه المالك فعلًا (مثلًا باتصال على جوال الحساب). يحتاج دخوله التالي إلى كلمة المرور فقط. يُبلَّغ التاجر بذلك في دكان وبالبريد.",
           )}
         </p>
         {reasonBox(t("How you checked it is the owner", "كيف تأكدت من أنه المالك"))}

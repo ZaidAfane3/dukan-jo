@@ -14,6 +14,10 @@ export type PaymentMethods = Record<PayMethod, { on: boolean; note: Bi }>;
 /** The ways the theme checkout can take a merchant's payment (it has no cash): only the ones Diwan has on are offered */
 export const THEME_PAYS = ["card", "cliq"] as const satisfies readonly PayMethod[];
 export type ThemePay = (typeof THEME_PAYS)[number];
+/** Whether the theme checkout really takes the merchant's money. Not yet: app/api/themes/purchase only records the theme,
+    its listed price and the way to pay that was picked. So Diwan shows a theme "bought" as a theme chosen, not charged,
+    and never counts it as money received (Payments, Settings' ways to pay, Themes). Turn on with a real checkout. */
+export const THEME_CHECKOUT_CHARGES = false;
 export type Bi = { en: string; ar: string };
 /* Dukkan Ship, Dukkan's own delivery service: its flat price per order (also what a store's customer pays for delivery), the
    cities it picks up from, the short line under the price and the points listed beside it */
@@ -104,6 +108,25 @@ export const SETTING_DEFAULTS: PlatformSettings = {
   support_contact: { phone: "", whatsapp: "", email: "hello@dukkan.store" },
   support_reply_hours: 2,
 };
+
+/* The info pages a store starts with, from the legal pages' text (Diwan's templates): the return policy, the terms and the
+   privacy policy, ids 1 to 3. Their "created" times are fixed, so the same starting page made in two places (a browser,
+   or the copy the server keeps for a store when it goes live: server/legalPages.ts) counts as one page when the lists are
+   merged (components/listMerge.ts sameMaking), not as two. */
+const STARTER_MADE = Date.UTC(2026, 0, 1);
+export function starterLegalPages(t: StoreLegalTemplates) {
+  const list = [
+    { type: 1 as const, page: t.returns },
+    { type: 2 as const, page: t.terms },
+    { type: 2 as const, page: t.privacy },
+  ];
+  return list.map(({ type, page }, i) => ({ id: i + 1, type, published: true, footer: true, title: { ...page.title }, content: { ...page.body }, created: STARTER_MADE - i * 1000 }));
+}
+/** Which legal template a starting page (ids 1 to 3, of the matching type) came from, or null for any other page */
+export function legalTemplateOf(page: { id: number; type: number }): LegalPage | null {
+  const k = (["returns", "terms", "privacy"] as const)[page.id - 1];
+  return k && page.type === (k === "returns" ? 1 : 2) ? k : null;
+}
 
 export const LIMITS = {
   city: 40, note: 200,

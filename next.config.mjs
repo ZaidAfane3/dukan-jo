@@ -11,14 +11,6 @@ const nextConfig = {
      is switched off: it answers 404. Left on, anyone could ask it to resize a store's largest picture over and over and
      use up the server's memory and disk. */
   images: { unoptimized: true },
-  /* the tracing packages (server/tracing.ts, loaded only when OTEL_EXPORTER_OTLP_ENDPOINT is set) are loaded by Node as
-     they are, not bundled: they patch Node's http and the pg package as those load, which a bundled copy can't do */
-  serverExternalPackages: [
-    "@opentelemetry/sdk-node",
-    "@opentelemetry/exporter-trace-otlp-http",
-    "@opentelemetry/instrumentation-http",
-    "@opentelemetry/instrumentation-pg",
-  ],
   /* no "X-Powered-By: Next.js": it only tells a visitor what the server runs */
   poweredByHeader: false,
   /* Security headers on every page, file and API answer. Frames: SAMEORIGIN, not DENY, because the theme store shows a

@@ -3,20 +3,22 @@
 import { focusStyle } from "../FocusPicker";
 import { noPhotoHue, ProductPhoto } from "./NoPhoto";
 import { initialOf } from "../safe";
-import { ORDER_LIMITS, unitPrice } from "../safeOrder";
+import { lineMost, ORDER_LIMITS, UNLIMITED_STOCK, unitPrice } from "../safeOrder";
 import type { Lang } from "../content";
 import type { LogoConfig, MarkKey } from "./config";
 import type { StoreProduct } from "./useStoreData";
+import { moneyText } from "../moneyText";
 
 /* Small pieces shared by the storefront sections: icons, product picture, copy. */
 
-/** The most of one product (or one size: `stock`) a basket takes: its stock, and never more than one order takes */
-export const basketMost = (stock: number) => Math.max(0, Math.min(stock, ORDER_LIMITS.qty));
+/** The most of one product (or one size: `stock`) a basket takes: its stock, or for a product with no limit the most
+    one order takes (safeOrder lineMost) */
+export const basketMost = (stock: number) => lineMost(stock);
 /** Said once the basket holds that most (the card, the cart and the product page): only so many are left, or for a
-    product with more (or no limit) the most one order takes */
+    product with no limit the most one order takes */
 export const mostWords = (stock: number, lang: Lang) =>
-  stock > ORDER_LIMITS.qty
-    ? lang === "ar" ? `الحد الأقصى ${ORDER_LIMITS.qty} قطعة في الطلب الواحد` : `Up to ${ORDER_LIMITS.qty} per order`
+  stock >= UNLIMITED_STOCK
+    ? lang === "ar" ? `الحد الأقصى ${ORDER_LIMITS.unlimitedQty} قطعة في الطلب الواحد` : `Up to ${ORDER_LIMITS.unlimitedQty} per order`
     : lang === "ar" ? `المتوفر ${stock} فقط` : `Only ${stock} available`;
 
 /** The usual heading of a group in the sidebar (he can give it his own name in the designer) */
@@ -101,16 +103,18 @@ export const copy = {
 
 export const currency = (lang: Lang) => (lang === "ar" ? "د.أ" : "JOD");
 /** One way to write an amount everywhere in the store (cards, product page, cart, checkout, the order placed, search,
-    deals): each amount on its own, a whole one without decimals ("22"), any other with two ("18.50", never "18.5"),
-    whatever the amounts shown next to it (a sale price and its old price, the lines of a total). */
-export const hasFils = (n: number) => Math.round(n * 100) % 100 !== 0;
-export const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: hasFils(n) ? 2 : 0, maximumFractionDigits: 2 });
+    deals), the same as on the merchant's pages (components/moneyText.ts): each amount on its own, a whole one without
+    decimals ("22"), one with fils with two or three ("18.50", never "18.5"; "14.475", never cut to "14.48"), whatever the
+    amounts shown next to it (a sale price and its old price, the lines of a total). */
+export const money = (n: number) => moneyText(n);
 /** The language the prices are shown in: the page's language, or the one the merchant chose for his prices */
 export const priceLang = (mode: "auto" | "ar" | "en" | undefined, lang: Lang): Lang => (mode === "ar" ? "ar" : mode === "en" ? "en" : lang);
 /** An amount for prices in `lang`. The digits are the Latin ones in both languages, as on every page of Dukkan (the
     merchant's pages too), so prices, counts, order numbers and quantities never mix two sets of digits; only the
     currency's word follows the language (currency()). */
 export const moneyIn = (n: number, _lang: Lang) => money(n);
+/** A product sold for nothing (price or sale price 0) shows this word instead of "0 JOD", in the prices' language */
+export const freeWord = (lang: Lang) => (lang === "ar" ? "مجانًا" : "Free");
 export const priceOf = (p: StoreProduct) => unitPrice(p) ?? 0;
 
 const base = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
