@@ -328,6 +328,7 @@ function useWhy() {
   return (r: { ok: boolean; status: number; data: any }) => {
     if (r.ok) return null;
     const res = r.data?.result;
+    if (res === "review") return t("Not saved: the store hasn't reviewed this big order yet.", "لم يُحفظ: لم يراجع المتجر هذا الطلب الكبير بعد.");
     if (res === "cancelled" || r.status === 409) return t("Not saved: the store cancelled or refunded this order.", "لم يُحفظ: ألغى المتجر هذا الطلب أو استرجعه.");
     if (res === "none" || r.status === 404) return t("Not saved: this order is no longer there.", "لم يُحفظ: هذا الطلب لم يعد موجودًا.");
     const refused = refusedWords(t, r);
@@ -345,6 +346,8 @@ function Actions({ o, onChanged, onStale }: { o: ShipOrder; onChanged: (words: s
   const [err, setErr] = useState("");
   const [failing, setFailing] = useState(false);
   const locked = stopped(o);
+  /* a big order the merchant has not reviewed yet: the server refuses any mark until he accepts it */
+  const inReview = o.status === "review";
 
   /* one change; a 404 or 409 means the list is out of date, so it is loaded again too */
   const mark = async (state: ShipState, note?: string): Promise<string | null> => {
@@ -393,6 +396,8 @@ function Actions({ o, onChanged, onStale }: { o: ShipOrder; onChanged: (words: s
     <div className="mt-4">
       {locked ? (
         <p className="text-sm text-muted">{t("The store cancelled or refunded this order, so it can't be marked.", "ألغى المتجر هذا الطلب أو استرجعه، فلا يمكن تعليمه.")}</p>
+      ) : inReview ? (
+        <p className="text-sm text-muted">{t("The store hasn't reviewed this big order yet, so it can't be marked.", "لم يراجع المتجر هذا الطلب الكبير بعد، فلا يمكن تعليمه.")}</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           {o.ship.state !== "delivered" && <Btn onClick={delivered} disabled={busy}>{t("Mark delivered", "تم التوصيل")}</Btn>}

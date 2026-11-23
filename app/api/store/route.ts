@@ -7,7 +7,7 @@ import { courierApproved } from "@/server/courierProof";
 import { db } from "@/server/db";
 import { movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
-import { mergeOnlineSales, ONLINE_KEYS, onlineRev, sellPlatform, shopLock, sizesNamedTwice, type OnlineKey } from "@/server/storeOrders";
+import { mergeOnlineSales, ONLINE_KEYS, onlineRev, renumberHandOrders, sellPlatform, shopLock, sizesNamedTwice, type OnlineKey } from "@/server/storeOrders";
 import { liveMissing, readyToSell, shipsByDefaultFor, type SellNeed } from "@/components/safeOrder";
 import { cleanThemeState, themeInUse, themeOwner } from "@/server/themeOwnership";
 import { stripPaidLooks } from "@/components/themeLooks";
@@ -156,7 +156,9 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
     for (const [k, v] of Object.entries(body.base as Record<string, unknown>)) if (VERSIONED(k) && typeof v === "string" && v.length <= 64) base[k] = v;
   const online = set.filter(([k]) => (ONLINE_KEYS as readonly string[]).includes(k));
   /* the last order number the store gave (components/orderNumbers.ts): store orders raise it too, so a save never lowers it */
-  const numberEntry = set.find(([k]) => k === ORDER_NUMBER_KEY);
+  let numberEntry = set.find(([k]) => k === ORDER_NUMBER_KEY);
+  /* his own orders: an order he just added may carry a number a store order took meanwhile (renumberHandOrders) */
+  const ordersSave = set.some(([k]) => k === "seen-orders");
 
   /* what the browser says about its themes is checked against the purchases Dukkan recorded (server/themeOwnership.ts):
      a paid theme the store did not buy leaves its "owned" list, and a save that puts one on the store (as the theme in
@@ -259,7 +261,7 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
     await client.query("BEGIN");
     /* a save of the products or coupons waits for an order being placed on the store, and takes again what the store
        sold online that the browser's copy has not seen */
-    if (online.length || numberEntry) await shopLock(client, a.id);
+    if (online.length || numberEntry || ordersSave) await shopLock(client, a.id);
     const asked = set.map(([k]) => k).filter((k) => Object.hasOwn(base, k));
     /* one save of the account's lists, or of what decides whether the store is live (setup, design, pause), at a time:
        a lock that exists before any row does, so a second device that also had no copy on the server ("") waits for
@@ -329,6 +331,27 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
         if (kept !== entry[1]) {
           entry[1] = kept;
           rewritten[entry[0]] = kept;
+        }
+      }
+    }
+    /* a new order of his whose number a store order already has gets the next free one: the kept list comes back in
+       "rewritten" (the Orders page shows it again), and the last number given is raised with it */
+    const ordersEntry = set.find(([k]) => k === "seen-orders");
+    if (ordersEntry) {
+      const moved = await renumberHandOrders(client, a.id, ordersEntry[1] as string);
+      if (moved) {
+        ordersEntry[1] = moved.value;
+        rewritten["seen-orders"] = moved.value;
+        if (numberEntry) {
+          const raised = String(Math.max(lastOrderNumber(numberEntry[1]), moved.last));
+          if (raised !== numberEntry[1]) {
+            numberEntry[1] = raised;
+            rewritten[ORDER_NUMBER_KEY] = raised;
+          }
+        } else {
+          /* not sent with this save: kept on the server all the same, so the next store order goes on after it */
+          numberEntry = [ORDER_NUMBER_KEY, String(moved.last)];
+          set.push(numberEntry);
         }
       }
     }

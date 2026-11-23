@@ -284,6 +284,15 @@ export function sellableStock(p: { unlimited?: unknown; quantity?: unknown; kind
   return isUnlimited(p) ? UNLIMITED_STOCK : stock(p.quantity);
 }
 
+/** The size of a product an order line names: the one saved with exactly that name, or else the first one that is the
+    same size (sizeKey). An order keeps the size as it was when it was placed, and the merchant may since have written it
+    with other capitals or spaces ("m" -> "M"): taking or giving back its stock still finds it. undefined: none. */
+export function sizeOf(sizes: SizeStock[], size: unknown): SizeStock | undefined {
+  const name = sizeName(size);
+  if (!name) return undefined;
+  return sizes.find((z) => z.name === name) ?? sizes.find((z) => sizeKey(z.name) === sizeKey(name));
+}
+
 /** How many of one size can be sold (0 for a size it does not have) */
 export function sizeStock(p: { kind?: unknown; sizes?: unknown }, size: string): number {
   return productSizes(p).find((s) => s.name === size)?.quantity ?? 0;
@@ -455,7 +464,8 @@ export function takeStock(list: unknown[], items: { id?: unknown; qty: number; s
       }
     }
     if (sizes.length) {
-      const left = sizes.map((z) => ({ ...z, quantity: Math.max(0, z.quantity - mine.filter((x) => x.size === z.name).reduce((n, x) => n + x.qty, 0)) }));
+      /* each line takes from (or gives back to) the one size sizeOf finds for it, also when its capitals or spaces differ */
+      const left = sizes.map((z) => ({ ...z, quantity: Math.max(0, z.quantity - mine.filter((x) => sizeOf(sizes, x.size) === z).reduce((n, x) => n + x.qty, 0)) }));
       /* the saved sizes keep anything else they carry; only their stock changes */
       const saved = Array.isArray(p.sizes) ? p.sizes : [];
       const sizesOut = saved.map((z) => {
@@ -490,8 +500,10 @@ export function stockTaken<T extends { id?: unknown; qty: number; size?: string 
     if (!p) return { ...it, took: 0 };
     const sizes = productSizes(p);
     if (!sizes.length && isUnlimited(p)) return { ...it, took: 0 };
-    const k = `${id}|${sizes.length ? sizeName(it.size) : ""}`;
-    const has = sizes.length ? sizes.find((z) => z.name === sizeName(it.size))?.quantity ?? 0 : stock(p.quantity);
+    /* the size as the product has it now (sizeOf), so two lines naming it with other capitals share its stock */
+    const z = sizes.length ? sizeOf(sizes, it.size) : undefined;
+    const k = `${id}|${sizes.length ? z?.name ?? sizeKey(it.size) : ""}`;
+    const has = sizes.length ? z?.quantity ?? 0 : stock(p.quantity);
     const took = Math.max(0, Math.min(it.qty, has - (used.get(k) ?? 0)));
     used.set(k, (used.get(k) ?? 0) + took);
     if (took < it.qty) short.push(it);
@@ -534,7 +546,7 @@ export function stockNotBack<T extends { id?: unknown; size?: string; took: numb
     const id = productId(it.id);
     const p = list.find((raw) => raw && typeof raw === "object" && !Array.isArray(raw) && productId((raw as Record<string, unknown>).id) === id) as Record<string, unknown> | undefined;
     const sizes = p ? productSizes(p) : [];
-    return sizes.length > 0 && !sizes.some((z) => z.name === sizeName(it.size));
+    return sizes.length > 0 && !sizeOf(sizes, it.size);
   });
 }
 

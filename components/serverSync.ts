@@ -749,6 +749,9 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
       /* the server took again from the products or coupons what the store sold online since this copy: the pages
          showing them take the kept list, so their next save goes on from it */
       if (ONLINE_KEYS.includes(k)) showAgain(k);
+      /* his orders, where one he just added got another number (a store order took its number first: app/api/store):
+         the Orders page shows the kept list */
+      else if (k === "seen-orders") showAgain(k);
     }
     /* a paid theme he has not bought was put on the store: those keys were not kept. This browser takes the server's copy
        back (the store stays on the theme it had), unless the page changed the key again since, and the page says why

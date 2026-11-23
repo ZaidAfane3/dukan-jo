@@ -701,6 +701,41 @@ export async function sizesNamedTwice(c: { query: PoolClient["query"] }, account
   return newSizeTwice(incoming, Array.isArray(stored) ? stored : []);
 }
 
+/** A merchant's save of his own orders ("seen-orders"): an order he added (by hand, or from his store preview) takes its
+    number in his browser, from the last number it knew (components/orderNumbers.ts). A customer's order placed on the
+    public store since then may already have that number, and the merchant would see two orders with one number. So an
+    order that is new in this save (the server's copy has no order with its number) and whose number a store order has
+    already taken gets the next free number here, after every number given (the last number, his orders and the store's
+    orders). Run under shopLock, inside the save's transaction, so a store order can't take the same number meanwhile.
+    Orders saved before are never renumbered. null: nothing to change; else the value to keep and the last number now
+    given (to raise ORDER_NUMBER_KEY with). */
+export async function renumberHandOrders(c: { query: PoolClient["query"] }, accountId: string, value: string): Promise<{ value: string; last: number } | null> {
+  const incoming = parse(value);
+  if (!Array.isArray(incoming)) return null;
+  const numberOf = (x: unknown): number | null => {
+    const id = isObj(x) ? x.id : undefined;
+    return typeof id === "number" && Number.isSafeInteger(id) && id > 0 && id < 1e9 ? id : null;
+  };
+  const { rows } = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [accountId, ["seen-orders", ORDER_NUMBER_KEY]]);
+  const saved = new Map<string, string>(rows.map((r) => [r.key as string, r.value as string]));
+  const stored = parse(saved.get("seen-orders"));
+  const known = new Set((Array.isArray(stored) ? stored : []).map(numberOf).filter((n): n is number => n !== null));
+  const fresh = Array.from(new Set(incoming.map(numberOf).filter((n): n is number => n !== null && !known.has(n))));
+  if (!fresh.length) return null;
+  const taken = await c.query(`SELECT number FROM store_orders WHERE account_id = $1 AND number = ANY($2::int[])`, [accountId, fresh]);
+  const clash = new Set(taken.rows.map((r) => Number(r.number)));
+  if (!clash.size) return null;
+  const top = await c.query(`SELECT COALESCE(MAX(number), 0) AS n FROM store_orders WHERE account_id = $1`, [accountId]);
+  let last = Math.max(ORDER_NUMBER_START, lastOrderNumber(saved.get(ORDER_NUMBER_KEY)), highestOrderNumber(incoming), Array.isArray(stored) ? highestOrderNumber(stored) : 0, Number(top.rows[0].n));
+  const out = incoming.map((x) => {
+    const n = numberOf(x);
+    if (n === null || !clash.has(n)) return x;
+    last += 1;
+    return { ...(x as Record<string, unknown>), id: last };
+  });
+  return { value: JSON.stringify(out), last };
+}
+
 /** A merchant's save of his products or coupons: the online sales (or coupon uses) his copy has not seen yet are taken
     again from it, from the counts the copy carries and those of the copy the server has (safeOrder.ts mergeSoldOnline,
     records.ts mergeUsedOnline). Run under shopLock, inside the save's transaction. Gives the value to keep. A value that
