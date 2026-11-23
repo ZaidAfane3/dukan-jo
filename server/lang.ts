@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 
 /* The language someone uses Dukkan in. The page keeps it in the browser (localStorage "seen-lang") and in a cookie of the
-   same name (components/Prefs.tsx), so the server can read it when they sign in. It is saved on their account (accounts.lang,
-   staff.lang) and the emails sent while they are away (notices, staff changes) go out in it alone. */
+   same name (components/Prefs.tsx). It is saved on their account (accounts.lang, staff.lang) at every sign-in (the cookie,
+   server/auth.ts noteLogin, server/staff.ts) and again each time they switch language while signed in (app/api/prefs/lang),
+   so the emails sent while they are away (notices, staff changes) always go out in the language they use now. */
 
 export type SiteLang = "ar" | "en";
 export const LANG_COOKIE = "seen-lang";

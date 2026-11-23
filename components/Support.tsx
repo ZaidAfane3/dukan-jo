@@ -1122,11 +1122,12 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
   const deliver = async () => {
-    /* the account it is sent as, taken now (the answer may come after a sign-out) */
+    /* the account it is sent as, taken now (the answer may come after a sign-out). While it goes up the box and the
+       picture buttons are locked (busy), so what is cleared after is exactly what was sent. */
     const owner = keepDraft(draft, { text, pictures: pics });
     setBusy(true);
     setError("");
-    const r = await replyTicket(number, cleanLines(text, ACCOUNT_LIMITS.message), pics);
+    const r = await replyTicket(number, cleanLines(text, ACCOUNT_LIMITS.message), pics, { leaving: held.leaving.current });
     setBusy(false);
     if (!r.ok) {
       /* still open: the box keeps his words and says why; closed meanwhile: the draft brings them back next time */
@@ -1268,14 +1269,14 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
           <form onSubmit={send} className="border-t border-fg/10 px-5 py-4">
             {t.status === "closed" && <p className="mb-2 text-xs text-muted">{sv.closedNote}</p>}
             <label htmlFor="t-reply" className="sr-only">{sv.replyLabel}</label>
-            <textarea id="t-reply" value={text} disabled={held.holding} onChange={(e) => setText(e.target.value)} placeholder={sv.replyPh} dir="auto" rows={3} maxLength={1000} className={`${field} resize-none py-3`} />
+            <textarea id="t-reply" value={text} disabled={held.holding || busy} onChange={(e) => setText(e.target.value)} placeholder={sv.replyPh} dir="auto" rows={3} maxLength={1000} className={`${field} resize-none py-3`} />
             {!!pics.length && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {pics.map((p, i) => (
                   <span key={i} className="relative h-14 w-14 overflow-hidden rounded-lg ring-1 ring-fg/15">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={p} alt="" className="h-full w-full object-cover" />
-                    <button type="button" onClick={() => setPics((list) => list.filter((_, j) => j !== i))} aria-label={s.removePicture} title={s.removePicture} className="absolute end-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white transition hover:bg-rose-600">
+                    <button type="button" disabled={held.holding || busy} onClick={() => setPics((list) => list.filter((_, j) => j !== i))} aria-label={s.removePicture} title={s.removePicture} className="absolute end-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white transition hover:bg-rose-600">
                       {xIcon}
                     </button>
                   </span>
@@ -1285,7 +1286,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
             {note && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{note}</p>}
             {error && <p role="alert" className="mt-1.5 text-xs text-rose-600">{error}</p>}
             <div className="mt-3 flex items-center gap-2">
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={held.holding || pics.length + reading >= TICKET_PICTURES} className="flex h-10 items-center gap-2 rounded-xl border border-fg/20 px-3 text-xs font-semibold transition hover:bg-soft disabled:opacity-40">
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={held.holding || busy || pics.length + reading >= TICKET_PICTURES} className="flex h-10 items-center gap-2 rounded-xl border border-fg/20 px-3 text-xs font-semibold transition hover:bg-soft disabled:opacity-40">
                 {picIcon}
                 {s.addPicture}
                 <span dir="ltr" className="tabular-nums text-muted">{pics.length}/{TICKET_PICTURES}</span>

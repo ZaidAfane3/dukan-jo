@@ -68,7 +68,9 @@ function ticketKey(t: { subject: string; category: number; message: string; pict
    rarely is: the caller keeps a draft for that) */
 export const createTicket = (t: { subject: string; category: number; message: string; pictures: string[]; kind?: "support" | "bug" | "idea"; where?: string }, opts: { leaving?: boolean } = {}) =>
   call<{ number: number }>("/api/tickets", "POST", { ...t, requestKey: ticketKey(t) }, { keepalive: opts.leaving });
-export const replyTicket = (n: number, message: string, pictures: string[]) => call<{ status: MerchantStatus }>(`/api/tickets/${n}/reply`, "POST", { message, pictures });
+/* opts.leaving: as for createTicket; a reply sent as the tab closes (its Undo time cut short) must still reach Dukkan */
+export const replyTicket = (n: number, message: string, pictures: string[], opts: { leaving?: boolean } = {}) =>
+  call<{ status: MerchantStatus }>(`/api/tickets/${n}/reply`, "POST", { message, pictures }, { keepalive: opts.leaving });
 export const setTicketOpen = (n: number, open: boolean) => call<{ status: MerchantStatus }>(`/api/tickets/${n}`, "PATCH", { action: open ? "reopen" : "close" });
 export const pictureUrl = (n: number, id: string) => `/api/tickets/${n}/pictures/${id}`;
 

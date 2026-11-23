@@ -107,7 +107,7 @@ export function refreshServerNotifications(): Promise<void> {
   return loading;
 }
 
-function markServer(body: { ids: string[] } | { all: true }) {
+function markServer(body: { ids: string[] }) {
   fetch("/api/notifications/read", {
     method: "POST",
     credentials: "same-origin",
@@ -157,9 +157,14 @@ export function markRead(id: string) {
 }
 
 export function markAllRead() {
-  if (serverList.some((n) => !n.read)) {
-    serverList = serverList.map((n) => ({ ...n, read: true }));
-    markServer({ all: true });
+  /* only what the bell has shown is marked: the ids it lists, never "everything on the server", so a notice or an
+     announcement that arrived after the last fetch stays unread until the merchant has seen it */
+  const shown = new Set(getNotifications().map((n) => n.id));
+  const ids = serverList.filter((n) => !n.read && shown.has(n.id)).map((n) => n.id);
+  if (ids.length) {
+    const marked = new Set(ids);
+    serverList = serverList.map((n) => (marked.has(n.id) ? { ...n, read: true } : n));
+    markServer({ ids: ids.map((id) => id.slice(2)) });
   }
   save(localList().map((n) => ({ ...n, read: true })));
 }
