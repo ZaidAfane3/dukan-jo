@@ -66,3 +66,22 @@ export function writeBasket(key: string, qty: Record<string, number>) {
     /* storage full or turned off: the basket still works until the page is left */
   }
 }
+
+/** The basket with the lines of a cart brought back by a reminder's link (server/storeCarts.ts cartFromLink) added:
+    each line at least as many as the cart had, all of it checked against the store's products now (priceCart: gone or
+    sold out products left out, quantities cut to the stock). `back`: how many lines of the cart could be kept. */
+export function withRestored(qty: Record<string, number>, lines: unknown, products: StoreProduct[]): { qty: Record<string, number>; back: number } {
+  const restored = priceCart(Array.isArray(lines) ? (lines as { id: unknown; qty: unknown; size?: unknown }[]) : [], products).items;
+  const merged: Record<string, number> = { ...qty };
+  for (const it of restored) {
+    const k = basketKey(it.id, it.size);
+    merged[k] = Math.max(merged[k] ?? 0, it.qty);
+  }
+  const all = Object.entries(merged).map(([k, n]) => {
+    const bar = k.indexOf("|");
+    return { id: bar < 0 ? k : k.slice(0, bar), qty: n, ...(bar < 0 ? {} : { size: k.slice(bar + 1) }) };
+  });
+  const out: Record<string, number> = {};
+  for (const it of priceCart(all, products).items) out[basketKey(it.id, it.size)] = it.qty;
+  return { qty: out, back: restored.length };
+}

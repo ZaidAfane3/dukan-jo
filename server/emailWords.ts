@@ -12,6 +12,7 @@ import { moneyText } from "@/components/moneyText";
                            of one change (notify.ts emailStockNotices)
    - staffChangeEmail      the Diwan staff routes (app/api/diwan/staff), to the other owners
    - staffSigninCodeEmail, staffEmailApproveEmail, staffEmailCodeEmail, staffEmailChangedEmail   a staff member's own codes (server/staffSignin.ts)
+   - cartReminderEmail     server/storeCarts.ts, to a store's customer: the cart he left, when the merchant reminds him
 
    Notices go out in the language the reader uses Dukkan in (accounts.lang / staff.lang, server/lang.ts): wordsIn. Someone
    whose language isn't saved yet (they haven't signed in since it was) gets both: bothLangs puts the Arabic first and
@@ -416,4 +417,49 @@ export function stockAlertEmail(lang: EmailLang, p: { out: readonly { id: number
         text: `An order was confirmed, and these products in your store are now low or out:\n${lines.join("\n")}\nAdd more stock on your Products page.`,
         button,
       };
+}
+
+/* ---------------- a store's customer (server/storeCarts.ts) ---------------- */
+
+/* "منتج واحد", "منتجان", "3 منتجات", "11 منتجًا", "100 منتج" (as the subject of a sentence) */
+const arPieces = (n: number) => {
+  if (n === 1) return "منتج واحد";
+  if (n === 2) return "منتجان";
+  const r = n % 100;
+  if (r >= 3 && r <= 10) return `${n} منتجات`;
+  if (r >= 11) return `${n} منتجًا`;
+  return `${n} منتج`;
+};
+
+/** A reminder of the cart a customer left on a store, sent when the store's merchant asks (Marketing > Abandoned
+    carts), in the language the customer shopped in. `count`: pieces in the cart; `products`: their names (the first
+    three are named); `url`: the store's address that fills his basket again. The store's name and its products'
+    names are the merchant's words, each kept apart on one short line (line). Nothing about the customer is in it. */
+export function cartReminderEmail(lang: EmailLang, p: { store: string; count: number; products: string[]; url: string }): EmailWords {
+  const store = line(p.store, 80);
+  const shown = p.products.slice(0, 3).map((x) => line(x, 60)).filter(Boolean);
+  const more = p.products.length > shown.length;
+  const button = { label: lang === "ar" ? "العودة إلى سلتي" : "Back to my cart", url: p.url };
+  if (lang === "ar") {
+    const names = shown.length ? `: ${shown.join("، ")}${more ? "…" : ""}` : "";
+    return {
+      subject: `سلتك في ${store} بانتظارك`,
+      heading: "سلتك بانتظارك",
+      text:
+        `ما زال في سلتك في متجر ${store} ${arPieces(p.count)}${names}.\n` +
+        "اضغط الزر لتعود إلى سلتك وتكمل طلبك. قد تتغير الأسعار أو الكميات المتوفرة قبل أن تطلب.\n" +
+        "وصلتك هذه الرسالة لأنك كتبت بريدك الإلكتروني عند الطلب في هذا المتجر ولم تكمله. لن تصلك أكثر من 3 رسائل عن هذه السلة، وتتوقف إذا أكملت طلبك أو أفرغت سلتك.",
+      button,
+    };
+  }
+  const names = shown.length ? `: ${shown.join(", ")}${more ? "…" : ""}` : "";
+  return {
+    subject: `Your cart at ${store} is waiting`,
+    heading: "Your cart is waiting",
+    text:
+      `You still have ${p.count === 1 ? "1 item" : `${p.count} items`} in your cart at ${store}${names}.\n` +
+      "Press the button to go back to your cart and finish your order. Prices and stock may change before you order.\n" +
+      "You got this email because you typed it at checkout on this store and didn't finish your order. You'll get at most 3 emails about this cart, and they stop once you order or empty your cart.",
+    button,
+  };
 }
