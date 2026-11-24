@@ -741,7 +741,7 @@ export function DashboardBar({
               href="/support"
               data-nav-item
               aria-label={support.title}
-              className={`group relative grid h-9 w-9 place-items-center rounded-lg border text-fg transition hover:bg-soft ${active === "support" ? "border-primary bg-soft" : "border-fg/15"}`}
+              className={`group relative grid h-9 w-9 place-items-center rounded-lg border border-fg/15 text-fg transition hover:bg-soft ${active === "support" ? "bg-soft" : ""}`}
             >
               {icons.ticket}
               <TopTip>{support.title}</TopTip>
