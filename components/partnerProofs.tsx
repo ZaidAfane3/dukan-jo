@@ -84,8 +84,11 @@ const HOLD_EVERY_MS = 30_000;
    proofs are sent then (onSettle), or by the server once the last hold is over if the page closed. */
 function keepHeld(toastId: number, ids: string[]) {
   let timer = 0;
+  /* asks again when the server said the first of them reaches its longest hold (its `left`) */
+  let atCap = 0;
   const stop = () => {
     window.clearInterval(timer);
+    window.clearTimeout(atCap);
     document.removeEventListener("visibilitychange", onShow);
   };
   const ask = async () => {
@@ -95,6 +98,12 @@ function keepHeld(toastId: number, ids: string[]) {
     if (r && r.status === 200 && Array.isArray(r.data.held) && r.data.held.length < ids.length) {
       stop();
       hideUndo(toastId);
+      return;
+    }
+    const left = r && r.status === 200 ? Number(r.data.left) : NaN;
+    if (Number.isFinite(left) && left >= 0 && left * 1000 < HOLD_EVERY_MS) {
+      window.clearTimeout(atCap);
+      atCap = window.setTimeout(() => void ask(), left * 1000 + 1_000);
     }
   };
   const onShow = () => {
