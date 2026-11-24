@@ -1009,7 +1009,8 @@ function HelpArticles() {
    ==================================================================== */
 
 /** How often an open conversation asks for new messages (while the tab is in view) */
-const THREAD_REFRESH_MS = 15_000;
+/* the open conversation checks for new messages this often while it is on screen, so the chat feels live (owner 2026-11-24) */
+const THREAD_REFRESH_MS = 3_000;
 
 /* Closing a conversation with a reply written but not sent: asked in the page first */
 const replyLeaveWords: Record<Lang, { ask: string; keep: string; leave: string }> = {

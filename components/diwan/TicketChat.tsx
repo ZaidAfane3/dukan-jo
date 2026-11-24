@@ -38,7 +38,8 @@ type Canned = { title: string; body_en: string; body_ar: string };
 type Fields = { status: TStatus; priority: TPriority; assignee: string };
 
 /** How often an open ticket asks for new messages (while the tab is in view) */
-const REFRESH_MS = 15_000;
+/* the open conversation checks for new messages this often while it is on screen, so the chat feels live (owner 2026-11-24) */
+const REFRESH_MS = 3_000;
 /** A failed send: no connection (status 0) or the server down is the connection message, anything else the page's own */
 const offline = (status: number) => status === 0 || status >= 500;
 

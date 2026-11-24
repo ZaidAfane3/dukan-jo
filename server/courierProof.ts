@@ -100,7 +100,7 @@ export async function pinLegacyApprovals(q: Query, accountId: string | number, p
 export const HOLD_MINUTES = 2;
 /** the longest a page can keep a proof back, from its upload: a toast left stopped (a tab left in the background for
     hours) doesn't keep the proof from Diwan for good; past it the page is told so and closes its toast */
-export const HOLD_MAX_MINUTES = 30;
+export const HOLD_MAX_MINUTES = 2;
 let releasedAt = 0;
 
 /** Sends to Diwan every proof whose hold is over (its page never said: closed during the Undo countdown). Rows from
