@@ -47,14 +47,13 @@ export function Notice({ kind, name, lang }: { kind: keyof typeof notices; name?
 
 const missing = {
   store: {
-    en: { title: "This store doesn't exist!", lines: ["Sorry, there is no store at this address.", "Check the link, go back to the home page, or create a great store of your own."] },
-    ar: { title: "المتجر غير موجود!", lines: ["عذرًا، لا يوجد متجر على هذا العنوان.", "تأكد من الرابط، أو عد إلى الصفحة الرئيسية، أو أنشئ متجرك الرائع."] },
+    en: { title: "This store doesn't exist!", lines: ["Sorry, there is no store at this address.", "Check the link, or go back to the home page."] },
+    ar: { title: "المتجر غير موجود!", lines: ["عذرًا، لا يوجد متجر على هذا العنوان.", "تأكد من الرابط، أو عد إلى الصفحة الرئيسية."] },
   },
   page: {
     en: { title: "This page doesn't exist!", lines: ["Sorry, there is nothing at this address.", "Check the link, or go back to the home page."] },
     ar: { title: "الصفحة غير موجودة!", lines: ["عذرًا، لا يوجد شيء على هذا العنوان.", "تأكد من الرابط، أو عد إلى الصفحة الرئيسية."] },
   },
-  create: { en: "Create your store now", ar: "أنشئ متجرك الآن" },
   home: { en: "Go to Dukkan's home page", ar: "العودة إلى صفحة دكان الرئيسية" },
   /* a missing page inside a store that exists: back to that store */
   storeHome: { en: "Back to the store", ar: "العودة إلى المتجر" },
@@ -127,9 +126,6 @@ export function MissingPage({ kind }: { kind?: "store" | "page" } = {}) {
             <a href="/" className={back ? "inline-flex min-h-[44px] items-center rounded-full px-5 text-sm font-bold text-fg/80 ring-1 ring-fg/15 transition hover:ring-fg/30" : "inline-flex min-h-[44px] items-center rounded-full bg-primary px-6 text-sm font-bold text-white shadow-sm transition hover:opacity-90"}>
               {missing.home[lang]}
             </a>
-            {/* to Dukkan's main page, where anyone can see what Dukkan is and start a store of their own (never offered
-                to a store's customers, on a missing page inside a store that exists) */}
-            {!back && <a href="/" className="inline-block text-sm font-semibold text-primary hover:underline">{missing.create[lang]}</a>}
           </div>
         </div>
       </main>
