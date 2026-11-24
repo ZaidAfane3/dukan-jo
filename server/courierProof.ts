@@ -167,3 +167,17 @@ export async function handOverProofs(q: Query, accountId: string | number, phone
   if (!ids.length) return;
   await q.query(`UPDATE documents SET partner_phone = $2 WHERE id = ANY($1::bigint[]) AND status = 'waiting'`, [ids, seal(phone)]);
 }
+
+/** His courier proofs still kept, as sellWhy (components/sellWhy.ts) reads them: each one's check, and for an approved
+    one the courier it was approved for (null for one that counts for any, as courierApprovals reads it). A proof still
+    held back for its Undo countdown counts as waiting: it goes to Dukkan's team when the countdown ends. */
+export async function proofChecks(q: Query, accountId: string | number): Promise<{ status: string; approvedPhone: string | null }[]> {
+  const { rows } = await q.query(
+    `SELECT status, approved_phone FROM documents WHERE account_id = $1 AND kind = 'courier_proof' AND removed_at IS NULL`,
+    [accountId],
+  );
+  return rows.map((r) => ({
+    status: String(r.status),
+    approvedPhone: r.status === "approved" && r.approved_phone && r.approved_phone !== NEXT_COURIER ? String(r.approved_phone) : null,
+  }));
+}

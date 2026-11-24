@@ -1684,7 +1684,7 @@ function LiveMoment({ slug, name, chosen }: { slug: string; name: string; chosen
   const { lang } = usePrefs();
   const t = liveWords[lang];
   const pays = orderPays(storePays(usePublicSettings()), chosen);
-  const sell = useSellReady();
+  const sell = useSellReady({ proof: true });
   const [copied, setCopied] = useState(false);
   /* signed in, the store is at its own address; otherwise it opens as customers would see it (as the profile menu does) */
   const [href, setHref] = useState("/store");
@@ -1708,7 +1708,7 @@ function LiveMoment({ slug, name, chosen }: { slug: string; name: string; chosen
     const missing = liveMissing(sell.missing, live && sell.shipDefault);
     return (
       <div className="mt-8 space-y-3">
-        {missing.length > 0 && <SellNeeds lang={lang} missing={missing} title={live ? sellWords[lang].liveNotReady : undefined} />}
+        {missing.length > 0 && <SellNeeds lang={lang} missing={missing} why={sell.why} title={live ? sellWords[lang].liveNotReady : undefined} />}
         {live && sell.shipDefault && <ShipDefaultNote lang={lang} />}
       </div>
     );

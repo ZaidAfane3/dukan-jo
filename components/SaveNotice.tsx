@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePrefs } from "./Prefs";
 import { SIGNED_OUT_ELSEWHERE, SIGNED_OUT_NOTE } from "./accounts";
-import { SAVE_REFUSED, THEME_NOT_BOUGHT } from "./serverSync";
+import { lastNotReady, SAVE_REFUSED, THEME_NOT_BOUGHT } from "./serverSync";
+import { notSavedText } from "./ReadyToSell";
 
 /* Says so when the server refused to keep a change for good (serverSync.ts SAVE_REFUSED): the page already shows the
    change, so without this the merchant would think it was saved. A suspended store is sent to its own page, so only
@@ -49,6 +50,8 @@ export function SaveNotice() {
   const [why, setWhy] = useState<Why | null>(null);
   /* for "theme-not-bought": the theme, so "Buy it" opens the theme store on it */
   const [theme, setTheme] = useState("");
+  /* for "not-ready": what the server said this store is missing (serverSync.ts lastNotReady), so the note names it */
+  const [reason, setReason] = useState<{ missing: unknown; why: unknown } | null>(null);
 
   useEffect(() => {
     /* this tab was sent to sign in because its session ended (accounts.ts): said once, here */
@@ -66,6 +69,7 @@ export function SaveNotice() {
       if (said(d)) {
         setWhy(d);
         setTheme("");
+        setReason(d === "not-ready" ? lastNotReady() : null);
       }
     };
     /* a paid theme he has not bought was not put on the store (serverSync.ts THEME_NOT_BOUGHT): detail is its id */
@@ -92,7 +96,8 @@ export function SaveNotice() {
         <path d="M12 8v5M12 16.5v.01" />
       </svg>
       <p className="min-w-0 flex-1 leading-relaxed">
-        {w[why]}
+        {/* not ready to sell: exactly what this store is missing; the general words when the answer names nothing known */}
+        {(why === "not-ready" && reason && notSavedText(lang, reason.missing, reason.why)) || w[why]}
         {buy && (
           <>
             {" "}

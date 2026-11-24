@@ -6,6 +6,7 @@ import { merchantCall, onServer } from "./merchantApi";
 import { checkImage, cleanFileName, imageRules, uploadProblemText } from "./safe";
 import { arCount, dropUndos, hideUndo, offerUndo, undoShowing } from "./undo";
 import { jordanMobile } from "./phone";
+import { refreshProofs } from "./proofStatus";
 
 /* Proof for the merchant's own delivery partner (the setup's shipping step and the Delivery page). For a signed-in
    merchant every file is sent to Dukkan's server as soon as it is picked (app/api/documents), lands in Diwan's Documents
@@ -288,6 +289,11 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
       },
     });
   };
+
+  /* a file sent, removed or put back: the rest of the page (the top bar's proof mark, the live switch) reads them again */
+  useEffect(() => {
+    if (sends && ready) void refreshProofs();
+  }, [proofs, sends, ready]);
 
   /** The page saved the list it holds: its in-browser pictures must outlive this step */
   const keep = () => {

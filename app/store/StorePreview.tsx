@@ -14,6 +14,7 @@ import { safeStoredImage } from "@/components/safe";
 import type { StoreProduct } from "@/components/storefront/useStoreData";
 import { loadMaintenance } from "@/components/maintenance";
 import { MaintenancePage } from "@/components/MaintenancePage";
+import { OpenStoreButton } from "@/components/StoreStatus";
 import { demoActive } from "@/components/demoSandbox";
 
 const banner = {
@@ -117,11 +118,9 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   if (!ready) return <StoreSkeleton />;
 
   if (paused !== null) {
-    const setup = loadSetup();
-    const lg = config.identity.logo;
-    /* his own logo picture, or the one from setup; otherwise the first letter on the store color */
-    const logo = safeStoredImage(lg.kind === "image" ? lg.image : lg.kind === "auto" ? setup?.logo : "");
-    return <MaintenancePage lang={lang} name={setup?.name?.trim() || defaultStoreName(lang)} logo={logo} color={setup?.color || "#e67726"} message={paused} owner />;
+    /* the visitors' page as they see it (no logo: Dukkan's maintenance mark), with his bar on top and "Open your store
+       now", which makes it live by the profile menu switch's rules and then shows his store here */
+    return <MaintenancePage lang={lang} name={loadSetup()?.name?.trim() || defaultStoreName(lang)} message={paused} owner ownerAction={<OpenStoreButton lang={lang} onOpened={() => setPaused(null)} />} />;
   }
 
   return (

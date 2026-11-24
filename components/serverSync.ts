@@ -398,6 +398,12 @@ export const pictureSavesHeld = () => holds > 0;
 export const SAVE_REFUSED = "dukkan-save-refused";
 const refused = (why: string) => window.dispatchEvent(new CustomEvent(SAVE_REFUSED, { detail: why }));
 
+/** What the server said was missing the last time it refused a save as "not-ready" (app/api/store PUT: `missing`, and
+    `why`: components/sellWhy.ts), read by SaveNotice.tsx when SAVE_REFUSED says "not-ready", to name exactly what this
+    store is missing. Raw as the server sent it: the reader cleans it (sellWhy.ts cleanWhy). */
+let notReadyReason: { missing: unknown; why: unknown } = { missing: null, why: null };
+export const lastNotReady = () => notReadyReason;
+
 /** Fired on window when the server did not keep a theme put on the store because it is a paid one this store has not
     bought (app/api/store PUT "theme-not-bought"); detail is the theme's id. The page also fires it when it stops such a
     change itself before saving anything (the designer, My themes). SaveNotice.tsx says so, with a way to buy it. */
@@ -472,8 +478,8 @@ const WAIT_OVER = 7_000_000;
 type Stale = { value: string | null; v: string };
 /* a key the server did not keep while it kept the rest: a paid theme put on the store without a purchase
    (app/api/store PUT), with the server's copy of the key to put back */
-type Held = { result?: string; theme?: string; value?: string | null };
-type Reply = { status: number; result: string; rewritten?: Record<string, string>; versions?: Record<string, string>; stale?: Record<string, Stale>; refused?: Record<string, Held> } | null;
+type Held = { result?: string; theme?: string; value?: string | null; missing?: unknown; why?: unknown };
+type Reply = { status: number; result: string; rewritten?: Record<string, string>; versions?: Record<string, string>; stale?: Record<string, Stale>; refused?: Record<string, Held>; missing?: unknown; why?: unknown } | null;
 
 /* ---------------- the lists' versions (listMerge.ts) ----------------
    Per account, for each list of LIST_KEYS: the version of the server's copy this browser's copy goes on from, and the
@@ -673,8 +679,8 @@ async function request(set: Record<string, string>, remove: string[], owner: str
     /* a save with no answer in 90 s counts as not sent (it stays in the outbox and goes again), so one that hangs never
        holds up every save after it; 90 s leaves room for a big save on a slow line, under Cloudflare's 100 s */
     const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json", [CLIENT_HEADER]: "1", ...accountHeader(me) }, body, keepalive, credentials: "same-origin", signal: timeoutSignal(90_000) });
-    const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown; versions?: unknown; stale?: unknown; refused?: unknown };
-    return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten: asObject(j.rewritten), versions: asObject(j.versions), stale: asObject(j.stale), refused: asObject(j.refused) };
+    const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown; versions?: unknown; stale?: unknown; refused?: unknown; missing?: unknown; why?: unknown };
+    return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten: asObject(j.rewritten), versions: asObject(j.versions), stale: asObject(j.stale), refused: asObject(j.refused), missing: j.missing, why: j.why };
   } catch {
     /* offline or the server is restarting */
     return null;
@@ -721,6 +727,7 @@ function takeBackRefused(held: Record<string, Held> | undefined, sent: Record<st
   for (const [k, h] of Object.entries(held ?? {})) {
     if (h && h.result === "not-ready") {
       notReady = true;
+      notReadyReason = { missing: h.missing, why: h.why };
       /* not in `set`: a removal the server did not keep */
       const mine = typeof sent[k] === "string" ? sent[k] : null;
       const theirs = typeof h.value === "string" ? h.value : null;
@@ -826,6 +833,7 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
   /* not kept at all because the store is not ready to sell: the keys come back as the server has them (its answer
      names them in "refused", as above), the design is kept as the designer's draft, and the page says why */
   if (r.status === 409 && r.result === "not-ready") {
+    notReadyReason = { missing: r.missing, why: r.why };
     takeBackRefused(r.refused, sent, true);
     return "stop";
   }

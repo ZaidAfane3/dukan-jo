@@ -137,10 +137,12 @@ export function Delivery() {
     setReady(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  /* a link to the Ways to pay card (/delivery#ways-to-pay, from a "not ready to sell" list): the card shows once the setup
-     is read, so the page scrolls to it then */
+  /* a link to the Ways to pay card (/delivery#ways-to-pay, from a "not ready to sell" list) or to his own courier's
+     proofs (#courier-proof, from that list or the top bar's proof mark): they show once the setup is read, so the page
+     scrolls to them then */
   useEffect(() => {
-    if (ready && window.location.hash === "#ways-to-pay") document.getElementById("ways-to-pay")?.scrollIntoView({ block: "start" });
+    const hash = ready ? window.location.hash : "";
+    if (hash === "#ways-to-pay" || hash === "#courier-proof") document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
   }, [ready]);
   /* only this page can put the options back in its form: its undo goes when it closes */
   useEffect(() => () => dropUndos("delivery"), []);
@@ -320,7 +322,7 @@ export function Delivery() {
                 <p id="d-fee-note" className={`mt-1.5 text-xs ${errors.fee ? "text-rose-600" : "text-muted"}`}>{errors.fee ?? w.feeHint}</p>
               </div>
               <OwnCities lang={lang} id="d-cities" value={cities} onChange={(v) => { setCities(v); setErrors((x) => ({ ...x, cities: undefined })); }} error={errors.cities} />
-              <div>
+              <div id="courier-proof" className="scroll-mt-24">
                 <p className="mb-1 text-sm font-semibold">{s.proofLabel}</p>
                 <p className="mb-1 text-xs text-muted">{s.proofHint}</p>
                 <p className="mb-3 text-xs text-muted">{w.newPartner}</p>

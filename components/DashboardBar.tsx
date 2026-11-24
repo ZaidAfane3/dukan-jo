@@ -26,6 +26,8 @@ import { SEARCH_OPEN } from "./searchSources";
 import { usePrefs } from "./Prefs";
 import { ordersCopy } from "./ordersContent";
 import { ProfileMenu } from "./ProfileMenu";
+import { useProofs } from "./proofStatus";
+import { PROOF_LINK } from "./ReadyToSell";
 import { loadSetup } from "./setup";
 import { TwoStepPrompt } from "./TwoStepPrompt";
 import { UndoToast } from "./UndoToast";
@@ -135,6 +137,85 @@ function TopTip({ children, hide = false }: { children: React.ReactNode; /* whil
     <span role="tooltip" className={`pointer-events-none absolute end-0 top-full z-50 mt-2 whitespace-nowrap rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-onink opacity-0 shadow-lg transition-opacity ${hide ? "" : "group-hover:opacity-100 group-focus-visible:opacity-100"}`}>
       {children}
     </span>
+  );
+}
+
+/* ====================================================================
+   His own courier's proof: where it stands, always in sight while he has one
+   ==================================================================== */
+
+/* short: the tip under the mark is one line */
+const proofWords = {
+  en: {
+    waiting: "Courier proof: waiting for Dukkan's review",
+    approved: "Courier proof approved",
+    rejected: "Courier proof not accepted: see why",
+    other: "Approved proof is for another courier",
+  },
+  ar: {
+    waiting: "إثبات المندوب: بانتظار مراجعة دكان",
+    approved: "تمت الموافقة على إثبات المندوب",
+    rejected: "لم يُقبل إثبات المندوب: اعرف السبب",
+    other: "الإثبات المقبول لمندوب آخر",
+  },
+};
+/* the newest approval he has seen (opened the Delivery page or this mark after it): the green mark then goes away. Per
+   browser, by the proof's id, which no other account has. */
+const PROOF_SEEN = "dukkan-proof-approved-seen";
+
+/** A small mark beside the support tickets while he has courier proofs (proofStatus.ts, read every minute and when he
+    comes back to the tab): a clock while one waits for Dukkan's review, a cross when it was not accepted, a warning when
+    the approval is for another courier, and a check once approved, until he has seen it. Each goes to the proofs on the
+    Delivery page. Signed in only (none in the tour). */
+function ProofMark() {
+  const { lang } = usePrefs();
+  const path = usePathname();
+  const p = useProofs();
+  const [seen, setSeen] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setSeen(localStorage.getItem(PROOF_SEEN));
+    } catch {
+      /* storage blocked: the check stays */
+    }
+  }, []);
+  const newestApproved = p.docs.filter((d) => d.status === "approved").sort((a, b) => a.createdAt.localeCompare(b.createdAt)).pop()?.id ?? "";
+  const markSeen = () => {
+    if (!newestApproved) return;
+    setSeen(newestApproved);
+    try {
+      localStorage.setItem(PROOF_SEEN, newestApproved);
+    } catch {
+      /* storage blocked */
+    }
+  };
+  /* on the Delivery page an approval is seen there */
+  const onDelivery = path === "/delivery";
+  useEffect(() => {
+    if (onDelivery && p.state === "approved") markSeen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onDelivery, p.state, newestApproved]);
+  if (!p.read || !p.docs.length || p.state === "none") return null;
+  if (p.state === "approved" && seen === newestApproved) return null;
+  const tone =
+    p.state === "approved" ? "text-emerald-600 dark:text-emerald-400" : p.state === "rejected" ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400";
+  const icon =
+    p.state === "waiting" ? <svg {...ico}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>
+    : p.state === "approved" ? <svg {...ico}><circle cx="12" cy="12" r="8.5" /><path d="m8.5 12.2 2.4 2.4 4.6-4.8" /></svg>
+    : p.state === "rejected" ? <svg {...ico}><circle cx="12" cy="12" r="8.5" /><path d="m9.2 9.2 5.6 5.6M14.8 9.2l-5.6 5.6" /></svg>
+    : <svg {...ico}><path d="M12 4 3 19.5h18L12 4Z" /><path d="M12 10v4.5M12 17v.01" /></svg>;
+  const label = proofWords[lang][p.state];
+  return (
+    <Link
+      href={PROOF_LINK}
+      data-nav-item
+      aria-label={label}
+      onClick={() => p.state === "approved" && markSeen()}
+      className={`group relative grid h-9 w-9 place-items-center rounded-lg border border-fg/15 transition hover:bg-soft ${tone}`}
+    >
+      {icon}
+      <TopTip>{label}</TopTip>
+    </Link>
   );
 }
 
@@ -590,6 +671,7 @@ export function DashboardBar({
           <div className="flex shrink-0 items-center gap-2">
             <SetupChip lang={lang} />
             {action}
+            <ProofMark />
             <Link
               href="/support"
               data-nav-item

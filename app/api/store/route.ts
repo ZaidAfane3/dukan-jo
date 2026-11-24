@@ -3,7 +3,8 @@ import { answer, currentAccount, guarded, otherAccount, sameOrigin, startRunning
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
-import { approvedFor, courierApprovals, handOverProofs, ownCourierPhone, pinLegacyApprovals, pinNextApprovals } from "@/server/courierProof";
+import { approvedFor, courierApprovals, handOverProofs, ownCourierPhone, pinLegacyApprovals, pinNextApprovals, proofChecks } from "@/server/courierProof";
+import { sellWhy, type SellWhy } from "@/components/sellWhy";
 import { db } from "@/server/db";
 import { keepMediaInUse, movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
@@ -29,7 +30,8 @@ export const dynamic = "force-dynamic";
 
    After a save that touches the setup, products, orders, design or pause, the shop's row for Diwan (server/shops.ts) is
    worked out again. Refused saves: 423 "suspended" (Dukkan suspended the store), 409 "slug-taken" (the setup's store
-   link belongs to another shop), 409 "not-ready" with `missing` (a save that would open a store not ready to sell, or
+   link belongs to another shop), 409 "not-ready" with `missing` and `why` (components/sellWhy.ts: which setup steps,
+   and why delivery is missing, his own courier's proof included) (a save that would open a store not ready to sell, or
    leave a live one without a way to pay or to get orders: safeOrder readyToSell). A refused save changes nothing.
 
    Pictures: a key that can hold pictures (components/mediaRules.ts PICTURE_KEYS) and still carries picture data (a page
@@ -167,7 +169,7 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
      so. The rest of the save goes on. */
   /* each key the server changed from what the browser sent, sent back for it to keep */
   const rewritten: Record<string, string> = {};
-  const refused: Record<string, { result: "theme-not-bought"; theme: string; value: string | null } | { result: "not-ready"; missing: SellNeed[]; value: string | null }> = {};
+  const refused: Record<string, { result: "theme-not-bought"; theme: string; value: string | null } | { result: "not-ready"; missing: SellNeed[]; why: SellWhy; value: string | null }> = {};
   const themeState = set.find(([k]) => k === "seen-themes");
   const designSave = set.find(([k]) => k === "seen-storefront");
   const owns = themeState || designSave ? await themeOwner(await db(), a.id) : null;
@@ -323,19 +325,23 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
       hold = hold.filter((k) => set.some(([s]) => s === k) || remove.includes(k));
       if (hold.length) {
         const missing = hold.includes("seen-setup") ? now.missing.filter((m) => !then.missing.includes(m)) : opening;
+        /* exactly what is missing for this store (components/sellWhy.ts): the setup steps left, and for delivery whether
+           it is the choice or his own courier's proof (none sent, waiting for review, not accepted, for another courier) */
+        const proofs = missing.includes("delivery") && afterSetup?.shipping?.mode === "own" ? await proofChecks(client, a.id) : undefined;
+        const why: SellWhy = { ...sellWhy(afterSetup, sellFor(afterSetup), missing, proofs), ...(hold.includes("seen-setup") ? { live: true } : {}) };
         for (const k of hold) {
           const i = set.findIndex(([s]) => s === k);
           if (i >= 0) set.splice(i, 1);
           const j = remove.indexOf(k);
           if (j >= 0) remove.splice(j, 1);
           delete rewritten[k];
-          refused[k] = { result: "not-ready", missing, value: was.get(k) ?? null };
+          refused[k] = { result: "not-ready", missing, why, value: was.get(k) ?? null };
         }
         /* nothing else in it (a list sent back "stale" is something: it is answered as usual, for the browser to merge) */
         if (!set.length && !remove.length && !Object.keys(stale).length) {
           await client.query("ROLLBACK");
           await handOver();
-          return answer({ result: "not-ready", missing, refused }, 409);
+          return answer({ result: "not-ready", missing, why, refused }, 409);
         }
       }
       /* an approval given while a proof had no courier phone is for the courier this kept setup saves (not when it was

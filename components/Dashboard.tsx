@@ -167,10 +167,11 @@ export function Dashboard() {
   /* what customers can't do yet: order delivery (no delivery choice: safeOrder storeDelivery, while pickup is on) */
   const [noShipping, setNoShipping] = useState(false);
   /* whether the store can sell (safeOrder readyToSell: a way to pay that is on, and pickup or a valid delivery choice),
-     and whether customers can see it now (its design saved, not under maintenance) */
-  const sell = useSellReady();
+     and whether customers can see it now (its design saved, not taken offline). His own courier counts once Dukkan
+     approved its proof, as on the server (useSellReady proof), so the list says when that is what is missing. */
+  const sell = useSellReady({ proof: true });
   const [liveNow, setLiveNow] = useState(false);
-  /* the store is published but paused (under maintenance): said at the top, so he never forgets it is closed */
+  /* the store is published but taken offline (not live): said at the top, so he never forgets it is closed */
   const [paused, setPaused] = useState(false);
   /* his Dukkan Ship pickup city as saved ("" when he does not use Dukkan Ship): a city Diwan took off the list is said here
      too, not only on Delivery options (the bell tells him once) */
@@ -366,15 +367,16 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* The store is paused: customers see the maintenance page until he opens it again from the account menu */}
+        {/* The store is not live: visitors can't see it until he makes it live again from the account menu ("not live" to
+            him, never "maintenance": that is only the visitors' page) */}
         {!tour && paused && (
           <p role="status" className="flex items-start gap-2.5 rounded-xl bg-amber-500/15 px-4 py-3 text-sm font-medium text-amber-900 dark:text-amber-200">
             <span aria-hidden className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500" />
             <span>
-              <span className="font-bold">{lang === "ar" ? "متجرك متوقف (قيد الصيانة)." : "Your store is paused (under maintenance)."}</span>{" "}
+              <span className="font-bold">{lang === "ar" ? "متجرك غير منشور." : "Your store isn't live."}</span>{" "}
               {lang === "ar"
-                ? "يرى العملاء صفحة الصيانة ولا يستطيعون الطلب. لفتحه مجددًا استخدم مفتاح «المتجر قيد الصيانة» في قائمة الحساب أعلى الصفحة."
-                : "Customers see a maintenance page and can't order. To open it again, use the \"Store under maintenance\" switch in the account menu at the top of the page."}
+                ? "لا يستطيع الزوار رؤيته أو الطلب منه. لنشره من جديد استخدم مفتاح «المتجر غير منشور» في قائمة الحساب أعلى الصفحة."
+                : "Visitors can't see it or order. To make it live again, use the \"Store not live\" switch in the account menu at the top of the page."}
             </span>
           </p>
         )}
@@ -402,7 +404,7 @@ export function Dashboard() {
             it on Delivery options. A store already live stays live (it is never taken offline for it): the same list
             then warns that customers can't complete an order, once Diwan's settings are in (a change there can cause it) */}
         {!tour && setupRead && sell.read && liveMissing(sell.missing, shipDefault).length > 0 && (!liveNow || sell.checked) && (
-          <SellNeeds lang={lang} missing={liveMissing(sell.missing, shipDefault)} title={liveNow ? sellWords[lang].liveNotReady : undefined} />
+          <SellNeeds lang={lang} missing={liveMissing(sell.missing, shipDefault)} why={sell.why} title={liveNow ? sellWords[lang].liveNotReady : undefined} />
         )}
         {/* a live store that never chose how it delivers delivers with Dukkan Ship by default (pickup on or off): it says so
             and asks him to choose, instead of "customers can't complete an order" */}

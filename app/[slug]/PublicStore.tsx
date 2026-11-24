@@ -78,7 +78,7 @@ export function PublicStore({ store }: { store: Store }) {
   if (store.status === "unavailable") return <Notice kind="unavailable" lang={lang} />;
   if (store.status === "soon") return <Notice kind="soon" name={store.name} lang={lang} />;
   if (store.status === "paused") {
-    return <MaintenancePage lang={lang} name={store.name} logo={safeStoredImage(store.logo)} color={store.color} message={store.message[lang]} />;
+    return <MaintenancePage lang={lang} name={store.name} message={store.message[lang]} />;
   }
   return <OpenStore store={store} />;
 }

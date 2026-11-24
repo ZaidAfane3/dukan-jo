@@ -11,10 +11,11 @@ export const MAINTENANCE_KEY = "seen-maintenance";
 const KEY = MAINTENANCE_KEY;
 export const MAINTENANCE_MAX = 300;
 
-/** What the page says (always Dukkan's words: the merchant no longer writes his own) */
+/** What the visitors' page says (MaintenancePage.tsx): Dukkan's words, then his own message when one is kept. Only
+    visitors are told "maintenance"; to him his store is "not live" (StoreStatus.tsx). */
 export const maintenanceDefault = {
-  en: { title: "This store is under maintenance", message: "We're making some improvements to the store. Please come back soon." },
-  ar: { title: "المتجر قيد الصيانة", message: "نجري بعض التحسينات على المتجر. يرجى العودة قريبًا." },
+  en: { title: "This store is under maintenance", message: "We'll be back soon." },
+  ar: { title: "المتجر تحت الصيانة", message: "سنعود قريبًا." },
 };
 
 export function loadMaintenance(): Maintenance {
