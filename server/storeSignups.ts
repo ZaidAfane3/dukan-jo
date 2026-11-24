@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { PRODUCT_MAX } from "@/components/records";
 import { cleanLine } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { productId, productSizes, sellableStock, sizeName, sizeOf, visitorEmail } from "@/components/safeOrder";
 import { SITE_HOST } from "@/components/siteAddress";
 import { reserveTry } from "./auth";
-import { resubscribeEmail } from "./campaigns";
+import { optedOut } from "./campaigns";
 import { blind, emailKey, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { emailOn, sendEmailBatch, type Email } from "./email";
@@ -22,13 +22,16 @@ import { findShop, isOpen } from "./storeOrders";
      addresses only to send;
    - back in stock (backInStockStats): how many wait per product and size, and how many were told so far. Once a product
      can be bought again he presses "Tell them it's back" (notifyBackInStock, POST /api/store-signups/back-in-stock):
-     Dukkan opens the addresses only then, emails each one once, and wipes the address. He may also clear a product's
+     Dukkan opens the addresses only then, emails each one once, and wipes the address (a press cut short by a restart
+     is finished by sweepBackInStock, started in instrumentation.ts). He may also clear a product's
      waiting list (clearBackInStock, DELETE the same route) without seeing who was on it.
 
    The email is sealed like every private contact (server/crypto.ts). It is kept once per shop (once per product and
    size for back in stock) by a keyed fingerprint made for that shop only, so a copy of the database can't tell that the
-   same person left an email in two stores. The same email again gets the same "ok", so the answer never tells whether
-   it was there before. */
+   same person left an email in two stores. Back in stock: the same email again gets the same "ok". The newsletter
+   (owner decision 2026-11-24): an address already on the list, or one that stopped or paused the store's campaigns, is
+   told "already" and nothing changes; a sign-up never lifts an unsubscribe (only the unsubscribe page's "Subscribe
+   again" does). */
 
 export type SignupKind = "newsletter" | "back_in_stock";
 export const SIGNUP_KINDS: SignupKind[] = ["newsletter", "back_in_stock"];
@@ -42,6 +45,8 @@ const keyOf = (accountId: string, email: string) => blind(`signup:${accountId}:$
 
 export type SignupResult =
   | { status: 200; body: { result: "ok" } }
+  /* the newsletter: on the list already, or out of the store's campaigns by his own choice (nothing changed) */
+  | { status: 200; body: { result: "already" } }
   | { status: 400; body: { result: "invalid" } }
   | { status: 404; body: { result: "none" } }
   /* the store is not open (suspended, not published, paused), as for an order */
@@ -78,7 +83,9 @@ async function savedProducts(accountId: string): Promise<Record<string, unknown>
   }
 }
 
-/** A visitor's newsletter sign-up: { email, lang, page? (an info page's id), product? (true on a product's page) } */
+/** A visitor's newsletter sign-up: { email, lang, page? (an info page's id), product? (true on a product's page) }.
+    "already" (nothing changed) for an address on the list, or one that unsubscribed from or paused the store's
+    campaigns. A store at its ceiling still answers "ok" and keeps nothing. */
 export async function newsletterSignup(slug: unknown, body: Record<string, unknown>): Promise<SignupResult> {
   const email = visitorEmail(body.email);
   if (!email) return { status: 400, body: { result: "invalid" } };
@@ -86,16 +93,21 @@ export async function newsletterSignup(slug: unknown, body: Record<string, unkno
   const source = pageId !== null ? "page" : body.product === true ? "product" : "home";
   const shop = await openShop(slug);
   if (!("id" in shop)) return shop;
-  await (await db()).query(
+  /* he stopped or paused this store's emails: signing up doesn't bring them back (the unsubscribe page does) */
+  if (await optedOut(shop.id, email)) return { status: 200, body: { result: "already" } };
+  const pool = await db();
+  const hash = keyOf(shop.id, email);
+  const put = await pool.query(
     `INSERT INTO store_signups (account_id, kind, email, email_hash, lang, source, page_id)
        SELECT $1, 'newsletter', $2, $3, $4, $5, $6
         WHERE (SELECT count(*) FROM store_signups WHERE account_id = $1 AND kind = 'newsletter') < ${SIGNUPS_MAX}
      ON CONFLICT (account_id, email_hash) WHERE kind = 'newsletter' DO NOTHING`,
-    [shop.id, seal(email), keyOf(shop.id, email), langOf(body.lang), source, pageId],
+    [shop.id, seal(email), hash, langOf(body.lang), source, pageId],
   );
-  /* signing up again is asking for the store's emails again: an earlier "unsubscribe" from its campaigns no longer holds */
-  await resubscribeEmail(shop.id, email);
-  return { status: 200, body: { result: "ok" } };
+  if (put.rowCount) return { status: 200, body: { result: "ok" } };
+  /* nothing kept: on the list already, or the store is at its ceiling (still "ok") */
+  const had = await pool.query(`SELECT 1 FROM store_signups WHERE account_id = $1 AND kind = 'newsletter' AND email_hash = $2`, [shop.id, hash]);
+  return had.rows.length ? { status: 200, body: { result: "already" } } : { status: 200, body: { result: "ok" } };
 }
 
 /** "Remind me when it's back": { email, lang, product (its id), size? }. Only for a product the store shows (not in
@@ -123,7 +135,7 @@ export async function backInStockSignup(slug: unknown, body: Record<string, unkn
        SELECT $1, 'back_in_stock', $2, $3, $4, 'product', $5, $6, $7
         WHERE (SELECT count(*) FROM store_signups WHERE account_id = $1 AND kind = 'back_in_stock' AND notified_at IS NULL) < ${SIGNUPS_MAX}
      ON CONFLICT (account_id, email_hash, product_id, size) WHERE kind = 'back_in_stock'
-       DO UPDATE SET email = EXCLUDED.email, lang = EXCLUDED.lang, notified_at = NULL, created_at = now()
+       DO UPDATE SET email = EXCLUDED.email, lang = EXCLUDED.lang, notified_at = NULL, claim_key = NULL, claimed_at = NULL, key_at = NULL, created_at = now()
        WHERE store_signups.notified_at IS NOT NULL`,
     [shop.id, seal(email), keyOf(shop.id, email), langOf(body.lang), id, plainText(size), plainText(cleanLine(p.name, PRODUCT_MAX.name) || null)],
   );
@@ -254,12 +266,13 @@ function groupOf(body: Record<string, unknown>): { id: number; size: string } | 
 }
 
 /** Clears the waiting list of one product (and size) of the merchant's own store: those still waiting are deleted
-    (nobody is emailed). Those already told stay counted (their addresses are already gone). */
+    (nobody is emailed). Those already told stay counted (their addresses are already gone), and so do those in a batch
+    being sent right now (claim_key): it settles them. */
 export async function clearBackInStock(accountId: string, body: Record<string, unknown>): Promise<{ status: 200; body: { result: "ok"; cleared: number } } | { status: 400; body: { result: "invalid" } }> {
   const g = groupOf(body);
   if (!g) return { status: 400, body: { result: "invalid" } };
   const { rowCount } = await (await db()).query(
-    `DELETE FROM store_signups WHERE account_id = $1 AND kind = 'back_in_stock' AND product_id = $2 AND size = $3 AND notified_at IS NULL`,
+    `DELETE FROM store_signups WHERE account_id = $1 AND kind = 'back_in_stock' AND product_id = $2 AND size = $3 AND notified_at IS NULL AND claim_key IS NULL`,
     [accountId, g.id, g.size],
   );
   return { status: 200, body: { result: "ok", cleared: rowCount ?? 0 } };
@@ -286,104 +299,266 @@ export type NotifyResult =
 
 const isDev = () => process.env.NODE_ENV !== "production";
 
-/** "Tell them it's back": emails those waiting for one product (and size) of the merchant's own store that it can be
-    bought again, each in the language they asked in, with a button to its page, under the store's name. Only once it
-    can really be bought (shown, in stock, the store open). Dukkan opens the addresses only here, to send: the merchant
-    never sees them. The waiting are claimed first, in one step (two presses at once can't both send to the same
-    person), the oldest first; they are given back when the email does not go out. Once sent, each is marked told and
-    its address wiped. The batch's key for Resend is made from the requests it carries, so a press again after an
-    unclear answer sends the very same batch under the same key, which Resend answers without sending twice. In
-    development without email set up, nothing is sent and nothing is marked (`stub`). */
-export async function notifyBackInStock(accountId: string, body: Record<string, unknown>): Promise<NotifyResult> {
-  const g = groupOf(body);
-  if (!g) return { status: 400, body: { result: "invalid" } };
-  if (!emailOn() && !isDev()) return { status: 503, body: { result: "no-sender" } };
-  const pool = await db();
-  const shop = await pool.query(
+/* A press's batch handed to Resend whose outcome was never noted for this long (the server stopped, the answer never
+   came, a step after it failed) belongs to a process that is gone: the sweep (sweepBackInStock) settles it. A press takes
+   at most about a minute (two tries of 30 seconds). */
+const STALE_MINUTES = 3;
+/* Resend keeps a key 24 hours: a batch still not settled after this many hours is taken as told (its address wiped),
+   never sent under its key again (Resend could have forgotten it and send twice) */
+const KEY_HOURS = 23;
+
+type Claimed = { id: string; email: string; lang: EmailLang };
+type ShopRow = { slug: string; name: string; status: string; paused: boolean; published: boolean; setup: string | null };
+
+/* the merchant's store (open or not) and his saved product, or why "Tell them it's back" can't go now */
+async function sellable(accountId: string, product: number, size: string): Promise<{ s: ShopRow; p: Record<string, unknown> } | "none" | "closed" | "sold-out"> {
+  const shop = await (await db()).query(
     `SELECT s.slug, s.name, s.status, s.paused, s.published, d.value AS setup FROM shops s
        LEFT JOIN store_data d ON d.account_id = s.account_id AND d.key = 'seen-setup' WHERE s.account_id = $1`,
     [accountId],
   );
-  const s = shop.rows[0] as { slug: string; name: string; status: string; paused: boolean; published: boolean; setup: string | null } | undefined;
-  if (!s) return { status: 404, body: { result: "none" } };
+  const s = shop.rows[0] as ShopRow | undefined;
+  if (!s) return "none";
   /* the button would open a store that can't sell */
-  if (!isOpen(s)) return { status: 409, body: { result: "closed" } };
-  const p = (await savedProducts(accountId)).find((x) => !x.deletedAt && productId(x.id) === g.id);
-  if (!p) return { status: 404, body: { result: "none" } };
-  if (!readyNow(p, g.size)) return { status: 409, body: { result: "sold-out" } };
+  if (!isOpen(s)) return "closed";
+  const p = (await savedProducts(accountId)).find((x) => !x.deletedAt && productId(x.id) === product);
+  if (!p) return "none";
+  if (!readyNow(p, size)) return "sold-out";
+  return { s, p };
+}
 
-  const claimed = await pool.query(
-    `UPDATE store_signups SET notified_at = now()
-      WHERE id IN (SELECT id FROM store_signups
-                    WHERE account_id = $1 AND kind = 'back_in_stock' AND product_id = $2 AND size = $3 AND notified_at IS NULL
-                    ORDER BY id LIMIT ${NOTIFY_BATCH} FOR UPDATE SKIP LOCKED)
-      RETURNING id, email, lang`,
-    [accountId, g.id, g.size],
+/* the emails of one batch, always in the same order and the same words, so the batch sent again under its key (the
+   sweep) is the very same request */
+function emailsOf(s: ShopRow, p: Record<string, unknown>, product: number, size: string, rows: Claimed[]): Email[] {
+  const store = cleanSetup(parseJson(s.setup))?.name || s.name || s.slug;
+  const name = cleanLine(p.name, PRODUCT_MAX.name);
+  const url = `https://${SITE_HOST}/${s.slug}?p=${product}`;
+  return [...rows]
+    .sort((a, b) => Number(a.id) - Number(b.id))
+    .map((x) => {
+      const w = backInStockEmail(x.lang, { store, product: name, size, url });
+      return { to: x.email, lang: x.lang, subject: w.subject, heading: w.heading, text: w.text, button: w.button, sender: store, foot: { lang: x.lang, text: w.foot } };
+    });
+}
+
+/* Told: marked and the address wiped in ONE statement, only rows still in this batch (claim_key), so a restart can
+   never leave a row told with its address kept */
+const markTold = (accountId: string, key: string) =>
+  db().then((pool) =>
+    pool.query(
+      `UPDATE store_signups SET notified_at = now(), email = '', claim_key = NULL, claimed_at = NULL, key_at = NULL
+        WHERE account_id = $1 AND kind = 'back_in_stock' AND claim_key = $2 AND notified_at IS NULL`,
+      [accountId, key],
+    ),
   );
-  const rows = (claimed.rows as { id: string; email: string; lang: string }[]).sort((a, b) => Number(a.id) - Number(b.id));
-  if (!rows.length) return { status: 404, body: { result: "none" } };
-  const giveBack = async (ids: string[]) => {
-    if (ids.length)
-      await pool.query(`UPDATE store_signups SET notified_at = NULL WHERE account_id = $1 AND id = ANY($2::bigint[])`, [accountId, ids]).catch((e) => console.error("[back in stock] giving requests back", e));
-  };
-  /* how many are still waiting after this press (those given back included) */
-  const left = async () =>
-    Number((await pool.query(`SELECT count(*)::int AS n FROM store_signups WHERE account_id = $1 AND kind = 'back_in_stock' AND product_id = $2 AND size = $3 AND notified_at IS NULL`, [accountId, g.id, g.size])).rows[0]?.n ?? 0);
+/* nothing of the batch went out (Resend said so clearly): its requests wait again, for another press */
+const giveBack = (accountId: string, key: string) =>
+  db().then((pool) =>
+    pool.query(`UPDATE store_signups SET claim_key = NULL, claimed_at = NULL, key_at = NULL WHERE account_id = $1 AND kind = 'back_in_stock' AND claim_key = $2 AND notified_at IS NULL`, [accountId, key]),
+  );
 
-  /* each reader's allowances, taken at once, before anything is waited for; the ones over a limit stay waiting */
+/* an answer that doesn't say whether the emails went out: none came (a timeout, no connection, or the same key still
+   being answered: Resend's 409 concurrent_idempotent_requests) or Resend's own trouble */
+const unclear = (status: number) => status === 0 || status >= 500;
+
+/* What an answer means for a batch (as for the campaigns, server/campaigns.ts verdictOf). `maybe`: a try under this key
+   may have gone out before.
+   - "told": Resend took it; or a 409 after a try that may have gone out: the key already carried a request with other
+     words (the product renamed meanwhile), which Resend keeps as taken: sending it under another key would send twice;
+   - "keep": it may have gone out and can't be settled now: it stays in its batch, sent again under the same key later;
+   - "back": nothing went out: those requests wait again. */
+function verdictOf(status: number, maybe: boolean): "told" | "keep" | "back" {
+  if (status >= 200 && status < 300) return "told";
+  if (status === 409) return maybe ? "told" : "keep";
+  if (status === 429 || status === -1 || unclear(status)) return maybe ? "keep" : "back";
+  /* refused (an address Resend won't take, 400 / 422): under the same key Resend answers a request it took with its
+     first answer, so a refusal means it never took one. 401 / 403 come before the key is looked at: after a try that
+     may have gone out they say nothing of it */
+  if (maybe && (status === 401 || status === 403)) return "keep";
+  return "back";
+}
+
+/** "Tell them it's back": emails those waiting for one product (and size) of the merchant's own store that it can be
+    bought again, each in the language they asked in, with a button to its page, under the store's name. Only once it
+    can really be bought (shown, in stock, the store open). Dukkan opens the addresses only here, to send: the merchant
+    never sees them. The waiting are claimed first, in one step (two presses at once can't both send to the same
+    person), the oldest first, under a new key for Resend kept on their rows (claim_key; notified_at stays empty). Once
+    Resend took them, each is marked told and its address wiped in one statement; when nothing went out they wait again.
+    A batch whose outcome was never noted (a restart while sending, no answer) is settled by the sweep
+    (sweepBackInStock): sent again under its same key, which Resend answers without sending twice. In development
+    without email set up, nothing is sent and nothing is claimed (`stub`). */
+export async function notifyBackInStock(accountId: string, body: Record<string, unknown>): Promise<NotifyResult> {
+  const g = groupOf(body);
+  if (!g) return { status: 400, body: { result: "invalid" } };
+  if (!emailOn() && !isDev()) return { status: 503, body: { result: "no-sender" } };
+  const ok = await sellable(accountId, g.id, g.size);
+  if (ok === "none") return { status: 404, body: { result: "none" } };
+  if (ok === "closed" || ok === "sold-out") return { status: 409, body: { result: ok } };
+  const pool = await db();
+  /* how many are still waiting for a press (those given back included; those in a batch being sent are not) */
+  const left = async () =>
+    Number((await pool.query(`SELECT count(*)::int AS n FROM store_signups WHERE account_id = $1 AND kind = 'back_in_stock' AND product_id = $2 AND size = $3 AND notified_at IS NULL AND claim_key IS NULL`, [accountId, g.id, g.size])).rows[0]?.n ?? 0);
+
+  const key = `back-in-stock:${randomUUID()}`;
+  /* the batch: each reader's allowances taken at once, before anything is waited for; the ones over a limit are not
+     claimed (they stay waiting); one with no address that can be used is marked told (nothing to send). One transaction,
+     so the rows claimed under the key are exactly the emails sent under it. */
   const backs: (() => void)[] = [];
-  const go: { id: string; email: string; lang: EmailLang }[] = [];
-  const over: string[] = [];
-  for (const r of rows) {
-    const email = visitorEmail(r.email);
-    /* no address to write to (not one that can be used): nothing to send, it stays marked told */
-    if (!email) continue;
-    const shopTry = reserveTry(`stock-mail-shop:${accountId}`, NOTIFY_SHOP_DAY, 24 * 60);
-    const addressTry = shopTry ? reserveTry(`stock-mail:${emailKey(email)}`, NOTIFY_ADDRESS_DAY, 24 * 60) : null;
-    if (!shopTry || !addressTry) {
-      shopTry?.();
-      over.push(String(r.id));
-      continue;
-    }
-    backs.push(shopTry, addressTry);
-    go.push({ id: String(r.id), email, lang: r.lang === "en" ? "en" : "ar" });
-  }
-  const ids = go.map((x) => x.id);
-  let sent = false;
+  const go: Claimed[] = [];
+  let over = 0;
+  const c = await pool.connect();
   try {
-    await giveBack(over);
-    if (!go.length) return over.length ? { status: 429, body: { result: "slow-down" } } : { status: 200, body: { result: "ok", sent: 0, left: await left() } };
-    if (!emailOn()) {
-      await giveBack(ids);
+    await c.query("BEGIN");
+    const picked = await c.query(
+      `SELECT id, email, lang FROM store_signups
+        WHERE account_id = $1 AND kind = 'back_in_stock' AND product_id = $2 AND size = $3 AND notified_at IS NULL AND claim_key IS NULL
+        ORDER BY id LIMIT ${NOTIFY_BATCH} FOR UPDATE SKIP LOCKED`,
+      [accountId, g.id, g.size],
+    );
+    const unusable: string[] = [];
+    for (const r of picked.rows as { id: string; email: string; lang: string }[]) {
+      const email = visitorEmail(r.email);
+      if (!email) {
+        unusable.push(String(r.id));
+        continue;
+      }
+      const shopTry = reserveTry(`stock-mail-shop:${accountId}`, NOTIFY_SHOP_DAY, 24 * 60);
+      const addressTry = shopTry ? reserveTry(`stock-mail:${emailKey(email)}`, NOTIFY_ADDRESS_DAY, 24 * 60) : null;
+      if (!shopTry || !addressTry) {
+        shopTry?.();
+        over++;
+        continue;
+      }
+      backs.push(shopTry, addressTry);
+      go.push({ id: String(r.id), email, lang: r.lang === "en" ? "en" : "ar" });
+    }
+    if (!picked.rows.length) {
+      await c.query("ROLLBACK");
+      return { status: 404, body: { result: "none" } };
+    }
+    if (!emailOn() && go.length) {
+      /* development without email: answered as it would be, nothing claimed nor sent */
+      await c.query("ROLLBACK");
+      for (const b of backs) b();
       console.info(`[dev] back in stock: ${go.length} email(s) for product ${g.id} (email is off, nothing was sent)`);
       return { status: 200, body: { result: "ok", sent: 0, left: await left(), stub: true } };
     }
-    const store = cleanSetup(parseJson(s.setup))?.name || s.name || s.slug;
-    const product = cleanLine(p.name, PRODUCT_MAX.name);
-    const url = `https://${SITE_HOST}/${s.slug}?p=${g.id}`;
-    const emails: Email[] = go.map((x) => {
-      const w = backInStockEmail(x.lang, { store, product, size: g.size, url });
-      return { to: x.email, lang: x.lang, subject: w.subject, heading: w.heading, text: w.text, button: w.button, sender: store, foot: { lang: x.lang, text: w.foot } };
-    });
-    const key = `back-in-stock:${createHash("sha256").update(`${accountId}:${ids.join(",")}`).digest("hex")}`;
+    if (unusable.length) await c.query(`UPDATE store_signups SET notified_at = now(), email = '' WHERE account_id = $1 AND id = ANY($2::bigint[])`, [accountId, unusable]);
+    if (go.length)
+      await c.query(`UPDATE store_signups SET claim_key = $2, claimed_at = now(), key_at = now() WHERE account_id = $1 AND id = ANY($3::bigint[])`, [accountId, key, go.map((x) => x.id)]);
+    await c.query("COMMIT");
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    for (const b of backs) b();
+    throw e;
+  } finally {
+    c.release();
+  }
+  if (!go.length) return over ? { status: 429, body: { result: "slow-down" } } : { status: 200, body: { result: "ok", sent: 0, left: await left() } };
+
+  /* from here on the rows are in the batch: whatever happens (a throw, a restart), the sweep settles them */
+  let kept = true;
+  try {
+    const emails = emailsOf(ok.s, ok.p, g.id, g.size, go);
     let status = await sendEmailBatch(emails, key);
+    let maybe = unclear(status);
     /* no answer, or Resend's own trouble: once more under the same key (never sent twice) */
-    if (status === 0 || status >= 500) status = await sendEmailBatch(emails, key);
-    if (status < 200 || status >= 300) {
-      await giveBack(ids);
-      console.error("[back in stock] Resend answered", status);
+    if (unclear(status)) status = await sendEmailBatch(emails, key);
+    maybe ||= unclear(status);
+    const v = verdictOf(status, maybe);
+    if (v === "told") {
+      await markTold(accountId, key);
+      return { status: 200, body: { result: "ok", sent: go.length, left: await left() } };
+    }
+    console.error("[back in stock] Resend answered", status, v === "keep" ? "(kept for the sweep)" : "");
+    if (v === "back") {
+      await giveBack(accountId, key);
+      kept = false;
       if (status === 429) return { status: 429, body: { result: "slow-down" } };
       return { status: 503, body: { result: status === -1 ? "no-sender" : "failed" } };
     }
-    sent = true;
-    /* told: the address is not needed any more (unless the same person asked again meanwhile: waiting again) */
-    await pool.query(`UPDATE store_signups SET email = '' WHERE account_id = $1 AND id = ANY($2::bigint[]) AND notified_at IS NOT NULL`, [accountId, ids]);
-    return { status: 200, body: { result: "ok", sent: go.length, left: await left() } };
+    /* maybe sent: the sweep sends it again under the same key once it is stale */
+    kickBackInStockLater();
+    return { status: 503, body: { result: "failed" } };
   } catch (e) {
-    if (!sent) await giveBack(ids);
+    kickBackInStockLater();
     throw e;
   } finally {
     /* nothing went out: the allowances come back */
-    if (!sent) for (const b of backs) b();
+    if (!kept) for (const b of backs) b();
   }
+}
+
+/* ---------------- the sweep: batches whose outcome was never noted ---------------- */
+
+/* one sweep at a time per server process, kept across Next's reloads of this file in development */
+const sw = globalThis as typeof globalThis & { dukkanBackInStock?: { running: boolean; timer: ReturnType<typeof setTimeout> | null } };
+const sweep = (sw.dukkanBackInStock ??= { running: false, timer: null });
+
+/** Settles the back-in-stock batches whose outcome was never noted (on the server's start, instrumentation.ts, and
+    again every minute while some are left). Never waits. */
+export function kickBackInStock(): void {
+  if (sweep.running) return;
+  sweep.running = true;
+  void sweepBackInStock()
+    .then((more) => {
+      if (more) kickBackInStockLater(60_000);
+    })
+    .catch((e) => {
+      console.error("[back in stock] sweep stopped, trying again in a minute:", (e as Error)?.message ?? e);
+      kickBackInStockLater(60_000);
+    })
+    .finally(() => {
+      sweep.running = false;
+    });
+}
+
+function kickBackInStockLater(ms = (STALE_MINUTES * 60 + 15) * 1000): void {
+  if (sweep.timer) return;
+  sweep.timer = setTimeout(() => ((sweep.timer = null), kickBackInStock()), ms);
+}
+
+/** Each stale batch: taken again (so another process doesn't send it at the same time), sent again under its own key
+    with the very same emails (Resend answers one it took without sending twice), then marked told and wiped; given back
+    to waiting when Resend refused it (it never took it) or the product can't be bought any more. Gives whether batches
+    are still left to settle later. */
+export async function sweepBackInStock(): Promise<boolean> {
+  const pool = await db();
+  /* past what Resend keeps: whether it went out is not known, and it is never sent again */
+  const lost = await pool.query(
+    `UPDATE store_signups SET notified_at = now(), email = '', claim_key = NULL, claimed_at = NULL, key_at = NULL
+      WHERE kind = 'back_in_stock' AND claim_key IS NOT NULL AND notified_at IS NULL AND key_at < now() - make_interval(hours => ${KEY_HOURS})`,
+  );
+  if (lost.rowCount) console.error(`[back in stock] ${lost.rowCount} request(s) never settled within ${KEY_HOURS} hours: taken as told`);
+  const stale = await pool.query(
+    `SELECT DISTINCT account_id, claim_key, product_id, size FROM store_signups
+      WHERE kind = 'back_in_stock' AND claim_key IS NOT NULL AND notified_at IS NULL AND claimed_at < now() - make_interval(mins => ${STALE_MINUTES}) LIMIT 50`,
+  );
+  for (const b of stale.rows) {
+    const accountId = String(b.account_id);
+    const key = String(b.claim_key);
+    const mine = await pool.query(
+      `UPDATE store_signups SET claimed_at = now() WHERE account_id = $1 AND kind = 'back_in_stock' AND claim_key = $2 AND notified_at IS NULL
+          AND claimed_at < now() - make_interval(mins => ${STALE_MINUTES}) RETURNING id, email, lang`,
+      [accountId, key],
+    );
+    if (!mine.rows.length) continue;
+    if (!emailOn()) continue;
+    const ok = await sellable(accountId, Number(b.product_id), String(b.size ?? ""));
+    if (typeof ok === "string") {
+      /* the product can't be bought any more (or the store can't sell): they wait again for the next "Tell them" */
+      await giveBack(accountId, key);
+      continue;
+    }
+    const rows: Claimed[] = mine.rows.map((r) => ({ id: String(r.id), email: visitorEmail(r.email) ?? "", lang: r.lang === "en" ? "en" : "ar" }));
+    const emails = emailsOf(ok.s, ok.p, Number(b.product_id), String(b.size ?? ""), rows);
+    let status = await sendEmailBatch(emails, key);
+    if (unclear(status)) status = await sendEmailBatch(emails, key);
+    const v = verdictOf(status, true);
+    if (v === "told") await markTold(accountId, key);
+    else if (v === "back") await giveBack(accountId, key);
+    else console.error("[back in stock] a batch sent again got", status, "(kept for later)");
+  }
+  const leftOver = await pool.query(`SELECT 1 FROM store_signups WHERE kind = 'back_in_stock' AND claim_key IS NOT NULL AND notified_at IS NULL LIMIT 1`);
+  return leftOver.rows.length > 0;
 }

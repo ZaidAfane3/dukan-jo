@@ -3014,6 +3014,7 @@ const signupWords = {
     error: "We couldn't sign you up. Check your connection and try again.",
     slow: "Too many tries. Wait a few minutes and try again.",
     closed: "This store isn't taking sign-ups right now.",
+    already: "You're already signed up.",
     preview: "This is a preview, so the email was not saved. Emails left on your live store are counted in Marketing > Customer emails.",
   },
   ar: {
@@ -3021,6 +3022,7 @@ const signupWords = {
     error: "تعذّر تسجيل اشتراكك. تأكّد من اتصالك وحاول مرة أخرى.",
     slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مرة أخرى.",
     closed: "هذا المتجر لا يستقبل اشتراكات حاليًا.",
+    already: "أنت مشترك بالفعل.",
     preview: "هذه معاينة، لذلك لم يُحفظ البريد. الإيميلات التي يتركها الزوّار في متجرك المنشور تُحسب في التسويق > إيميلات العملاء.",
   },
 };
@@ -3032,8 +3034,9 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
   const [done, setDone] = useState(false);
   /* on its way to the server (the public store) */
   const [sending, setSending] = useState(false);
-  /* a line under the field: why it did not go through, or (the preview) that nothing was kept */
-  const [note, setNote] = useState<"" | "error" | "slow" | "closed" | "preview">("");
+  /* a line under the field: why it did not go through, that the address is already on the list (or had stopped the
+     store's emails: only the unsubscribe page brings them back), or (the preview) that nothing was kept */
+  const [note, setNote] = useState<"" | "error" | "slow" | "closed" | "already" | "preview">("");
   /* The pop-up after subscribing (when the merchant chose it): in the designer pressing the button shows it, to see and adjust it */
   const [pop, setPop] = useState(false);
   /* while one of the pop-up's settings is open in the designer, the pop-up shows, so he sees what he changes */
@@ -3136,6 +3139,7 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
                 .then(async (r) => {
                   const j = (await r.json().catch(() => null)) as { result?: string } | null;
                   if (r.ok && j?.result === "ok") return finish();
+                  if (r.ok && j?.result === "already") return setNote("already");
                   if (r.status === 400 && j?.result === "invalid") return setBad(true);
                   setNote(r.status === 429 ? "slow" : r.status === 409 || r.status === 404 ? "closed" : "error");
                 })
@@ -3162,7 +3166,8 @@ function Newsletter({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { ty
               {sending ? signupWords[l].sending : <Say>{pick(s.button)}</Say>}
             </button>
             {bad && <p role="alert" className="w-full text-xs font-semibold">{l === "ar" ? "اكتب بريدًا إلكترونيًا صحيحًا، مثل name@example.com" : "Enter a valid email, like name@example.com"}</p>}
-            {note && note !== "preview" && <p role="alert" className="w-full text-xs font-semibold">{signupWords[l][note]}</p>}
+            {note && note !== "preview" && note !== "already" && <p role="alert" className="w-full text-xs font-semibold">{signupWords[l][note]}</p>}
+            {note === "already" && <p role="status" className="w-full text-xs font-semibold">{signupWords[l].already}</p>}
             {note === "preview" && <p role="status" className="w-full text-xs opacity-80">{signupWords[l].preview}</p>}
           </form>
         )}
