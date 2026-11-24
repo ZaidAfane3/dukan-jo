@@ -6,6 +6,7 @@ import { ShopAndOwner, ShopOnly, useUrlParam } from "@/components/diwan/shopBits
 import { CampaignsSkeleton } from "@/components/diwan/skeletons";
 import { Badge, Btn, DataTable, Loaded, LoadMore, PageHead, refusedWords, send, td, useFmt, useMore, useT, type Tone } from "@/components/diwan/ui";
 import { oneOf, useListScroll, useListState } from "@/components/diwan/useListState";
+import { timeoutSignal } from "@/components/timeoutSignal";
 
 /* The marketing campaigns stores send their customers (server/campaigns.ts), live from the database: what each said, to
    how many, how many went out, and a stop for one still sending (the rest is not sent, and the merchant is told in his
@@ -20,6 +21,17 @@ type Row = {
 };
 type Full = Row & { heading: string; body: string; buttonLabel: string; buttonUrl: string };
 type Data = { rows: Row[]; total: number; page: number; pageSize: number };
+
+/* one campaign as it is now, or null when it couldn't be read (the next round tries again) */
+async function readOne(id: string): Promise<Full | null> {
+  try {
+    const r = await fetch(`/api/diwan/campaigns/${encodeURIComponent(id)}`, { credentials: "same-origin", cache: "no-store", signal: timeoutSignal(20_000) });
+    const j = await r.json().catch(() => null);
+    return r.ok && j?.campaign ? (j.campaign as Full) : null;
+  } catch {
+    return null;
+  }
+}
 
 const STATUSES = ["", "sending", "sent", "stopped", "failed"] as const;
 const LIST = { status: oneOf(STATUSES) };
@@ -48,14 +60,28 @@ export default function CampaignsPage() {
   const [open, setOpen] = useState<Full | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
 
-  /* the numbers of a campaign sending move on: read again every few seconds while one is in the list */
-  const sending = !!s.data?.rows.some((r) => r.status === "sending");
+  /* the numbers of a campaign sending move on: every few seconds the ones sending in the list are read again, one by one,
+     and shown over the rows already loaded. Not the whole list again: a reload goes back to the first batch and would
+     drop the rows "Load more" added. Newer than any row loaded so far, so they are forgotten only with new filters. */
+  const [latest, setLatest] = useState<{ url: string; rows: Record<string, Row> }>({ url, rows: {} });
+  const fresh = latest.url === url ? latest.rows : null;
+  const rows = useMemo(() => (s.data ? s.data.rows.map((r) => fresh?.[r.id] ?? r) : []), [s.data, fresh]);
+  const keep = (c: Row) => setLatest((x) => ({ url, rows: { ...(x.url === url ? x.rows : {}), [c.id]: c } }));
+  const sendingIds = rows.filter((r) => r.status === "sending").map((r) => r.id).join(",");
   useEffect(() => {
-    if (!sending) return;
-    const id = setInterval(() => s.reload(), 8_000);
-    return () => clearInterval(id);
+    if (!sendingIds) return;
+    let alive = true;
+    const id = setInterval(() => {
+      for (const cid of sendingIds.split(",")) {
+        void readOne(cid).then((c) => alive && c && keep(c));
+      }
+    }, 8_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sending]);
+  }, [sendingIds, url]);
 
   const show = async (id: string) => {
     setOpening(id);
@@ -84,13 +110,17 @@ export default function CampaignsPage() {
     });
     if (!yes) return;
     const r = await send(`/api/diwan/campaigns/${c.id}/stop`, "POST", {});
-    if (r.ok && r.data?.campaign) setOpen(r.data.campaign as Full);
-    else {
+    if (r.ok && r.data?.campaign) {
+      setOpen(r.data.campaign as Full);
+      keep(r.data.campaign as Row);
+    } else {
       const why = refusedWords(t, r) ?? (r.data?.result === "not-sending" ? t("It isn't sending any more: it already finished or was stopped.", "لم تعد قيد الإرسال: انتهت أو أُوقفت بالفعل.") : t("It couldn't be stopped. Try again.", "تعذّر الإيقاف. حاول مجددًا."));
       await tell({ title: why });
       setOpen(null);
+      /* its row as it is now (finished, or stopped by someone else), keeping the rest of the list as loaded */
+      const now = await readOne(c.id);
+      if (now) keep(now);
     }
-    s.reload();
   };
 
   const chip = (on: boolean) => `inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${on ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`;
@@ -121,7 +151,7 @@ export default function CampaignsPage() {
               head={[t("Campaign", "الحملة"), t("Store", "المتجر"), t("Status", "الحالة"), t("Recipients", "المستلمون"), t("Sent / failed", "أُرسلت / فشلت"), t("Started", "بدأت"), ""]}
               empty={d.rows.length === 0 && t("No campaigns here.", "لا توجد حملات هنا.")}
             >
-              {d.rows.map((r) => (
+              {rows.map((r) => (
                 <tr key={r.id}>
                   <td className={td}>
                     <p className="max-w-[18rem] truncate font-semibold" dir="auto" title={titleOf(r)}>{titleOf(r)}</p>

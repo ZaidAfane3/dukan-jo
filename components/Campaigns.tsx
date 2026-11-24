@@ -81,6 +81,7 @@ const copy = {
     delAsk: "Delete this draft?",
     keep: "Keep",
     delFail: "It couldn't be deleted. Try again.",
+    delStarted: "This campaign has already started, so it can't be deleted. Its numbers are shown above.",
     loading: "Loading campaigns…",
     loadFail: "The campaigns couldn't load. Check your connection and try again.",
     retry: "Try again",
@@ -143,6 +144,7 @@ const copy = {
       discard: "Discard your changes?",
       discardYes: "Discard",
       keepEditing: "Keep editing",
+      started: "This campaign has already started, so it can't be changed any more. Your changes here weren't saved; close this to see it in the list.",
     },
     problems: {
       subject: { missing: "Write the email's subject.", long: `Up to ${CAMPAIGN_MAX.subject} characters.` },
@@ -218,6 +220,7 @@ const copy = {
     delAsk: "حذف هذه المسودة؟",
     keep: "إبقاء",
     delFail: "تعذّر الحذف. حاول مرة أخرى.",
+    delStarted: "بدأ إرسال هذه الحملة، فلا يمكن حذفها. أرقامها ظاهرة أعلاه.",
     loading: "جارٍ تحميل الحملات…",
     loadFail: "تعذّر تحميل الحملات. تحقّق من اتصالك وحاول مجددًا.",
     retry: "حاول مجددًا",
@@ -280,6 +283,7 @@ const copy = {
       discard: "تجاهل تعديلاتك؟",
       discardYes: "تجاهل",
       keepEditing: "متابعة التعديل",
+      started: "بدأ إرسال هذه الحملة، فلا يمكن تعديلها بعد الآن. لم تُحفظ تعديلاتك هنا؛ أغلق هذه النافذة لتراها في القائمة.",
     },
     problems: {
       subject: { missing: "اكتب عنوان البريد.", long: `حتى ${CAMPAIGN_MAX.subject} حرفًا.` },
@@ -351,13 +355,13 @@ const dateOf = (iso: string, lang: Lang) =>
 
 /* one call to the campaigns' routes: its status and JSON, or null when the server could not be reached. Changes name the
    account the page is signed in as (server/auth.ts otherAccount), so a tab left on another account can't act here. */
-async function call(path: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<{ status: number; data: Record<string, any> } | null> {
+async function call(path: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown, signal?: AbortSignal): Promise<{ status: number; data: Record<string, any> } | null> {
   try {
     const r = await fetch(path, {
       method,
       credentials: "same-origin",
       cache: "no-store",
-      signal: timeoutSignal(20_000),
+      signal: timeoutSignal(20_000, signal),
       headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...(method === "GET" ? {} : accountHeader()) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -367,6 +371,18 @@ async function call(path: string, method: "GET" | "POST" | "PUT" | "DELETE", bod
   }
 }
 const whyOf = (c: Copy, r: { status: number; data: Record<string, any> } | null) => (r ? c.why[String(r.data.result)] ?? c.why.error : c.why.offline);
+
+/* how many customers an audience reaches now. The server counts at most two at a time for one account and answers 429
+   "slow-down" past that (filters changed quickly, the counts before still running): that is still counting, so it asks
+   again a moment later, a few times, before saying it couldn't count. */
+async function countOf(channel: CampaignChannel, a: CampaignAudience, signal?: AbortSignal) {
+  const path = `/api/campaigns/audience?channel=${channel}&who=${a.who}&days=${a.days}&min=${a.minOrders}`;
+  for (let i = 0; ; i++) {
+    const r = await call(path, "GET", undefined, signal);
+    if (r?.status !== 429 || i >= 5 || signal?.aborted) return r;
+    await new Promise((ok) => setTimeout(ok, 700 + i * 400));
+  }
+}
 
 /* ---------------- the tour's samples ---------------- */
 
@@ -399,13 +415,15 @@ export function Campaigns() {
   const [moreFailed, setMoreFailed] = useState(false);
   const [asking, setAsking] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [delFailed, setDelFailed] = useState<string | null>(null);
+  const [delFailed, setDelFailed] = useState<{ id: string; text: string } | null>(null);
   /* the form: a new campaign (null id) or a draft; the details of one that started */
   const [form, setForm] = useState<{ draft: Full | null } | null>(null);
   const [viewing, setViewing] = useState<Full | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const [openFail, setOpenFail] = useState("");
   const reading = useRef(0);
+  const shownRows = useRef(rows);
+  shownRows.current = rows;
 
   useEffect(() => {
     setLive(!demoActive() && onServer());
@@ -437,12 +455,27 @@ export function Campaigns() {
     if (live) void read();
   }, [live, read]);
 
-  /* the newest page read again, keeping the older pages already shown: the numbers of a campaign sending move on */
+  /* one campaign read again and put in its place in the list (wherever it is: a row "Show more" added is not in the
+     newest page refresh reads), or taken out when it is gone */
+  const readRow = useCallback(async (id: string) => {
+    const n = reading.current;
+    const r = await call(`/api/campaigns/${encodeURIComponent(id)}`, "GET");
+    if (n !== reading.current) return;
+    if (r?.status === 404) return setRows((all) => all.filter((x) => x.id !== id));
+    if (r?.status !== 200 || !r.data.campaign) return;
+    const { heading: _h, body: _b, buttonLabel: _l, buttonUrl: _u, ...row } = r.data.campaign as Full;
+    setRows((all) => all.map((x) => (x.id === id ? (row as Row) : x)));
+  }, []);
+
+  /* the newest page read again, keeping the older pages already shown: the numbers of a campaign sending move on. One
+     sending further down (an older draft sent after "Show more") is read again on its own. */
   const refresh = useCallback(async () => {
     const n = reading.current;
     const r = await call("/api/campaigns", "GET");
     if (n !== reading.current || !(r?.status === 200 && Array.isArray(r.data.campaigns))) return;
     const fresh = r.data.campaigns as Row[];
+    const inFresh = new Set(fresh.map((x) => x.id));
+    for (const x of shownRows.current) if (x.status === "sending" && !inFresh.has(x.id)) void readRow(x.id);
     setRows((all) => {
       const seen = new Set(fresh.map((x) => x.id));
       const oldest = fresh.length ? Math.min(...fresh.map((x) => Number(x.id))) : Infinity;
@@ -450,7 +483,7 @@ export function Campaigns() {
       return [...fresh, ...all.filter((x) => !seen.has(x.id) && Number(x.id) < oldest)];
     });
     setInfo({ stats: r.data.stats, today: r.data.today, emailOn: !!r.data.emailOn, mobileOn: !!r.data.mobileOn, slug: String(r.data.slug ?? "") });
-  }, []);
+  }, [readRow]);
   const sending = live && rows.some((x) => x.status === "sending");
   useEffect(() => {
     if (!sending) return;
@@ -484,7 +517,12 @@ export function Campaigns() {
     if (r?.status === 200 || r?.status === 404) {
       setRows((all) => all.filter((x) => x.id !== id));
       void refresh();
-    } else setDelFailed(id);
+    } else if (r?.data.result === "not-draft") {
+      /* it started meanwhile (another tab): its row shows it as it is now, with no Delete */
+      setDelFailed({ id, text: c.delStarted });
+      void readRow(id);
+      void refresh();
+    } else setDelFailed({ id, text: r && c.why[String(r.data.result)] ? c.why[String(r.data.result)] : r ? c.delFail : c.why.offline });
   };
 
   /* a campaign's texts, for the form (a draft) or its details */
@@ -572,7 +610,7 @@ export function Campaigns() {
                     busy={opening === x.id}
                     asking={asking === x.id}
                     deleting={deleting === x.id}
-                    delFailed={delFailed === x.id}
+                    delFailed={delFailed?.id === x.id ? delFailed.text : ""}
                     tour={live === false}
                     onOpen={() => void open(x)}
                     onAsk={() => { setAsking(x.id); setDelFailed(null); }}
@@ -602,11 +640,15 @@ export function Campaigns() {
           draft={form.draft}
           tour={live === false}
           onClose={() => setForm(null)}
-          onDone={() => {
+          onDone={(id) => {
             setForm(null);
             void refresh();
+            if (id) void readRow(id);
           }}
-          onSaved={() => void refresh()}
+          onSaved={(id) => {
+            void refresh();
+            void readRow(id);
+          }}
         />
       )}
       {viewing && <CampaignDetails x={viewing} c={c} lang={lang} onClose={() => setViewing(null)} />}
@@ -629,7 +671,7 @@ function statusOf(x: Row, c: Copy): { text: string; tone: string } {
 }
 
 function CampaignItem({ x, c, lang, busy, asking, deleting, delFailed, tour, onOpen, onAsk, onKeep, onDelete }: {
-  x: Row; c: Copy; lang: Lang; busy: boolean; asking: boolean; deleting: boolean; delFailed: boolean; tour: boolean;
+  x: Row; c: Copy; lang: Lang; busy: boolean; asking: boolean; deleting: boolean; delFailed: string; tour: boolean;
   onOpen: () => void; onAsk: () => void; onKeep: () => void; onDelete: () => void;
 }) {
   const st = statusOf(x, c);
@@ -683,7 +725,7 @@ function CampaignItem({ x, c, lang, busy, asking, deleting, delFailed, tour, onO
             )}
           </>
         )}
-        {delFailed && <p role="alert" className="w-full text-end text-xs text-rose-600">{c.delFail}</p>}
+        {delFailed && <p role="alert" className="w-full text-end text-xs text-rose-600">{delFailed}</p>}
       </div>
     </li>
   );
@@ -736,15 +778,18 @@ function Fold({ open, onToggle, children, label: text, id }: { open: boolean; on
 
 /* ---------------- the form ---------------- */
 
+/* audience.who is the email choice, kept as it is while the type is SMS / WhatsApp (which reaches buyers only: the server
+   keeps it as buyers, cleanAudience), so going back to email gives back what was chosen instead of quietly leaving the
+   newsletter subscribers out. A mobile draft is kept as "buyers", which says nothing of an email choice: everyone. */
 type FormState = { channel: CampaignChannel; subject: string; heading: string; body: string; buttonLabel: string; buttonUrl: string; audience: CampaignAudience };
 const stateOf = (d: Full | null): FormState =>
   d
-    ? { channel: d.channel, subject: d.subject, heading: d.heading, body: d.body, buttonLabel: d.buttonLabel, buttonUrl: d.buttonUrl, audience: cleanAudience(d.audience, d.channel) }
+    ? { channel: d.channel, subject: d.subject, heading: d.heading, body: d.body, buttonLabel: d.buttonLabel, buttonUrl: d.buttonUrl, audience: d.channel === "mobile" ? { ...cleanAudience(d.audience), who: EVERYONE.who } : cleanAudience(d.audience) }
     : { channel: "email", subject: "", heading: "", body: "", buttonLabel: "", buttonUrl: "", audience: EVERYONE };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`);
 
 function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: {
-  c: Copy; lang: Lang; info: Info; draft: Full | null; tour: boolean; onClose: () => void; onDone: () => void; onSaved: () => void;
+  c: Copy; lang: Lang; info: Info; draft: Full | null; tour: boolean; onClose: () => void; onDone: (id?: string) => void; onSaved: (id: string) => void;
 }) {
   const f = c.form;
   const [s, setS] = useState<FormState>(() => stateOf(draft));
@@ -770,21 +815,24 @@ function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: 
     setMessage(null);
     if (k in errors || errors.empty) setErrors((e) => ({ ...e, [k]: undefined, empty: undefined }));
   };
-  const setAudience = (a: Partial<CampaignAudience>) => set("audience", cleanAudience({ ...s.audience, ...a }, s.channel));
+  /* the "who" stays as chosen for email (see stateOf); the audience as it goes is this channel's */
+  const setAudience = (a: Partial<CampaignAudience>) => set("audience", cleanAudience({ ...s.audience, ...a }));
+  const aud = cleanAudience(s.audience, s.channel);
 
-  /* the customers it would reach now, counted by the server a moment after the last change */
-  const audKey = `${s.channel}|${s.audience.who}|${s.audience.days}|${s.audience.minOrders}`;
+  /* the customers it would reach now, counted by the server a moment after the last change; a count still on its way
+     when the filters change again is dropped */
+  const audKey = `${s.channel}|${aud.who}|${aud.days}|${aud.minOrders}`;
   useEffect(() => {
     let gone = false;
+    const stop = new AbortController();
     setCount((x) => ({ n: x.n, state: "counting" }));
     const t = setTimeout(async () => {
       if (tour) {
         const base = s.channel === "mobile" ? 186 : 248;
-        const n = Math.round(base * (s.audience.who === "subscribers" ? 0.35 : s.audience.who === "buyers" ? 0.8 : 1) * (s.audience.days ? Math.min(1, s.audience.days / 400 + 0.2) : 1) / s.audience.minOrders);
+        const n = Math.round(base * (aud.who === "subscribers" ? 0.35 : aud.who === "buyers" ? 0.8 : 1) * (aud.days ? Math.min(1, aud.days / 400 + 0.2) : 1) / aud.minOrders);
         return !gone && setCount({ n, state: "ok" });
       }
-      const a = s.audience;
-      const r = await call(`/api/campaigns/audience?channel=${s.channel}&who=${a.who}&days=${a.days}&min=${a.minOrders}`, "GET");
+      const r = await countOf(s.channel, aud, stop.signal);
       if (gone) return;
       if (r?.status === 200 && typeof r.data.count === "number") setCount({ n: r.data.count, state: "ok" });
       else setCount((x) => ({ n: x.n, state: "failed" }));
@@ -792,6 +840,7 @@ function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: 
     return () => {
       gone = true;
       clearTimeout(t);
+      stop.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audKey, tour]);
@@ -839,11 +888,15 @@ function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: 
       setId(nid);
       key.current = newKey();
       saved.current = JSON.stringify(s);
-      onSaved();
+      onSaved(nid);
       return nid;
     }
     if (r?.status === 400 && Array.isArray(r.data.problems)) show(r.data.problems as CampaignProblem[]);
-    else setMessage({ tone: "bad", text: whyOf(c, r) });
+    else if (id && r?.data.result === "not-draft") {
+      /* it started meanwhile (another tab): its row in the list is read again so it shows that */
+      setMessage({ tone: "bad", text: f.started });
+      onSaved(id);
+    } else setMessage({ tone: "bad", text: whyOf(c, r) });
     return null;
   };
 
@@ -855,7 +908,7 @@ function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: 
     setBusy("save");
     const ok = await save();
     setBusy(null);
-    if (ok) onDone();
+    if (ok) onDone(ok);
   };
 
   const onSend = async () => {
@@ -865,8 +918,7 @@ function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: 
     setMessage(null);
     const nid = await save();
     if (!nid) return setBusy(null);
-    const a = s.audience;
-    const r = await call(`/api/campaigns/audience?channel=${s.channel}&who=${a.who}&days=${a.days}&min=${a.minOrders}`, "GET");
+    const r = await countOf(s.channel, aud);
     setBusy(null);
     if (r?.status !== 200 || typeof r.data.count !== "number") return setMessage({ tone: "bad", text: whyOf(c, r) });
     if (r.data.count === 0) return setMessage({ tone: "bad", text: c.why["no-recipients"] });
@@ -879,10 +931,10 @@ function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: 
     setBusy("start");
     const r = await call(`/api/campaigns/${encodeURIComponent(id)}/send`, "POST", {});
     setBusy(null);
-    if (r?.status === 200) return onDone();
+    if (r?.status === 200) return onDone(id);
     setStep(null);
     /* it started already (a second tab, a lost answer): the list shows it */
-    if (r?.data.result === "not-draft") return onDone();
+    if (r?.data.result === "not-draft") return onDone(id);
     if (r?.status === 400 && Array.isArray(r.data.problems)) show(r.data.problems as CampaignProblem[]);
     else setMessage({ tone: "bad", text: whyOf(c, r) });
   };
@@ -958,7 +1010,8 @@ function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: 
                   aria-pressed={s.channel === ch}
                   data-autofocus={s.channel === ch ? true : undefined}
                   onClick={() => {
-                    setS((x) => ({ ...x, channel: ch, audience: cleanAudience(x.audience, ch) }));
+                    /* only the type changes: the email "who" is kept for coming back (stateOf) */
+                    setS((x) => ({ ...x, channel: ch }));
                     setErrors({});
                     setMessage(null);
                   }}
@@ -1055,7 +1108,7 @@ function CampaignForm({ c, lang, info, draft, tour, onClose, onDone, onSaved }: 
                 </select>
               </div>
             </div>
-            {ordersFiltered(s.audience) && <p className="text-xs text-muted">{f.ordersNote}</p>}
+            {ordersFiltered(aud) && <p className="text-xs text-muted">{f.ordersNote}</p>}
           </Fold>
 
           <div className="flex items-start gap-3 rounded-xl bg-sky-500/10 px-4 py-3 text-sm text-sky-800 dark:text-sky-200" aria-live="polite">
