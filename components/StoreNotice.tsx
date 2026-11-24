@@ -47,15 +47,15 @@ export function Notice({ kind, name, lang }: { kind: keyof typeof notices; name?
 
 const missing = {
   store: {
-    en: { title: "This store doesn't exist!", lines: ["Sorry, there is no store at this address.", "Check the link, go back to the home page, or create a great store of your own."] },
-    ar: { title: "المتجر غير موجود!", lines: ["عذرًا، لا يوجد متجر على هذا العنوان.", "تأكد من الرابط، أو عد إلى الصفحة الرئيسية، أو أنشئ متجرك الرائع."] },
+    en: { title: "This store doesn't exist!", lines: ["Sorry, there is no store at this address.", "Check the link, or open a store of your own."] },
+    ar: { title: "المتجر غير موجود!", lines: ["عذرًا، لا يوجد متجر على هذا العنوان.", "تأكد من الرابط، أو افتح متجرك الخاص."] },
   },
   page: {
     en: { title: "This page doesn't exist!", lines: ["Sorry, there is nothing at this address.", "Check the link, or go back to the home page."] },
     ar: { title: "الصفحة غير موجودة!", lines: ["عذرًا، لا يوجد شيء على هذا العنوان.", "تأكد من الرابط، أو عد إلى الصفحة الرئيسية."] },
   },
-  create: { en: "Create your store now", ar: "أنشئ متجرك الآن" },
   home: { en: "Go to Dukkan's home page", ar: "العودة إلى صفحة دكان الرئيسية" },
+  register: { en: "Register your store now", ar: "سجل متجرك الآن" },
   /* a missing page inside a store that exists: back to that store */
   storeHome: { en: "Back to the store", ar: "العودة إلى المتجر" },
   storeHomeNamed: { en: "Back to {name}", ar: "العودة إلى {name}" },
@@ -73,8 +73,9 @@ function SadMark() {
 }
 
 /** An address that leads nowhere: a big 404 and a sad store, then one part (where a store would be) says there is no
-    store there, a longer one that the page doesn't exist. In the visitor's language, with a link to Dukkan's main page
-    to create a store.
+    store there, a longer one that the page doesn't exist. In the visitor's language. No store at the address: only a
+    clickable line «سجل متجرك الآن» / "Register your store now" (to sign-up), no buttons. Any other missing page: one
+    button to Dukkan's main page.
     The words depend on the address, which is read in the browser once the page is there: the not-found page is drawn
     ahead of time (app/not-found.tsx, for every address at once), so an address read while drawing would be another one
     than in the browser, and the page then failed to take over its own HTML (React error 418). `kind`: known ahead
@@ -85,7 +86,8 @@ export function MissingPage({ kind }: { kind?: "store" | "page" } = {}) {
   /* before the first paint after the page takes over, so the other words never show */
   useLayoutEffect(() => setPath(window.location.pathname), []);
   const parts = (path ?? "/").split("/").filter(Boolean);
-  const w = missing[kind ?? (path === null ? "page" : parts.length === 1 ? "store" : "page")][lang];
+  const which = kind ?? (path === null ? "page" : parts.length === 1 ? "store" : "page");
+  const w = missing[which][lang];
   /* an address inside a store (/<store>/...) that leads nowhere: when that store exists, a way back to its home page */
   const storeSlug = parts.length > 1 && isStoreAddress(`/${parts[0]}`) ? parts[0].toLowerCase() : "";
   const [store, setStore] = useState<{ slug: string; name: string } | null>(null);
@@ -123,13 +125,15 @@ export function MissingPage({ kind }: { kind?: "store" | "page" } = {}) {
                 {back.name ? <>{missing.storeHomeNamed[lang].split("{name}")[0]}<bdi>{back.name}</bdi>{missing.storeHomeNamed[lang].split("{name}")[1]}</> : missing.storeHome[lang]}
               </a>
             )}
-            {/* the home page the words speak of: Dukkan's own */}
-            <a href="/" className={back ? "inline-flex min-h-[44px] items-center rounded-full px-5 text-sm font-bold text-fg/80 ring-1 ring-fg/15 transition hover:ring-fg/30" : "inline-flex min-h-[44px] items-center rounded-full bg-primary px-6 text-sm font-bold text-white shadow-sm transition hover:opacity-90"}>
-              {missing.home[lang]}
-            </a>
-            {/* to Dukkan's main page, where anyone can see what Dukkan is and start a store of their own (never offered
-                to a store's customers, on a missing page inside a store that exists) */}
-            {!back && <a href="/" className="inline-block text-sm font-semibold text-primary hover:underline">{missing.create[lang]}</a>}
+            {which === "store" && !back ? (
+              /* no store at this address: one clickable line to start a store, not a button */
+              <a href="/signup" className="text-base font-bold text-primary underline underline-offset-4 transition hover:opacity-80">{missing.register[lang]}</a>
+            ) : (
+              /* the home page the words speak of: Dukkan's own */
+              <a href="/" className={back ? "inline-flex min-h-[44px] items-center rounded-full px-5 text-sm font-bold text-fg/80 ring-1 ring-fg/15 transition hover:ring-fg/30" : "inline-flex min-h-[44px] items-center rounded-full bg-primary px-6 text-sm font-bold text-white shadow-sm transition hover:opacity-90"}>
+                {missing.home[lang]}
+              </a>
+            )}
           </div>
         </div>
       </main>
