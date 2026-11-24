@@ -1096,6 +1096,25 @@ export async function saveNow(key: string, before: string): Promise<boolean> {
   return false;
 }
 
+/** Sends one small key of the signed-in account straight to the server from a page that never sends the account's
+    saves (the store as visitors see it, /store: oneTab.ts gate), and puts `value` in this browser only once the server
+    kept it: until then this browser (and the dashboard tab beside it, which reads the same storage) goes on showing what
+    the server has. The server checks it as any save (app/api/store PUT: "not-ready" with what is missing, a suspended
+    store...), and a refusal is said as for any save (SaveNotice.tsx). Only this key goes: the account's other changes
+    stay the dashboard tab's to send. True when the server kept it. */
+export async function saveFromPreview(key: string, value: string): Promise<boolean> {
+  const owner = signedInAs();
+  if (!owner || halted) return false;
+  const before = accountValue(key);
+  const set = { [key]: value };
+  const r = await put(set, [], owner);
+  if (halted || signedInAs() !== owner) return false;
+  if (outcome(r, set, owner) !== "ok" || !r || r.refused?.[key]) return false;
+  /* the browser's storage event tells the dashboard tab (Dashboard.tsx reads the switch again) */
+  restoreAccountValue(key, value, before);
+  return true;
+}
+
 /** The server's copy of one key, put in this browser when it has none (nothing is sent back), with its version for the
     next save of it. For a page that would otherwise start the key from its defaults: the Info pages take the legal pages
     the server kept for a live store (server/legalPages.ts) instead of making them again from Diwan's newest text. True

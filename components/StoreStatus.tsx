@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Lang } from "./content";
 import { loadMaintenance, MAINTENANCE_KEY, maintenanceText, saveMaintenance, type Maintenance } from "./maintenance";
-import { saveNow } from "./serverSync";
+import { lastNotReady, saveFromPreview, saveNow } from "./serverSync";
 import { offerUndo } from "./undo";
 import { liveMissing, sellLines, SellNeeds, sellWords, useSellReady } from "./ReadyToSell";
+import type { SellNeed } from "./safeOrder";
+import { cleanWhy, type SellWhy } from "./sellWhy";
 import { storeIsLive } from "./storefront/storage";
 
 const words = {
@@ -108,10 +110,14 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
       setM(loadMaintenance());
       setSaving(!!inFlight);
     };
+    /* opened from the store's own page in another tab (OpenStoreButton): this browser's copy changed there */
+    const fromTab = (e: StorageEvent) => (e.key === null || e.key.endsWith(MAINTENANCE_KEY)) && again();
     window.addEventListener(SHOWN, again);
+    window.addEventListener("storage", fromTab);
     return () => {
       live = false;
       window.removeEventListener(SHOWN, again);
+      window.removeEventListener("storage", fromTab);
     };
   }, []);
   /* a paused store opens again only when it is ready to sell (safeOrder readyToSell; the server holds the switch to the
@@ -206,25 +212,47 @@ export function StoreStatus({ lang, disabled = false, disabledTitle, onLink }: {
   );
 }
 
+/* What the server said is missing when it did not open the store ("not-ready": serverSync.ts lastNotReady), as the
+   page lists it; null when its answer names nothing this page knows */
+function serverNeeds(): { missing: SellNeed[]; why?: SellWhy } | null {
+  const r = lastNotReady();
+  if (!Array.isArray(r.missing) || !r.missing.length || r.missing.some((m) => m !== "pay" && m !== "delivery" && m !== "setup")) return null;
+  return { missing: r.missing as SellNeed[], why: cleanWhy(r.why) };
+}
+
 /** "Open your store now" on the page visitors see while his store is not live, when he looks at it himself
     (MaintenancePage.tsx `ownerAction`, app/store): makes it live by the same rules as the profile menu's switch (no
     question first: only taking it offline asks). Not ready to sell: it says exactly what is missing instead. `onOpened`:
-    the server kept it (the page then shows his store). */
+    the server kept it (the page then shows his store).
+    That page never sends the account's saves (it only shows: oneTab.ts), so this one change goes to the server on its
+    own (serverSync.ts saveFromPreview), and this browser takes it only once the server kept it: a store the server
+    did not open never looks live here, nor in the dashboard tab beside it. */
 export function OpenStoreButton({ lang, onOpened }: { lang: Lang; onOpened: () => void }) {
   const w = words[lang];
   const sell = useOpenNeeds();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [tried, setTried] = useState(false);
+  /* the server found something missing that this browser did not know of (changed on another device, or in Diwan) */
+  const [refused, setRefused] = useState<{ missing: SellNeed[]; why?: SellWhy } | null>(null);
   const cantOpen = sell.read && sell.needs.length > 0;
   const go = async () => {
     setTried(true);
     if (busy || inFlight || !sell.read || cantOpen) return;
     setBusy(true);
     setFailed(false);
-    const ok = await putStatus(false);
+    setRefused(null);
+    const before = lastNotReady();
+    const job = saveFromPreview(MAINTENANCE_KEY, maintenanceText({ on: false, message: { en: "", ar: "" } }));
+    inFlight = job;
+    const ok = await job;
+    if (inFlight === job) inFlight = null;
+    window.dispatchEvent(new Event(SHOWN));
     setBusy(false);
-    if (ok && !loadMaintenance().on) onOpened();
+    if (ok && !loadMaintenance().on) return onOpened();
+    /* refused as not ready to sell: what is missing, as the server said it (a new answer, not one from before) */
+    const needs = lastNotReady() !== before ? serverNeeds() : null;
+    if (needs) setRefused(needs);
     else setFailed(true);
   };
   return (
@@ -236,6 +264,7 @@ export function OpenStoreButton({ lang, onOpened }: { lang: Lang; onOpened: () =
         <p role="alert" className="text-xs font-semibold text-rose-600 dark:text-rose-400">{w.failed}</p>
       )}
       {tried && cantOpen && <SellNeeds lang={lang} missing={sell.needs} why={sell.why} className="w-full text-start" />}
+      {!busy && !cantOpen && refused && <SellNeeds lang={lang} missing={refused.missing} why={refused.why} className="w-full text-start" />}
     </div>
   );
 }
