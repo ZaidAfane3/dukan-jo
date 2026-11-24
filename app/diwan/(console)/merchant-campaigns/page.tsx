@@ -5,16 +5,18 @@ import { askConfirm, tell } from "@/components/diwan/dialogs";
 import { AnnouncementsSkeleton } from "@/components/diwan/skeletons";
 import { area, Badge, Btn, card, field, Loaded, LoadMore, PageHead, refusedWords, send, useApi, useCreateOnce, useFmt, useMore, useT, type ArForms, type Tone } from "@/components/diwan/ui";
 import {
-  AUDIENCE_JOINED, AUDIENCE_LANGS, AUDIENCE_ORDERS, AUDIENCE_STORES, EVERY_MERCHANT, MERCHANT_CAMPAIGN_MAX,
-  type MerchantAudience, type MerchantCampaignContent, type MerchantCampaignField, type MerchantCampaignProblem,
+  AUDIENCE_JOINED, AUDIENCE_LANGS, AUDIENCE_ORDERS, AUDIENCE_STORES, EVERY_MERCHANT, MARKETING_PAUSE_DAYS, MERCHANT_CAMPAIGN_MAX,
+  UNSUB_REASONS, UNSUB_REASON_WORDS, UNSUB_TEXT_MAX, type MerchantAudience, type UnsubReason, type UnsubText, type MerchantCampaignContent, type MerchantCampaignField, type MerchantCampaignProblem,
 } from "@/components/merchantCampaignRules";
 import { SITE_HOST } from "@/components/siteAddress";
 
-/* Dukkan's own email campaigns to merchants (server/merchantCampaigns.ts): written once in English and Arabic (each
-   merchant gets his language), for merchants picked by filters whose number is counted live, tried with a test to
-   yourself, then sent in the background with its progress here and a stop while it is sending. Ended ones stay under
-   "Sent", where one can be copied into a new draft. Numbers only: never a merchant's address. Every change is in the
-   staff log. */
+/* Dukkan's own email campaigns to merchants (server/merchantCampaigns.ts): written in English and in Arabic, and each
+   merchant gets one email in one language only (his; Arabic when he never chose), for merchants picked by filters whose
+   number is counted live, tried with a test to yourself (in the language the preview shows), then sent in the
+   background with its progress here and a stop while it is sending. Ended ones stay under "Sent", where one can be
+   copied into a new draft. A third tab shows the page the emails' "Stop" link opens: how many merchants paused or
+   stopped these emails and why (counts only), and its message, which can be changed here. Numbers only: never a
+   merchant's address. Every change is in the staff log. */
 
 type Status = "draft" | "sending" | "sent" | "failed" | "stopped";
 type Campaign = MerchantCampaignContent & {
@@ -25,8 +27,9 @@ type Campaign = MerchantCampaignContent & {
 type Today = { used: number; max: number };
 type NowData = { campaigns: Campaign[]; today: Today; emailOn: boolean };
 type PastData = { rows: Campaign[]; page: number; pages: number; today: Today; emailOn: boolean };
+type Reach = { count: number; off: number; paused: number };
 type Form = MerchantCampaignContent & { id: string | null; audience: MerchantAudience };
-type View = "now" | "past";
+type View = "now" | "past" | "unsub";
 
 const blank = (): Form => ({
   id: null, subjectEn: "", subjectAr: "", headingEn: "", headingAr: "", bodyEn: "", bodyAr: "",
@@ -43,7 +46,7 @@ const bodyOf = (f: Form) => {
 
 /* how many merchants an audience reaches now (a question, not a change: asked without send(), which tells the sidebar
    that something changed) */
-async function countOf(audience: MerchantAudience): Promise<{ count: number; off: number } | null> {
+async function countOf(audience: MerchantAudience): Promise<Reach | null> {
   try {
     const r = await fetch("/api/diwan/merchant-campaigns/count", {
       method: "POST",
@@ -52,7 +55,7 @@ async function countOf(audience: MerchantAudience): Promise<{ count: number; off
       body: JSON.stringify({ audience }),
     });
     const j = r.ok ? await r.json() : null;
-    return j ? { count: Number(j.count) || 0, off: Number(j.off) || 0 } : null;
+    return j ? { count: Number(j.count) || 0, off: Number(j.off) || 0, paused: Number(j.paused) || 0 } : null;
   } catch {
     return null;
   }
@@ -140,7 +143,11 @@ export default function MerchantCampaignsPage() {
     reloadBoth();
   };
 
-  const tabs: [View, string][] = [["now", t("Drafts and sending", "المسودات وقيد الإرسال")], ["past", t("Sent", "المُرسلة")]];
+  const tabs: [View, string][] = [
+    ["now", t("Drafts and sending", "المسودات وقيد الإرسال")],
+    ["past", t("Sent", "المُرسلة")],
+    ["unsub", t("Unsubscribe page", "صفحة إيقاف الرسائل")],
+  ];
   const today = s.data?.today;
   return (
     <div>
@@ -168,7 +175,9 @@ export default function MerchantCampaignsPage() {
         ))}
       </div>
 
-      {view === "now" ? (
+      {view === "unsub" ? (
+        <UnsubPage />
+      ) : view === "now" ? (
         <Loaded s={s} skeleton={<AnnouncementsSkeleton />}>
           {(d) => (
             <>
@@ -284,7 +293,7 @@ function Editor({ form, setForm, onDone, onSaved }: { form: Form; setForm: (f: F
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   const [look, setLook] = useState<"ar" | "en">("ar");
-  const [reach, setReach] = useState<{ count: number; off: number } | null>(null);
+  const [reach, setReach] = useState<Reach | null>(null);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm({ ...form, [k]: v });
   const setAud = <K extends keyof MerchantAudience>(k: K, v: MerchantAudience[K]) => setForm({ ...form, audience: { ...form.audience, [k]: v } });
   /* a message about the form goes as soon as its words or filters change: it may be fixed now */
@@ -363,8 +372,9 @@ function Editor({ form, setForm, onDone, onSaved }: { form: Form; setForm: (f: F
     if (await save()) setNote(t("Draft saved.", "حُفظت المسودة."));
   });
   const test = () => run("test", async () => {
-    const r = await send("/api/diwan/merchant-campaigns/test", "POST", bodyOf(form));
-    if (r.ok) setNote(t(`A test in both languages went to ${r.data?.to}.`, `أُرسلت تجربة باللغتين إلى ${r.data?.to}.`));
+    /* one email in one language: the one the preview shows */
+    const r = await send("/api/diwan/merchant-campaigns/test", "POST", { ...bodyOf(form), lang: look });
+    if (r.ok) setNote(look === "ar" ? t(`A test in Arabic went to ${r.data?.to}.`, `أُرسلت تجربة بالعربية إلى ${r.data?.to}.`) : t(`A test in English went to ${r.data?.to}.`, `أُرسلت تجربة بالإنجليزية إلى ${r.data?.to}.`));
     else setErr(why(r, t("The test couldn't be sent. Try again.", "تعذّر إرسال التجربة. حاول مجددًا.")));
   });
   const sendNow = () => run("send", async () => {
@@ -452,8 +462,8 @@ function Editor({ form, setForm, onDone, onSaved }: { form: Form; setForm: (f: F
                   <span className="font-bold">{t(`Reaches ${f.count(reach.count, ...MERCHANTS)} now.`, `تصل الآن إلى ${f.count(reach.count, ...MERCHANTS)}.`)}</span>{" "}
                   <span className="text-muted">
                     {t(
-                      `Never included: suspended stores, and the ${f.count(reach.off, ...MERCHANTS)} who turned these emails off. Merchants who never chose a language get both and are only in "Any language".`,
-                      `لا تصل أبدًا إلى المتاجر الموقوفة، ولا إلى ${f.count(reach.off, ...MERCHANTS)} أوقفوا هذه الرسائل. من لم يختر لغة تصله باللغتين ويُحسب فقط في «أي لغة».`,
+                      `Never included: suspended stores, the ${f.count(reach.off, ...MERCHANTS)} who stopped these emails and the ${f.count(reach.paused, ...MERCHANTS)} who paused them. Merchants who never chose a language get the Arabic version and are only in "Any language".`,
+                      `لا تصل أبدًا إلى المتاجر الموقوفة، ولا إلى ${f.count(reach.off, ...MERCHANTS)} أوقفوا هذه الرسائل، ولا إلى ${f.count(reach.paused, ...MERCHANTS)} أوقفوها مؤقتًا. من لم يختر لغة تصله النسخة العربية ويُحسب فقط في «أي لغة».`,
                     )}
                   </span>
                 </>
@@ -466,7 +476,7 @@ function Editor({ form, setForm, onDone, onSaved }: { form: Form; setForm: (f: F
           <div className="flex flex-wrap gap-2">
             <Btn type="button" disabled={!!busy} onClick={() => void sendNow()}>{busy === "send" ? t("Sending…", "جارٍ الإرسال…") : t("Send…", "إرسال…")}</Btn>
             <Btn kind="ghost" type="button" disabled={!!busy} onClick={() => void saveOnly()}>{busy === "save" ? t("Saving…", "جارٍ الحفظ…") : t("Save draft", "حفظ المسودة")}</Btn>
-            <Btn kind="ghost" type="button" disabled={!!busy} onClick={() => void test()}>{busy === "test" ? t("Sending the test…", "جارٍ إرسال التجربة…") : t("Send a test to me", "أرسل تجربة إليّ")}</Btn>
+            <Btn kind="ghost" type="button" disabled={!!busy} onClick={() => void test()}>{busy === "test" ? t("Sending the test…", "جارٍ إرسال التجربة…") : look === "ar" ? t("Send me a test in Arabic", "أرسل إليّ تجربة بالعربية") : t("Send me a test in English", "أرسل إليّ تجربة بالإنجليزية")}</Btn>
             <Btn kind="ghost" type="button" disabled={!!busy} onClick={() => setForm(null)}>{t("Close", "إغلاق")}</Btn>
           </div>
         </div>
@@ -495,9 +505,113 @@ function Editor({ form, setForm, onDone, onSaved }: { form: Form; setForm: (f: F
               <u>{P ? "إيقاف رسائل دكان التسويقية" : "Stop Dukkan's marketing emails"}</u>
             </p>
           </div>
-          <p className="mt-2 text-xs text-muted">{t("Merchants who never chose a language get both versions in one email, Arabic first.", "من لم يختر لغة تصله النسختان في رسالة واحدة، العربية أولًا.")}</p>
+          <p className="mt-2 text-xs text-muted">{t("Each merchant gets one email in one language: his own, or Arabic if he never chose. Both versions are needed to send. The test goes in the language shown here.", "يستلم كل تاجر رسالة واحدة بلغة واحدة: لغته، أو العربية إن لم يختر. النسختان مطلوبتان للإرسال. تُرسل التجربة باللغة المعروضة هنا.")}</p>
         </div>
       </div>
     </section>
+  );
+}
+
+type UnsubData = { text: UnsubText; defaults: UnsubText; stats: { off: number; paused: number; reasons: Record<UnsubReason | "none", number> } };
+
+/** The page the emails' "Stop Dukkan's marketing emails" link opens (app/unsubscribe/dukkan): how many merchants have
+    these emails stopped or paused now and why (counts only, never who), and its message in both languages, which
+    can be changed here (an empty one goes back to the default; the change is in the staff log) */
+function UnsubPage() {
+  const t = useT();
+  const f = useFmt();
+  const s = useApi<UnsubData>("/api/diwan/merchant-campaigns/unsub-page");
+  const [text, setText] = useState<UnsubText | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; words: string } | null>(null);
+  useEffect(() => {
+    if (s.data && !text) setText(s.data.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.data]);
+
+  const save = async () => {
+    if (!text || busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await send("/api/diwan/merchant-campaigns/unsub-page", "PUT", text);
+      if (r.ok) {
+        setText(r.data.text);
+        setMsg({ ok: true, words: t("Saved. The page shows it now.", "حُفظت. تظهر في الصفحة الآن.") });
+        s.reload();
+      } else
+        setMsg({
+          ok: false,
+          words: refusedWords(t, r) ?? (r.data?.result === "too-long" ? t(`Each language can be up to ${f.num(UNSUB_TEXT_MAX)} characters.`, `الحد ${f.num(UNSUB_TEXT_MAX)} حرف لكل لغة.`) : t("It was not saved. Try again.", "لم تُحفظ. حاول مرة أخرى.")),
+        });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const label = "mb-1 block text-sm font-semibold";
+  return (
+    <Loaded s={s} skeleton={<AnnouncementsSkeleton />}>
+      {(d) => (
+        <div className="space-y-4">
+          <section className={card}>
+            <h2 className="font-bold">{t("Who stopped these emails", "من أوقف هذه الرسائل")}</h2>
+            <p className="mt-1 text-sm text-muted">
+              {t(
+                `Merchants can pause Dukkan's marketing emails for ${MARKETING_PAUSE_DAYS} days or stop them, after typing their account's email. Counts only, never who.`,
+                `يستطيع التاجر إيقاف رسائل دكان التسويقية مؤقتًا لمدة ${MARKETING_PAUSE_DAYS} يومًا أو نهائيًا، بعد كتابة بريد حسابه. أعداد فقط، دون معرفة من هم.`,
+              )}
+            </p>
+            <dl className="mt-4 grid grid-cols-2 gap-3 sm:max-w-sm">
+              {[
+                [t("Stopped", "أوقفوها نهائيًا"), d.stats.off],
+                [t("Paused now", "أوقفوها مؤقتًا"), d.stats.paused],
+              ].map(([k, v]) => (
+                <div key={String(k)} className="rounded-xl border border-fg/10 p-3">
+                  <dt className="text-xs text-muted">{k}</dt>
+                  <dd className="text-xl font-bold tabular-nums">{f.num(v as number)}</dd>
+                </div>
+              ))}
+            </dl>
+            <h3 className="mt-5 text-sm font-semibold">{t("Why (as they picked it)", "السبب (كما اختاروه)")}</h3>
+            <ul className="mt-2 max-w-sm divide-y divide-fg/10 text-sm">
+              {[...UNSUB_REASONS, "none" as const].map((r) => (
+                <li key={r} className="flex justify-between gap-3 py-1.5">
+                  <span>{r === "none" ? t("No reason given", "بلا سبب") : t(UNSUB_REASON_WORDS[r].en, UNSUB_REASON_WORDS[r].ar)}</span>
+                  <span className="font-semibold tabular-nums">{f.num(d.stats.reasons[r] ?? 0)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className={card}>
+            <h2 className="font-bold">{t("The page's message", "رسالة الصفحة")}</h2>
+            <p className="mt-1 text-sm text-muted">
+              {t(
+                "Shown at the top of the page, above the email field and the pause and stop buttons. Leave one empty to use the default.",
+                "تظهر أعلى الصفحة، فوق خانة البريد وزرّي الإيقاف المؤقت والنهائي. اتركها فارغة لاستخدام النص الافتراضي.",
+              )}
+            </p>
+            {text && (
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                {(["en", "ar"] as const).map((l) => (
+                  <div key={l} dir={l === "ar" ? "rtl" : "ltr"} lang={l}>
+                    <label className={label} htmlFor={`unsub-${l}`}>{l === "ar" ? "الرسالة (بالعربية)" : "Message (English)"}</label>
+                    <textarea id={`unsub-${l}`} className={area} rows={6} maxLength={UNSUB_TEXT_MAX} value={text[l]} onChange={(e) => (setText({ ...text, [l]: e.target.value }), setMsg(null))} />
+                    <button type="button" className="mt-1 text-xs font-semibold text-muted underline hover:text-fg" onClick={() => (setText({ ...text, [l]: d.defaults[l] }), setMsg(null))}>
+                      {l === "ar" ? "استخدام النص الافتراضي" : "Use the default"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {msg && <p role={msg.ok ? "status" : "alert"} className={`mt-3 text-sm font-semibold ${msg.ok ? "text-emerald-700 dark:text-emerald-300" : "text-red-600"}`}>{msg.words}</p>}
+            <div className="mt-4">
+              <Btn type="button" disabled={busy || !text} onClick={() => void save()}>{busy ? t("Saving…", "جارٍ الحفظ…") : t("Save the message", "حفظ الرسالة")}</Btn>
+            </div>
+          </section>
+        </div>
+      )}
+    </Loaded>
   );
 }

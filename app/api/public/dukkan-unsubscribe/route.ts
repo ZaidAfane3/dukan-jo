@@ -4,30 +4,28 @@ import { marketingUnsubscribe } from "@/server/merchantCampaigns";
 
 export const dynamic = "force-dynamic";
 
-/* Turning Dukkan's marketing emails to a merchant off, without a session (server/merchantCampaigns.ts):
-   - POST /api/public/dukkan-unsubscribe?t=<link>           a mail app's own "Unsubscribe" (List-Unsubscribe-Post,
-                                                             RFC 8058: one POST from the mail service)
-   - POST /api/public/dukkan-unsubscribe { t }              the button on the /unsubscribe/dukkan page
-   - POST /api/public/dukkan-unsubscribe { t, undo: true }  "Turn them on again" there (from Dukkan's own pages only)
-   The link's signature is what allows it: a link can't be made up for another merchant. Answers 200 "ok", 404 "none"
-   (not a real link), 403 "forbidden", 429 "slow-down". */
+/* Pausing, stopping or turning on again Dukkan's marketing emails to a merchant, without a session
+   (server/merchantCampaigns.ts), from the /unsubscribe/dukkan page:
+     POST /api/public/dukkan-unsubscribe { t, email, action: "pause" | "off", reason? }   pause 30 days / stop them
+     POST /api/public/dukkan-unsubscribe { t, email, action: "on" }                        turn them on again
+   Never one click (owner decision 2026-11-24): the merchant types his account's email, and only when it is the address
+   of the account the signed link was made for does anything change. From Dukkan's own pages only. Answers 200 "ok",
+   400 "invalid", 404 "none" (not a real link), 403 "forbidden", 409 "mismatch" (another address; the answer never
+   says which one is right), 429 "slow-down". */
 const MAX_BODY = 1_000;
+const ACTIONS = ["pause", "off", "on"] as const;
 
 export async function POST(req: NextRequest) {
   try {
     if (tooMany(req, "dukkan-unsubscribe", 30, 10)) return answer({ result: "slow-down" }, 429);
-    let token: unknown = req.nextUrl.searchParams.get("t");
-    let undo = false;
-    if ((req.headers.get("content-type") ?? "").includes("application/json")) {
-      const read = await readJsonOr(req, MAX_BODY);
-      if ("body" in read) {
-        token = read.body.t ?? token;
-        undo = read.body.undo === true;
-      }
-    }
-    if (undo && !sameOrigin(req)) return answer({ result: "forbidden" }, 403);
-    if (!(await marketingUnsubscribe(token, undo))) return answer({ result: "none" }, 404);
-    return answer({ result: "ok" });
+    if (!sameOrigin(req)) return answer({ result: "forbidden" }, 403);
+    const read = await readJsonOr(req, MAX_BODY);
+    if (!("body" in read)) return answer({ result: "invalid" }, 400);
+    const action = ACTIONS.find((a) => a === read.body.action);
+    if (!action) return answer({ result: "invalid" }, 400);
+    const r = await marketingUnsubscribe(read.body.t, read.body.email, action, read.body.reason);
+    if (r === "ok") return answer({ result: "ok" });
+    return answer({ result: r }, r === "none" ? 404 : r === "mismatch" ? 409 : 429);
   } catch (e) {
     console.error("[dukkan unsubscribe]", (e as Error)?.message ?? e);
     return answer({ result: "error" }, 503);

@@ -77,6 +77,7 @@ const W: Record<string, [en: string, ar: string]> = {
   "merchant_campaign.delete": ["Deleted a draft campaign to merchants", "حذف مسودة حملة للتجار"],
   "merchant_campaign.send": ["Sent a campaign to merchants", "أرسل حملة للتجار"],
   "merchant_campaign.stop": ["Stopped a campaign to merchants", "أوقف حملة للتجار"],
+  "merchant_campaign.unsub_text": ["Changed the message of the page that stops Dukkan's emails", "عدّل رسالة صفحة إيقاف رسائل دكان"],
   "ship.order.mark":["Marked a Dukkan Ship order", "علّم طلب شحن دكان"],
   "page.create": ["Created a page", "أنشأ صفحة"],
   "page.edit": ["Edited a page", "عدّل صفحة"],

@@ -1,20 +1,21 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
-  cleanMerchantAudience, cleanMerchantContent, dukkanLink, merchantCampaignProblems, MERCHANT_CAMPAIGNS_PER_DAY,
-  type MerchantAudience, type MerchantCampaignContent, type MerchantCampaignProblem,
+  cleanMerchantAudience, cleanMerchantContent, cleanUnsubText, dukkanLink, MARKETING_PAUSE_DAYS, merchantCampaignProblems,
+  MERCHANT_CAMPAIGNS_PER_DAY, UNSUB_REASONS, UNSUB_TEXT_DEFAULT, type MerchantAudience, type MerchantCampaignContent,
+  type MerchantCampaignProblem, type UnsubReason, type UnsubText,
 } from "@/components/merchantCampaignRules";
 import { SITE_HOST } from "@/components/siteAddress";
-import { reserveTry } from "./auth";
-import { blind, plainParams } from "./crypto";
+import { reserveTry, tooManyFor } from "./auth";
+import { blind, emailKey, plainParams } from "./crypto";
 import { db } from "./db";
 import { emailOn, sendEmail, sendEmailBatch, type Email } from "./email";
 import { STORE_ORDERS_SQL } from "./shops";
 
 /* Dukkan's own campaigns to merchants (Diwan > Marketing > Campaigns to merchants; tables merchant_campaigns,
    merchant_campaign_recipients and accounts.marketing_off_at in server/schema.ts; the rules of the texts and the
-   audience in components/merchantCampaignRules.ts). Dukkan's team writes one email in both languages, picks who it is
-   for with filters (counted live, never listed), sends a test to themselves, and starts it.
+   audience in components/merchantCampaignRules.ts). Dukkan's team writes an Arabic and an English version, picks who it
+   is for with filters (counted live, never listed), sends a test to themselves, and starts it.
 
    Starting one (startMerchantCampaign) fixes its recipients in one transaction, under one lock for the whole team: it
    must still be a draft (a double click or a second tab starts it once), email must be set up, and the team must be
@@ -31,11 +32,17 @@ import { STORE_ORDERS_SQL } from "./shops";
      request, and emptied once its outcome is known.
    On every start of the server the worker picks up the campaigns still sending (instrumentation.ts).
 
-   Every email: Dukkan's look (server/email.ts), in the merchant's language (accounts.lang; both, Arabic first, while he
-   never chose), and a line under it with a signed link that turns Dukkan's marketing emails off in one click
-   (/unsubscribe/dukkan), plus the List-Unsubscribe headers so mail apps offer their own button (RFC 8058). Merchants
-   who turned them off, and stores Dukkan suspended, are left out when it starts and skipped if that happens while it is
-   sending. Staff can stop one that is sending. Staff see counts only, never who got it. */
+   Every email: Dukkan's look (server/email.ts), in ONE language only (owner rule 2026-11-24): the merchant's
+   (accounts.lang), Arabic while he never chose. Under it a line with a signed link to the page that pauses or stops
+   Dukkan's marketing emails (/unsubscribe/dukkan; also the List-Unsubscribe header, a link only: no one-click POST). The
+   link signs the account and the email's language, so the page opens in that language. Owner decisions 2026-11-24: it
+   is never one click. The page asks the merchant to type his account's email; only when it is the address of the
+   account the link was made for can he pause them for MARKETING_PAUSE_DAYS (accounts.marketing_paused_until; they come
+   again after it by themselves) or stop them (accounts.marketing_off_at), with an optional reason
+   (merchant_marketing_reasons; Diwan sees counts per reason only). Opening the link changes nothing. The page's message
+   is Dukkan's team's to change in Diwan (platform_settings 'dukkan_unsub_page'). Merchants who stopped or paused them,
+   and stores Dukkan suspended, are left out when it starts and skipped if that happens while it is sending. Staff can
+   stop one that is sending. Staff see counts only, never who got it. */
 
 /* the most drafts kept */
 const DRAFTS_MAX = 200;
@@ -55,56 +62,139 @@ const TESTS_DAY = 20;
 
 type Q = Pool | PoolClient;
 type Lang = "ar" | "en";
-type ReaderLang = Lang | "both";
-
 /* ---------------- the unsubscribe link ---------------- */
 
-/* the link's signature: a keyed fingerprint of the account, so a link can't be made up for another merchant */
-const unsubSig = (accountId: string) => blind(`dukkan-marketing-unsub:${accountId}`).slice(0, 32);
-const TOKEN = /^(\d{1,18})-([0-9a-f]{32})$/;
-const tokenOf = (accountId: string) => `${accountId}-${unsubSig(accountId)}`;
+/* the link's signature: a keyed fingerprint of the account and of the email's language, so a link can't be made up for
+   another merchant, nor its language changed */
+const unsubSig = (accountId: string, lang: Lang) => blind(`dukkan-marketing-unsub:${accountId}:${lang}`).slice(0, 32);
+const TOKEN = /^(\d{1,18})-(ar|en)-([0-9a-f]{32})$/;
+const tokenOf = (accountId: string, lang: Lang) => `${accountId}-${lang}-${unsubSig(accountId, lang)}`;
 /** The page an email's "Stop these emails" opens (app/unsubscribe/dukkan) */
-const unsubPage = (token: string, lang: Lang) => `https://${SITE_HOST}/unsubscribe/dukkan?t=${token}&l=${lang}`;
-/** Where a mail app's own "Unsubscribe" posts (app/api/public/dukkan-unsubscribe, RFC 8058) */
-const unsubApi = (token: string) => `https://${SITE_HOST}/api/public/dukkan-unsubscribe?t=${token}`;
+const unsubPage = (token: string) => `https://${SITE_HOST}/unsubscribe/dukkan?t=${token}`;
 
-/** The account a link names, when its signature is right; else null */
-function readToken(t: unknown): string | null {
+/** The account a link names and the language of the email it was in, when its signature is right; else null */
+function readToken(t: unknown): { id: string; lang: Lang } | null {
   const m = typeof t === "string" ? TOKEN.exec(t) : null;
   if (!m) return null;
-  const want = Buffer.from(unsubSig(m[1]));
-  const got = Buffer.from(m[2]);
-  return want.length === got.length && timingSafeEqual(want, got) ? m[1] : null;
+  const lang = m[2] as Lang;
+  const want = Buffer.from(unsubSig(m[1], lang));
+  const got = Buffer.from(m[3]);
+  return want.length === got.length && timingSafeEqual(want, got) ? { id: m[1], lang } : null;
 }
 
-/** What the unsubscribe page shows: whether this merchant has Dukkan's marketing emails off already (null: the link is
-    not a real one, or the account is gone) */
-export async function marketingUnsubInfo(t: unknown): Promise<{ done: boolean } | null> {
-  const id = readToken(t);
-  if (!id) return null;
-  const { rows } = await (await db()).query(`SELECT marketing_off_at FROM accounts WHERE id = $1`, [id]);
-  return rows[0] ? { done: rows[0].marketing_off_at != null } : null;
-}
+/** The language a link was made in, from its signed part only (the page opens in it); null when it isn't a real link */
+export const unsubLinkLang = (t: unknown): Lang | null => readToken(t)?.lang ?? null;
 
-/** Turns Dukkan's marketing emails off for the merchant a link names (or, `undo`, on again). False when the link is not
-    a real one. Turning them off twice keeps the first time. */
-export async function marketingUnsubscribe(t: unknown, undo = false): Promise<boolean> {
-  const id = readToken(t);
-  if (!id) return false;
-  const r = await (await db()).query(
-    `UPDATE accounts SET marketing_off_at = CASE WHEN $2 THEN NULL ELSE COALESCE(marketing_off_at, now()) END WHERE id = $1`,
-    [id, undo],
+export type MarketingState = { state: "on" | "off" | "paused"; until: string | null };
+
+/** What the unsubscribe page shows: whether this merchant's Dukkan marketing emails are on, off, or paused until when
+    (null: the link is not a real one, or the account is gone). Never anything that tells who he is. */
+export async function marketingUnsubInfo(t: unknown): Promise<MarketingState | null> {
+  const r = readToken(t);
+  if (!r) return null;
+  const { rows } = await (await db()).query(
+    `SELECT marketing_off_at IS NOT NULL AS off, CASE WHEN marketing_paused_until > now() THEN marketing_paused_until END AS until
+       FROM accounts WHERE id = $1`,
+    [r.id],
   );
-  return (r.rowCount ?? 0) > 0;
+  if (!rows[0]) return null;
+  if (rows[0].off) return { state: "off", until: null };
+  return rows[0].until ? { state: "paused", until: new Date(rows[0].until).toISOString() } : { state: "on", until: null };
+}
+
+/** The message at the top of the unsubscribe page, as Dukkan's team set it in Diwan (the default for a language left
+    empty) */
+export async function readUnsubText(): Promise<UnsubText> {
+  const { rows } = await (await db()).query(`SELECT value FROM platform_settings WHERE key = 'dukkan_unsub_page'`);
+  const v = cleanUnsubText(rows[0]?.value) ?? { en: "", ar: "" };
+  return { en: v.en || UNSUB_TEXT_DEFAULT.en, ar: v.ar || UNSUB_TEXT_DEFAULT.ar };
+}
+
+/** Diwan's edit of that message: what was set before and after (for the activity log), or null when one language is
+    too long. Saving a language empty (or as the default) puts the default back. */
+export async function saveUnsubText(staffId: string, v: unknown): Promise<{ before: UnsubText; after: UnsubText } | null> {
+  const typed = cleanUnsubText(v);
+  if (!typed) return null;
+  const before = await readUnsubText();
+  const keep = { en: typed.en === UNSUB_TEXT_DEFAULT.en ? "" : typed.en, ar: typed.ar === UNSUB_TEXT_DEFAULT.ar ? "" : typed.ar };
+  await (await db()).query(
+    `INSERT INTO platform_settings (key, value, updated_by, updated_at) VALUES ('dukkan_unsub_page', $1, $2, now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+    plainParams([JSON.stringify(keep), staffId]),
+  );
+  return { before, after: await readUnsubText() };
+}
+
+/** For Diwan: how many merchants have these emails stopped and paused now, and why (counts per reason, "none" when they
+    gave none). Never who. */
+export async function unsubStats(): Promise<{ off: number; paused: number; reasons: Record<UnsubReason | "none", number> }> {
+  const { rows } = await (await db()).query(
+    `SELECT (a.marketing_off_at IS NOT NULL) AS off, COALESCE(r.reason, 'none') AS reason, count(*)::int AS n
+       FROM accounts a LEFT JOIN merchant_marketing_reasons r ON r.account_id = a.id
+      WHERE a.marketing_off_at IS NOT NULL OR a.marketing_paused_until > now()
+      GROUP BY 1, 2`,
+  );
+  const reasons = { too_many: 0, not_relevant: 0, never_asked: 0, other: 0, none: 0 } as Record<UnsubReason | "none", number>;
+  let off = 0;
+  let paused = 0;
+  for (const r of rows) {
+    const n = Number(r.n) || 0;
+    if (r.off) off += n;
+    else paused += n;
+    const k = String(r.reason) as UnsubReason | "none";
+    if (k in reasons) reasons[k] += n;
+  }
+  return { off, paused, reasons };
+}
+
+/* wrong emails typed for one link, an hour: enough for a typo or two, never enough to guess an address */
+const UNSUB_TRIES = 10;
+
+export type UnsubAction = "pause" | "off" | "on";
+
+/** Pauses Dukkan's marketing emails for MARKETING_PAUSE_DAYS ("pause"), stops them ("off") or turns them on again
+    ("on") for the merchant a link names, once the email typed is his account's address, with an optional reason (pause
+    and off only; one of UNSUB_REASONS, anything else is kept as none). Answers "ok"; "none" (not a real link, or the
+    account is gone); "mismatch" (another address: the answer never says which one is right); "slow-down" (too many tries
+    on this link). Stopping them twice keeps the first time; a pause starts again from now. */
+export async function marketingUnsubscribe(t: unknown, typed: unknown, action: UnsubAction, why?: unknown): Promise<"ok" | "none" | "mismatch" | "slow-down"> {
+  const id = readToken(t)?.id;
+  if (!id) return "none";
+  const email = typeof typed === "string" ? typed.trim().toLowerCase().slice(0, 320) : "";
+  if (tooManyFor(`dukkan-unsub:${id}`, UNSUB_TRIES, 60)) return "slow-down";
+  const pool = await db();
+  const { rows } = await pool.query(`SELECT email, email_hash FROM accounts WHERE id = $1`, [id]);
+  if (!rows[0]) return "none";
+  /* by its fingerprint, or by the address itself (db() opens it) for an account kept before fingerprints */
+  const same = !!email && (rows[0].email_hash === emailKey(email) || String(rows[0].email ?? "").trim().toLowerCase() === email);
+  if (!same) return "mismatch";
+  if (action === "on") {
+    await pool.query(`UPDATE accounts SET marketing_off_at = NULL, marketing_paused_until = NULL WHERE id = $1`, [id]);
+    return "ok";
+  }
+  if (action === "off") await pool.query(`UPDATE accounts SET marketing_off_at = COALESCE(marketing_off_at, now()), marketing_paused_until = NULL WHERE id = $1`, [id]);
+  else {
+    /* a merchant who stopped them stays stopped (a pause never shortens that), and the reason he gave then is kept */
+    const r = await pool.query(`UPDATE accounts SET marketing_paused_until = now() + make_interval(days => ${MARKETING_PAUSE_DAYS}) WHERE id = $1 AND marketing_off_at IS NULL`, [id]);
+    if (!r.rowCount) return "ok";
+  }
+  /* the latest reason he gave, one row per merchant (none when he picked none) */
+  const reason = (UNSUB_REASONS as readonly unknown[]).includes(why) ? (why as UnsubReason) : null;
+  await pool.query(
+    `INSERT INTO merchant_marketing_reasons (account_id, action, reason, at) VALUES ($1, $2, $3, now())
+     ON CONFLICT (account_id) DO UPDATE SET action = EXCLUDED.action, reason = EXCLUDED.reason, at = now()`,
+    [id, action, reason],
+  );
+  return "ok";
 }
 
 /* ---------------- who gets it ---------------- */
 
-/* The merchants an audience reaches, as SQL from accounts `a` (with their shop `s`): never those who turned Dukkan's
-   marketing emails off, nor stores Dukkan suspended. Every value comes from the fixed choices of cleanMerchantAudience,
+/* The merchants an audience reaches, as SQL from accounts `a` (with their shop `s`): never those who stopped or paused
+   Dukkan's marketing emails, nor stores Dukkan suspended. Every value comes from the fixed choices of cleanMerchantAudience,
    so nothing typed reaches the SQL. */
 function audienceFrom(a: MerchantAudience): string {
-  const w = [`a.marketing_off_at IS NULL`, `COALESCE(s.status, 'active') <> 'suspended'`];
+  const w = [`a.marketing_off_at IS NULL`, `NOT COALESCE(a.marketing_paused_until > now(), false)`, `COALESCE(s.status, 'active') <> 'suspended'`];
   if (a.stores === "live") w.push(`COALESCE(s.published, false) AND NOT COALESCE(s.paused, false)`);
   else if (a.stores === "notLive") w.push(`NOT COALESCE(s.published, false)`);
   else if (a.stores === "paused") w.push(`COALESCE(s.published, false) AND COALESCE(s.paused, false)`);
@@ -116,15 +206,19 @@ function audienceFrom(a: MerchantAudience): string {
   return `FROM accounts a LEFT JOIN shops s ON s.account_id = a.id ${orders ? `LEFT JOIN LATERAL ${STORE_ORDERS_SQL("s")} so ON true` : ""} WHERE ${w.join(" AND ")}`;
 }
 
-/** How many merchants an audience reaches now, and how many turned Dukkan's marketing emails off (never reached) */
-export async function countMerchants(audience: unknown): Promise<{ count: number; off: number }> {
+/** How many merchants an audience reaches now, and how many stopped or paused Dukkan's marketing emails (never
+    reached) */
+export async function countMerchants(audience: unknown): Promise<{ count: number; off: number; paused: number }> {
   const a = cleanMerchantAudience(audience);
   const pool = await db();
   const [n, off] = await Promise.all([
     pool.query(`SELECT count(*)::int AS n ${audienceFrom(a)}`),
-    pool.query(`SELECT count(*)::int AS n FROM accounts WHERE marketing_off_at IS NOT NULL`),
+    pool.query(
+      `SELECT count(*) FILTER (WHERE marketing_off_at IS NOT NULL)::int AS off,
+              count(*) FILTER (WHERE marketing_off_at IS NULL AND marketing_paused_until > now())::int AS paused FROM accounts`,
+    ),
   ]);
-  return { count: Number(n.rows[0]?.n) || 0, off: Number(off.rows[0]?.n) || 0 };
+  return { count: Number(n.rows[0]?.n) || 0, off: Number(off.rows[0]?.off) || 0, paused: Number(off.rows[0]?.paused) || 0 };
 }
 
 /* ---------------- the campaigns ---------------- */
@@ -303,7 +397,7 @@ export async function startMerchantCampaign(id: string, staffId: string): Promis
     /* the accounts only: their addresses are read when their batch goes */
     const ins = await c.query(
       `INSERT INTO merchant_campaign_recipients (campaign_id, account_id, lang)
-         SELECT $1, a.id, CASE WHEN a.lang IN ('ar', 'en') THEN a.lang ELSE 'both' END ${audienceFrom(cur.audience)}
+         SELECT $1, a.id, CASE WHEN a.lang = 'en' THEN 'en' ELSE 'ar' END ${audienceFrom(cur.audience)}
        ON CONFLICT DO NOTHING`,
       [id],
     );
@@ -341,58 +435,44 @@ const FOOT = {
 };
 const TEST = { ar: "[تجربة]", en: "[Test]" };
 
-/** One merchant's email of a campaign. The same campaign and merchant always give the very same email (so a batch sent
-    again under its key is the same request). `accountId` null: a staff member's test (its link opens the page, which
-    says it is not a real link). */
-function emailOf(c: MerchantCampaignContent, to: string, accountId: string | null, lang: ReaderLang, test = false): Email {
-  const token = tokenOf(accountId ?? "0");
+/** One merchant's email of a campaign, in his one language. The same campaign and merchant always give the very same
+    email (so a batch sent again under its key is the same request). `accountId` null: a staff member's test (its link
+    opens the page, which says it is not a real link). */
+function emailOf(c: MerchantCampaignContent, to: string, accountId: string | null, lang: Lang, test = false): Email {
+  const token = tokenOf(accountId ?? "0", lang);
   const url = dukkanLink(c.buttonUrl);
-  const part = (l: Lang) => ({
-    lang: l,
-    heading: l === "ar" ? c.headingAr : c.headingEn,
-    text: l === "ar" ? c.bodyAr : c.bodyEn,
-    ...(url ? { button: { label: l === "ar" ? c.buttonLabelAr : c.buttonLabelEn, url } } : {}),
-  });
-  const subjectOf = (l: Lang) => `${test ? `${TEST[l]} ` : ""}${l === "ar" ? c.subjectAr : c.subjectEn}`;
-  const headers = accountId ? { "List-Unsubscribe": `<${unsubApi(token)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } : undefined;
-  if (lang === "both") {
-    const ar = part("ar");
-    const en = part("en");
-    return {
-      to,
-      lang: "ar",
-      subject: `${subjectOf("ar")} | ${c.subjectEn}`,
-      heading: ar.heading,
-      text: `${ar.text}\n—\n${en.text}`,
-      parts: [ar, en],
-      foot: { lang: "ar", text: `${FOOT.ar.text} · ${FOOT.en.text}`, link: { label: `${FOOT.ar.link} · ${FOOT.en.link}`, url: unsubPage(token, "ar") } },
-      ...(headers ? { headers } : {}),
-    };
-  }
-  const p = part(lang);
+  const heading = lang === "ar" ? c.headingAr : c.headingEn;
+  /* the page only (a link a mail app may offer): no List-Unsubscribe-Post, so nothing is turned off in one click */
+  const headers = accountId ? { "List-Unsubscribe": `<${unsubPage(token)}>` } : undefined;
   return {
     to,
     lang,
-    subject: subjectOf(lang),
-    ...(p.heading ? { heading: p.heading } : {}),
-    text: p.text,
-    ...(p.button ? { button: p.button } : {}),
-    foot: { lang, text: FOOT[lang].text, link: { label: FOOT[lang].link, url: unsubPage(token, lang) } },
+    subject: `${test ? `${TEST[lang]} ` : ""}${lang === "ar" ? c.subjectAr : c.subjectEn}`,
+    ...(heading ? { heading } : {}),
+    text: lang === "ar" ? c.bodyAr : c.bodyEn,
+    ...(url ? { button: { label: lang === "ar" ? c.buttonLabelAr : c.buttonLabelEn, url } } : {}),
+    foot: { lang, text: FOOT[lang].text, link: { label: FOOT[lang].link, url: unsubPage(token) } },
     ...(headers ? { headers } : {}),
   };
 }
 
 export type TestResult =
-  | { status: 200; body: { result: "ok"; to: string } }
+  | { status: 200; body: { result: "ok"; to: string; lang: Lang } }
   | { status: 400; body: { result: "invalid"; problems: MerchantCampaignProblem[] } }
   | { status: 429; body: { result: "slow-down" } }
   | { status: 503; body: { result: "no-sender" | "failed" } };
 
-/** "Send a test to me": the campaign as the form has it now, in both languages, to the staff member's own email only,
-    at most TESTS_HOUR an hour and TESTS_DAY a day */
+/** "Send a test to me": the campaign as the form has it now, in one language (the one picked, body.lang; else the staff
+    member's own; else Arabic), to the staff member's own email only, at most TESTS_HOUR an hour and TESTS_DAY a day.
+    Only that language's texts are needed. */
 export async function sendMerchantTest(me: { id: string; email: string }, body: Record<string, unknown>): Promise<TestResult> {
   const c = cleanMerchantContent(body);
-  const problems = merchantCampaignProblems(c, true);
+  let lang: Lang | null = body.lang === "ar" || body.lang === "en" ? body.lang : null;
+  if (!lang) {
+    const { rows } = await (await db()).query(`SELECT lang FROM staff WHERE id = $1`, [me.id]).catch(() => ({ rows: [] as { lang?: string }[] }));
+    lang = rows[0]?.lang === "en" ? "en" : "ar";
+  }
+  const problems = merchantCampaignProblems(c, true, lang);
   if (problems.length) return { status: 400, body: { result: "invalid", problems } };
   const to = String(me.email ?? "").trim();
   if (!emailOn() || !to.includes("@")) return { status: 503, body: { result: "no-sender" } };
@@ -404,8 +484,8 @@ export async function sendMerchantTest(me: { id: string; email: string }, body: 
     return { status: 429, body: { result: "slow-down" } };
   }
   try {
-    await sendEmail(emailOf(c, to, null, "both", true));
-    return { status: 200, body: { result: "ok", to } };
+    await sendEmail(emailOf(c, to, null, lang, true));
+    return { status: 200, body: { result: "ok", to, lang } };
   } catch (e) {
     hour();
     day();
@@ -543,7 +623,8 @@ async function sendBatch(pool: Pool, id: string): Promise<Outcome> {
          UPDATE merchant_campaign_recipients r SET status = 'sending', batch = $2, claimed_at = now(), email = a.email
            FROM pick JOIN accounts a ON a.id = pick.account_id LEFT JOIN shops s ON s.account_id = a.id
           WHERE r.campaign_id = $1 AND r.account_id = pick.account_id
-          RETURNING r.account_id, r.email, r.lang, (a.marketing_off_at IS NOT NULL OR COALESCE(s.status, 'active') = 'suspended') AS off`,
+          RETURNING r.account_id, r.email, r.lang,
+                    (a.marketing_off_at IS NOT NULL OR COALESCE(a.marketing_paused_until > now(), false) OR COALESCE(s.status, 'active') = 'suspended') AS off`,
         [id, key],
       );
       rows = claimed.rows.map((r) => ({ account_id: String(r.account_id), email: r.email == null ? null : String(r.email), lang: String(r.lang), off: r.off === true }));
@@ -556,7 +637,7 @@ async function sendBatch(pool: Pool, id: string): Promise<Outcome> {
     c.release();
   }
   if (!rows.length) return (await finishIfDone(pool, id), "idle");
-  /* anyone who turned Dukkan's marketing emails off since it started, or whose store was suspended, is skipped */
+  /* anyone who stopped or paused Dukkan's marketing emails since it started, or whose store was suspended, is skipped */
   const skip = rows.filter((r) => r.off || !r.email || !r.email.includes("@")).map((r) => r.account_id);
   if (skip.length) {
     await mark(pool, id, skip, "skipped");
@@ -571,7 +652,7 @@ async function deliver(pool: Pool, s: MerchantCampaign, key: string, rows: Taken
   /* always in the same order: a batch sent again must be the very same request, or Resend refuses its key (409) */
   rows = [...rows].sort((a, b) => Number(a.account_id) - Number(b.account_id));
   const ids = rows.map((r) => r.account_id);
-  const emails = rows.map((r) => emailOf(s, String(r.email), r.account_id, r.lang === "ar" || r.lang === "en" ? r.lang : "both"));
+  const emails = rows.map((r) => emailOf(s, String(r.email), r.account_id, r.lang === "en" ? "en" : "ar"));
   let status = await sendEmailBatch(emails, key);
   /* no answer, or Resend's own trouble: the same request again (the key keeps it from going twice), a few times */
   for (let i = 0; i < 2 && (status === 0 || status >= 500); i++) {

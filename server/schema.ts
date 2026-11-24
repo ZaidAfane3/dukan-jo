@@ -1080,14 +1080,16 @@ export const DIWAN_SCHEMA = `
   );
 
   /* ---------- Dukkan's campaigns to merchants (server/merchantCampaigns.ts, Diwan > Marketing > Campaigns to merchants) ----------
-     accounts.marketing_off_at: when the merchant turned Dukkan's marketing emails off (the link in each of these emails,
-     /unsubscribe/dukkan); null: on. Every later campaign leaves him out. His account's own emails (codes, orders,
-     tickets) are not marketing and still come.
-     merchant_campaigns: one email Dukkan's team writes once, in both languages, for merchants. status: 'draft', 'sending'
+     accounts.marketing_off_at: when the merchant stopped Dukkan's marketing emails (the link in each of these emails,
+     /unsubscribe/dukkan); null: on. accounts.marketing_paused_until: he paused them until then (30 days); they come again
+     after it. Every campaign meanwhile leaves him out. His account's own emails (codes, orders, tickets) are not
+     marketing and still come.
+     merchant_campaigns: one email Dukkan's team writes in Arabic and in English for merchants; each gets one of them. status: 'draft', 'sending'
      (its recipients are fixed in merchant_campaign_recipients and go out in batches), 'sent', 'failed' (none could: note
      says why), 'stopped' (stopped_by). audience: the filters it was sent with (components/merchantCampaignRules.ts).
      recipients, sent, failed, skipped: counts only. started_at counts towards the team's campaigns of the day. */
   ALTER TABLE accounts ADD COLUMN IF NOT EXISTS marketing_off_at TIMESTAMPTZ;
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS marketing_paused_until TIMESTAMPTZ;
   CREATE TABLE IF NOT EXISTS merchant_campaigns (
     id              BIGSERIAL PRIMARY KEY,
     status          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'sending', 'sent', 'failed', 'stopped')),
@@ -1118,12 +1120,12 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS merchant_campaigns_sending ON merchant_campaigns (started_at) WHERE status = 'sending';
   /* merchant_campaign_recipients: the merchants a started campaign goes to, fixed when it starts, each account once.
      Never their address while waiting: email is a sealed copy of the account's address taken when its batch is handed
-     to the email service (so a batch sent again is the very same request), emptied once its outcome is known. lang:
-     'ar', 'en', or 'both' (a merchant who never chose a language). status and batch as in store_campaign_recipients. */
+     to the email service (so a batch sent again is the very same request), emptied once its outcome is known. lang: the
+     one language his email is in ('ar' for a merchant who never chose). status and batch as in store_campaign_recipients. */
   CREATE TABLE IF NOT EXISTS merchant_campaign_recipients (
     campaign_id BIGINT NOT NULL REFERENCES merchant_campaigns (id) ON DELETE CASCADE,
     account_id  BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    lang        TEXT NOT NULL DEFAULT 'both' CHECK (lang IN ('ar', 'en', 'both')),
+    lang        TEXT NOT NULL DEFAULT 'ar' CHECK (lang IN ('ar', 'en')),
     email       TEXT,
     status      TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'sending', 'sent', 'failed', 'skipped')),
     batch       TEXT,
@@ -1133,4 +1135,13 @@ export const DIWAN_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS merchant_campaign_recipients_waiting ON merchant_campaign_recipients (campaign_id) WHERE status = 'waiting';
   CREATE INDEX IF NOT EXISTS merchant_campaign_recipients_sending ON merchant_campaign_recipients (claimed_at) WHERE status = 'sending';
+  /* merchant_marketing_reasons: why a merchant last paused ('pause') or stopped ('off') Dukkan's marketing emails, picked
+     on the unsubscribe page (optional; reason NULL: none given). One row per merchant, the latest. Diwan shows counts per
+     reason among the merchants who have them paused or stopped now, never who. */
+  CREATE TABLE IF NOT EXISTS merchant_marketing_reasons (
+    account_id BIGINT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+    action     TEXT NOT NULL CHECK (action IN ('pause', 'off')),
+    reason     TEXT CHECK (reason IN ('too_many', 'not_relevant', 'never_asked', 'other')),
+    at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
 `;

@@ -5,13 +5,14 @@ import { SITE_HOST } from "./siteAddress";
    page (app/diwan/(console)/merchant-campaigns) and the server (server/merchantCampaigns.ts), so what the form accepts
    is exactly what the server keeps.
 
-   One campaign is written once in both languages: each merchant gets it in the language he uses Dukkan in
-   (accounts.lang), and one who never chose gets both, Arabic first. Every text is plain: no HTML, no formatting. A text
-   over its limit is refused, never cut. The optional button goes to a page on Dukkan's own address only.
+   One campaign is written in Arabic and in English, and both are needed before it can be sent: every email is in one
+   language only (owner rule 2026-11-24), so each merchant gets the version in the language he uses Dukkan in
+   (accounts.lang), and one who never chose gets the Arabic one. Every text is plain: no HTML, no formatting. A text over
+   its limit is refused, never cut. The optional button goes to a page on Dukkan's own address only.
 
    Who it goes to (the audience) is a set of filters on the merchants' accounts and stores; the server counts them live
-   and never shows who they are. Merchants who turned Dukkan's marketing emails off (the link in each of these emails)
-   and stores Dukkan suspended are always left out. */
+   and never shows who they are. Merchants who turned Dukkan's marketing emails off or paused them (the link in each of
+   these emails) and stores Dukkan suspended are always left out. */
 
 export const MERCHANT_CAMPAIGN_MAX = {
   subject: 150,
@@ -100,9 +101,16 @@ export type MerchantCampaignField = (typeof CONTENT_KEYS)[number];
 export type MerchantCampaignProblem = { field: MerchantCampaignField; why: "missing" | "long" | "link" };
 
 /** What is wrong with the texts: for a draft only what is too long or a wrong link (and a draft with nothing in it),
-    for sending (and a test) also what is missing: the subject and the message in both languages, and a button needs its
-    address and its words in both languages */
-export function merchantCampaignProblems(c: MerchantCampaignContent, sending: boolean): MerchantCampaignProblem[] {
+    for sending also what is missing: the subject and the message in both languages, and a button needs its address and
+    its words in both languages. A test (`only`: the one language it is sent in) needs that language's texts only. */
+export function merchantCampaignProblems(c: MerchantCampaignContent, sending: boolean, only?: "ar" | "en"): MerchantCampaignProblem[] {
+  const all = problemsOf(c, sending);
+  if (!only) return all;
+  const other = only === "ar" ? "En" : "Ar";
+  return all.filter((p) => !(p.why === "missing" && p.field.endsWith(other)));
+}
+
+function problemsOf(c: MerchantCampaignContent, sending: boolean): MerchantCampaignProblem[] {
   const out: MerchantCampaignProblem[] = [];
   const M = MERCHANT_CAMPAIGN_MAX;
   const max: Record<MerchantCampaignField, number> = {
@@ -120,4 +128,36 @@ export function merchantCampaignProblems(c: MerchantCampaignContent, sending: bo
     }
   } else if (CONTENT_KEYS.every((k) => !c[k])) out.push({ field: "subjectEn", why: "missing" });
   return out;
+}
+
+/* ---------------- the page that turns these emails off (/unsubscribe/dukkan) ---------------- */
+
+/** How long "Pause for 30 days" stops these emails; after it they come again by themselves */
+export const MARKETING_PAUSE_DAYS = 30;
+
+/** Why a merchant stopped them (optional; Diwan sees counts per reason only) */
+export const UNSUB_REASONS = ["too_many", "not_relevant", "never_asked", "other"] as const;
+export type UnsubReason = (typeof UNSUB_REASONS)[number];
+export const UNSUB_REASON_WORDS: Record<UnsubReason, { en: string; ar: string }> = {
+  too_many: { en: "Too many emails", ar: "رسائل كثيرة جدًا" },
+  not_relevant: { en: "Not relevant to me", ar: "لا تهمّني" },
+  never_asked: { en: "I never asked for them", ar: "لم أطلبها أصلًا" },
+  other: { en: "Other", ar: "سبب آخر" },
+};
+
+/** The message at the top of the page, which Dukkan's team can change in Diwan (each language up to this long); an
+    empty one shows the default */
+export const UNSUB_TEXT_MAX = 1_000;
+export const UNSUB_TEXT_DEFAULT = {
+  en: "Pause or stop Dukkan's marketing emails? While they're off you won't get Dukkan's news and offers. Your account's own emails (sign-in codes, new orders, replies to your tickets) still come.",
+  ar: "هل تريد إيقاف رسائل دكان التسويقية مؤقتًا أو نهائيًا؟ ما دامت متوقفة لن تصلك أخبار دكان وعروضه. رسائل حسابك (رموز الدخول والطلبات الجديدة والردود على تذاكرك) تبقى كما هي.",
+};
+export type UnsubText = { en: string; ar: string };
+
+/** The page's message as typed: plain lines, each language at most UNSUB_TEXT_MAX (null when one is longer) */
+export function cleanUnsubText(v: unknown): UnsubText | null {
+  const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  const en = cleanLines(typeof o.en === "string" ? o.en : "");
+  const ar = cleanLines(typeof o.ar === "string" ? o.ar : "");
+  return en.length > UNSUB_TEXT_MAX || ar.length > UNSUB_TEXT_MAX ? null : { en, ar };
 }
