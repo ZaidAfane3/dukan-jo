@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { content } from "./content";
 import { merchantCall, onServer } from "./merchantApi";
 import { checkImage, cleanFileName, imageRules, uploadProblemText } from "./safe";
-import { arCount, dropUndos, offerUndo } from "./undo";
+import { arCount, dropUndos, hideUndo, offerUndo, undoShowing } from "./undo";
 import { jordanMobile } from "./phone";
 
 /* Proof for the merchant's own delivery partner (the setup's shipping step and the Delivery page). For a signed-in
@@ -69,6 +69,39 @@ export function approvedForPhone(f: ProofFile, phone?: string): boolean {
   return key(f.approvedPhone) === key(phone ?? "");
 }
 const serverId = (f: ProofFile) => (f.id.startsWith("doc-") ? f.id.slice(4) : null);
+
+/** how often a page whose Undo toast still shows tells the server to keep its new proofs back: well inside the server's
+    hold (server/courierProof.ts HOLD_MINUTES), even in a background tab, which the browser lets run a timer about once a
+    minute */
+const HOLD_EVERY_MS = 30_000;
+
+/* While the toast for these just-uploaded proofs still counts (it stops while the mouse is on it or the tab is hidden,
+   so it can last longer than the server's hold), the server is asked to keep them back a while longer
+   (app/api/documents/send "hold"), so a proof that can still be undone never reaches Diwan first. Asked again as soon as
+   the tab shows again. When the server says one already went (the page could not ask in time, or the longest hold is
+   over), the toast closes: Undo is not offered for a proof staff may be checking. Stops once the toast is gone; the
+   proofs are sent then (onSettle), or by the server once the last hold is over if the page closed. */
+function keepHeld(toastId: number, ids: string[]) {
+  let timer = 0;
+  const stop = () => {
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", onShow);
+  };
+  const ask = async () => {
+    if (!undoShowing(toastId)) return stop();
+    const r = await merchantCall("/api/documents/send", "POST", { ids, hold: true });
+    if (!undoShowing(toastId)) return stop();
+    if (r && r.status === 200 && Array.isArray(r.data.held) && r.data.held.length < ids.length) {
+      stop();
+      hideUndo(toastId);
+    }
+  };
+  const onShow = () => {
+    if (!document.hidden) void ask();
+  };
+  timer = window.setInterval(() => void ask(), HOLD_EVERY_MS);
+  document.addEventListener("visibilitychange", onShow);
+}
 
 /* the file as base64, without the "data:...;base64," in front */
 const toBase64 = (file: Blob) =>
@@ -198,7 +231,7 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
     /* an Undo takes the files just added out again (from the server too), unless one of them is already gone. Until its
        countdown ends they are held back; then they go to Dukkan (app/api/documents/send) */
     const sendIds = added.map(serverId).filter((x): x is string => !!x);
-    offerUndo({
+    const toastId = offerUndo({
       scope: "proofs",
       onSettle: sendIds.length ? () => void merchantCall("/api/documents/send", "POST", { ids: sendIds }) : undefined,
       label: (l) => undoWords[l].added(added.length, added[0].name),
@@ -217,6 +250,7 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
         return true;
       },
     });
+    if (sendIds.length) keepHeld(toastId, sendIds);
   };
 
   /** Removes one file (from the server too, when it is there) */

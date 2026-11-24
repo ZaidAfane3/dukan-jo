@@ -964,9 +964,14 @@ export const DIWAN_SCHEMA = `
   /* A courier proof is kept back only during the Undo countdown after its upload (app/api/documents/send, owner
      decision 2026-11-24). The drafts left from before (a merchant who uploaded during setup and never saved his
      delivery choice) go to Diwan now, as sent at this moment, when their file is still there and he didn't remove them.
-     Runs again harmlessly: once handed over no row is a draft. */
+     Runs again harmlessly: once handed over no row is a draft.
+     hold_until: until when a just-uploaded proof is kept back for its page (server/courierProof.ts HOLD_MINUTES from
+     the upload, moved on by the page while its Undo toast still counts, app/api/documents/send "hold"). Rows from before
+     have none and wait 2 minutes from their upload, as they did. A proof still within its hold is left for its page. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS hold_until TIMESTAMPTZ;
   UPDATE documents SET draft = false, sent_at = now()
-   WHERE draft AND removed_at IS NULL AND (data IS NOT NULL OR file_key IS NOT NULL) AND created_at < now() - interval '2 minutes';
+   WHERE draft AND removed_at IS NULL AND (data IS NOT NULL OR file_key IS NOT NULL)
+     AND COALESCE(hold_until, created_at + interval '2 minutes') < now();
   /* the numbers look only at what came in lately, so each count goes through a short index rather than the whole table */
   CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
   CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';

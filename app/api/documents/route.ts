@@ -4,7 +4,7 @@ import { db } from "@/server/db";
 import { ACCOUNT_BYTES, ACTIVE, BODY_MAX, checkUpload, documentName, documentsRoute, MERCHANT_KINDS, merchantDocument, partnerKind, partnerName, PER_ACCOUNT, PER_PARTNER, REJECTED_SHOWN, type MerchantKind } from "@/server/documents";
 import { storageFull } from "@/server/media";
 import { inTransaction } from "@/server/tickets";
-import { ownCourierPhone } from "@/server/courierProof";
+import { HOLD_MINUTES, ownCourierPhone } from "@/server/courierProof";
 import { savedMobile } from "@/components/phone";
 
 export const dynamic = "force-dynamic";
@@ -55,11 +55,13 @@ export const POST = documentsRoute(async (req, me) => {
     await c.query(`SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE`, [me.id]);
     /* a proof is held back (draft) only while the merchant can still take it out with the Undo toast: when the toast's
        countdown ends without an undo, his page sends it (./send) and it lands in Diwan's Documents queue as "waiting".
-       If his page closes first, it goes on its own HOLD_MINUTES later (server/courierProof.ts releaseHeldProofs).
+       If his page closes first, it goes on its own once its hold is over (hold_until: HOLD_MINUTES from now, moved on
+       by his page while the toast still counts; server/courierProof.ts releaseHeldProofs).
        Owner decision 2026-11-24: "they stay till the undo counter finishes; he didn't undo, then we receive". phone: the courier it is for (server/courierProof.ts): the one on his
        page when it is a Jordan mobile (he may be sending the proof for a new courier he typed and has not saved yet,
        which must not be tied to the saved one), otherwise the saved one when he uses his own courier; a save of his
-       choice sets it again for every proof still waiting (handOverProofs). Read under the account's save lock, so a
+       choice with another courier moves to it the proofs still waiting that were for the courier saved until then or
+       for none (handOverProofs). Read under the account's save lock, so a
        save running now either finished before this read or sets the phone of this row after it. */
     let phone: string | null = null;
     if (kind === "courier_proof") {
@@ -87,10 +89,10 @@ export const POST = documentsRoute(async (req, me) => {
     /* the platform's own ceiling, shared by every account's files (server/media.ts storageFull) */
     if (await storageFull(c, file.size)) return "storage-full" as const;
     const ins = await c.query(
-      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, partner_phone, draft)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10, true)
+      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, partner_phone, draft, hold_until)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10, true, now() + make_interval(mins => $11))
        RETURNING id, public_id, rejection_seen, seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
-      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, seal(phone)],
+      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, seal(phone), HOLD_MINUTES],
     );
     return ins.rows[0] as Record<string, unknown>;
   });
