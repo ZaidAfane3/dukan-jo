@@ -4,7 +4,6 @@ import { db } from "@/server/db";
 import { ACCOUNT_BYTES, ACTIVE, BODY_MAX, checkUpload, documentName, documentsRoute, MERCHANT_KINDS, merchantDocument, partnerKind, partnerName, PER_ACCOUNT, PER_PARTNER, REJECTED_SHOWN, type MerchantKind } from "@/server/documents";
 import { storageFull } from "@/server/media";
 import { inTransaction } from "@/server/tickets";
-import { logMerchant } from "@/server/merchantLog";
 import { ownCourierPhone } from "@/server/courierProof";
 import { savedMobile } from "@/components/phone";
 
@@ -54,10 +53,10 @@ export const POST = documentsRoute(async (req, me) => {
        UPDATE: a save adding a key to store_data only needs to know the account exists, so it never waits on this. */
     if (kind === "courier_proof") await c.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [me.id]);
     await c.query(`SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE`, [me.id]);
-    /* every proof goes to Diwan's Documents queue the moment it is sent ("waiting", owner decision 2026-11-24): it
-       used to stay a draft until the merchant saved his delivery choice with his own courier, so a proof sent during
-       setup without pressing save never reached the team. (documents.draft stays for old rows; start-up hands any
-       left over to Diwan, server/schema.ts.) phone: the courier it is for (server/courierProof.ts): the one on his
+    /* a proof is held back (draft) only while the merchant can still take it out with the Undo toast: when the toast's
+       countdown ends without an undo, his page sends it (./send) and it lands in Diwan's Documents queue as "waiting".
+       If his page closes first, it goes on its own HOLD_MINUTES later (server/courierProof.ts releaseHeldProofs).
+       Owner decision 2026-11-24: "they stay till the undo counter finishes; he didn't undo, then we receive". phone: the courier it is for (server/courierProof.ts): the one on his
        page when it is a Jordan mobile (he may be sending the proof for a new courier he typed and has not saved yet,
        which must not be tied to the saved one), otherwise the saved one when he uses his own courier; a save of his
        choice sets it again for every proof still waiting (handOverProofs). Read under the account's save lock, so a
@@ -88,8 +87,8 @@ export const POST = documentsRoute(async (req, me) => {
     /* the platform's own ceiling, shared by every account's files (server/media.ts storageFull) */
     if (await storageFull(c, file.size)) return "storage-full" as const;
     const ins = await c.query(
-      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, partner_phone)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10)
+      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, partner_phone, draft)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10, true)
        RETURNING id, public_id, rejection_seen, seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
       [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, seal(phone)],
     );
@@ -98,7 +97,6 @@ export const POST = documentsRoute(async (req, me) => {
   if (saved === "too-many" || saved === "too-big") return answer({ result: saved }, 409);
   if (saved === "storage-full") return answer({ result: saved }, 503);
   /* the row came back from a transaction client, whose answers are opened like the pool's (server/db.ts) */
-  logMerchant(me.id, "document.sent", { kind: String(saved.kind ?? "") });
   return answer({ result: "ok", document: merchantDocument(saved) });
 });
 

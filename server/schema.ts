@@ -961,12 +961,12 @@ export const DIWAN_SCHEMA = `
      without approved_phone counts for whichever courier he has, so no store loses its delivery with this change. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner_phone TEXT;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_phone TEXT;
-  /* A courier proof is no longer kept back as a draft: every one reaches Diwan when it is sent (app/api/documents POST,
-     owner decision 2026-11-24). The drafts left from before (a merchant who uploaded during setup and never saved his
+  /* A courier proof is kept back only during the Undo countdown after its upload (app/api/documents/send, owner
+     decision 2026-11-24). The drafts left from before (a merchant who uploaded during setup and never saved his
      delivery choice) go to Diwan now, as sent at this moment, when their file is still there and he didn't remove them.
      Runs again harmlessly: once handed over no row is a draft. */
   UPDATE documents SET draft = false, sent_at = now()
-   WHERE draft AND removed_at IS NULL AND (data IS NOT NULL OR file_key IS NOT NULL);
+   WHERE draft AND removed_at IS NULL AND (data IS NOT NULL OR file_key IS NOT NULL) AND created_at < now() - interval '2 minutes';
   /* the numbers look only at what came in lately, so each count goes through a short index rather than the whole table */
   CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
   CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';

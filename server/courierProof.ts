@@ -14,6 +14,7 @@
 import { cleanSetup } from "@/components/safeAccount";
 import { jordanMobile } from "@/components/phone";
 import { seal } from "./crypto";
+import { db } from "./db";
 
 type Query = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
 
@@ -82,14 +83,38 @@ export async function pinLegacyApprovals(q: Query, accountId: string | number, p
 
 /** His delivery choice asked for his own courier (with this phone), kept or held back: every proof still waiting for a
     check is for that courier now (as its partner name follows him, app/api/documents PUT). A proof already approved or
-    rejected keeps the courier it was checked for. Proofs reach Diwan as soon as they are sent (app/api/documents POST);
-    `draft` here only catches an old one start-up has not handed over yet (server/schema.ts). Also when the save was
+    rejected keeps the courier it was checked for. Proofs reach Diwan when the Undo countdown after the upload ends
+    (app/api/documents/send), not with this save; one still held back gets the courier too. Also when the save was
     held back (a live store whose new courier has no approved proof yet, without pickup), since that proof is exactly
     what lets the next save go through. */
+/** how long a just-uploaded proof waits for its page to send it (the Undo toast) before it goes to Diwan on its own,
+    for a merchant who closed the page during the countdown. Far longer than the toast, which stops while held. */
+export const HOLD_MINUTES = 2;
+let releasedAt = 0;
+
+/** Sends to Diwan every proof held back longer than HOLD_MINUTES (its page never said, closed during the Undo
+    countdown). Run before every Diwan request (server/staff.ts staffRoute), at most every 10 seconds per server;
+    a failure only waits for the next one. */
+export async function releaseHeldProofs(): Promise<void> {
+  const now = Date.now();
+  if (now - releasedAt < 10_000) return;
+  releasedAt = now;
+  try {
+    await (await db()).query(
+      `UPDATE documents SET draft = false, sent_at = now()
+        WHERE draft AND removed_at IS NULL AND created_at < now() - make_interval(mins => $1)
+          AND (data IS NOT NULL OR file_key IS NOT NULL)`,
+      [HOLD_MINUTES],
+    );
+  } catch {
+    releasedAt = 0;
+  }
+}
+
 export async function handOverProofs(q: Query, accountId: string | number, phone: string): Promise<void> {
   await q.query(
-    `UPDATE documents SET draft = false, sent_at = CASE WHEN draft THEN now() ELSE sent_at END, partner_phone = $2
-      WHERE account_id = $1 AND kind = 'courier_proof' AND removed_at IS NULL AND (draft OR status = 'waiting')`,
+    `UPDATE documents SET partner_phone = $2
+      WHERE account_id = $1 AND kind = 'courier_proof' AND removed_at IS NULL AND status = 'waiting'`,
     [accountId, seal(phone)],
   );
 }

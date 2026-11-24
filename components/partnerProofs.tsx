@@ -195,9 +195,12 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
     setBusy(false);
     setError(message);
     if (!added.length) return;
-    /* an Undo takes the files just added out again (from the server too), unless one of them is already gone */
+    /* an Undo takes the files just added out again (from the server too), unless one of them is already gone. Until its
+       countdown ends they are held back; then they go to Dukkan (app/api/documents/send) */
+    const sendIds = added.map(serverId).filter((x): x is string => !!x);
     offerUndo({
       scope: "proofs",
+      onSettle: sendIds.length ? () => void merchantCall("/api/documents/send", "POST", { ids: sendIds }) : undefined,
       label: (l) => undoWords[l].added(added.length, added[0].name),
       undo: async () => {
         if (!added.every((f) => current.current.some((x) => x.id === f.id))) return false;

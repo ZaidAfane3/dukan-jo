@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { answer, guarded, sameOrigin, secureCookies, tooManyFor, visitorIp } from "./auth";
 import { db } from "./db";
 import { cookieLang } from "./lang";
+import { releaseHeldProofs } from "./courierProof";
 
 /* Diwan's staff: their sign-in, roles and the activity log. Staff accounts are separate from merchant accounts: their
    own table, their own cookie (dukkan-diwan, SameSite=Strict), 12 hours at most and 60 minutes idle. A session is made
@@ -134,6 +135,8 @@ export function staffRoute(perm: Perm | null, fn: (req: NextRequest, staff: Staf
       if (perm && !can(s, perm)) return answer({ result: "not-allowed" }, 403);
       /* a ceiling per staff member for every console route, far above what the pages ask for */
       if (tooManyFor(`diwan:${s.id}`, 900, 10)) return answer({ result: "slow-down" }, 429);
+      /* proofs whose merchant closed the page during the Undo countdown reach the Documents queue and its count */
+      await releaseHeldProofs();
       return fn(r, s, { params: (await ctx?.params) ?? {} });
     })(req);
 }
