@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { brandName, content, dateLocale, type Lang } from "./content";
 import { DashboardBar } from "./DashboardBar";
-import { pushNotification, serverMode } from "./notifications";
+import { pushNotification, refreshServerNotifications, serverMode } from "./notifications";
 import { usePrefs } from "./Prefs";
 import { cleanLine, cleanLines, imageRules, uploadProblemFor, visibleLength, type FileKind } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
@@ -1060,6 +1060,9 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
       /* opening it marks Dukkan's replies as seen: the list and the bell catch up */
       if (mark !== last.current) onChanged();
       last.current = mark;
+      /* a reply marked read by this load: the bell, woken by the same reply, may have read its list just before, and
+         would show it as new for this open ticket until its next minute */
+      if (r.data.seen) void refreshServerNotifications({ again: true });
     } else if (last.current === null) setFailed(r.why === "none" ? "none" : "error");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [number]);

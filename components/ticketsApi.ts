@@ -51,7 +51,8 @@ async function call<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", b
 }
 
 export const fetchTickets = () => call<{ tickets: ServerTicket[] }>("/api/tickets");
-export const fetchThread = (n: number) => call<{ ticket: Thread }>(`/api/tickets/${n}`);
+/* `seen`: opening it marked a reply of Dukkan as read just now (the bell asks for its list again) */
+export const fetchThread = (n: number) => call<{ ticket: Thread; seen?: boolean }>(`/api/tickets/${n}`);
 /* The same ticket sent twice (a double click, a retry after a lost answer) carries the same key, made from what it says,
    so the server keeps one (server/onceKey.ts) */
 function ticketKey(t: { subject: string; category: number; message: string; pictures: string[]; kind?: string; where?: string }): string {

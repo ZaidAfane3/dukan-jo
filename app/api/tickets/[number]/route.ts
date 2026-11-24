@@ -27,8 +27,9 @@ export const GET = merchantRoute(async (_req, me, ctx) => {
       [t.id],
     ),
   ]);
-  /* Dukkan's replies to this ticket are now seen */
-  await pool.query(
+  /* Dukkan's replies to this ticket are now seen. `seen` tells the page when this marked one: the bell may have asked
+     for its list a moment before (the same change wakes both), and asks again (components/notifications.ts) */
+  const read = await pool.query(
     `INSERT INTO notification_reads (notification_id, account_id)
      SELECT n.id, $1 FROM notifications n
       WHERE n.account_id = $1 AND n.kind = 'ticketReplied' AND n.params->>'number' = $2
@@ -37,6 +38,7 @@ export const GET = merchantRoute(async (_req, me, ctx) => {
   );
   return answer({
     result: "ok",
+    seen: (read.rowCount ?? 0) > 0,
     ticket: {
       number: Number(t.number),
       kind: t.kind,

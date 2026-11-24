@@ -73,15 +73,26 @@ function localList(): AppNotification[] {
 const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "paymentReceived", "supportViewed", "announcement", "orderPlaced", "shipDelivered", "shipFailed", "shipCityGone", "payOff", "twoStepOff", "lowStock", "outOfStock", "campaignStopped"]);
 let serverList: AppNotification[] = [];
 let loading: Promise<void> | null = null;
+/* a request asked for after the one on its way (refreshServerNotifications `again`) */
+let again: Promise<void> | null = null;
 
 /** True when the bell (and Support) talk to the server: a merchant is signed in and the tour is not running */
 export const serverMode = () => typeof window !== "undefined" && !demoActive() && !!signedInAs();
 
 const changed = () => window.dispatchEvent(new Event(EVENT));
 
-/** Fetches the server's part of the list (at most one request at a time). Does nothing in the tour or signed out. */
-export function refreshServerNotifications(): Promise<void> {
+/** Fetches the server's part of the list (at most one request at a time). Does nothing in the tour or signed out.
+    `again`: the server changed the list just now (a ticket's page marked its reply read), so a request already on its
+    way may hold the list from before: one more goes once it is answered. */
+export function refreshServerNotifications(o: { again?: boolean } = {}): Promise<void> {
   if (!serverMode()) return Promise.resolve();
+  if (o.again && loading) {
+    again ??= loading.then(() => {
+      again = null;
+      return refreshServerNotifications();
+    });
+    return again;
+  }
   loading ??= fetch("/api/notifications", { credentials: "same-origin", cache: "no-store" })
     .then(async (r) => {
       /* signed out while the page was open: if Dukkan suspended the store, the merchant is shown why */
