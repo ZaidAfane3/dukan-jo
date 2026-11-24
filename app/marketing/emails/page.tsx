@@ -3,7 +3,7 @@ import { CustomerEmails } from "@/components/CustomerEmails";
 
 export const metadata: Metadata = {
   title: "دكان | إيميلات العملاء",
-  description: "The emails visitors left on your store: newsletter sign-ups and back-in-stock requests.",
+  description: "Your newsletter's numbers and the back-in-stock requests visitors left on your store.",
 };
 
 export default function CustomerEmailsPage() {

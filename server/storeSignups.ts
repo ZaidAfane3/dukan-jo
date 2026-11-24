@@ -9,9 +9,11 @@ import { findShop, isOpen } from "./storeOrders";
    - "newsletter": the store's newsletter block (POST /api/public/store/<link>/newsletter);
    - "back_in_stock": "Remind me when it's back" on a product, or a size of it, that is sold out
      (POST /api/public/store/<link>/back-in-stock).
-   Only the store's own merchant reads, exports and deletes them (GET /api/store-signups, DELETE /api/store-signups/<id>).
-   Dukkan sends them nothing by itself: the lists are the merchant's to use, and his own
-   campaigns (server/campaigns.ts) reach the newsletter's emails.
+   Only the store's own merchant sees them (GET /api/store-signups), and only so far as each list needs:
+   - the newsletter: numbers only (newsletterStats), never the addresses (owner decision 2026-11-24: the subscribers'
+     privacy). He reaches them with his campaigns (server/campaigns.ts), which open the addresses only to send;
+   - back in stock: the list itself (listSignups), each request with its address, which he may download and delete
+     (DELETE /api/store-signups/<id>), since Dukkan sends these reminders nothing by itself.
 
    The email is sealed like every private contact (server/crypto.ts). It is kept once per shop (once per product and
    size for back in stock) by a keyed fingerprint made for that shop only, so a copy of the database can't tell that the
@@ -107,6 +109,39 @@ export async function backInStockSignup(slug: unknown, body: Record<string, unkn
   return { status: 200, body: { result: "ok" } };
 }
 
+/** The newsletter's numbers, never its addresses: how many, how many joined this month (Jordan time) and in the last 7
+    days, by the language they signed up in, and by where the block was (the home page, an info page, a product page) */
+export type NewsletterStats = {
+  total: number;
+  thisMonth: number;
+  lastWeek: number;
+  byLang: { ar: number; en: number };
+  bySource: { home: number; page: number; product: number };
+};
+
+export async function newsletterStats(accountId: string): Promise<NewsletterStats> {
+  const { rows } = await (await db()).query(
+    `SELECT count(*)::int AS total,
+            count(*) FILTER (WHERE created_at >= (date_trunc('month', now() AT TIME ZONE 'Asia/Amman') AT TIME ZONE 'Asia/Amman'))::int AS month,
+            count(*) FILTER (WHERE created_at >= now() - interval '7 days')::int AS week,
+            count(*) FILTER (WHERE lang = 'en')::int AS en,
+            count(*) FILTER (WHERE source = 'page')::int AS page,
+            count(*) FILTER (WHERE source = 'product')::int AS product
+       FROM store_signups WHERE account_id = $1 AND kind = 'newsletter'`,
+    [accountId],
+  );
+  const r = rows[0] ?? {};
+  const n = (v: unknown) => Number(v) || 0;
+  const total = n(r.total);
+  return {
+    total,
+    thisMonth: n(r.month),
+    lastWeek: n(r.week),
+    byLang: { ar: total - n(r.en), en: n(r.en) },
+    bySource: { home: total - n(r.page) - n(r.product), page: n(r.page), product: n(r.product) },
+  };
+}
+
 export type Signup = {
   id: string;
   email: string;
@@ -120,9 +155,10 @@ export type Signup = {
   at: string;
 };
 
-/** The merchant's own emails of one list, newest first: a page of them (older than `before`, an id from `next`), or
-    all of them at once for his file (`all`). `total`: how many that list has. */
-export async function listSignups(accountId: string, kind: SignupKind, o: { before?: string | null; all?: boolean }): Promise<{ signups: Signup[]; next: string | null; total: number }> {
+/** The merchant's own back-in-stock requests, newest first: a page of them (older than `before`, an id from `next`), or
+    all of them at once for his file (`all`). `total`: how many the list has. Never the newsletter's: its addresses are
+    not shown to him (newsletterStats). */
+export async function listSignups(accountId: string, kind: "back_in_stock", o: { before?: string | null; all?: boolean }): Promise<{ signups: Signup[]; next: string | null; total: number }> {
   const pool = await db();
   const before = !o.all && o.before && /^\d{1,18}$/.test(o.before) ? o.before : null;
   const limit = o.all ? SIGNUPS_MAX : SIGNUPS_PAGE;
@@ -160,9 +196,11 @@ export async function listSignups(accountId: string, kind: SignupKind, o: { befo
   return { signups, next: more ? signups[signups.length - 1].id : null, total: Number(total.rows[0]?.n ?? 0) };
 }
 
-/** Deletes one of the merchant's own emails (of either list); false when he has none with that id */
+/** Deletes one of the merchant's own back-in-stock requests; false when he has none with that id. A newsletter
+    subscriber is never deleted by id: the merchant doesn't see who they are (a subscriber leaves through the
+    unsubscribe link of his campaigns). */
 export async function deleteSignup(accountId: string, id: string): Promise<boolean> {
   if (!/^\d{1,18}$/.test(id)) return false;
-  const { rowCount } = await (await db()).query(`DELETE FROM store_signups WHERE account_id = $1 AND id = $2`, [accountId, id]);
+  const { rowCount } = await (await db()).query(`DELETE FROM store_signups WHERE account_id = $1 AND id = $2 AND kind = 'back_in_stock'`, [accountId, id]);
   return (rowCount ?? 0) > 0;
 }

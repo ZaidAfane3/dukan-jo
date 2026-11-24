@@ -13,6 +13,9 @@ export async function register() {
      isn't held up, and it tries again by itself while the database can't be reached */
   const { kickCampaigns } = await import("./server/campaigns");
   setTimeout(kickCampaigns, 15_000);
+  /* and so do Dukkan's own campaigns to merchants (server/merchantCampaigns.ts) */
+  const { kickMerchantCampaigns } = await import("./server/merchantCampaigns");
+  setTimeout(kickMerchantCampaigns, 15_000);
   const { prepareShops } = await import("./server/shops");
   /* not awaited: the server takes requests meanwhile */
   void (async () => {
