@@ -248,11 +248,13 @@ export async function describeActivity(pool: Pool, rows: any[]): Promise<Activit
 }
 
 /** SQL for the log lines about one store (its account id as `param`): the store itself, its tickets, the reports about
-    it, its documents and Dukkan Ship's marks on its orders. Their details can't be searched (they are sealed), so this
+    it, its documents, Dukkan Ship's marks on its orders and its campaigns staff stopped (the campaign id as written,
+    compared as a number: the stop route writes the id from the address as it came). Their details can't be searched (they are sealed), so this
     goes by what each line is about. */
 export const aboutShopSql = (alias: string, param: string) => `(
   (${alias}.target_type = 'shop' AND ${alias}.target_id = ${param}::text)
   OR (${alias}.target_type = 'ticket' AND ${alias}.target_id IN (SELECT number::text FROM tickets WHERE account_id = ${param}::bigint))
   OR (${alias}.target_type = 'store_report' AND ${alias}.target_id IN (SELECT id::text FROM store_reports WHERE account_id = ${param}::bigint))
   OR (${alias}.target_type = 'document' AND ${alias}.target_id IN (SELECT id::text FROM documents WHERE account_id = ${param}::bigint))
-  OR (${alias}.target_type = 'store_order' AND ${alias}.target_id IN (SELECT id::text FROM store_orders WHERE account_id = ${param}::bigint AND ship_by = 'dukkan')))`;
+  OR (${alias}.target_type = 'store_order' AND ${alias}.target_id IN (SELECT id::text FROM store_orders WHERE account_id = ${param}::bigint AND ship_by = 'dukkan'))
+  OR (${alias}.target_type = 'campaign' AND (CASE WHEN ${alias}.target_id ~ '^[0-9]{1,18}$' THEN ${alias}.target_id::bigint END) IN (SELECT id FROM store_campaigns WHERE account_id = ${param}::bigint)))`;
