@@ -122,6 +122,10 @@ function detailOf(action: string, meta: Record<string, unknown> | null, staffNam
       return targetName ? { member: targetName } : null;
     case "campaign.stop":
       return { title, ...(typeof m.left === "number" ? { count: m.left } : {}) };
+    /* how many merchants it was sent to, or how many it never reached once stopped */
+    case "merchant_campaign.send":
+    case "merchant_campaign.stop":
+      return { title, ...(typeof m.count === "number" ? { count: m.count } : {}) };
     case "popup.status":
     case "page.status":
       return { title, changes: [{ field: "status", from: str(m.from), to: str(m.to) }] };
