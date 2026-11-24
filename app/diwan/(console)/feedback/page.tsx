@@ -74,7 +74,7 @@ export default function FeedbackPage() {
         }
         filters={(["", "bug", "idea"] as const).map((k) => (
           <button key={k || "all"} onClick={() => { setKind(k); }} className={chip(kind === k)}>
-            {k ? t(KIND[k].en + "s", k === "bug" ? "الأخطاء" : "الاقتراحات") : t("Bugs and ideas", "الكل")}
+            {k ? t(KIND[k].en + "s", k === "bug" ? "الأخطاء" : "الاقتراحات") : t("Bugs and ideas", "الأخطاء والأفكار")}
           </button>
         ))}
       />
