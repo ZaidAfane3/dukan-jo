@@ -80,11 +80,12 @@ export async function pinLegacyApprovals(q: Query, accountId: string | number, p
   );
 }
 
-/** His delivery choice asked for his own courier (with this phone), kept or held back: the courier proofs he sent as
-    drafts go to Diwan to be checked, and every proof still waiting for a check is for that courier now (as its partner
-    name follows him, app/api/documents PUT). A proof already approved or rejected keeps the courier it was checked for.
-    Also when the save was held back (a live store whose new courier has no approved proof yet, without pickup): that
-    proof is exactly what lets the next save go through, so it can't wait for a save that is never kept. */
+/** His delivery choice asked for his own courier (with this phone), kept or held back: every proof still waiting for a
+    check is for that courier now (as its partner name follows him, app/api/documents PUT). A proof already approved or
+    rejected keeps the courier it was checked for. Proofs reach Diwan as soon as they are sent (app/api/documents POST);
+    `draft` here only catches an old one start-up has not handed over yet (server/schema.ts). Also when the save was
+    held back (a live store whose new courier has no approved proof yet, without pickup), since that proof is exactly
+    what lets the next save go through. */
 export async function handOverProofs(q: Query, accountId: string | number, phone: string): Promise<void> {
   await q.query(
     `UPDATE documents SET draft = false, sent_at = CASE WHEN draft THEN now() ELSE sent_at END, partner_phone = $2

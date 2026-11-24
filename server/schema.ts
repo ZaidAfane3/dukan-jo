@@ -325,8 +325,9 @@ export const DIWAN_SCHEMA = `
      the row stays as a record for staff: a proof staff were checking, or already approved, doesn't vanish from Diwan
      without a trace. The merchant's own pages and limits never count it again. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;
-  /* A courier proof sent while the merchant is still filling in his delivery choice (setup or the Delivery page) is a
-     draft: Diwan doesn't see it until he saves that choice with his own courier (app/api/store PUT). */
+  /* draft: a courier proof Diwan doesn't see yet. Proofs used to be drafts until the merchant saved his delivery choice
+     with his own courier; since 2026-11-24 none is made (app/api/documents POST) and start-up hands the old ones over
+     (below, with sent_at). Kept so old rows and the NOT draft filters stay valid. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS draft BOOLEAN NOT NULL DEFAULT false;
 
   /* ---------- pictures and videos of the stores (product photos, logos, designs, page backgrounds) ---------- */
@@ -948,8 +949,8 @@ export const DIWAN_SCHEMA = `
     seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (staff_id, tab)
   );
-  /* sent_at: when a document reached Diwan: when it was sent, or for a courier proof sent as a draft, when the merchant
-     saved his delivery choice and it was handed over (app/api/store PUT). Rows from before take the day they were sent. */
+  /* sent_at: when a document reached Diwan: when it was sent, or for an old courier proof kept as a draft, when it was
+     handed over (a save of his delivery choice, or the start-up below). Rows from before take the day they were sent. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
   UPDATE documents SET sent_at = created_at WHERE sent_at IS NULL;
   ALTER TABLE documents ALTER COLUMN sent_at SET DEFAULT now();
@@ -960,6 +961,12 @@ export const DIWAN_SCHEMA = `
      without approved_phone counts for whichever courier he has, so no store loses its delivery with this change. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner_phone TEXT;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_phone TEXT;
+  /* A courier proof is no longer kept back as a draft: every one reaches Diwan when it is sent (app/api/documents POST,
+     owner decision 2026-11-24). The drafts left from before (a merchant who uploaded during setup and never saved his
+     delivery choice) go to Diwan now, as sent at this moment, when their file is still there and he didn't remove them.
+     Runs again harmlessly: once handed over no row is a draft. */
+  UPDATE documents SET draft = false, sent_at = now()
+   WHERE draft AND removed_at IS NULL AND (data IS NOT NULL OR file_key IS NOT NULL);
   /* the numbers look only at what came in lately, so each count goes through a short index rather than the whole table */
   CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
   CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';

@@ -258,8 +258,8 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
 
   const stale: Record<string, { value: string | null; v: string }> = {};
   /* his delivery choice saved with his own courier, or held back only because it can't sell yet (a live store without
-     pickup whose new courier has no approved proof): the courier proofs he sent for it go to Diwan to be checked
-     (server/courierProof.ts handOverProofs). Run once the save is answered (kept or refused). */
+     pickup whose new courier has no approved proof): the courier proofs still waiting for a check are for that courier
+     now (server/courierProof.ts handOverProofs). Run once the save is answered (kept or refused). */
   const handOver = async () => {
     if (!setup || !(set.some(([k]) => k === "seen-setup") || refused["seen-setup"]?.result === "not-ready")) return;
     const phone = ownCourierPhone(setup[1] as string);
@@ -441,7 +441,7 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
     if (rows.some((r) => r.key === "seen-storefront") && !rows.some((r) => r.key === "seen-pages"))
       await keepLegalPages(pool, a.id).catch((e) => console.error("[pages] keeping legal pages", a.id, e));
   }
-  /* his delivery choice with his own courier, kept or held back: the courier proofs he sent for it go to Diwan */
+  /* his delivery choice with his own courier, kept or held back: the proofs still waiting are for that courier now */
   await handOver();
   /* a picture the pages no longer use doesn't stay public for long */
   sweepSoon(await db(), a.id);

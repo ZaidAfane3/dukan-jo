@@ -54,30 +54,18 @@ export const POST = documentsRoute(async (req, me) => {
        UPDATE: a save adding a key to store_data only needs to know the account exists, so it never waits on this. */
     if (kind === "courier_proof") await c.query(`SELECT pg_advisory_xact_lock(71004, ($1::bigint % 2147483647)::int)`, [me.id]);
     await c.query(`SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE`, [me.id]);
-    /* a courier proof is a draft (Diwan doesn't see it) until his delivery choice is saved with his own courier: already
-       saved so (the Delivery page of a store that uses its courier), it goes to Diwan at once. So does one of a store
-       that is live (open, not paused): there a change to his own courier is held back until a proof for that courier is
-       approved (app/api/store PUT "not-ready", when pickup is off), so waiting for that save would keep the proof a
-       draft for good. Read under the account's save lock (app/api/store PUT takes it to save the setup, and hands
-       drafts over after): a save running now either finished before this read (own: not a draft) or waits for this row
-       and then hands it over. phone: the courier it is for (server/courierProof.ts): the one on his page when it is a Jordan
-       mobile (he may be sending the proof for a new courier he typed and has not saved yet, which must not be tied to
-       the saved one), otherwise the saved one when he uses his own courier; a save of his choice sets it again
-       (handOverProofs). */
-    let draft = false;
+    /* every proof goes to Diwan's Documents queue the moment it is sent ("waiting", owner decision 2026-11-24): it
+       used to stay a draft until the merchant saved his delivery choice with his own courier, so a proof sent during
+       setup without pressing save never reached the team. (documents.draft stays for old rows; start-up hands any
+       left over to Diwan, server/schema.ts.) phone: the courier it is for (server/courierProof.ts): the one on his
+       page when it is a Jordan mobile (he may be sending the proof for a new courier he typed and has not saved yet,
+       which must not be tied to the saved one), otherwise the saved one when he uses his own courier; a save of his
+       choice sets it again for every proof still waiting (handOverProofs). Read under the account's save lock, so a
+       save running now either finished before this read or sets the phone of this row after it. */
     let phone: string | null = null;
     if (kind === "courier_proof") {
-      const r = await c.query(`SELECT key, value FROM store_data WHERE account_id = $1 AND key = ANY($2::text[])`, [me.id, ["seen-setup", "seen-storefront", "seen-maintenance"]]);
-      const value = (k: string) => (r.rows.find((x) => x.key === k)?.value ?? null) as string | null;
-      const saved = ownCourierPhone(value("seen-setup"));
-      let paused = false;
-      try {
-        paused = (JSON.parse(value("seen-maintenance") ?? "null") as { on?: unknown } | null)?.on === true;
-      } catch {
-        paused = false;
-      }
-      const live = value("seen-storefront") !== null && !paused;
-      draft = saved === null && !live;
+      const r = await c.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [me.id]);
+      const saved = ownCourierPhone((r.rows[0]?.value ?? null) as string | null);
       phone = savedMobile(typeof body.partnerPhone === "string" ? body.partnerPhone : "") || saved;
     }
     /* the counts are of what the merchant still keeps in play: a rejected file never counts (server/documents.ts
@@ -100,10 +88,10 @@ export const POST = documentsRoute(async (req, me) => {
     /* the platform's own ceiling, shared by every account's files (server/media.ts storageFull) */
     if (await storageFull(c, file.size)) return "storage-full" as const;
     const ins = await c.query(
-      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, draft, partner_phone)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10, $11)
+      `INSERT INTO documents (account_id, kind, name, partner, partner_kind, data, mime, bytes, status, seq, partner_phone)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'waiting', $9, $10)
        RETURNING id, public_id, rejection_seen, seq, kind, name, partner, partner_kind, status, note, mime, bytes, true AS has_file, created_at`,
-      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, draft, seal(phone)],
+      [me.id, kind, seal(name), seal(partner), pKind, sealBytes(file.bytes), file.mime, file.size, n.next_seq, seal(phone)],
     );
     return ins.rows[0] as Record<string, unknown>;
   });

@@ -22,7 +22,7 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
   const asked = sp.get("status") ?? "waiting";
   const status = FILTERS.includes(asked) ? asked : "all";
   const kind = KINDS.includes(sp.get("kind") ?? "") ? sp.get("kind")! : "";
-  /* a courier proof whose delivery choice isn't saved yet is the merchant's draft, not Diwan's to check */
+  /* an old courier proof still kept as a draft (none is made any more; start-up hands them over) isn't Diwan's yet */
   const where: string[] = ["NOT d.draft"];
   const args: unknown[] = [];
   if (STATUSES.includes(status)) where.push(`d.status = $${args.push(status)}`, "d.removed_at IS NULL");
