@@ -1,8 +1,9 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
-  campaignLang, campaignProblems, CAMPAIGNS_PER_DAY, cleanAudience, cleanContent, MOBILE_SENDING, ordersFiltered,
-  type CampaignAudience, type CampaignChannel, type CampaignContent, type CampaignProblem,
+  campaignLang, campaignProblems, CAMPAIGNS_PER_DAY, cleanAudience, cleanContent, cleanUnsubMessage, MOBILE_SENDING, ordersFiltered,
+  PAUSE_DAYS, UNSUB_REASONS, unsubMessageTooLong, unsubReason,
+  type CampaignAudience, type CampaignChannel, type CampaignContent, type CampaignProblem, type UnsubMessage, type UnsubReason,
 } from "@/components/campaignRules";
 import { savedMobile } from "@/components/phone";
 import { cleanSetup } from "@/components/safeAccount";
@@ -20,7 +21,8 @@ import { campaignFoot, campaignTestSubject } from "./emailWords";
    Who gets one: the store's own customers only, each address once. By email: everyone who ordered with an email
    (store_orders) and everyone on the store's newsletter (store_signups), matched by the address itself (each table
    keeps its own fingerprint, so the addresses are opened and compared here), narrowed by the merchant's filters, minus
-   everyone who unsubscribed from this store. By mobile: the buyers' Jordan mobiles, the same way.
+   everyone who unsubscribed from this store and everyone who paused its emails, until the pause ends (OUT). By mobile:
+   the buyers' Jordan mobiles, the same way.
 
    Starting one ("Send now", startCampaign) fixes its recipients in one transaction: the campaign must still be a draft
    (so a double click or a second tab starts it once), the store not suspended, email set up, and the store under its 3
@@ -37,11 +39,11 @@ import { campaignFoot, campaignTestSubject } from "./emailWords";
 
    Every email: the store's name as the sender and on top, the merchant's words as plain text (escaped by email.ts, a
    paragraph per line), his button only to a page of his own store, and the line saying why it came with the link to
-   unsubscribe from this store's campaigns (/unsubscribe: the reader types the address the email came to and presses the
-   button), plus a List-Unsubscribe header naming that same page, so mail apps offer their own "Unsubscribe" too. There
-   is no one-click unsubscribe (no List-Unsubscribe-Post): the owner wants every unsubscribe confirmed by the address
-   typed on the page. Dukkan's staff can stop a campaign that is sending (Diwan >
-   Campaigns, stopCampaign): the rest is not sent and the merchant is told. Staff see counts, never the recipients. */
+   unsubscribe from this store's campaigns (/unsubscribe: the reader types the address the email came to, then pauses the
+   store's emails for PAUSE_DAYS or unsubscribes from them, with an optional reason kept only as a count), plus a
+   List-Unsubscribe header naming that same page, so mail apps offer their own "Unsubscribe" too. There is no one-click
+   unsubscribe (no List-Unsubscribe-Post): the owner wants every unsubscribe confirmed by the address typed on the page.
+   Dukkan's staff can stop a campaign that is sending (Diwan > Campaigns, stopCampaign): the rest is not sent and the merchant is told. Staff see counts, never the recipients. */
 
 /* the most drafts one store keeps */
 const DRAFTS_MAX = 100;
@@ -84,16 +86,28 @@ export function readUnsubToken(t: unknown): { accountId: string; hash: string } 
   return want.length === got.length && timingSafeEqual(want, got) ? { accountId: m[1], hash: m[2] } : null;
 }
 
-/** What the unsubscribe page shows: the store's name, and whether this address is already unsubscribed (null: the link
-    is not a real one) */
-export async function unsubInfo(t: unknown): Promise<{ store: string; done: boolean } | null> {
+/* the rows of store_unsubscribes that still keep someone out: an unsubscribe for good (no paused_until), or a pause
+   that hasn't ended. A pause that ended keeps nobody out. */
+const OUT = `(paused_until IS NULL OR paused_until > now())`;
+
+export type UnsubState = { state: "none" | "paused" | "unsubscribed"; until: string | null };
+const stateOf = (row: { paused_until: unknown } | undefined): UnsubState => {
+  if (!row) return { state: "none", until: null };
+  if (row.paused_until == null) return { state: "unsubscribed", until: null };
+  const until = new Date(row.paused_until as string);
+  return until.getTime() > Date.now() ? { state: "paused", until: until.toISOString() } : { state: "none", until: null };
+};
+
+/** What the unsubscribe page shows: the store's name and logo, the merchant's own words for the page (empty: the
+    page's default), and whether this address is unsubscribed or paused now (null: the link is not a real one) */
+export async function unsubInfo(t: unknown): Promise<({ store: string; logo: string; message: UnsubMessage } & UnsubState) | null> {
   const k = readUnsubToken(t);
   if (!k) return null;
   const pool = await db();
   const shop = await shopOf(pool, k.accountId);
   if (!shop) return null;
-  const { rows } = await pool.query(`SELECT 1 FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2`, [k.accountId, k.hash]);
-  return { store: shop.store, done: rows.length > 0 };
+  const { rows } = await pool.query(`SELECT paused_until FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2`, [k.accountId, k.hash]);
+  return { store: shop.store, logo: shop.logo, message: await unsubMessageOf(k.accountId), ...stateOf(rows[0]) };
 }
 
 /* wrong addresses typed for one link, at most: a link someone else got hold of can't be used to find out, by trying,
@@ -101,32 +115,81 @@ export async function unsubInfo(t: unknown): Promise<{ store: string; done: bool
 const GUESSES = 10;
 const GUESS_MINUTES = 60;
 
-/** Unsubscribes the address a link names from its store's campaigns (or, `undo`, subscribes it again), when `email`,
-    the address the reader typed, is the one the link was sent to (compared by its fingerprint in this store, so spaces
-    and capitals don't matter). "none": the link is not a real one; "mismatch": another address (which one it was sent
-    to is never told); "slow-down": too many wrong addresses for this link. Unsubscribing twice is fine. */
-export async function unsubscribe(t: unknown, email: unknown, undo = false): Promise<"ok" | "none" | "mismatch" | "slow-down"> {
+export type UnsubAction = "unsubscribe" | "pause" | "undo";
+export type UnsubResult = { result: "ok"; state: UnsubState } | { result: "none" | "mismatch" | "slow-down" };
+
+/** What the reader chose on the unsubscribe page for the address a link names, when `email`, the address he typed, is
+    the one the link was sent to (compared by its fingerprint in this store, so spaces and capitals don't matter):
+    "unsubscribe" from the store's campaigns, "pause" them for PAUSE_DAYS (from now: a second pause starts it again), or
+    "undo" either ("Subscribe again"). `reason`, one of UNSUB_REASONS, is counted for the store, with nothing of who gave
+    it, when the pause or unsubscribe changed something (not for pressing the same button twice). "none": the link is
+    not a real one; "mismatch": another address (which one it was sent to is never told); "slow-down": too many wrong
+    addresses for this link. */
+export async function unsubscribe(t: unknown, email: unknown, action: UnsubAction = "unsubscribe", reason: unknown = null): Promise<UnsubResult> {
   const k = readUnsubToken(t);
-  if (!k) return "none";
+  if (!k) return { result: "none" };
   const guessKey = `unsubscribe-guess:${k.accountId}:${k.hash}`;
-  if (limitReached(guessKey, GUESSES, GUESS_MINUTES)) return "slow-down";
+  if (limitReached(guessKey, GUESSES, GUESS_MINUTES)) return { result: "slow-down" };
   const typed = visitorEmail(email);
   const want = Buffer.from(k.hash);
   const got = Buffer.from(typed ? contactHash(k.accountId, "email", typed) : "");
   if (want.length !== got.length || !timingSafeEqual(want, got)) {
     countTry(guessKey, GUESS_MINUTES);
-    return "mismatch";
+    return { result: "mismatch" };
   }
   const pool = await db();
   const { rows } = await pool.query(`SELECT 1 FROM accounts WHERE id = $1`, [k.accountId]);
-  if (!rows.length) return "none";
-  if (undo) await pool.query(`DELETE FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2`, [k.accountId, k.hash]);
-  else await pool.query(`INSERT INTO store_unsubscribes (account_id, contact_hash) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [k.accountId, k.hash]);
-  return "ok";
+  if (!rows.length) return { result: "none" };
+  if (action === "undo") {
+    await pool.query(`DELETE FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2`, [k.accountId, k.hash]);
+    return { result: "ok", state: { state: "none", until: null } };
+  }
+  /* the row as it was (every part of one statement sees the table as it was before it) and as it is now */
+  const { rows: r } = await pool.query(
+    `WITH was AS (SELECT paused_until FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2),
+          put AS (
+            INSERT INTO store_unsubscribes (account_id, contact_hash, paused_until)
+            VALUES ($1, $2, CASE WHEN $3::boolean THEN now() + make_interval(days => ${PAUSE_DAYS}) END)
+            ON CONFLICT (account_id, contact_hash) DO UPDATE SET paused_until = EXCLUDED.paused_until RETURNING paused_until
+          )
+     SELECT (SELECT count(*)::int FROM was) AS had, (SELECT paused_until FROM was) AS was, (SELECT paused_until FROM put) AS put`,
+    [k.accountId, k.hash, action === "pause"],
+  );
+  const before = stateOf(r[0]?.had ? { paused_until: r[0].was } : undefined);
+  const after = stateOf({ paused_until: r[0]?.put ?? null });
+  const why = unsubReason(reason);
+  if (why && before.state !== after.state) await countReason(pool, k.accountId, why);
+  return { result: "ok", state: after };
 }
 
-/** A visitor signed up for the store's newsletter again: an address that had unsubscribed from its campaigns gets them
-    again (server/storeSignups.ts). `email` as visitorEmail gives it, the way peopleOf compares it. */
+const countReason = (q: Q, accountId: string, reason: UnsubReason) =>
+  q.query(`INSERT INTO store_unsub_reasons (account_id, reason, n) VALUES ($1, $2, 1) ON CONFLICT (account_id, reason) DO UPDATE SET n = store_unsub_reasons.n + 1`, [accountId, reason]);
+
+/* ---------------- the merchant's words on his unsubscribe page ---------------- */
+
+/** His own words for his store's unsubscribe page, per language ("" where he wrote none) */
+export async function unsubMessageOf(accountId: string): Promise<UnsubMessage> {
+  const { rows } = await (await db()).query(`SELECT message_ar, message_en FROM store_unsub_pages WHERE account_id = $1`, [accountId]);
+  /* cleaned again on the way out, as everything shown to visitors is */
+  return cleanUnsubMessage({ ar: text(rows[0]?.message_ar), en: text(rows[0]?.message_en) });
+}
+
+/** Saves his words from { ar, en } (plain text, cleaned; empty: the page's default words). A text over
+    UNSUB_MESSAGE_MAX is refused, never cut: "long" with the languages that are. */
+export async function saveUnsubMessage(accountId: string, body: Record<string, unknown>): Promise<{ result: "ok"; message: UnsubMessage } | { result: "long"; langs: ("ar" | "en")[] }> {
+  const m = cleanUnsubMessage(body);
+  const long = unsubMessageTooLong(m);
+  if (long.length) return { result: "long", langs: long };
+  await (await db()).query(
+    `INSERT INTO store_unsub_pages (account_id, message_ar, message_en) VALUES ($1, $2, $3)
+     ON CONFLICT (account_id) DO UPDATE SET message_ar = EXCLUDED.message_ar, message_en = EXCLUDED.message_en, updated_at = now()`,
+    [accountId, sealed(m.ar), sealed(m.en)],
+  );
+  return { result: "ok", message: m };
+}
+
+/** A visitor signed up for the store's newsletter again: an address that had unsubscribed from its campaigns, or paused
+    them, gets them again (server/storeSignups.ts). `email` as visitorEmail gives it, the way peopleOf compares it. */
 export async function resubscribeEmail(accountId: string, email: string): Promise<void> {
   if (!email) return;
   await (await db()).query(`DELETE FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2`, [accountId, contactHash(accountId, "email", email)]);
@@ -134,7 +197,7 @@ export async function resubscribeEmail(accountId: string, email: string): Promis
 
 /* ---------------- the store ---------------- */
 
-type Shop = { slug: string; store: string; status: string };
+type Shop = { slug: string; store: string; status: string; logo: string };
 const parse = (v: unknown): unknown => {
   try {
     return typeof v === "string" ? JSON.parse(v) : null;
@@ -142,7 +205,7 @@ const parse = (v: unknown): unknown => {
     return null;
   }
 };
-/* the store's link name, the name its customers know it by (as a cart reminder names it) and its status */
+/* the store's link name, the name its customers know it by (as a cart reminder names it), its status and its logo */
 async function shopOf(q: Q, accountId: string): Promise<Shop | null> {
   const { rows } = await q.query(
     `SELECT s.slug, s.name, s.status, d.value AS setup FROM shops s LEFT JOIN store_data d ON d.account_id = s.account_id AND d.key = 'seen-setup' WHERE s.account_id = $1`,
@@ -151,7 +214,8 @@ async function shopOf(q: Q, accountId: string): Promise<Shop | null> {
   const r = rows[0];
   if (!r) return null;
   const slug = String(r.slug ?? "");
-  return { slug, store: cleanSetup(parse(r.setup))?.name || String(r.name ?? "") || slug, status: String(r.status ?? "") };
+  const setup = cleanSetup(parse(r.setup));
+  return { slug, store: setup?.name || String(r.name ?? "") || slug, status: String(r.status ?? ""), logo: setup?.logo ?? "" };
 }
 
 /* ---------------- who gets it ---------------- */
@@ -159,7 +223,7 @@ async function shopOf(q: Q, accountId: string): Promise<Shop | null> {
 type Person = { hash: string; contact: string; lang: Lang | null; sub: boolean; buyer: boolean; orders: number; last: number };
 
 /** Everyone in the store's customers who could get a campaign of this channel, each address once, without those who
-    unsubscribed (see the top of this file) */
+    unsubscribed or paused (see the top of this file) */
 async function peopleOf(q: Q, accountId: string, channel: CampaignChannel): Promise<Person[]> {
   const byContact = new Map<string, Person>();
   const of = (contact: string) => {
@@ -190,7 +254,7 @@ async function peopleOf(q: Q, accountId: string, channel: CampaignChannel): Prom
       p.lang = s.lang === "en" ? "en" : "ar";
     }
   }
-  const out = await q.query(`SELECT contact_hash FROM store_unsubscribes WHERE account_id = $1`, [accountId]);
+  const out = await q.query(`SELECT contact_hash FROM store_unsubscribes WHERE account_id = $1 AND ${OUT}`, [accountId]);
   const gone = new Set(out.rows.map((r) => String(r.contact_hash)));
   const people: Person[] = [];
   for (const p of byContact.values()) {
@@ -280,7 +344,8 @@ const USED_TODAY = `started_at >= ${TODAY} AND NOT (status = 'failed' AND sent =
 
 /** The merchant's campaigns, newest first, a page at a time (`before`: the id the page before gave as `next`), and his
     numbers: how many campaigns, drafts and messages sent, when the last one started, how many he started today (of
-    CAMPAIGNS_PER_DAY) and how many people unsubscribed */
+    CAMPAIGNS_PER_DAY), how many people unsubscribed and how many paused now, how many times each reason was given, and
+    his words for the unsubscribe page. Counts only: never anyone's address. */
 export async function listCampaigns(accountId: string, before: string | null) {
   const pool = await db();
   const cut = before && /^\d{1,18}$/.test(before) ? before : null;
@@ -294,20 +359,25 @@ export async function listCampaigns(accountId: string, before: string | null) {
     await pool.query(
       `SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'draft')::int AS drafts, COALESCE(sum(sent), 0)::int AS sent,
               max(started_at) AS last, count(*) FILTER (WHERE ${USED_TODAY})::int AS today,
-              (SELECT count(*)::int FROM store_unsubscribes WHERE account_id = $1) AS unsubscribed
+              (SELECT count(*)::int FROM store_unsubscribes WHERE account_id = $1 AND paused_until IS NULL) AS unsubscribed,
+              (SELECT count(*)::int FROM store_unsubscribes WHERE account_id = $1 AND paused_until > now()) AS paused
          FROM store_campaigns WHERE account_id = $1`,
       [accountId],
     )
   ).rows[0];
   const shop = await shopOf(pool, accountId);
+  const why = await pool.query(`SELECT reason, n FROM store_unsub_reasons WHERE account_id = $1`, [accountId]);
+  const reasons = Object.fromEntries(UNSUB_REASONS.map((x) => [x, 0])) as Record<UnsubReason, number>;
+  for (const w of why.rows) if (unsubReason(w.reason)) reasons[w.reason as UnsubReason] = Number(w.n) || 0;
   return {
     campaigns,
     next: more ? campaigns[campaigns.length - 1].id : null,
-    stats: { total: Number(s?.total) || 0, drafts: Number(s?.drafts) || 0, sent: Number(s?.sent) || 0, lastAt: iso(s?.last), unsubscribed: Number(s?.unsubscribed) || 0 },
+    stats: { total: Number(s?.total) || 0, drafts: Number(s?.drafts) || 0, sent: Number(s?.sent) || 0, lastAt: iso(s?.last), unsubscribed: Number(s?.unsubscribed) || 0, paused: Number(s?.paused) || 0, reasons },
     today: { used: Number(s?.today) || 0, max: CAMPAIGNS_PER_DAY },
     emailOn: emailOn(),
     mobileOn: MOBILE_SENDING,
     slug: shop?.slug ?? "",
+    unsubPage: await unsubMessageOf(accountId),
   };
 }
 
@@ -689,8 +759,8 @@ async function sendBatch(pool: Pool, id: string): Promise<Outcome> {
     c.release();
   }
   if (!rows.length) return (await finishIfDone(pool, id), "idle");
-  /* anyone who unsubscribed since it started is skipped */
-  const gone = await pool.query(`SELECT contact_hash FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = ANY($2::text[])`, [s.accountId, rows.map((r) => r.contact_hash)]);
+  /* anyone who unsubscribed or paused since it started is skipped */
+  const gone = await pool.query(`SELECT contact_hash FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = ANY($2::text[]) AND ${OUT}`, [s.accountId, rows.map((r) => r.contact_hash)]);
   const out = new Set(gone.rows.map((r) => String(r.contact_hash)));
   const skip = rows.filter((r) => out.has(r.contact_hash) || !r.contact).map((r) => r.contact_hash);
   await settle(pool, id, skip, "skipped");

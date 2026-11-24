@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AUDIENCE_DAYS, AUDIENCE_MIN_ORDERS, CAMPAIGN_MAX, CAMPAIGNS_PER_DAY, campaignLang, campaignProblems, cleanAudience, cleanContent, EVERYONE,
-  mobileText, ordersFiltered, smsParts, storeHome, type CampaignAudience, type CampaignChannel, type CampaignContent, type CampaignField,
-  type CampaignProblem, type CampaignWho,
+  mobileText, ordersFiltered, PAUSE_DAYS, smsParts, storeHome, UNSUB_MESSAGE_DEFAULT, UNSUB_MESSAGE_MAX, UNSUB_REASONS, type CampaignAudience,
+  type CampaignChannel, type CampaignContent, type CampaignField, type CampaignProblem, type CampaignWho, type UnsubMessage, type UnsubReason,
 } from "./campaignRules";
 import { brandName, dateLocale, type Lang } from "./content";
 import { DashboardBar } from "./DashboardBar";
@@ -45,8 +45,9 @@ type Row = {
   finishedAt: string | null;
 };
 type Full = Row & Omit<CampaignContent, "channel">;
-type Stats = { total: number; drafts: number; sent: number; lastAt: string | null; unsubscribed: number };
-type Info = { stats: Stats; today: { used: number; max: number }; emailOn: boolean; mobileOn: boolean; slug: string };
+/* unsubscribed: for good; paused: now, until their pause ends; reasons: how many times each was given. Counts only. */
+type Stats = { total: number; drafts: number; sent: number; lastAt: string | null; unsubscribed: number; paused: number; reasons: Record<UnsubReason, number> };
+type Info = { stats: Stats; today: { used: number; max: number }; emailOn: boolean; mobileOn: boolean; slug: string; unsubPage: UnsubMessage };
 
 const arCustomers = (n: number) => (n === 1 ? "عميل واحد" : n === 2 ? "عميلان" : n % 100 >= 3 && n % 100 <= 10 ? `${n} عملاء` : n === 0 ? "0 عملاء" : `${n} عميلًا`);
 const enCustomers = (n: number) => (n === 1 ? "1 customer" : `${n.toLocaleString("en")} customers`);
@@ -60,7 +61,25 @@ const copy = {
     today: (u: number, m: number) => `Sent today: ${u} of ${m}`,
     last: (d: string) => `Last sent ${d}`,
     never: "None sent yet",
-    unsub: (n: number) => `${n === 1 ? "1 person" : `${n} people`} unsubscribed from your campaigns. They're always left out.`,
+    left: {
+      title: "People who stopped your emails",
+      unsubscribed: "Unsubscribed",
+      paused: `Paused for ${PAUSE_DAYS} days`,
+      reasons: "Reasons they gave",
+      reason: { "too-many": "Too many emails", "not-relevant": "Not relevant to them", "never-signed-up": "Never signed up", other: "Another reason" } as Record<UnsubReason, string>,
+      note: "They're left out of your campaigns; people who paused get them again when the pause ends. You only see counts, never who they are.",
+    },
+    page: {
+      title: "Unsubscribe page",
+      sub: "A few words of your own on the page people see when they unsubscribe from your emails. Leave a box empty to show the default words.",
+      ar: "In Arabic",
+      en: "In English",
+      hint: `Plain text, up to ${UNSUB_MESSAGE_MAX} characters. Shown in the language the reader uses.`,
+      save: "Save",
+      saving: "Saving…",
+      saved: "Saved.",
+      long: `Up to ${UNSUB_MESSAGE_MAX} characters.`,
+    },
     noSender: "Email sending isn't set up on this server yet. You can write and save campaigns, but they can't be sent.",
     list: "All campaigns",
     empty: "No campaigns yet. Create one to tell your customers about new products, offers or news.",
@@ -199,7 +218,25 @@ const copy = {
     today: (u: number, m: number) => `أُرسل اليوم: ${u} من ${m}`,
     last: (d: string) => `آخر إرسال ${d}`,
     never: "لم تُرسل أي حملة بعد",
-    unsub: (n: number) => `ألغى ${arCustomers(n)} الاشتراك في حملاتك. يُستبعدون دائمًا من الإرسال.`,
+    left: {
+      title: "من أوقف رسائلك",
+      unsubscribed: "ألغوا الاشتراك",
+      paused: `أوقفوها مؤقتًا لمدة ${PAUSE_DAYS} يومًا`,
+      reasons: "الأسباب التي ذكروها",
+      reason: { "too-many": "رسائل كثيرة", "not-relevant": "الرسائل لا تهمّهم", "never-signed-up": "لم يشتركوا أصلًا", other: "سبب آخر" } as Record<UnsubReason, string>,
+      note: "يُستبعدون من حملاتك، ومن أوقفها مؤقتًا تعود إليه عند انتهاء المدة. ترى الأعداد فقط، ولا ترى من هم أبدًا.",
+    },
+    page: {
+      title: "صفحة إلغاء الاشتراك",
+      sub: "كلمات قصيرة منك على الصفحة التي يراها من يلغي اشتراكه في رسائلك. اترك الخانة فارغة لعرض النص الافتراضي.",
+      ar: "بالعربية",
+      en: "بالإنجليزية",
+      hint: `نص عادي، حتى ${UNSUB_MESSAGE_MAX} حرفًا. يظهر باللغة التي يستخدمها القارئ.`,
+      save: "حفظ",
+      saving: "جارٍ الحفظ…",
+      saved: "تم الحفظ.",
+      long: `حتى ${UNSUB_MESSAGE_MAX} حرفًا.`,
+    },
     noSender: "إرسال البريد غير مفعّل على هذا الخادم بعد. يمكنك كتابة الحملات وحفظها، لكن لا يمكن إرسالها.",
     list: "جميع الحملات",
     empty: "لا توجد حملات بعد. أنشئ حملة لتخبر عملاءك بالمنتجات الجديدة أو العروض أو الأخبار.",
@@ -371,6 +408,14 @@ async function call(path: string, method: "GET" | "POST" | "PUT" | "DELETE", bod
   }
 }
 const whyOf = (c: Copy, r: { status: number; data: Record<string, any> } | null) => (r ? c.why[String(r.data.result)] ?? c.why.error : c.why.offline);
+const infoOf = (d: Record<string, any>): Info => ({
+  stats: d.stats,
+  today: d.today,
+  emailOn: !!d.emailOn,
+  mobileOn: !!d.mobileOn,
+  slug: String(d.slug ?? ""),
+  unsubPage: { ar: String(d.unsubPage?.ar ?? ""), en: String(d.unsubPage?.en ?? "") },
+});
 
 /* how many customers an audience reaches now. The server counts at most two at a time for one account and answers 429
    "slow-down" past that (filters changed quickly, the counts before still running): that is still counting, so it asks
@@ -395,7 +440,7 @@ function samples(lang: Lang): { rows: Row[]; info: Info } {
     { ...base, id: "s2", channel: "email", status: "sent", subject: ar ? "وصلت تشكيلتنا الجديدة" : "Our new collection is here", preview: ar ? "اكتشف أحدث المنتجات في متجرنا…" : "Discover the newest products in our store…", recipients: 231, sent: 229, failed: 2, createdAt: at(8), updatedAt: at(8), startedAt: at(8), finishedAt: at(7.9) },
     { ...base, id: "s3", channel: "email", status: "draft", subject: ar ? "أفكار هدايا العيد" : "Eid gift ideas", preview: ar ? "هدايا مميزة لكل من تحب…" : "Special gifts for everyone you love…", recipients: 0, sent: 0, failed: 0, createdAt: at(1), updatedAt: at(1), startedAt: null, finishedAt: null },
   ];
-  return { rows, info: { stats: { total: 3, drafts: 1, sent: 379, lastAt: at(0.02), unsubscribed: 4 }, today: { used: 1, max: CAMPAIGNS_PER_DAY }, emailOn: true, mobileOn: false, slug: "your-store" } };
+  return { rows, info: { stats: { total: 3, drafts: 1, sent: 379, lastAt: at(0.02), unsubscribed: 4, paused: 2, reasons: { "too-many": 3, "not-relevant": 1, "never-signed-up": 0, other: 1 } }, today: { used: 1, max: CAMPAIGNS_PER_DAY }, emailOn: true, mobileOn: false, slug: "your-store", unsubPage: { ar: "", en: "" } } };
 }
 
 /* ---------------- the page ---------------- */
@@ -448,7 +493,7 @@ export function Campaigns() {
     if (r?.status === 200 && Array.isArray(r.data.campaigns)) {
       setRows(r.data.campaigns as Row[]);
       setNext(typeof r.data.next === "string" ? r.data.next : null);
-      setInfo({ stats: r.data.stats, today: r.data.today, emailOn: !!r.data.emailOn, mobileOn: !!r.data.mobileOn, slug: String(r.data.slug ?? "") });
+      setInfo(infoOf(r.data));
     } else setFailed(true);
   }, []);
   useEffect(() => {
@@ -482,7 +527,7 @@ export function Campaigns() {
       /* the rows after the first page stay; a row of the first page that is gone (deleted elsewhere) goes */
       return [...fresh, ...all.filter((x) => !seen.has(x.id) && Number(x.id) < oldest)];
     });
-    setInfo({ stats: r.data.stats, today: r.data.today, emailOn: !!r.data.emailOn, mobileOn: !!r.data.mobileOn, slug: String(r.data.slug ?? "") });
+    setInfo(infoOf(r.data));
   }, [readRow]);
   const sending = live && rows.some((x) => x.status === "sending");
   useEffect(() => {
@@ -578,7 +623,7 @@ export function Campaigns() {
             </div>
           ))}
         </section>
-        {shown && !!stats?.unsubscribed && <p className="text-sm text-muted">{c.unsub(stats.unsubscribed)}</p>}
+        {shown && stats && (!!stats.unsubscribed || !!stats.paused || UNSUB_REASONS.some((x) => stats.reasons?.[x])) && <LeftCard stats={stats} c={c} lang={lang} />}
 
         <section className={card}>
           <h2 className="text-base font-bold">{c.list}</h2>
@@ -630,6 +675,8 @@ export function Campaigns() {
             </>
           )}
         </section>
+
+        {shown && info && <UnsubPageBox key={live ? "live" : "tour"} c={c} lang={lang} saved={info.unsubPage} tour={live === false} />}
       </main>
 
       {form && info && (
@@ -653,6 +700,104 @@ export function Campaigns() {
       )}
       {viewing && <CampaignDetails x={viewing} c={c} lang={lang} onClose={() => setViewing(null)} />}
     </div>
+  );
+}
+
+/* ---------------- who stopped his emails, and his unsubscribe page ---------------- */
+
+const num = (n: number, lang: Lang) => n.toLocaleString(lang === "ar" ? "ar-EG-u-nu-latn" : "en");
+
+/* how many unsubscribed and paused now, and how many times each reason was given: counts only, never an address */
+function LeftCard({ stats, c, lang }: { stats: Stats; c: Copy; lang: Lang }) {
+  const l = c.left;
+  return (
+    <section className={card} aria-labelledby="cp-left">
+      <h2 id="cp-left" className="text-base font-bold">{l.title}</h2>
+      <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+        <div><dt className="text-muted">{l.unsubscribed}</dt><dd className="text-xl font-extrabold tabular-nums">{num(stats.unsubscribed, lang)}</dd></div>
+        <div><dt className="text-muted">{l.paused}</dt><dd className="text-xl font-extrabold tabular-nums">{num(stats.paused ?? 0, lang)}</dd></div>
+      </dl>
+      {UNSUB_REASONS.some((x) => stats.reasons?.[x]) && (
+        <>
+          <h3 className="mt-4 text-sm font-semibold">{l.reasons}</h3>
+          <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+            {UNSUB_REASONS.map((x) => (
+              <li key={x} className="rounded-full bg-fg/[0.06] px-3 py-1">
+                {l.reason[x]}: <span className="font-semibold tabular-nums">{num(stats.reasons?.[x] ?? 0, lang)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <p className="mt-3 text-xs text-muted">{l.note}</p>
+    </section>
+  );
+}
+
+/* his own words on his store's unsubscribe page, one per language (PUT /api/campaigns/unsubscribe-page). What the
+   server saved comes with the list; the boxes keep what he types while the list is read again. */
+function UnsubPageBox({ c, lang, saved, tour }: { c: Copy; lang: Lang; saved: UnsubMessage; tour: boolean }) {
+  const p = c.page;
+  const [text, setText] = useState<UnsubMessage>(saved);
+  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+  const [problem, setProblem] = useState("");
+  const [long, setLong] = useState<("ar" | "en")[]>([]);
+  const save = async () => {
+    const m = { ar: cleanLines(text.ar, UNSUB_MESSAGE_MAX * 2), en: cleanLines(text.en, UNSUB_MESSAGE_MAX * 2) };
+    const over = (["ar", "en"] as const).filter((l) => m[l].length > UNSUB_MESSAGE_MAX);
+    setLong(over);
+    setProblem("");
+    if (over.length) return;
+    setState("saving");
+    const r = await call("/api/campaigns/unsubscribe-page", "PUT", m);
+    if (r?.status === 200 && r.data.message) {
+      setText({ ar: String(r.data.message.ar ?? ""), en: String(r.data.message.en ?? "") });
+      return setState("saved");
+    }
+    setState("idle");
+    if (r?.status === 400 && Array.isArray(r.data.langs)) return setLong(r.data.langs.filter((l: unknown) => l === "ar" || l === "en"));
+    setProblem(whyOf(c, r));
+  };
+  const off = tour ? demoOffText(lang) : undefined;
+  return (
+    <section className={card} aria-labelledby="cp-unsub-page">
+      <h2 id="cp-unsub-page" className="text-base font-bold">{p.title}</h2>
+      <p className="mt-1 text-sm text-muted">{p.sub}</p>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        {(["ar", "en"] as const).map((l) => (
+          <div key={l}>
+            <label className={label} htmlFor={`cp-unsub-${l}`}>{p[l]}</label>
+            <textarea
+              id={`cp-unsub-${l}`}
+              dir={l === "ar" ? "rtl" : "ltr"}
+              lang={l}
+              rows={3}
+              value={text[l]}
+              placeholder={UNSUB_MESSAGE_DEFAULT[l]}
+              maxLength={UNSUB_MESSAGE_MAX * 2}
+              disabled={tour}
+              onChange={(e) => {
+                const v = e.target.value;
+                setText((t) => ({ ...t, [l]: v }));
+                setState("idle");
+                setLong((x) => x.filter((y) => y !== l));
+              }}
+              aria-invalid={long.includes(l)}
+              className={`${field} h-auto resize-y py-3 leading-relaxed ${long.includes(l) ? bad : ""}`}
+            />
+            {long.includes(l) ? <p className="mt-1.5 text-xs text-rose-600">{p.long}</p> : <LengthCounter value={text[l]} max={UNSUB_MESSAGE_MAX} lang={lang} hideMessage />}
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-muted">{p.hint}</p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={() => void save()} disabled={tour || state === "saving"} title={off} className={`${btn} bg-primary text-white hover:bg-deep ${demoOff}`}>
+          {state === "saving" ? p.saving : p.save}
+        </button>
+        {state === "saved" && <p role="status" className="text-sm font-medium text-emerald-700 dark:text-emerald-300">{p.saved}</p>}
+        {problem && <p role="alert" className="text-sm text-rose-600">{problem}</p>}
+      </div>
+    </section>
   );
 }
 
