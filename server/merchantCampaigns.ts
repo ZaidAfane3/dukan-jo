@@ -548,20 +548,51 @@ async function work(): Promise<void> {
 const count = (q: Q, id: string, n: { sent?: number; failed?: number; skipped?: number }) =>
   q.query(`UPDATE merchant_campaigns SET sent = sent + $2, failed = failed + $3, skipped = skipped + $4, updated_at = now() WHERE id = $1`, [id, n.sent ?? 0, n.failed ?? 0, n.skipped ?? 0]);
 
-/* marks recipients of one campaign with an outcome; their address copy is not needed any more */
-async function mark(q: Q, id: string, accounts: string[], status: "sent" | "failed" | "skipped" | "waiting"): Promise<void> {
+/* puts recipients of one campaign still in a batch ('sending') back in line */
+const unclaim = (q: Q, id: string, accounts: string[]) =>
+  accounts.length
+    ? q.query(
+        `UPDATE merchant_campaign_recipients SET status = 'waiting', batch = NULL, claimed_at = NULL, key_at = NULL, email = NULL WHERE campaign_id = $1 AND account_id = ANY($2::bigint[]) AND status = 'sending'`,
+        [id, accounts],
+      )
+    : Promise.resolve();
+
+/* marks recipients of one campaign still in a batch ('sending') with an outcome (their address copy is not needed any
+   more) and adds them to the campaign's counts, in one statement (as server/campaigns.ts settle): a restart can never
+   leave rows marked but not counted. Gives how many it really changed: only those count. */
+async function settle(q: Q, id: string, accounts: string[], status: "sent" | "failed" | "skipped"): Promise<number> {
+  if (!accounts.length) return 0;
+  const { rows } = await q.query(
+    `WITH m AS (
+       UPDATE merchant_campaign_recipients SET status = $3, email = NULL, sent_at = CASE WHEN $3 = 'sent' THEN now() END
+        WHERE campaign_id = $1 AND account_id = ANY($2::bigint[]) AND status = 'sending' RETURNING 1
+     ), n AS (SELECT count(*)::int AS n FROM m)
+     UPDATE merchant_campaigns SET sent = sent + CASE WHEN $3 = 'sent' THEN n.n ELSE 0 END, failed = failed + CASE WHEN $3 = 'failed' THEN n.n ELSE 0 END,
+            skipped = skipped + CASE WHEN $3 = 'skipped' THEN n.n ELSE 0 END, updated_at = now()
+       FROM n WHERE id = $1 AND n.n > 0 RETURNING n.n`,
+    [id, accounts, status],
+  );
+  return Number(rows[0]?.n) || 0;
+}
+
+/** Recipients of a batch nothing of which went out (Resend said so clearly): back in line while the campaign is still
+    sending (a new key next time); skipped when it was stopped or ended meanwhile. Under the campaign's row, so a stop
+    and this never cross. */
+async function giveBack(pool: Pool, id: string, accounts: string[]): Promise<void> {
   if (!accounts.length) return;
-  if (status === "waiting")
-    await q.query(
-      `UPDATE merchant_campaign_recipients SET status = 'waiting', batch = NULL, claimed_at = NULL, email = NULL WHERE campaign_id = $1 AND account_id = ANY($2::bigint[]) AND status = 'sending'`,
-      [id, accounts],
-    );
-  else
-    await q.query(
-      `UPDATE merchant_campaign_recipients SET status = $3, email = NULL, sent_at = CASE WHEN $3 = 'sent' THEN now() END
-        WHERE campaign_id = $1 AND account_id = ANY($2::bigint[]) AND status = 'sending'`,
-      [id, accounts, status],
-    );
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    const live = await c.query(`SELECT 1 FROM merchant_campaigns WHERE id = $1 AND status = 'sending' FOR SHARE`, [id]);
+    if (live.rows.length) await unclaim(c, id, accounts);
+    else await settle(c, id, accounts, "skipped");
+    await c.query("COMMIT");
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    c.release();
+  }
 }
 
 /** Ends a campaign still sending (stopped by staff, email gone): the merchants not reached yet are counted and never
@@ -620,7 +651,7 @@ async function sendBatch(pool: Pool, id: string): Promise<Outcome> {
     if (live.rows.length) {
       const claimed = await c.query(
         `WITH pick AS (SELECT account_id FROM merchant_campaign_recipients WHERE campaign_id = $1 AND status = 'waiting' ORDER BY account_id LIMIT ${BATCH} FOR UPDATE SKIP LOCKED)
-         UPDATE merchant_campaign_recipients r SET status = 'sending', batch = $2, claimed_at = now(), email = a.email
+         UPDATE merchant_campaign_recipients r SET status = 'sending', batch = $2, claimed_at = now(), key_at = now(), email = a.email
            FROM pick JOIN accounts a ON a.id = pick.account_id LEFT JOIN shops s ON s.account_id = a.id
           WHERE r.campaign_id = $1 AND r.account_id = pick.account_id
           RETURNING r.account_id, r.email, r.lang,
@@ -639,71 +670,125 @@ async function sendBatch(pool: Pool, id: string): Promise<Outcome> {
   if (!rows.length) return (await finishIfDone(pool, id), "idle");
   /* anyone who stopped or paused Dukkan's marketing emails since it started, or whose store was suspended, is skipped */
   const skip = rows.filter((r) => r.off || !r.email || !r.email.includes("@")).map((r) => r.account_id);
-  if (skip.length) {
-    await mark(pool, id, skip, "skipped");
-    await count(pool, id, { skipped: skip.length });
-  }
+  await settle(pool, id, skip, "skipped");
   return deliver(pool, s, key, rows.filter((r) => !skip.includes(r.account_id)), false);
 }
 
-/** Hands one batch to Resend under its key and notes what became of each merchant */
+/* an answer that doesn't say whether the emails went out: none came (a timeout, no connection, or the same key still
+   being answered) or Resend's own trouble */
+const unclear = (status: number) => status === 0 || status >= 500;
+
+/** Sends one request under its key, and again under the same key (which Resend answers without sending twice) while the
+    answer is unclear, a few times. `maybe`: whether any try under this key, this time or before, may have gone out. */
+async function sendUnderKey(emails: Email[], key: string, maybe: boolean): Promise<{ status: number; maybe: boolean }> {
+  let status = await sendEmailBatch(emails, key);
+  maybe ||= unclear(status);
+  for (let i = 0; i < 2 && unclear(status); i++) {
+    await sleep(5_000 * (i + 1));
+    status = await sendEmailBatch(emails, key);
+  }
+  return { status, maybe };
+}
+
+/* What an answer means for the merchants of one request, as for the stores' campaigns (server/campaigns.ts verdictOf):
+   - "sent": Resend took it. A 409 after a try that may have gone out means the key already carried a request with
+     other content (Resend's invalid_idempotent_request: the email's look changed with a deploy while the batch waited
+     to be sent again): that first request is taken as accepted; sending it under another key could send it twice.
+     (Resend's 409 concurrent_idempotent_requests comes back from sendEmailBatch as 0: unclear, tried again later);
+   - "keep": it may have gone out and it can't be settled now: it stays in its batch under the same key for resumeStale;
+   - "back": nothing went out (too many for now, or email turned off): back in line, a new key next time;
+   - "refused": refused, and nothing of it ever went out (a refusal of the request itself, 400 / 422: under the same key
+     Resend answers a request it took with its first answer, so a refusal means it never took one);
+   - "failed": refused after a try that may have gone out, by a refusal that says nothing of that try (401 / 403, or one
+     not understood): never sent under another key, counted failed. */
+function verdictOf(status: number, maybe: boolean): "sent" | "keep" | "back" | "failed" | "refused" {
+  if (status >= 200 && status < 300) return "sent";
+  if (status === 409) return maybe ? "sent" : "keep";
+  if (status === 429 || status === -1 || unclear(status)) return maybe ? "keep" : "back";
+  if (!maybe) return "refused";
+  return status >= 400 && status < 500 && status !== 401 && status !== 403 ? "refused" : "failed";
+}
+
+/** Hands one batch to Resend under its key and notes what became of each merchant. `again`: the batch was handed to
+    Resend before (resumeStale), so it may have gone out already. Once any try of a batch may have gone out, its
+    merchants are never put back in line nor sent under another key: only the same key again, so nobody gets it twice. */
 async function deliver(pool: Pool, s: MerchantCampaign, key: string, rows: Taken[], again: boolean): Promise<Outcome> {
   if (!rows.length) return "idle";
   /* always in the same order: a batch sent again must be the very same request, or Resend refuses its key (409) */
   rows = [...rows].sort((a, b) => Number(a.account_id) - Number(b.account_id));
   const ids = rows.map((r) => r.account_id);
   const emails = rows.map((r) => emailOf(s, String(r.email), r.account_id, r.lang === "en" ? "en" : "ar"));
-  let status = await sendEmailBatch(emails, key);
-  /* no answer, or Resend's own trouble: the same request again (the key keeps it from going twice), a few times */
-  for (let i = 0; i < 2 && (status === 0 || status >= 500); i++) {
-    await sleep(5_000 * (i + 1));
-    status = await sendEmailBatch(emails, key);
-  }
-  if (status >= 200 && status < 300) {
-    await mark(pool, s.id, ids, "sent");
-    await count(pool, s.id, { sent: ids.length });
-    return "sent";
-  }
-  /* too many for now: nothing was sent. A first try goes back in line (a new key next time); a batch sent again keeps
-     its key and waits for the next look at stale batches */
-  if (status === 429) {
-    if (!again) await mark(pool, s.id, ids, "waiting");
-    return "busy";
-  }
-  /* email turned off meanwhile: nothing was sent */
-  if (status === -1) {
-    if (!again) await mark(pool, s.id, ids, "waiting");
+  const { status, maybe } = await sendUnderKey(emails, key, again);
+  const verdict = verdictOf(status, maybe);
+  if (verdict === "sent") return (await settle(pool, s.id, ids, "sent"), "sent");
+  if (verdict === "keep") return "busy";
+  if (verdict === "back") return (await giveBack(pool, s.id, ids), status === 429 ? "busy" : "idle");
+  if (verdict === "failed") {
+    console.error(`[merchant campaigns] campaign ${s.id}: a batch sent again was refused (${status}); counted failed`);
+    await settle(pool, s.id, ids, "failed");
     return "idle";
   }
-  /* maybe sent (no answer, Resend's trouble) or the same key still being answered: left as it is, sent again with the
-     same key once it is stale (resumeStale), which Resend answers without sending twice */
-  if (status === 0 || status === 409 || status >= 500) return "busy";
-  /* refused (one address Resend won't take makes it refuse the whole batch): each email on its own */
+  /* refused, nothing sent (one address Resend won't take makes it refuse the whole batch): each email on its own. Each
+     gets its own key, kept on its row BEFORE anything is sent, so one whose answer is lost (or a restart in this loop)
+     is sent again under that same key and that one email (resumeStale), never under the batch's key with fewer emails,
+     which Resend would refuse (409) for good. A single email refused is simply failed. */
+  if (rows.length === 1) {
+    console.error(`[merchant campaigns] campaign ${s.id}: an email was refused (${status}); counted failed`);
+    await settle(pool, s.id, ids, "failed");
+    return "idle";
+  }
+  const keys = ids.map((_, i) => `${key}-${i}`);
+  await pool.query(
+    `UPDATE merchant_campaign_recipients r SET batch = t.k, claimed_at = now(), key_at = now() FROM unnest($2::bigint[], $3::text[]) AS t (a, k)
+      WHERE r.campaign_id = $1 AND r.account_id = t.a AND r.status = 'sending'`,
+    [s.id, ids, keys],
+  );
   let sent = 0;
   let failed = 0;
+  /* too many for now, or the campaign stopped: these go back in line (or are skipped, when stopped) untried */
+  const later: string[] = [];
   for (let i = 0; i < emails.length; i++) {
-    const one = await sendEmailBatch([emails[i]], `${key}-${i}`);
-    const ok = one >= 200 && one < 300;
-    await mark(pool, s.id, [ids[i]], ok ? "sent" : "failed");
-    if (ok) sent++;
-    else failed++;
+    if (later.length) {
+      later.push(ids[i]);
+      continue;
+    }
+    const live = await pool.query(`SELECT 1 FROM merchant_campaigns WHERE id = $1 AND status = 'sending'`, [s.id]);
+    if (!live.rows.length) {
+      later.push(ids[i]);
+      continue;
+    }
+    /* still its own (not settled by another server meanwhile), and fresh, so it is not taken as stale while being sent */
+    const own = await pool.query(
+      `UPDATE merchant_campaign_recipients SET claimed_at = now() WHERE campaign_id = $1 AND account_id = $2 AND batch = $3 AND status = 'sending'`,
+      [s.id, ids[i], keys[i]],
+    );
+    if (!own.rowCount) continue;
+    const one = await sendUnderKey([emails[i]], keys[i], false);
+    const v = verdictOf(one.status, one.maybe);
+    /* each one counted the moment its outcome is known, so a restart in this loop loses no count */
+    if (v === "sent") sent += await settle(pool, s.id, [ids[i]], "sent");
+    else if (v === "back") later.push(ids[i]);
+    else if (v === "failed" || v === "refused") failed += await settle(pool, s.id, [ids[i]], "failed");
+    /* "keep": left under its own key for resumeStale */
     await sleep(PACE_MS);
   }
-  console.error(`[merchant campaigns] campaign ${s.id}: a batch was refused (${status}); sent one by one: ${sent} sent, ${failed} failed`);
-  await count(pool, s.id, { sent, failed });
-  return sent ? "sent" : "idle";
+  await giveBack(pool, s.id, later);
+  console.error(`[merchant campaigns] campaign ${s.id}: a batch was refused (${status}); sent one by one: ${sent} sent, ${failed} failed, ${later.length} for later`);
+  return later.length ? "busy" : sent ? "sent" : "idle";
 }
 
 /** Batches handed to Resend whose outcome was never noted (the server stopped, or no answer came): sent again under
-    their own key, or, once Resend has forgotten the key, counted failed */
+    their own key, or, once that key is nearly as old as Resend keeps it (key_at, the key's first use: claimed_at moves
+    with every try), counted failed */
 async function resumeStale(pool: Pool): Promise<void> {
-  const lost = await pool.query(
-    `UPDATE merchant_campaign_recipients SET status = 'failed', email = NULL
-      WHERE status = 'sending' AND claimed_at < now() - make_interval(hours => ${KEY_HOURS}) RETURNING campaign_id`,
+  /* marked and counted in one statement, as settle does */
+  await pool.query(
+    `WITH m AS (
+       UPDATE merchant_campaign_recipients SET status = 'failed', email = NULL
+        WHERE status = 'sending' AND COALESCE(key_at, claimed_at) < now() - make_interval(hours => ${KEY_HOURS}) RETURNING campaign_id
+     ), per AS (SELECT campaign_id, count(*)::int AS n FROM m GROUP BY campaign_id)
+     UPDATE merchant_campaigns c SET failed = c.failed + per.n, updated_at = now() FROM per WHERE c.id = per.campaign_id`,
   );
-  const per = new Map<string, number>();
-  for (const r of lost.rows) per.set(String(r.campaign_id), (per.get(String(r.campaign_id)) ?? 0) + 1);
-  for (const [id, n] of per) await count(pool, id, { failed: n });
 
   const stale = await pool.query(
     `SELECT DISTINCT campaign_id, batch FROM merchant_campaign_recipients
@@ -722,8 +807,7 @@ async function resumeStale(pool: Pool): Promise<void> {
     const s = await merchantCampaignOf(id);
     if (!s || s.status !== "sending" || !emailOn()) {
       /* stopped or ended meanwhile: whether it went out is not known, and it is not sent again */
-      await mark(pool, id, ids, "skipped");
-      await count(pool, id, { skipped: ids.length });
+      await settle(pool, id, ids, "skipped");
       continue;
     }
     /* the very same batch as the first time (the same addresses, even one who turned the emails off since), so its key

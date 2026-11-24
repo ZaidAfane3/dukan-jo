@@ -188,11 +188,13 @@ export async function saveUnsubMessage(accountId: string, body: Record<string, u
   return { result: "ok", message: m };
 }
 
-/** A visitor signed up for the store's newsletter again: an address that had unsubscribed from its campaigns, or paused
-    them, gets them again (server/storeSignups.ts). `email` as visitorEmail gives it, the way peopleOf compares it. */
-export async function resubscribeEmail(accountId: string, email: string): Promise<void> {
-  if (!email) return;
-  await (await db()).query(`DELETE FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2`, [accountId, contactHash(accountId, "email", email)]);
+/** Whether this address unsubscribed from the store's campaigns or paused them (a pause not ended yet). A newsletter
+    sign-up never lifts either (owner decision 2026-11-24): only "Subscribe again" on the unsubscribe page, with the
+    address typed, does (server/storeSignups.ts). `email` as visitorEmail gives it, the way peopleOf compares it. */
+export async function optedOut(accountId: string, email: string): Promise<boolean> {
+  if (!email) return false;
+  const { rows } = await (await db()).query(`SELECT 1 FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2 AND ${OUT}`, [accountId, contactHash(accountId, "email", email)]);
+  return rows.length > 0;
 }
 
 /* ---------------- the store ---------------- */
@@ -528,21 +530,23 @@ async function sendingOf(q: Q, id: string): Promise<Sending | null> {
 }
 
 /** One reader's email of a campaign. The same campaign and reader always give the very same email (so a batch sent again
-    under its key is the same request). */
-function emailOf(accountId: string, sender: string, c: CampaignContent, to: string, hash: string, readerLang: Lang, subject = c.subject): Email {
+    under its key is the same request). All of it is in ONE language, the campaign's (owner rule: an email is never in
+    two languages): the line under it and the unsubscribe page it opens too, whatever language the reader signed up in. */
+function emailOf(accountId: string, sender: string, c: CampaignContent, to: string, hash: string, subject = c.subject): Email {
   const token = unsubToken(accountId, hash);
-  const foot = campaignFoot(readerLang, sender);
+  const lang = campaignLang(c);
+  const foot = campaignFoot(lang, sender);
   return {
     to,
-    lang: campaignLang(c),
+    lang,
     subject,
     sender,
     ...(c.heading ? { heading: c.heading } : {}),
     text: c.body,
     ...(c.buttonLabel && c.buttonUrl ? { button: { label: c.buttonLabel, url: c.buttonUrl } } : {}),
-    foot: { lang: readerLang, text: foot.text, link: { label: foot.unsubscribe, url: unsubPage(token, readerLang) } },
+    foot: { lang, text: foot.text, link: { label: foot.unsubscribe, url: unsubPage(token, lang) } },
     /* the mail app's own "Unsubscribe" opens the same page (no one-click POST: see the top of this file) */
-    headers: { "List-Unsubscribe": `<${unsubPage(token, readerLang)}>` },
+    headers: { "List-Unsubscribe": `<${unsubPage(token, lang)}>` },
   };
 }
 
@@ -575,7 +579,7 @@ export async function sendTest(me: { id: string; email: string }, body: Record<s
   }
   const lang = campaignLang(c);
   try {
-    await sendEmail(emailOf(me.id, shop.store, c, to, contactHash(me.id, "email", to), lang, campaignTestSubject(lang, c.subject)));
+    await sendEmail(emailOf(me.id, shop.store, c, to, contactHash(me.id, "email", to), campaignTestSubject(lang, c.subject)));
     return { status: 200, body: { result: "ok", to } };
   } catch (e) {
     hour();
@@ -814,7 +818,7 @@ async function deliver(pool: Pool, s: Sending, key: string, rows: { contact_hash
   /* always in the same order: a batch sent again must be the very same request, or Resend refuses its key (409) */
   rows = [...rows].sort((a, b) => (a.contact_hash < b.contact_hash ? -1 : a.contact_hash > b.contact_hash ? 1 : 0));
   const hashes = rows.map((r) => r.contact_hash);
-  const emails = rows.map((r) => emailOf(s.accountId, s.sender, s.content, String(r.contact), r.contact_hash, r.lang === "en" ? "en" : "ar"));
+  const emails = rows.map((r) => emailOf(s.accountId, s.sender, s.content, String(r.contact), r.contact_hash));
   const { status, maybe } = await sendUnderKey(emails, key, again);
   const verdict = verdictOf(status, maybe);
   if (verdict === "sent") return (await settle(pool, s.id, hashes, "sent"), "sent");

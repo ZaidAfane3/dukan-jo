@@ -875,6 +875,14 @@ export const DIWAN_SCHEMA = `
   CREATE UNIQUE INDEX IF NOT EXISTS store_signups_back ON store_signups (account_id, email_hash, product_id, size) WHERE kind = 'back_in_stock';
   CREATE INDEX IF NOT EXISTS store_signups_account ON store_signups (account_id, kind, id DESC);
   ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
+  /* back in stock, "Tell them it's back" (server/storeSignups.ts notifyBackInStock): a request in a batch being sent has
+     claim_key (the batch's key for the email service), claimed_at (when a process last took it: a stale one is sent
+     again under the same key by sweepBackInStock) and key_at (the key's first use: given up after 23 hours); notified_at
+     stays empty until the email went out, and is set in the same statement that wipes the address. */
+  ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS claim_key TEXT;
+  ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
+  ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS key_at TIMESTAMPTZ;
+  CREATE INDEX IF NOT EXISTS store_signups_claimed ON store_signups (claimed_at) WHERE claim_key IS NOT NULL;
   /* ---------- Diwan: 2-step sign-in by emailed code (server/staffSignin.ts) ----------
      Since 2026-11-22 every staff sign-in asks, after the password, for a 6-digit code sent to the member's email
      (email_codes, refs "sl:" and "sc:"). The authenticator app is gone for staff: staff.totp_on, totp_secret and
@@ -1167,6 +1175,9 @@ export const DIWAN_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS merchant_campaign_recipients_waiting ON merchant_campaign_recipients (campaign_id) WHERE status = 'waiting';
   CREATE INDEX IF NOT EXISTS merchant_campaign_recipients_sending ON merchant_campaign_recipients (claimed_at) WHERE status = 'sending';
+  /* key_at: when the row's key (batch) was first handed to the email service; claimed_at moves with every try, so the
+     key is given up after 23 hours by this one, as in store_campaign_recipients. Rows from before it: NULL (claimed_at counts). */
+  ALTER TABLE merchant_campaign_recipients ADD COLUMN IF NOT EXISTS key_at TIMESTAMPTZ;
   /* merchant_marketing_reasons: why a merchant last paused ('pause') or stopped ('off') Dukkan's marketing emails, picked
      on the unsubscribe page (optional; reason NULL: none given). One row per merchant, the latest. Diwan shows counts per
      reason among the merchants who have them paused or stopped now, never who. */

@@ -16,6 +16,9 @@ export async function register() {
   /* and so do Dukkan's own campaigns to merchants (server/merchantCampaigns.ts) */
   const { kickMerchantCampaigns } = await import("./server/merchantCampaigns");
   setTimeout(kickMerchantCampaigns, 15_000);
+  /* and "Tell them it's back" emails cut short by the stop are settled (server/storeSignups.ts sweepBackInStock) */
+  const { kickBackInStock } = await import("./server/storeSignups");
+  setTimeout(kickBackInStock, 15_000);
   const { prepareShops } = await import("./server/shops");
   /* not awaited: the server takes requests meanwhile */
   void (async () => {

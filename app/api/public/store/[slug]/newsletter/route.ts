@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 
    Limits: only from Dukkan's own pages (the same origin check as the other routes), a small body, a few sign-ups per
    visitor and a ceiling per store from every visitor together, so a script can't fill a store's list.
-   Answers: 200 "ok" (also for an email already on the list: the answer never tells), 400 "invalid", 404 "none",
+   Answers: 200 "ok", 200 "already" (on the list already, or it stopped or paused the store's emails: nothing changed;
+   owner decision 2026-11-24), 400 "invalid", 404 "none",
    409 "closed", 403 "forbidden", 413 "too-big", 429 "slow-down". */
 
 const MAX_BODY = 600;
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     /* per store, from every visitor together: only sign-ups that went through count */
     const shopKey = `store-newsletter-shop:${String(p.slug ?? "").toLowerCase().slice(0, 64)}`;
     /* taken before the database wait, so requests sent at the same moment can't all pass the look; given back when
-       nothing was kept (as store orders, F10) */
+       nothing was kept (as store orders, F10; "already" kept nothing either) */
     const back = reserveTry(shopKey, 300, 60);
     if (!back) return answer({ result: "slow-down" }, 429);
     let r: Awaited<ReturnType<typeof newsletterSignup>> | null = null;
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
       r = await newsletterSignup(p.slug, read.body);
       return answer(r.body, r.status);
     } finally {
-      if (r?.status !== 200) back();
+      if (r?.status !== 200 || r.body.result !== "ok") back();
     }
   } catch (e) {
     console.error("[store newsletter]", p.slug, e);
