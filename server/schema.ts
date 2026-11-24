@@ -953,6 +953,18 @@ export const DIWAN_SCHEMA = `
     seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (staff_id, tab)
   );
+  /* ---------- the merchant dashboard's red numbers (server/merchantBadges.ts) ----------
+     merchant_seen: when the merchant last opened each page that shows one ("orders", "carts", "signups"), or for "bell"
+     the newest notification his bell's open panel showed. What came after it is new to him; opening the page again moves
+     it. Kept here, not in his browser, so his phone and his computer agree. A page he never opened starts from the first
+     time his dashboard asked for the numbers (what was there before isn't new); the bell starts with every unread
+     notification. It goes with the account. */
+  CREATE TABLE IF NOT EXISTS merchant_seen (
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    tab        TEXT NOT NULL,
+    seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (account_id, tab)
+  );
   /* sent_at: when a document reached Diwan: when it was sent, or for an old courier proof kept as a draft, when it was
      handed over (a save of his delivery choice, or the start-up below). Rows from before take the day they were sent. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;

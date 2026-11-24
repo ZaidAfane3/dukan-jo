@@ -49,6 +49,9 @@ export type AppNotification = {
   kind: NotificationKind;
   params: Record<string, string>;
   ts: number;
+  /* from the server only: its own time (ms), not held back by this browser's clock as ts is; the bell's red number
+     compares it with the moment its panel last showed (components/merchantBadges.ts bellSeen) */
+  at?: number;
   read: boolean;
 };
 
@@ -95,6 +98,7 @@ export function refreshServerNotifications(): Promise<void> {
           /* the server dates an announcement from when it reached this store (never before the store joined); a
              clock here behind the server's must not show it "in" the future either */
           ts: Math.min(Number(x.ts) || 0, Date.now()),
+          at: Number(x.ts) || 0,
           read: !!x.read,
         }));
       changed();
