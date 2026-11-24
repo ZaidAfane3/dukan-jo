@@ -1030,7 +1030,7 @@ export const DIWAN_SCHEMA = `
      words, sealed like the store's other data. audience: who it is for (components/campaignRules.ts cleanAudience).
      recipients, sent, failed, skipped: counts only (skipped: unsubscribed meanwhile, or never reached because it was
      stopped). sender: the store's name when it started, the emails' sender (fixed, so a batch sent again is the very same
-     email). started_at counts towards the store's 3 campaigns a day. They go with the account. */
+     email). started_at counts towards the store's 3 campaigns a day (not one that failed with none sent). They go with the account. */
   CREATE TABLE IF NOT EXISTS store_campaigns (
     id           BIGSERIAL PRIMARY KEY,
     account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -1061,8 +1061,10 @@ export const DIWAN_SCHEMA = `
      (contact_hash: a keyed fingerprint of it for this shop only). contact: the address itself, sealed, kept only until
      its message went out (or failed, or was skipped), then emptied: afterwards only the fingerprint and the outcome stay.
      lang: the reader's language (the newsletter's, else the campaign's). status: 'waiting', 'sending' (in a batch handed
-     to the email service, batch: that batch's key, claimed_at: when), 'sent', 'failed', 'skipped'. A batch left in
-     'sending' by a restart is sent again with the same key, which the email service answers without sending twice. */
+     to the email service, batch: that batch's key, claimed_at: when it was last handed over, key_at: when its key was
+     first used), 'sent', 'failed', 'skipped'. A batch left in 'sending' by a restart is sent again with the same key,
+     which the email service answers without sending twice, until the key is 23 hours old (key_at; the service keeps a
+     key 24). */
   CREATE TABLE IF NOT EXISTS store_campaign_recipients (
     campaign_id  BIGINT NOT NULL REFERENCES store_campaigns (id) ON DELETE CASCADE,
     contact_hash TEXT NOT NULL,
@@ -1074,6 +1076,8 @@ export const DIWAN_SCHEMA = `
     sent_at      TIMESTAMPTZ,
     PRIMARY KEY (campaign_id, contact_hash)
   );
+  /* added after the table first shipped: a row from before has none, and its claimed_at stands in (resumeStale) */
+  ALTER TABLE store_campaign_recipients ADD COLUMN IF NOT EXISTS key_at TIMESTAMPTZ;
   CREATE INDEX IF NOT EXISTS store_campaign_recipients_waiting ON store_campaign_recipients (campaign_id) WHERE status = 'waiting';
   CREATE INDEX IF NOT EXISTS store_campaign_recipients_sending ON store_campaign_recipients (claimed_at) WHERE status = 'sending';
   /* store_unsubscribes: the store's customers who asked for no more of its campaigns (the link in each campaign email,

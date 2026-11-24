@@ -24,11 +24,13 @@ import { campaignFoot, campaignTestSubject } from "./emailWords";
 
    Starting one ("Send now", startCampaign) fixes its recipients in one transaction: the campaign must still be a draft
    (so a double click or a second tab starts it once), the store not suspended, email set up, and the store under its 3
-   campaigns a day. Then a worker in this server (kickCampaigns) sends it in batches of BATCH through Resend's batch
-   sending, one request every PACE_MS for all stores together (Resend allows a few requests a second for the whole of
-   Dukkan, and sign-in codes must still get through). Every batch carries its own key (Resend's Idempotency-Key):
+   campaigns a day (one that failed with none sent doesn't count). Then a worker in this server (kickCampaigns) sends it
+   in batches of BATCH through Resend's batch sending, one request every PACE_MS for all stores together (Resend allows a
+   few requests a second for the whole of Dukkan, and sign-in codes must still get through). Every batch carries its own
+   key (Resend's Idempotency-Key):
    - a batch whose answer never came (a restart, a timeout) is sent again with the same key, which Resend answers without
-     sending twice; after 23 hours (Resend keeps keys for 24) such a batch counts as failed rather than risk sending twice;
+     sending twice, and never under another key (deliver); after 23 hours (Resend keeps keys for 24) such a batch counts
+     as failed rather than risk sending twice;
    - an address is in a campaign once (its fingerprint is the row's key), so nobody gets the same campaign twice;
    - the address itself is kept, sealed, only until its email went out (or failed, or was skipped), then emptied.
    On every start of the server the worker picks up the campaigns still sending (instrumentation.ts).
@@ -148,9 +150,9 @@ async function peopleOf(q: Q, accountId: string, channel: CampaignChannel): Prom
     const contact = channel === "email" ? visitorEmail(o.contact) : savedMobile(String(o.contact ?? ""));
     if (!contact) continue;
     const p = of(contact);
-    p.buyer = true;
-    /* a cancelled or refunded order is no order to count */
+    /* a cancelled or refunded order is no order to count, and makes nobody a buyer */
     if (o.status !== "cancelled" && o.status !== "refunded") {
+      p.buyer = true;
       p.orders++;
       p.last = Math.max(p.last, new Date(o.created_at).getTime());
     }
@@ -248,6 +250,10 @@ const listed = (c: Campaign): CampaignRow => {
 
 /* the start of today in Jordan, where the daily allowance starts again */
 const TODAY = `(date_trunc('day', now() AT TIME ZONE 'Asia/Amman') AT TIME ZONE 'Asia/Amman')`;
+/* the campaigns that use one of today's CAMPAIGNS_PER_DAY: every one started today, except one that reached nobody
+   because sending failed for all of them (email not set up, the sending domain refused): the merchant did nothing wrong.
+   One stopped by Dukkan still counts. */
+const USED_TODAY = `started_at >= ${TODAY} AND NOT (status = 'failed' AND sent = 0)`;
 
 /** The merchant's campaigns, newest first, a page at a time (`before`: the id the page before gave as `next`), and his
     numbers: how many campaigns, drafts and messages sent, when the last one started, how many he started today (of
@@ -264,7 +270,7 @@ export async function listCampaigns(accountId: string, before: string | null) {
   const s = (
     await pool.query(
       `SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'draft')::int AS drafts, COALESCE(sum(sent), 0)::int AS sent,
-              max(started_at) AS last, count(*) FILTER (WHERE started_at >= ${TODAY})::int AS today,
+              max(started_at) AS last, count(*) FILTER (WHERE ${USED_TODAY})::int AS today,
               (SELECT count(*)::int FROM store_unsubscribes WHERE account_id = $1) AS unsubscribed
          FROM store_campaigns WHERE account_id = $1`,
       [accountId],
@@ -370,7 +376,7 @@ export async function startCampaign(accountId: string, id: string): Promise<Star
     if (problems.length) return await done({ status: 400 as const, body: { result: "invalid" as const, problems } });
     if (cur.channel === "mobile" && !MOBILE_SENDING) return await done({ status: 409 as const, body: { result: "mobile-soon" as const } });
     if (!emailOn()) return await done({ status: 503 as const, body: { result: "no-sender" as const } });
-    const today = await c.query(`SELECT count(*)::int AS n FROM store_campaigns WHERE account_id = $1 AND started_at >= ${TODAY}`, [accountId]);
+    const today = await c.query(`SELECT count(*)::int AS n FROM store_campaigns WHERE account_id = $1 AND ${USED_TODAY}`, [accountId]);
     if (Number(today.rows[0]?.n) >= CAMPAIGNS_PER_DAY) return await done({ status: 429 as const, body: { result: "daily-limit" as const, max: CAMPAIGNS_PER_DAY } });
 
     const now = Date.now();
@@ -540,18 +546,49 @@ async function work(): Promise<void> {
 
 /* adds to a campaign's counts */
 const count = (q: Q, id: string, n: { sent?: number; failed?: number; skipped?: number }) =>
-  q.query(`UPDATE store_campaigns SET sent = sent + $2, failed = failed + $3, skipped = skipped + $4, updated_at = now() WHERE id = $1`, [id, n.sent ?? 0, n.failed ?? 0, n.skipped ?? 0]);
+  (n.sent ?? 0) + (n.failed ?? 0) + (n.skipped ?? 0) > 0
+    ? q.query(`UPDATE store_campaigns SET sent = sent + $2, failed = failed + $3, skipped = skipped + $4, updated_at = now() WHERE id = $1`, [id, n.sent ?? 0, n.failed ?? 0, n.skipped ?? 0])
+    : Promise.resolve();
 
-/* marks recipients of one campaign with an outcome; their address is not needed any more */
-async function mark(q: Q, id: string, hashes: string[], status: "sent" | "failed" | "skipped" | "waiting"): Promise<void> {
+/* marks recipients of one campaign still in a batch ('sending') with an outcome; their address is not needed any more.
+   Gives how many it really changed: only those count (another server may have noted some of them already). */
+async function mark(q: Q, id: string, hashes: string[], status: "sent" | "failed" | "skipped" | "waiting"): Promise<number> {
+  if (!hashes.length) return 0;
+  const r =
+    status === "waiting"
+      ? await q.query(`UPDATE store_campaign_recipients SET status = 'waiting', batch = NULL, claimed_at = NULL, key_at = NULL WHERE campaign_id = $1 AND contact_hash = ANY($2::text[]) AND status = 'sending'`, [id, hashes])
+      : await q.query(
+          `UPDATE store_campaign_recipients SET status = $3, contact = NULL, sent_at = CASE WHEN $3 = 'sent' THEN now() END WHERE campaign_id = $1 AND contact_hash = ANY($2::text[]) AND status = 'sending'`,
+          [id, hashes, status],
+        );
+  return r.rowCount ?? 0;
+}
+
+/* marks them and counts them */
+const settle = async (q: Q, id: string, hashes: string[], status: "sent" | "failed" | "skipped") => {
+  const n = await mark(q, id, hashes, status);
+  await count(q, id, { [status]: n });
+  return n;
+};
+
+/** Recipients of a batch nothing of which went out (Resend said so clearly): back in line while the campaign is still
+    sending (a new key next time). A campaign stopped or ended meanwhile never sends them: they are skipped and their
+    address emptied, as endCampaign did for the rest. Under the campaign's row, so a stop and this never cross. */
+async function giveBack(pool: Pool, id: string, hashes: string[]): Promise<void> {
   if (!hashes.length) return;
-  if (status === "waiting")
-    await q.query(`UPDATE store_campaign_recipients SET status = 'waiting', batch = NULL, claimed_at = NULL WHERE campaign_id = $1 AND contact_hash = ANY($2::text[]) AND status = 'sending'`, [id, hashes]);
-  else
-    await q.query(
-      `UPDATE store_campaign_recipients SET status = $3, contact = NULL, sent_at = CASE WHEN $3 = 'sent' THEN now() END WHERE campaign_id = $1 AND contact_hash = ANY($2::text[]) AND status = 'sending'`,
-      [id, hashes, status],
-    );
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    const live = await c.query(`SELECT 1 FROM store_campaigns WHERE id = $1 AND status = 'sending' FOR SHARE`, [id]);
+    if (live.rows.length) await mark(c, id, hashes, "waiting");
+    else await settle(c, id, hashes, "skipped");
+    await c.query("COMMIT");
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    c.release();
+  }
 }
 
 /** Ends a campaign still sending (stopped by staff, the store suspended, email gone): the readers not reached yet are
@@ -610,7 +647,7 @@ async function sendBatch(pool: Pool, id: string): Promise<Outcome> {
     if (live.rows.length) {
       const claimed = await c.query(
         `WITH pick AS (SELECT contact_hash FROM store_campaign_recipients WHERE campaign_id = $1 AND status = 'waiting' LIMIT ${BATCH} FOR UPDATE SKIP LOCKED)
-         UPDATE store_campaign_recipients r SET status = 'sending', batch = $2, claimed_at = now() FROM pick
+         UPDATE store_campaign_recipients r SET status = 'sending', batch = $2, claimed_at = now(), key_at = now() FROM pick
           WHERE r.campaign_id = $1 AND r.contact_hash = pick.contact_hash RETURNING r.contact_hash, r.contact, r.lang`,
         [id, key],
       );
@@ -628,68 +665,112 @@ async function sendBatch(pool: Pool, id: string): Promise<Outcome> {
   const gone = await pool.query(`SELECT contact_hash FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = ANY($2::text[])`, [s.accountId, rows.map((r) => r.contact_hash)]);
   const out = new Set(gone.rows.map((r) => String(r.contact_hash)));
   const skip = rows.filter((r) => out.has(r.contact_hash) || !r.contact).map((r) => r.contact_hash);
-  if (skip.length) {
-    await mark(pool, id, skip, "skipped");
-    await count(pool, id, { skipped: skip.length });
-  }
+  await settle(pool, id, skip, "skipped");
   return deliver(pool, s, key, rows.filter((r) => !skip.includes(r.contact_hash)), false);
 }
 
-/** Hands one batch to Resend under its key and notes what became of each reader */
+/* an answer that doesn't say whether the emails went out: none came (a timeout, no connection, or the same key still
+   being answered) or Resend's own trouble */
+const unclear = (status: number) => status === 0 || status >= 500;
+
+/** Sends one request under its key, and again under the same key (which Resend answers without sending twice) while the
+    answer is unclear, a few times. `maybe`: whether any try under this key, this time or before, may have gone out. */
+async function sendUnderKey(emails: Email[], key: string, maybe: boolean): Promise<{ status: number; maybe: boolean }> {
+  let status = await sendEmailBatch(emails, key);
+  maybe ||= unclear(status);
+  for (let i = 0; i < 2 && unclear(status); i++) {
+    await sleep(5_000 * (i + 1));
+    status = await sendEmailBatch(emails, key);
+  }
+  return { status, maybe };
+}
+
+/* What an answer means for the readers of one request:
+   - "sent": Resend took it. A 409 on a key used before means that key already carried a request with other content
+     (Resend's invalid_idempotent_request: the email's look changed with an update while the batch was waiting to be
+     sent again): that first request is taken as accepted, as Resend keeps the key of a request it answered; sending it
+     under another key could send it twice;
+   - "keep": it may have gone out and it can't be settled now: it stays in its batch ('sending') under the same key,
+     sent again with that key once stale (resumeStale), or skipped if the campaign stopped meanwhile;
+   - "back": nothing went out (too many for now, or email turned off): back in line, a new key next time;
+   - "failed": refused after a try that may have gone out: never sent under another key, counted failed;
+   - "refused": refused, and nothing of it ever went out. */
+function verdictOf(status: number, maybe: boolean): "sent" | "keep" | "back" | "failed" | "refused" {
+  if (status >= 200 && status < 300) return "sent";
+  if (status === 409) return maybe ? "sent" : "keep";
+  if (status === 429 || status === -1 || unclear(status)) return maybe ? "keep" : "back";
+  return maybe ? "failed" : "refused";
+}
+
+/** Hands one batch to Resend under its key and notes what became of each reader. `again`: the batch was handed to
+    Resend before (resumeStale), so it may have gone out already. Once any try of a batch may have gone out, its readers
+    are never put back in line nor sent under another key: only the same key again, so nobody gets a campaign twice. */
 async function deliver(pool: Pool, s: Sending, key: string, rows: { contact_hash: string; contact: string | null; lang: string }[], again: boolean): Promise<Outcome> {
   if (!rows.length) return "idle";
   /* always in the same order: a batch sent again must be the very same request, or Resend refuses its key (409) */
   rows = [...rows].sort((a, b) => (a.contact_hash < b.contact_hash ? -1 : a.contact_hash > b.contact_hash ? 1 : 0));
   const hashes = rows.map((r) => r.contact_hash);
   const emails = rows.map((r) => emailOf(s.accountId, s.sender, s.content, String(r.contact), r.contact_hash, r.lang === "en" ? "en" : "ar"));
-  let status = await sendEmailBatch(emails, key);
-  /* no answer, or Resend's own trouble: the same request again (the key keeps it from going twice), a few times */
-  for (let i = 0; i < 2 && (status === 0 || status >= 500); i++) {
-    await sleep(5_000 * (i + 1));
-    status = await sendEmailBatch(emails, key);
-  }
-  if (status >= 200 && status < 300) {
-    await mark(pool, s.id, hashes, "sent");
-    await count(pool, s.id, { sent: hashes.length });
-    return "sent";
-  }
-  /* too many for now: nothing was sent. A first try goes back in line (a new key next time); a batch sent again keeps
-     its key and waits for the next look at stale batches */
-  if (status === 429) {
-    if (!again) await mark(pool, s.id, hashes, "waiting");
-    return "busy";
-  }
-  /* email turned off meanwhile: nothing was sent */
-  if (status === -1) {
-    if (!again) await mark(pool, s.id, hashes, "waiting");
+  const { status, maybe } = await sendUnderKey(emails, key, again);
+  const verdict = verdictOf(status, maybe);
+  if (verdict === "sent") return (await settle(pool, s.id, hashes, "sent"), "sent");
+  if (verdict === "keep") return "busy";
+  if (verdict === "back") return (await giveBack(pool, s.id, hashes), status === 429 ? "busy" : "idle");
+  if (verdict === "failed") {
+    console.error(`[campaigns] campaign ${s.id}: a batch sent again was refused (${status}); counted failed`);
+    await settle(pool, s.id, hashes, "failed");
     return "idle";
   }
-  /* maybe sent (no answer, Resend's trouble) or the same key still being answered: left as it is, sent again with the
-     same key once it is stale (resumeStale), which Resend answers without sending twice */
-  if (status === 0 || status === 409 || status >= 500) return "busy";
-  /* refused (an address Resend won't take makes it refuse the whole batch): each email on its own, so one bad address
-     doesn't cost the others */
+  /* refused, nothing sent (an address Resend won't take makes it refuse the whole batch): each email on its own, so one
+     bad address doesn't cost the others. Each gets its own key, kept on its row, so one whose answer is lost is sent
+     again under that same key (resumeStale), never under another. */
+  const keys = hashes.map((_, i) => `${key}-${i}`);
+  await pool.query(
+    `UPDATE store_campaign_recipients r SET batch = t.k, claimed_at = now(), key_at = now() FROM unnest($2::text[], $3::text[]) AS t (h, k)
+      WHERE r.campaign_id = $1 AND r.contact_hash = t.h AND r.status = 'sending'`,
+    [s.id, hashes, keys],
+  );
   let sent = 0;
   let failed = 0;
+  /* too many for now, or the campaign stopped: these go back in line (or are skipped, when stopped) untried */
+  const later: string[] = [];
   for (let i = 0; i < emails.length; i++) {
-    const one = await sendEmailBatch([emails[i]], `${key}-${i}`);
-    const ok = one >= 200 && one < 300;
-    await mark(pool, s.id, [hashes[i]], ok ? "sent" : "failed");
-    if (ok) sent++;
-    else failed++;
+    if (later.length) {
+      later.push(hashes[i]);
+      continue;
+    }
+    const live = await pool.query(`SELECT 1 FROM store_campaigns WHERE id = $1 AND status = 'sending'`, [s.id]);
+    if (!live.rows.length) {
+      later.push(hashes[i]);
+      continue;
+    }
+    /* still its own (not settled by another server meanwhile), and fresh, so it is not taken as stale while being sent */
+    const own = await pool.query(
+      `UPDATE store_campaign_recipients SET claimed_at = now() WHERE campaign_id = $1 AND contact_hash = $2 AND batch = $3 AND status = 'sending'`,
+      [s.id, hashes[i], keys[i]],
+    );
+    if (!own.rowCount) continue;
+    const one = await sendUnderKey([emails[i]], keys[i], false);
+    const v = verdictOf(one.status, one.maybe);
+    if (v === "sent") sent += await mark(pool, s.id, [hashes[i]], "sent");
+    else if (v === "back") later.push(hashes[i]);
+    else if (v === "failed" || v === "refused") failed += await mark(pool, s.id, [hashes[i]], "failed");
+    /* "keep": left under its own key for resumeStale */
     await sleep(PACE_MS);
   }
-  console.error(`[campaigns] campaign ${s.id}: a batch was refused (${status}); sent one by one: ${sent} sent, ${failed} failed`);
   await count(pool, s.id, { sent, failed });
-  return sent ? "sent" : "idle";
+  await giveBack(pool, s.id, later);
+  console.error(`[campaigns] campaign ${s.id}: a batch was refused (${status}); sent one by one: ${sent} sent, ${failed} failed, ${later.length} for later`);
+  return later.length ? "busy" : sent ? "sent" : "idle";
 }
 
 /** Batches handed to Resend whose outcome was never noted (the server stopped, or no answer came): sent again under
-    their own key, or, once Resend has forgotten the key, counted failed */
+    their own key, or, once that key is nearly as old as Resend keeps it (key_at, the key's first use: claimed_at moves
+    with every try), counted failed */
 async function resumeStale(pool: Pool): Promise<void> {
   const lost = await pool.query(
     `UPDATE store_campaign_recipients SET status = 'failed', contact = NULL
-      WHERE status = 'sending' AND claimed_at < now() - make_interval(hours => ${KEY_HOURS}) RETURNING campaign_id`,
+      WHERE status = 'sending' AND COALESCE(key_at, claimed_at) < now() - make_interval(hours => ${KEY_HOURS}) RETURNING campaign_id`,
   );
   const per = new Map<string, number>();
   for (const r of lost.rows) per.set(String(r.campaign_id), (per.get(String(r.campaign_id)) ?? 0) + 1);
@@ -711,9 +792,7 @@ async function resumeStale(pool: Pool): Promise<void> {
     const s = await sendingOf(pool, id);
     if (!s || s.status !== "sending" || !emailOn()) {
       /* stopped or ended meanwhile: whether it went out is not known, and it is not sent again */
-      const hashes = mine.rows.map((r) => String(r.contact_hash));
-      await mark(pool, id, hashes, "skipped");
-      await count(pool, id, { skipped: hashes.length });
+      await settle(pool, id, mine.rows.map((r) => String(r.contact_hash)), "skipped");
       continue;
     }
     await deliver(pool, s, String(b.batch), mine.rows, true);

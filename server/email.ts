@@ -171,8 +171,10 @@ export async function sendEmail(e: Email): Promise<void> {
     (server/campaigns.ts). `key` is Resend's Idempotency-Key, which Resend keeps for 24 hours: the same key sent again
     with the same emails is answered without sending them twice, so a request whose answer was lost can be sent again
     safely. Resend takes all of them or none. Gives Resend's status: 200 sent; 429 too many for now (nothing sent); 409
-    the same key is still being answered; another 4xx refused; 5xx or 0 (no answer: timed out, no connection) maybe sent,
-    so send again with the same key. -1: email is off. Never throws. */
+    the key was used before for a request with other content (Resend's invalid_idempotent_request); another 4xx refused;
+    5xx or 0 maybe sent, so send again with the same key. 0 is no answer (timed out, no connection), and also the same
+    key still being answered (Resend's 409 concurrent_idempotent_requests: ask again later). -1: email is off. Never
+    throws. */
 export async function sendEmailBatch(list: Email[], key: string): Promise<number> {
   const api = process.env.RESEND_API_KEY?.trim();
   const from = process.env.EMAIL_FROM?.trim();
@@ -185,6 +187,10 @@ export async function sendEmailBatch(list: Email[], key: string): Promise<number
       body: JSON.stringify(list.map((e) => payloadOf(e, from))),
       signal: AbortSignal.timeout(30_000),
     });
+    if (r.status === 409) {
+      const why = (await r.json().catch(() => null)) as { name?: unknown } | null;
+      if (why?.name === "concurrent_idempotent_requests") return 0;
+    }
     return r.status;
   } catch {
     return 0;
