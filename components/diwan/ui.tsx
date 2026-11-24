@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { dateLocale } from "../content";
@@ -212,14 +213,38 @@ export function PageHead({ title, sub, actions, eyebrow }: { title: string; sub?
 
 /** A list's top row, the same on every Diwan list: its tabs (the status chips, "Waiting · Approved · Rejected …") at the
     start and its filters (search, lists, dates, sort) at the end, on one line, so in Arabic the row is mirrored (tabs on
-    the right, filters on the left). When the row is too narrow for both, the filters move under the tabs, still at the
-    end. A page with only one of them keeps it on its own side. Tabs come first for the keyboard, then the filters.
+    the right, filters on the left). From 1280px wide the row never breaks (the owner's rule): the filters keep their
+    size and the tabs, when they don't all fit beside them, scroll sideways in their own strip, the chosen tab kept in
+    view. Narrower than that, the filters move under the tabs, still at the end. A page with only one of them keeps it
+    on its own side. Tabs come first for the keyboard, then the filters.
     `bottom`: the two sides meet at their bottom edge instead of their middle (underlined tabs sitting on a line). */
 export function ListBar({ tabs, filters, className = "mb-4", bottom = false }: { tabs?: React.ReactNode; filters?: React.ReactNode; className?: string; bottom?: boolean }) {
+  const strip = useRef<HTMLDivElement>(null);
+  const shown = useRef<Element | null>(null);
+  /* the chosen tab (a tab or a pressed chip) brought into the strip's view when it changes, by scrolling the strip
+     only (scrollIntoView would move the page too); measured on the screen, so it works the same in Arabic */
+  useEffect(() => {
+    const box = strip.current;
+    const on = box?.querySelector('[aria-selected="true"],[aria-pressed="true"]') ?? null;
+    /* nothing to do while every tab shows; noted only once it was looked at with the strip too narrow */
+    if (!box || !on || on === shown.current || box.scrollWidth <= box.clientWidth) return;
+    shown.current = on;
+    const b = box.getBoundingClientRect();
+    const r = on.getBoundingClientRect();
+    if (r.right > b.right) box.scrollBy({ left: r.right - b.right + 8 });
+    else if (r.left < b.left) box.scrollBy({ left: r.left - b.left - 8 });
+  });
   return (
-    <div className={`flex flex-wrap ${bottom ? "items-end" : "items-center"} gap-x-6 gap-y-3 ${className}`}>
-      {tabs && <div className="flex min-w-0 flex-wrap items-center gap-2">{tabs}</div>}
-      {filters && <div className="ms-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:w-full">{filters}</div>}
+    <div className={`flex flex-wrap xl:flex-nowrap ${bottom ? "items-end" : "items-center"} gap-x-6 gap-y-3 xl:gap-x-4 ${className}`}>
+      {/* from xl: one line of tabs (a group of them inside too: *:flex-nowrap) that scrolls sideways; the padding and
+          the same margin taken back leave room for the chips' rings, focus rings and underlines, which a scrolling box
+          would otherwise cut off, without moving anything */}
+      {tabs && (
+        <div ref={strip} className="flex min-w-0 flex-wrap items-center gap-2 xl:-m-1 xl:flex-nowrap xl:overflow-x-auto xl:whitespace-nowrap xl:p-1 xl:[scrollbar-width:thin] xl:*:flex-nowrap">
+          {tabs}
+        </div>
+      )}
+      {filters && <div className="ms-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:w-full xl:shrink-0 xl:flex-nowrap">{filters}</div>}
     </div>
   );
 }
@@ -328,14 +353,62 @@ export function DataTable({ head, children, empty, dense = false, fit = false }:
 export const td = "px-5 py-4 align-top";
 export const tdDense = "px-3 py-3.5 align-top";
 
+/** What a detail page shows when its thing isn't there (a wrong or old link): what is missing, in words, and the way back
+    to its list */
+export type Missing = { title: string; back: { href: string; label: string } };
+
+/* the answers that mean "there is no such thing": the routes' own words for it and a 404 without words; on a detail page
+   also an address its route can't read (an id that is not a number) */
+const NOT_FOUND = new Set(["none", "not-found", "gone", "error 404"]);
+const BAD_ADDRESS = new Set(["invalid", "bad"]);
+
+/** A load that did not work, in words in the page's language (never the server's code): a missing thing with the way
+    back to its list (`missing`, on detail pages), or what went wrong with "Try again". */
+export function LoadProblem({ error, reload, missing }: { error: string; reload?: () => void; missing?: Missing }) {
+  const t = useT();
+  if (error === "not-allowed") return <p className={`${card} text-sm text-muted`}>{t("You can't open this page.", "لا يمكنك فتح هذه الصفحة.")}</p>;
+  if (NOT_FOUND.has(error) || (missing && BAD_ADDRESS.has(error)))
+    return (
+      <div className={card}>
+        <Empty
+          title={missing?.title ?? t("This wasn't found. It may have been deleted.", "لم يُعثر على هذا. ربما حُذف.")}
+          sub={missing && t("Check the link, or find it again from the list.", "تحقّق من الرابط، أو ابحث عنه مجددًا في القائمة.")}
+          action={missing && (
+            <Link href={missing.back.href} className="inline-flex h-10 items-center rounded-lg px-4 text-sm font-semibold ring-1 ring-fg/15 transition-colors hover:bg-fg/[0.04]">
+              {missing.back.label}
+            </Link>
+          )}
+        />
+      </div>
+    );
+  const words =
+    error === "offline"
+      ? t("Dukkan couldn't be reached. Check your connection and try again.", "تعذّر الوصول إلى دكان. تحقّق من اتصالك وحاول مجددًا.")
+      : error === "slow-down"
+        ? t("Too many requests in a short time. Wait a minute and try again.", "طلبات كثيرة في وقت قصير. انتظر دقيقة وحاول مجددًا.")
+        : error === "forbidden"
+          ? t("This page is out of date or was opened from another address. Reload it from Dukkan's own address.", "هذه الصفحة قديمة أو فُتحت من عنوان آخر. أعد تحميلها من عنوان دكان نفسه.")
+          : t("This couldn't be loaded. Try again in a moment.", "تعذّر تحميل هذا. حاول مجددًا بعد قليل.");
+  return (
+    <p role="alert" className={`${card} text-sm text-red-600 dark:text-red-400`}>
+      {words}{" "}
+      {reload && (
+        <button type="button" className="font-semibold underline" onClick={reload}>
+          {t("Try again", "حاول مجددًا")}
+        </button>
+      )}
+    </p>
+  );
+}
+
 /** Loading / error / content, the same way on every page. `skeleton`: the page's own shape while it loads (built from the
     pieces below: SkelTable, SkelCards, SkelList, SkelForm, SkelFigures...), so nothing jumps when the data arrives;
-    without one, a plain block (never number boxes a page doesn't have). */
-export function Loaded<T>({ s, children, skeleton }: { s: ApiState<T>; children: (d: T) => React.ReactNode; skeleton?: React.ReactNode }) {
-  const t = useT();
-  if (s.error === "not-allowed") return <p className={`${card} text-sm text-muted`}>{t("You can't open this page.", "لا يمكنك فتح هذه الصفحة.")}</p>;
-  if (s.error) return <p className={`${card} text-sm text-red-600`}>{t("Could not load this: ", "تعذر التحميل: ")}{s.error}</p>;
-  if (!s.data) return <Busy>{skeleton ?? <SkelBlock />}</Busy>;
+    without one, a plain block (never number boxes a page doesn't have). A load that did not work shows in words
+    (LoadProblem); a detail page passes `missing` for its "doesn't exist" state. */
+export function Loaded<T>({ s, children, skeleton, missing }: { s: ApiState<T>; children: (d: T) => React.ReactNode; skeleton?: React.ReactNode; missing?: Missing }) {
+  /* while "Try again" asks again, the skeleton, so the click shows it did something */
+  if (s.error && !s.loading) return <LoadProblem error={s.error} reload={s.reload} missing={missing} />;
+  if (!s.data || s.error) return <Busy>{skeleton ?? <SkelBlock />}</Busy>;
   return <>{children(s.data)}</>;
 }
 

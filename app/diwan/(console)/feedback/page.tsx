@@ -59,21 +59,21 @@ export default function FeedbackPage() {
         className="mb-5"
         tabs={
           <>
-            <button onClick={() => { setStatus("active"); }} className={chip(status === "active")}>
+            <button aria-pressed={status === "active"} onClick={() => { setStatus("active"); }} className={chip(status === "active")}>
               {t("Needs work", "قيد العمل")}
             </button>
             {STATUS_ORDER.map((x) => (
-              <button key={x} onClick={() => { setStatus(x); }} className={chip(status === x)}>
+              <button key={x} aria-pressed={status === x} onClick={() => { setStatus(x); }} className={chip(status === x)}>
                 {t(STATUS[x].en, STATUS[x].ar)}
               </button>
             ))}
-            <button onClick={() => { setStatus(""); }} className={chip(status === "")}>
+            <button aria-pressed={status === ""} onClick={() => { setStatus(""); }} className={chip(status === "")}>
               {t("All", "الكل")}
             </button>
           </>
         }
         filters={(["", "bug", "idea"] as const).map((k) => (
-          <button key={k || "all"} onClick={() => { setKind(k); }} className={chip(kind === k)}>
+          <button key={k || "all"} aria-pressed={kind === k} onClick={() => { setKind(k); }} className={chip(kind === k)}>
             {k ? t(KIND[k].en + "s", k === "bug" ? "الأخطاء" : "الاقتراحات") : t("Bugs and ideas", "الأخطاء والأفكار")}
           </button>
         ))}

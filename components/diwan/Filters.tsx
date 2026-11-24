@@ -37,8 +37,9 @@ export function FilterBar({
         filters={
           <>
             {/* a fixed width, so the box keeps its place at the end of the row; wider when it has the row to itself, so a
-                long hint ("Store name or link, owner's name, …") still shows whole */}
-            {search && <div className={`w-full min-w-0 ${tabs ? "sm:w-72 xl:w-80" : "sm:w-80 lg:w-[28rem]"}`}>{search}</div>}
+                long hint ("Store name or link, owner's name, …") still shows whole. Beside tabs on one line (from xl,
+                ListBar) it is narrower, so the tabs keep as much of the line as they can */}
+            {search && <div className={`w-full min-w-0 ${tabs ? "sm:w-72 xl:w-56 2xl:w-64" : "sm:w-80 lg:w-[28rem]"}`}>{search}</div>}
             <button
               type="button"
               aria-expanded={open}

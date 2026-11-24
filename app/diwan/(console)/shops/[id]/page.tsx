@@ -122,7 +122,11 @@ export default function ShopPage(props: { params: Promise<{ id: string }> }) {
   const [changed, setChanged] = useState<{ on: Detail; shop: Partial<Shop> } | null>(null);
 
   return (
-    <Loaded s={s} skeleton={<ShopSkeleton />}>
+    <Loaded
+      s={s}
+      skeleton={<ShopSkeleton />}
+      missing={{ title: t("This store doesn't exist or was deleted.", "هذا المتجر غير موجود أو حُذف."), back: { href: "/diwan/shops", label: t("Back to stores", "العودة إلى المتاجر") } }}
+    >
       {(d) => {
         const updating = !!changed && changed.on === d;
         const sh: Shop = updating ? { ...d.shop, ...changed.shop } : d.shop;
