@@ -16,8 +16,8 @@ import { moneyText } from "@/components/moneyText";
    - campaignFoot          server/campaigns.ts, the line under a store's campaign email (the rest is the merchant's words)
 
    Notices go out in the language the reader uses Dukkan in (accounts.lang / staff.lang, server/lang.ts): wordsIn. Someone
-   whose language isn't saved yet (they haven't signed in since it was) gets both: bothLangs puts the Arabic first and
-   the English under it (one subject, one heading, one button). Order notices carry only the order's number and total, never the
+   whose language isn't saved yet gets the site's default, Arabic: an email is never in both languages (owner decision
+   2026-11-24). Order notices carry only the order's number and total, never the
    customer's name, phone or address. Nothing here holds a password or a secret. */
 
 export type EmailLang = "ar" | "en";
@@ -62,9 +62,12 @@ export function bothLangs(words: (lang: EmailLang) => EmailWords): EmailWords {
   };
 }
 
-/** One email in the reader's saved language (`lang` as read from the database), or in both while there is none */
-export function wordsIn(lang: unknown, words: (lang: EmailLang) => EmailWords): { lang: EmailLang; words: EmailWords } {
-  return lang === "ar" || lang === "en" ? { lang, words: words(lang) } : { lang: "ar", words: bothLangs(words) };
+/** One email in one language only (owner decision 2026-11-24: never both): the reader's saved language (`lang` as read
+    from the database, the language they use the site in), else `fallback` (the language of the page that caused it, when
+    there is one), else Arabic, the site's default */
+export function wordsIn(lang: unknown, words: (lang: EmailLang) => EmailWords, fallback?: unknown): { lang: EmailLang; words: EmailWords } {
+  const l: EmailLang = lang === "ar" || lang === "en" ? lang : fallback === "en" || fallback === "ar" ? fallback : "ar";
+  return { lang: l, words: words(l) };
 }
 
 /* ---------------- password reset (server/sendCode.ts) ---------------- */
