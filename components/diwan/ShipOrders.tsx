@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { askConfirm, Dialog } from "./dialogs";
-import { area, Badge, Btn, card, Empty, field, Loaded, LoadMore, refusedWords, send, useFmt, useMore, useT, type Tone } from "./ui";
+import { area, Badge, Btn, card, Empty, field, ListBar, Loaded, LoadMore, refusedWords, send, useFmt, useMore, useT, type Tone } from "./ui";
 
 /* Dukkan Ship's orders: every customer order of a store that delivers with Dukkan Ship, for Dukkan's staff to pick up
    at the store and deliver. Staff mark each one delivered or not delivered (with the reason). Marking it delivered
@@ -97,40 +97,45 @@ export function ShipOrders() {
 
   return (
     <section>
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-base font-bold">{t("Orders to pick up and deliver", "طلبات للاستلام والتوصيل")}</h2>
-          <p className="mt-0.5 text-sm text-muted">
-            {counts
-              ? t(`${f.num(counts.waiting)} ${counts.waiting === 1 ? "order" : "orders"} to deliver. Newest first.`, `${f.num(counts.waiting)} طلب بانتظار التوصيل. الأحدث أولًا.`)
-              : t("Newest first.", "الأحدث أولًا.")}
-          </p>
-        </div>
-        <input
-          type="search"
-          aria-label={t("Search by store name or link, or order number", "ابحث باسم المتجر أو رابطه، أو برقم الطلب")}
-          placeholder={t("Store or order number", "المتجر أو رقم الطلب")}
-          className={`${field} w-full sm:w-72`}
-          value={typed}
-          onChange={(x) => setTyped(x.target.value)}
-        />
+      <div className="mb-3">
+        <h2 className="text-base font-bold">{t("Orders to pick up and deliver", "طلبات للاستلام والتوصيل")}</h2>
+        <p className="mt-0.5 text-sm text-muted">
+          {counts
+            ? t(`${f.num(counts.waiting)} ${counts.waiting === 1 ? "order" : "orders"} to deliver. Newest first.`, `${f.num(counts.waiting)} طلب بانتظار التوصيل. الأحدث أولًا.`)
+            : t("Newest first.", "الأحدث أولًا.")}
+        </p>
       </div>
 
-      {/* only the words on the tabs: the owner wants no numbers beside tabs in Diwan */}
-      <div role="tablist" aria-label={t("Delivery state", "حالة التوصيل")} className="mb-4 flex flex-wrap gap-2">
-        {TABS.map((k) => (
-          <button
-            key={k}
-            type="button"
-            role="tab"
-            aria-selected={tab === k}
-            onClick={() => (setTab(k), setOpen(null))}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === k ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
-          >
-            {t(STATE[k].en, STATE[k].ar)}
-          </button>
-        ))}
-      </div>
+      {/* one row: the delivery tabs at the start, the search at the end (ListBar). Only the words on the tabs: the owner
+          wants no numbers beside tabs in Diwan */}
+      <ListBar
+        tabs={
+          <div role="tablist" aria-label={t("Delivery state", "حالة التوصيل")} className="flex flex-wrap gap-2">
+            {TABS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={tab === k}
+                onClick={() => (setTab(k), setOpen(null))}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === k ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
+              >
+                {t(STATE[k].en, STATE[k].ar)}
+              </button>
+            ))}
+          </div>
+        }
+        filters={
+          <input
+            type="search"
+            aria-label={t("Search by store name or link, or order number", "ابحث باسم المتجر أو رابطه، أو برقم الطلب")}
+            placeholder={t("Store or order number", "المتجر أو رقم الطلب")}
+            className={`${field} w-full sm:w-72`}
+            value={typed}
+            onChange={(x) => setTyped(x.target.value)}
+          />
+        }
+      />
 
       {done && <p role="status" className="mb-3 rounded-xl bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-800 ring-1 ring-emerald-500/25 dark:text-emerald-300">{done}</p>}
 

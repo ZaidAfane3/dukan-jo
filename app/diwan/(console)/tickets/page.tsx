@@ -61,21 +61,23 @@ export default function TicketsPage() {
 
       <ShopOnly id={shop} name={s.data?.rows[0] ? s.data.rows[0].shop || s.data.rows[0].owner : null} onClear={() => setShop("")} />
 
-      <div role="tablist" className="mb-4 flex flex-wrap gap-2">
-        {tabs.map((x) => (
-          <button
-            key={x.key || "all"}
-            role="tab"
-            aria-selected={filters.status === x.key}
-            onClick={() => set("status", x.key)}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${filters.status === x.key ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
-          >
-            {x.label}
-          </button>
-        ))}
-      </div>
-
+      {/* the status tabs at the start of the row, the search and filters at its end (FilterBar) */}
       <FilterBar
+        tabs={
+          <div role="tablist" className="flex flex-wrap gap-2">
+            {tabs.map((x) => (
+              <button
+                key={x.key || "all"}
+                role="tab"
+                aria-selected={filters.status === x.key}
+                onClick={() => set("status", x.key)}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${filters.status === x.key ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
+              >
+                {x.label}
+              </button>
+            ))}
+          </div>
+        }
         count={(filters.priority ? 1 : 0) + (filters.assignee ? 1 : 0) + (filters.sort !== "updated" ? 1 : 0)}
         onClear={() => setFilters({ priority: "", assignee: "", sort: "updated" })}
         search={

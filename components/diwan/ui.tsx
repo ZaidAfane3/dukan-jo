@@ -210,6 +210,20 @@ export function PageHead({ title, sub, actions, eyebrow }: { title: string; sub?
   );
 }
 
+/** A list's top row, the same on every Diwan list: its tabs (the status chips, "Waiting · Approved · Rejected …") at the
+    start and its filters (search, lists, dates, sort) at the end, on one line, so in Arabic the row is mirrored (tabs on
+    the right, filters on the left). When the row is too narrow for both, the filters move under the tabs, still at the
+    end. A page with only one of them keeps it on its own side. Tabs come first for the keyboard, then the filters.
+    `bottom`: the two sides meet at their bottom edge instead of their middle (underlined tabs sitting on a line). */
+export function ListBar({ tabs, filters, className = "mb-4", bottom = false }: { tabs?: React.ReactNode; filters?: React.ReactNode; className?: string; bottom?: boolean }) {
+  return (
+    <div className={`flex flex-wrap ${bottom ? "items-end" : "items-center"} gap-x-6 gap-y-3 ${className}`}>
+      {tabs && <div className="flex min-w-0 flex-wrap items-center gap-2">{tabs}</div>}
+      {filters && <div className="ms-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:w-full">{filters}</div>}
+    </div>
+  );
+}
+
 /** One number on a card: a quiet label, the number large. (`icon` and `tone` are kept for older callers and not drawn.) */
 export function Stat({ label, value, hint, children }: { label: string; value: React.ReactNode; hint?: string; icon?: IconName; tone?: string; children?: React.ReactNode }) {
   return (
@@ -359,18 +373,24 @@ export function SkelHead({ actions = false }: { actions?: boolean }) {
   );
 }
 
-/** A whole page while its route loads (a route's loading.tsx): the heading's place, a row of filters when the page has
-    them, then the page's own skeleton, the same one its Loaded shows */
-export function SkelPage({ children, filters = false, actions = false, head = true }: { children?: React.ReactNode; filters?: boolean; actions?: boolean; head?: boolean }) {
+/** A whole page while its route loads (a route's loading.tsx): the heading's place, the row of tabs and filters when the
+    page has them (tabs at the start, filters at the end, as ListBar lays them out), then the page's own skeleton, the
+    same one its Loaded shows */
+export function SkelPage({ children, filters = false, tabs = false, actions = false, head = true }: { children?: React.ReactNode; filters?: boolean; tabs?: boolean; actions?: boolean; head?: boolean }) {
   return (
     <Busy>
       {head && <SkelHead actions={actions} />}
-      {filters && (
-        <div className="mb-6 flex flex-wrap gap-2">
-          <Bone className="h-10 w-64 max-w-full !rounded-xl" />
-          <Bone className="h-10 w-28 !rounded-xl" />
-          <Bone className="h-10 w-28 !rounded-xl" />
-        </div>
+      {(filters || tabs) && (
+        <ListBar
+          className="mb-6"
+          tabs={tabs && [0, 1, 2, 3].map((i) => <Bone key={i} className="h-8 w-20" />)}
+          filters={filters && (
+            <>
+              <Bone className="h-10 w-72 max-w-full !rounded-xl" />
+              <Bone className="h-10 w-28 !rounded-xl" />
+            </>
+          )}
+        />
       )}
       {children ?? <SkelBlock />}
     </Busy>
