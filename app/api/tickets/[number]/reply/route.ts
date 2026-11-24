@@ -1,5 +1,6 @@
 import { answer, readJson, tooManyFor } from "@/server/auth";
 import { onceByKey } from "@/server/onceKey";
+import { ticketChanged } from "@/server/ticketEvents";
 import { addMessage, checkPictures, inTransaction, merchantRoute, merchantStatus, pictureRoom, pictureRoomAnswer, ticketNumber } from "@/server/tickets";
 import { cleanLines, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS } from "@/components/safeAccount";
@@ -35,6 +36,8 @@ export const POST = merchantRoute(async (req, me, ctx) => {
     });
     if (!status) return answer({ result: "none" }, 404);
     if (typeof status === "object") return pictureRoomAnswer(status.room);
+    /* saved: the ticket's page in Diwan (and his other devices) show it at once (server/ticketEvents.ts) */
+    await ticketChanged(number, me.id, "merchant");
     return answer({ result: "ok", status });
   });
 });

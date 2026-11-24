@@ -33,6 +33,7 @@ import { TwoStepPrompt } from "./TwoStepPrompt";
 import { UndoToast } from "./UndoToast";
 import { Badge, newWords } from "./Badge";
 import { bellSeen as markBellSeen, countFor, tabOf, useMerchantBadges } from "./merchantBadges";
+import { useTicketStream } from "./ticketStream";
 
 export type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
@@ -329,6 +330,11 @@ function NotificationBell({ seenAt }: { seenAt: number | null }) {
   useEffect(() => {
     if (open) void refreshServerNotifications();
   }, [open]);
+  /* and the moment Dukkan's team writes to him or solves one of his tickets (a live stream, components/ticketStream.ts;
+     the minute above stays as the safety net) */
+  const [live, setLive] = useState(false);
+  useEffect(() => setLive(serverMode()), []);
+  useTicketStream(live ? "/api/tickets/events" : null, () => void refreshServerNotifications(), { poll: false, catchUp: false });
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {

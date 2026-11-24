@@ -2,6 +2,7 @@ import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
 import { notify } from "@/server/notify";
 import { audit, staffRoute } from "@/server/staff";
+import { ticketChanged } from "@/server/ticketEvents";
 import { addMessage, inTransaction, PRIORITIES, STATUSES, staffList, ticketNumber, type DbStatus } from "@/server/tickets";
 
 export const dynamic = "force-dynamic";
@@ -115,6 +116,9 @@ export const PATCH = staffRoute("tickets", async (req, staff, ctx) => {
     if (out.changes.status && (status === "resolved" || status === "closed")) {
       await notify(out.t.account_id, "ticketStatus", { number, status: status as string, subject: out.t.subject });
     }
+    /* saved: the open conversations show it at once. The merchant's only for a status change (he sees the status, in his
+       own terms); priority and assignee stay with the staff. */
+    await ticketChanged(number, out.t.account_id, out.changes.status ? "staff" : "note");
   }
   return answer({ result: "ok", changed: Object.keys(out.changes) });
 });

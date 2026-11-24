@@ -5,6 +5,7 @@ import { Badge } from "../Badge";
 import { timeoutSignal } from "../timeoutSignal";
 import type { BadgeTab, NavItem } from "./nav";
 import { BACKGROUND } from "./signInAgain";
+import { useTicketStream } from "../ticketStream";
 import { DIWAN_CHANGED, useFmt, useT } from "./ui";
 
 /* The red numbers beside the sidebar's pages: what is new to this staff member since they last opened each page
@@ -87,6 +88,10 @@ export function useBadges(path: string, items: NavItem[]) {
       window.removeEventListener(DIWAN_CHANGED, later);
     };
   }, [load]);
+
+  /* and the moment a merchant writes on a ticket (a live stream, components/ticketStream.ts; the 45 seconds stay as the
+     safety net) */
+  useTicketStream("/api/diwan/tickets/events", load, { poll: false, catchUp: false });
 
   /* opening a page's list clears its number; any other page just asks for the numbers again. A layout effect, so the
      "seen" leaves before the page's own list is asked for (the page's effects run after this one): what arrives while

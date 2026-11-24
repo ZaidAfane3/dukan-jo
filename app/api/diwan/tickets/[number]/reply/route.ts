@@ -1,6 +1,7 @@
 import { answer, readJson } from "@/server/auth";
 import { notify } from "@/server/notify";
 import { audit, staffRoute } from "@/server/staff";
+import { ticketChanged } from "@/server/ticketEvents";
 import { addMessage, checkPictures, inTransaction, ticketNumber } from "@/server/tickets";
 import { cleanLines, visibleLength } from "@/components/safe";
 
@@ -31,5 +32,7 @@ export const POST = staffRoute("tickets", async (req, staff, ctx) => {
   if (!t) return answer({ result: "none" }, 404);
   await audit(req, staff.id, internal ? "ticket.note" : "ticket.reply", { type: "ticket", id: number }, null, { account: String(t.account_id), pictures: pictures.length });
   if (!internal) await notify(t.account_id, "ticketReplied", { number, subject: t.subject });
+  /* saved (and in his bell): the open conversations show it at once, the merchant's only for a reply (server/ticketEvents.ts) */
+  await ticketChanged(number, t.account_id, internal ? "note" : "staff");
   return answer({ result: "ok" });
 });
