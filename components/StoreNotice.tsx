@@ -127,7 +127,7 @@ export function MissingPage({ kind }: { kind?: "store" | "page" } = {}) {
             )}
             {which === "store" && !back ? (
               /* no store at this address: one clickable line to start a store, not a button */
-              <a href="/signup" className="text-base font-bold text-primary underline-offset-4 hover:underline">{missing.register[lang]}</a>
+              <a href="/signup" className="text-base font-bold text-primary underline underline-offset-4 transition hover:opacity-80">{missing.register[lang]}</a>
             ) : (
               /* the home page the words speak of: Dukkan's own */
               <a href="/" className={back ? "inline-flex min-h-[44px] items-center rounded-full px-5 text-sm font-bold text-fg/80 ring-1 ring-fg/15 transition hover:ring-fg/30" : "inline-flex min-h-[44px] items-center rounded-full bg-primary px-6 text-sm font-bold text-white shadow-sm transition hover:opacity-90"}>
