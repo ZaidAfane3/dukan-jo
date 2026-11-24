@@ -1,5 +1,6 @@
 import { answer, readJson } from "@/server/auth";
 import { db } from "@/server/db";
+import { ticketChanged } from "@/server/ticketEvents";
 import { addMessage, inTransaction, merchantRoute, merchantStatus, ticketNumber } from "@/server/tickets";
 
 export const dynamic = "force-dynamic";
@@ -73,5 +74,7 @@ export const PATCH = merchantRoute(async (req, me, ctx) => {
     return merchantStatus(rows[0].status);
   });
   if (!status) return answer({ result: "none" }, 404);
+  /* saved: the ticket's page in Diwan shows it at once (server/ticketEvents.ts) */
+  await ticketChanged(number, me.id, "merchant");
   return answer({ result: "ok", status });
 });

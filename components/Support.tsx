@@ -22,6 +22,7 @@ import type { MerchantPage } from "./dukkanPages";
 import { replyWithin, usePublicSettings } from "./platformPublic";
 import { leaveUnasked } from "./serverSync";
 import { DRAFTS_MAX, loadDrafts, newDraftId, putDraft, removeDraft, type TicketDraft } from "./ticketDrafts";
+import { useTicketStream } from "./ticketStream";
 
 /* Support tickets. Signed in (and not in the tour), tickets go to Dukkan (app/api/tickets): the list comes from the
    server, a ticket opens as a conversation with Dukkan's replies, and the merchant answers there. In the tour or signed
@@ -1008,9 +1009,11 @@ function HelpArticles() {
    One ticket as a conversation (signed in only)
    ==================================================================== */
 
-/** How often an open conversation asks for new messages (while the tab is in view) */
-/* the open conversation checks for new messages this often while it is on screen, so the chat feels live (owner 2026-11-24) */
+/* The open conversation is live (owner 2026-11-24: like a real chat): a stream from the server says the moment Dukkan
+   writes, and it loads again at once (components/ticketStream.ts). It also checks by itself every THREAD_SLOW_MS while
+   the stream is open, and every THREAD_REFRESH_MS (as before the stream) while it can't be. */
 const THREAD_REFRESH_MS = 3_000;
+const THREAD_SLOW_MS = 30_000;
 
 /* Closing a conversation with a reply written but not sent: asked in the page first */
 const replyLeaveWords: Record<Lang, { ask: string; keep: string; leave: string }> = {
@@ -1042,8 +1045,8 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
   const last = useRef<string | null>(null);
   const atBottom = useRef(true);
 
-  /* Loads the conversation: on opening, after each change, and every few seconds while it is open and the tab is in
-     view (THREAD_REFRESH_MS), so Dukkan's replies show up without closing it. The text being written and its pictures
+  /* Loads the conversation: on opening, after each change, and each time the live stream (or its fallback check) says
+     something changed while it is open and the tab is in view, so Dukkan's replies show up without closing it. The text being written and its pictures
      are never touched. Once the conversation shows, a failed load says nothing and the next one tries again. */
   const load = useCallback(async () => {
     const n = ++asked.current;
@@ -1066,14 +1069,8 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
     last.current = null;
     atBottom.current = true;
     void load();
-    const inView = () => document.visibilityState === "visible" && void load();
-    const timer = window.setInterval(inView, THREAD_REFRESH_MS);
-    document.addEventListener("visibilitychange", inView);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", inView);
-    };
   }, [load]);
+  useTicketStream(`/api/tickets/${number}/events`, () => void load(), { fastMs: THREAD_REFRESH_MS, slowMs: THREAD_SLOW_MS });
 
   /* follows each new message only while the conversation is scrolled to the bottom: reading higher up is left alone */
   const onScroll = () => {

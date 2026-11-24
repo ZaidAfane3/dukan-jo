@@ -14,6 +14,7 @@ import { area, Badge, Btn, card, field, Loaded, refusedWords, send, useApi, useF
 import { ChatSkeleton } from "@/components/diwan/skeletons";
 import { BACKGROUND, toSignIn } from "@/components/diwan/signInAgain";
 import { ticketPicture } from "@/components/diwan/TicketBits";
+import { useTicketStream } from "@/components/ticketStream";
 import { CATEGORY, KIND, PRIORITY, PRIORITY_ORDER, STATUS, STATUS_ORDER, systemLine, type TKind, type TPriority, type TStatus } from "@/components/diwan/ticketWords";
 
 /* what a ticket's picture may be on the server (server/tickets.ts checkPictures): never a GIF, which stays a GIF */
@@ -37,9 +38,11 @@ type Data = { ticket: Ticket; staff: { id: string; name: string; role: string }[
 type Canned = { title: string; body_en: string; body_ar: string };
 type Fields = { status: TStatus; priority: TPriority; assignee: string };
 
-/** How often an open ticket asks for new messages (while the tab is in view) */
-/* the open conversation checks for new messages this often while it is on screen, so the chat feels live (owner 2026-11-24) */
+/* The open ticket is live (owner 2026-11-24: like a real chat): a stream from the server says the moment the merchant
+   (or another staff member) writes, and it loads again at once (components/ticketStream.ts). It also checks by itself
+   every SLOW_MS while the stream is open, and every REFRESH_MS (as before the stream) while it can't be. */
 const REFRESH_MS = 3_000;
+const SLOW_MS = 30_000;
 /** A failed send: no connection (status 0) or the server down is the connection message, anything else the page's own */
 const offline = (status: number) => status === 0 || status >= 500;
 
@@ -96,8 +99,8 @@ function TicketView({ first }: { first: Data }) {
   const [err, setErr] = useState("");
   const shown: Fields = { status: pending.status ?? tk.status, priority: pending.priority ?? tk.priority, assignee: pending.assignee ?? tk.assigneeId ?? "" };
 
-  /* Loads the ticket again without a loading screen: after each change, and every few seconds while the tab is in
-     view, so a message the merchant (or another staff member) writes shows up here without reopening the ticket. A
+  /* Loads the ticket again without a loading screen: after each change, and each time the live stream (or its fallback
+     check) says it changed while the tab is in view, so a message the merchant (or another staff member) writes shows up here without reopening the ticket. A
      failed load says nothing and the next one tries again; only the newest answer is used. The loaded ticket holds
      the saved choices, so the waiting values go, except the one still being saved. */
   const asked = useRef(0);
@@ -122,15 +125,7 @@ function TicketView({ first }: { first: Data }) {
       /* no connection: the next refresh tries again */
     }
   }, [first.ticket.number]);
-  useEffect(() => {
-    const inView = () => document.visibilityState === "visible" && void refresh();
-    const timer = window.setInterval(inView, REFRESH_MS);
-    document.addEventListener("visibilitychange", inView);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", inView);
-    };
-  }, [refresh]);
+  useTicketStream(`/api/diwan/tickets/${first.ticket.number}/events`, () => void refresh(), { fastMs: REFRESH_MS, slowMs: SLOW_MS });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setBig(null);

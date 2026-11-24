@@ -117,9 +117,13 @@ function devOwner(): Promise<Staff & { verified: boolean }> {
   return gDev.diwanDevOwner;
 }
 
-/* a load the page made by itself sends X-Diwan-Background: 1 (components/diwan/signInAgain.tsx BACKGROUND) */
+/* a load the page made by itself sends X-Diwan-Background: 1 (components/diwan/signInAgain.tsx BACKGROUND). A live
+   ticket stream (server/ticketEvents.ts) can't send headers of its own, so asking for one (Accept: text/event-stream,
+   which the browser sends by itself) counts as a background load too. */
 export const currentStaff = (req: NextRequest) =>
-  staffFromToken(req.cookies.get(STAFF_COOKIE)?.value, { touch: req.headers.get("x-diwan-background") !== "1" });
+  staffFromToken(req.cookies.get(STAFF_COOKIE)?.value, {
+    touch: req.headers.get("x-diwan-background") !== "1" && !(req.headers.get("accept") ?? "").includes("text/event-stream"),
+  });
 
 /* ---------------- routes ---------------- */
 
