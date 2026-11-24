@@ -4,7 +4,7 @@ import { FeedbackSkeleton, SkelPage } from "@/components/diwan/skeletons";
    shows while the data loads, so nothing jumps when it arrives. */
 export default function Loading() {
   return (
-    <SkelPage filters>
+    <SkelPage tabs filters>
       <FeedbackSkeleton />
     </SkelPage>
   );

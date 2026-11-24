@@ -70,8 +70,12 @@ export default function ComplaintsPage() {
       <ShopOnly id={shop} name={s.data?.rows[0] ? s.data.rows[0].shopName || s.data.rows[0].ownerName : null} onClear={() => setShop("")} />
       {adding && <AddReport onDone={(added) => { setAdding(false); if (added) s.reload(); }} />}
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {FILTERS.map((x) => (
+      {/* the status chips at the start of the row, the filters at its end (FilterBar) */}
+      <FilterBar
+        count={(reason ? 1 : 0) + (from ? 1 : 0)}
+        onClear={() => setList({ reason: "", from: "" })}
+        className="mb-4"
+        tabs={FILTERS.map((x) => (
           <button
             key={x}
             aria-pressed={status === x}
@@ -81,8 +85,7 @@ export default function ComplaintsPage() {
             {statusName(x)}
           </button>
         ))}
-      </div>
-      <FilterBar count={(reason ? 1 : 0) + (from ? 1 : 0)} onClear={() => setList({ reason: "", from: "" })} className="mb-4">
+      >
         <div className="grid gap-2 sm:grid-cols-2">
           <select className={field} value={reason} onChange={(e) => setReason(e.target.value)} aria-label={t("Reason", "السبب")}>
             <option value="">{t("Every reason", "كل الأسباب")}</option>

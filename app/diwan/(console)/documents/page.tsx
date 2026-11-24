@@ -78,8 +78,12 @@ export default function DocumentsPage() {
 
       <ShopOnly id={shop} name={s.data?.shopName || (s.data?.documents[0] ? s.data.documents[0].shopName || s.data.documents[0].ownerName : null)} onClear={() => setShop("")} />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {FILTERS.map((x) => (
+      {/* the status chips at the start of the row, the filters at its end (FilterBar) */}
+      <FilterBar
+        count={kind ? 1 : 0}
+        onClear={() => setKind("")}
+        className="mb-4"
+        tabs={FILTERS.map((x) => (
           <button
             key={x}
             aria-pressed={status === x}
@@ -89,8 +93,7 @@ export default function DocumentsPage() {
             {statusName(x)}
           </button>
         ))}
-      </div>
-      <FilterBar count={kind ? 1 : 0} onClear={() => setKind("")} className="mb-4">
+      >
         <select className={`${field} sm:max-w-xs`} value={kind} onChange={(e) => setKind(e.target.value)} aria-label={t("Kind", "النوع")}>
           <option value="">{t("Every kind", "كل الأنواع")}</option>
           {(["courier_proof", "commercial_registration", "other"] as Kind[]).map((k) => (

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ShopAndOwner, ShopOnly, useUrlParam } from "@/components/diwan/shopBits";
 import { useMemo, useState } from "react";
-import { Badge, card, Loaded, LoadMore, PageHead, send, useFmt, useMore, useT } from "@/components/diwan/ui";
+import { Badge, card, ListBar, Loaded, LoadMore, PageHead, send, useFmt, useMore, useT } from "@/components/diwan/ui";
 import { FeedbackSkeleton } from "@/components/diwan/skeletons";
 import { ticketPicture, type TicketRow } from "@/components/diwan/TicketBits";
 import { KIND, STATUS, STATUS_ORDER } from "@/components/diwan/ticketWords";
@@ -53,27 +53,31 @@ export default function FeedbackPage() {
       <PageHead title={t("Bugs and ideas", "الأخطاء والأفكار")} sub={t("What merchants report or suggest from the theme designer, with where they were and their screenshots.", "ما يبلّغ عنه التجار أو يقترحونه من مصمم الثيم، مع مكانهم ولقطات الشاشة.")} />
       <ShopOnly id={shop} name={s.data?.rows[0] ? s.data.rows[0].shop || s.data.rows[0].owner : null} onClear={() => setShop("")} />
 
-      <div className="mb-3 flex flex-wrap gap-2">
-        {(["", "bug", "idea"] as const).map((k) => (
+      {/* one row: the status tabs at the start, the bug / idea filter at the end (ListBar). No numbers beside the status
+          tabs (Diwan shows none beside tabs) */}
+      <ListBar
+        className="mb-5"
+        tabs={
+          <>
+            <button onClick={() => { setStatus("active"); }} className={chip(status === "active")}>
+              {t("Needs work", "قيد العمل")}
+            </button>
+            {STATUS_ORDER.map((x) => (
+              <button key={x} onClick={() => { setStatus(x); }} className={chip(status === x)}>
+                {t(STATUS[x].en, STATUS[x].ar)}
+              </button>
+            ))}
+            <button onClick={() => { setStatus(""); }} className={chip(status === "")}>
+              {t("All", "الكل")}
+            </button>
+          </>
+        }
+        filters={(["", "bug", "idea"] as const).map((k) => (
           <button key={k || "all"} onClick={() => { setKind(k); }} className={chip(kind === k)}>
             {k ? t(KIND[k].en + "s", k === "bug" ? "الأخطاء" : "الاقتراحات") : t("Bugs and ideas", "الكل")}
           </button>
         ))}
-      </div>
-      {/* no numbers beside the status tabs (Diwan shows none beside tabs) */}
-      <div className="mb-5 flex flex-wrap gap-2">
-        <button onClick={() => { setStatus("active"); }} className={chip(status === "active")}>
-          {t("Needs work", "قيد العمل")}
-        </button>
-        {STATUS_ORDER.map((x) => (
-          <button key={x} onClick={() => { setStatus(x); }} className={chip(status === x)}>
-            {t(STATUS[x].en, STATUS[x].ar)}
-          </button>
-        ))}
-        <button onClick={() => { setStatus(""); }} className={chip(status === "")}>
-          {t("All", "الكل")}
-        </button>
-      </div>
+      />
 
       <Loaded s={s} skeleton={<FeedbackSkeleton />}>
         {(d) => (
