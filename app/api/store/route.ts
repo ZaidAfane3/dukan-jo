@@ -5,7 +5,7 @@ import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
 import { approvedFor, courierApprovals, handOverProofs, ownCourierPhone, pinLegacyApprovals } from "@/server/courierProof";
 import { db } from "@/server/db";
-import { movePicturesOut, sweepSoon } from "@/server/media";
+import { keepMediaInUse, movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
 import { mergeOnlineSales, ONLINE_KEYS, onlineRev, renumberHandOrders, sellPlatform, shopLock, sizesNamedTwice, type OnlineKey } from "@/server/storeOrders";
 import { liveMissing, readyToSell, shipsByDefaultFor, type SellNeed } from "@/components/safeOrder";
@@ -398,6 +398,9 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
       await client.query("ROLLBACK");
       return answer({ result: "too-big" }, 413);
     }
+    /* the files these pages keep are in use from now: a mark the sweep made earlier (a photo sent before its product was
+       saved, or removed and brought back by Undo) no longer counts toward clearing them */
+    await keepMediaInUse(client, a.id, set.map(([, v]) => v as string));
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});

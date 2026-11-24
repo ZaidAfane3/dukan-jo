@@ -85,8 +85,17 @@ export type CartSaveResult =
   | { status: 400; body: { result: "invalid" } }
   | { status: 404; body: { result: "none" } }
   /* ended: this key's cart was already ended by an order (maybe placed on another device, from a reminder's link):
-     nothing was kept, and the browser starts a new key for this basket */
-  | { status: 409; body: { result: "closed" | "ended" } };
+     nothing was kept, and the browser starts a new key for this basket. bought: the basket sent is the one the order
+     ended (not sent again until it changes) */
+  | { status: 409; body: { result: "closed" } | { result: "ended"; bought: boolean } };
+
+/* the same products, sizes and quantities (names, prices and pictures may have changed since). Compared with the basket
+   as priced now and as sent: the order just placed may have taken the stock that cut a quantity */
+function sameLines(stored: unknown, items: { id?: unknown; qty?: unknown; size?: unknown }[]): boolean {
+  const fp = (list: { id?: unknown; qty?: unknown; size?: unknown }[]) =>
+    JSON.stringify(list.map((it) => [Number(it.id), Number(it.qty), typeof it.size === "string" ? it.size : ""]).sort());
+  return Array.isArray(stored) && stored.length > 0 && fp(stored.filter(isObj)) === fp(items);
+}
 
 /** A visitor's basket, from the public store: { key, lines: [{ id, qty, size? }], email?, phone?, name?, lang }. Kept
     when it has something the store sells and a valid email or mobile; an empty basket, or one with neither, deletes
@@ -161,8 +170,11 @@ export async function saveStoreCart(slug: unknown, body: Record<string, unknown>
     /* not kept because this key's cart was ended by an order (from another device, say): the browser starts a new
        key, else every later basket of this browser would be lost for as long as that cart is kept */
     if (!added?.rowCount) {
-      const ended = await pool.query(`SELECT 1 FROM store_carts WHERE account_id = $1 AND key_hash = $2 AND recovered_at IS NOT NULL`, [id, kh]);
-      if (ended.rowCount) return { status: 409, body: { result: "ended" } };
+      const ended = await pool.query(`SELECT items FROM store_carts WHERE account_id = $1 AND key_hash = $2 AND recovered_at IS NOT NULL`, [id, kh]);
+      /* bought: the basket sent is the one that cart held when the order ended it (an order on another device with the
+         same email or mobile ends this one too). The browser then keeps it as sent under its new key, and sends again
+         only once the basket or contact changes, so the products bought don't come back as an abandoned cart */
+      if (ended.rowCount) return { status: 409, body: { result: "ended", bought: sameLines(ended.rows[0].items, items) || sameLines(ended.rows[0].items, lines.filter(isObj)) } };
     }
   }
   return { status: 200, body: { result: "ok" } };

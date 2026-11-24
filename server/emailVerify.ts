@@ -214,15 +214,24 @@ async function oneAtATime<T>(key: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Why a new code for `ref` to `email` would be refused right now ("off", "locked", "slow-down"), or null when it would
+    be sent: the checks sendCodeEmail makes before sending, without counting anything. For a route that spends
+    something first (a recovery code), so a send that will be refused is answered before it is spent. */
+export async function sendRefused(req: NextRequest, purpose: CodePurpose, ref: string, email: string): Promise<Exclude<SendResult, "sent" | "failed"> | null> {
+  if (!emailOn() && process.env.NODE_ENV !== "development") return "off";
+  /* locked for this ref, or for this address from this visitor (wrong codes on an earlier sign-in or sign-up) */
+  if ((await refLocked(ref)) || wrongLocked(wrongKey(purpose, emailKey(email), visitorIp(req)))) return "locked";
+  if (codeMailLimited(email, purpose, visitorIp(req)) || limitReached(`code-send:${ref}`, SEND_PER_REF.max, SEND_PER_REF.minutes) || tooManyIpSends(req)) return "slow-down";
+  return null;
+}
+
 async function sendNewCode(req: NextRequest, purpose: CodePurpose, ref: string, email: string, lang: CodeLang, approves: string, endOthers: boolean, words?: CodeEmailWords): Promise<SendResult> {
   /* without an email provider nothing can be confirmed, except on the dev server, where the code is shown in its console */
   const devConsole = !emailOn() && process.env.NODE_ENV === "development";
-  if (!emailOn() && !devConsole) return "off";
+  const refused = await sendRefused(req, purpose, ref, email);
+  if (refused) return refused;
   const key = emailKey(email);
-  /* locked for this ref, or for this address from this visitor (wrong codes on an earlier sign-in or sign-up) */
-  if ((await refLocked(ref)) || wrongLocked(wrongKey(purpose, key, visitorIp(req)))) return "locked";
   const refKey = `code-send:${ref}`;
-  if (codeMailLimited(email, purpose, visitorIp(req)) || limitReached(refKey, SEND_PER_REF.max, SEND_PER_REF.minutes) || tooManyIpSends(req)) return "slow-down";
   const pool = await db();
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   /* written first, but ended (used_at) until its email went out: the code before it keeps working meanwhile, and stays

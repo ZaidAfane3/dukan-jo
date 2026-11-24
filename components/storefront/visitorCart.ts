@@ -13,7 +13,8 @@ import { visitorEmail } from "../safeOrder";
    a price: the server prices it from the store's own products. Emptying the basket (or clearing both email and mobile) deletes it there. Placing the order
    sends the key with the order, so the server marks this cart recovered, and the next basket gets a new key. If the
    server says this key's cart was already ended by an order (placed on another device, from a reminder's link), the
-   browser takes a new key too and sends the basket again under it. */
+   browser takes a new key too and sends the basket again under it, unless it is the very basket that order ended (it
+   was bought): that one is sent again only once the basket or the contact changes. */
 
 /* a basket's key in this browser, per store, and whether the server holds an open cart for it now */
 const keyStore = (slug: string) => `dukkan-cart-key:${slug.trim().toLowerCase()}`;
@@ -31,11 +32,13 @@ function freshKey(): string {
 }
 
 /* storage turned off (private mode): the key lives as long as the page */
-const memory = new Map<string, { key: string; kept: boolean }>();
-function readKey(slug: string): { key: string; kept: boolean } {
+/* bought: the basket and contact the server said an order ended (see useServerCart), not sent under this key */
+type KeyRecord = { key: string; kept: boolean; bought?: string };
+const memory = new Map<string, KeyRecord>();
+function readKey(slug: string): KeyRecord {
   try {
-    const v = JSON.parse(localStorage.getItem(keyStore(slug)) ?? "null") as { key?: unknown; kept?: unknown } | null;
-    if (v && typeof v.key === "string" && KEY.test(v.key)) return { key: v.key, kept: v.kept === true };
+    const v = JSON.parse(localStorage.getItem(keyStore(slug)) ?? "null") as { key?: unknown; kept?: unknown; bought?: unknown } | null;
+    if (v && typeof v.key === "string" && KEY.test(v.key)) return { key: v.key, kept: v.kept === true, ...(typeof v.bought === "string" && v.bought ? { bought: v.bought } : {}) };
   } catch {
     /* a damaged entry or no storage: a new key below */
   }
@@ -45,7 +48,7 @@ function readKey(slug: string): { key: string; kept: boolean } {
   writeKey(slug, made);
   return made;
 }
-function writeKey(slug: string, v: { key: string; kept: boolean }) {
+function writeKey(slug: string, v: KeyRecord) {
   memory.set(slug, v);
   try {
     localStorage.setItem(keyStore(slug), JSON.stringify(v));
@@ -90,6 +93,14 @@ export function useServerCart(slug: string | undefined, lines: CartLine[], who: 
     const body = keep ? { key: k.key, lines: list, email: emailSent, phone: phoneSent, name, lang } : { key: k.key, lines: [] };
     const fp = JSON.stringify(body);
     if (sent.current === fp) return;
+    /* the basket and contact an order ended (bought, maybe on another device): not sent again under the new key, or it
+       would be listed as abandoned an hour later and could be reminded of. Kept with the key (also across a reload),
+       forgotten at the first change. */
+    const what = JSON.stringify([list, emailSent, phoneSent]);
+    if (k.bought) {
+      if (k.bought === what) return;
+      writeKey(slug, { key: k.key, kept: k.kept });
+    }
     let timer = 0;
     const send = () => {
       window.clearTimeout(timer);
@@ -108,8 +119,10 @@ export function useServerCart(slug: string | undefined, lines: CartLine[], who: 
             /* this key's cart was ended by an order elsewhere: a new key (unless one was taken meanwhile), sent again */
             if (j?.result === "ended" && readKey(slug).key === k.key) {
               sent.current = "";
-              writeKey(slug, { key: freshKey(), kept: false });
-              setRound((n) => n + 1);
+              /* the basket that order ended: kept as sent, nothing new opened for what he bought */
+              const wasBought = (j as { bought?: unknown }).bought === true && keep;
+              writeKey(slug, { key: freshKey(), kept: false, ...(wasBought ? { bought: what } : {}) });
+              if (!wasBought) setRound((n) => n + 1);
             }
             return;
           }
