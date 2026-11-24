@@ -1,6 +1,7 @@
 import { PRODUCT_MAX } from "@/components/records";
 import { cleanLine } from "@/components/safe";
 import { productId, productSizes, sellableStock, sizeName, visitorEmail } from "@/components/safeOrder";
+import { resubscribeEmail } from "./campaigns";
 import { blind, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { findShop, isOpen } from "./storeOrders";
@@ -76,6 +77,8 @@ export async function newsletterSignup(slug: unknown, body: Record<string, unkno
      ON CONFLICT (account_id, email_hash) WHERE kind = 'newsletter' DO NOTHING`,
     [shop.id, seal(email), keyOf(shop.id, email), langOf(body.lang), source, pageId],
   );
+  /* signing up again is asking for the store's emails again: an earlier "unsubscribe" from its campaigns no longer holds */
+  await resubscribeEmail(shop.id, email);
   return { status: 200, body: { result: "ok" } };
 }
 
