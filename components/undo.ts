@@ -61,13 +61,18 @@ const fresh = () => {
   return stack;
 };
 
-/** Offers to undo a change just made. A new one takes the toast's place; the earlier ones can still be undone with Ctrl+Z. */
-export function offerUndo(o: UndoOffer): void {
+/** Offers to undo a change just made. A new one takes the toast's place; the earlier ones can still be undone with Ctrl+Z.
+    Answers its id (for undoShowing and hideUndo). */
+export function offerUndo(o: UndoOffer): number {
   const e: Entry = { ...o, id: ++seq, at: Date.now() };
   stack = [...fresh(), e].slice(-UNDO_KEEP);
   settle(state.toast);
   emit({ toast: e, note: null });
+  return e.id;
 }
+
+/** Whether the toast of this offer still shows (its countdown not over, not closed, not undone or replaced) */
+export const undoShowing = (id: number): boolean => state.toast?.id === id;
 
 /** Undoes the newest change still kept (or the one with this id). */
 export async function runUndo(id?: number): Promise<boolean> {

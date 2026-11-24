@@ -5,7 +5,7 @@ import { seal } from "@/server/crypto";
 import { db } from "@/server/db";
 import { notify } from "@/server/notify";
 import { documentId } from "@/server/documents";
-import { ownCourierPhone } from "@/server/courierProof";
+import { NEXT_COURIER, ownCourierPhone } from "@/server/courierProof";
 import { audit, staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +16,10 @@ export const dynamic = "force-dynamic";
    the staff member saw on the page: the change only goes through while the document still has it, so when two staff
    check the same document at once one wins and the other gets 409 "reviewed" (no second change, no second email).
    Approving a courier proof keeps the courier it is approved for (approved_phone, server/courierProof.ts): the courier
-   it reached Diwan for, or (a proof sent before that was kept) the courier his saved delivery choice has now. A merchant
-   who changes to another courier later needs a new proof (owner decision 2026-11-23). */
+   it reached Diwan for, or (a proof sent before that was kept) the courier his saved delivery choice has now, or when
+   neither has a phone (sent with the phone box empty by a store with no own courier saved) the own courier he saves
+   next (NEXT_COURIER), never none. A merchant who changes to another courier later needs a new proof (owner decision
+   2026-11-23). */
 export const POST = staffRoute("documents", async (req: NextRequest, me, { params }) => {
   const publicId = documentId(params.id);
   const body = await readJson(req, 4_000);
@@ -44,7 +46,7 @@ export const POST = staffRoute("documents", async (req: NextRequest, me, { param
     approvedPhone = (b.partner_phone as string | null) || null;
     if (!approvedPhone) {
       const setup = await pool.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-setup'`, [b.account_id]);
-      approvedPhone = ownCourierPhone(setup.rows[0]?.value ?? null) || null;
+      approvedPhone = ownCourierPhone(setup.rows[0]?.value ?? null) || NEXT_COURIER;
     }
   }
   const changed = await pool.query(

@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { answer } from "@/server/auth";
 import { db } from "@/server/db";
-import { NO_COURIER } from "@/server/courierProof";
+import { NEXT_COURIER, NO_COURIER } from "@/server/courierProof";
 import { staffRoute } from "@/server/staff";
 
 export const dynamic = "force-dynamic";
@@ -79,8 +79,8 @@ export const GET = staffRoute("documents", async (req: NextRequest) => {
       partnerKind: r.partner_kind ?? null,
       /* a courier proof's courier, by phone (server/courierProof.ts), so staff see which courier they approve it for: the
          phone it was approved for once approved, otherwise the one it was sent for (opened from its sealed value by
-         db.ts); "" when none is known (a proof from before phones were kept) */
-      courierPhone: r.kind === "courier_proof" ? ((r.status === "approved" && r.approved_phone && r.approved_phone !== NO_COURIER ? r.approved_phone : r.partner_phone) ?? "") : "",
+         db.ts); "" when none is known (a proof from before phones were kept, or one approved for his next courier) */
+      courierPhone: r.kind === "courier_proof" ? ((r.status === "approved" && r.approved_phone && r.approved_phone !== NO_COURIER && r.approved_phone !== NEXT_COURIER ? r.approved_phone : r.partner_phone) ?? "") : "",
       hasFile: r.has_file,
       mime: r.mime ?? null,
       bytes: r.bytes ?? null,

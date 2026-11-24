@@ -3,7 +3,7 @@ import { answer, currentAccount, guarded, otherAccount, sameOrigin, startRunning
 import { reservedForNew } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { seal } from "@/server/crypto";
-import { approvedFor, courierApprovals, handOverProofs, ownCourierPhone, pinLegacyApprovals } from "@/server/courierProof";
+import { approvedFor, courierApprovals, handOverProofs, ownCourierPhone, pinLegacyApprovals, pinNextApprovals } from "@/server/courierProof";
 import { db } from "@/server/db";
 import { keepMediaInUse, movePicturesOut, sweepSoon } from "@/server/media";
 import { SHOP_KEYS, slugTaken, syncShop, touchShop } from "@/server/shops";
@@ -258,12 +258,15 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
 
   const stale: Record<string, { value: string | null; v: string }> = {};
   /* his delivery choice saved with his own courier, or held back only because it can't sell yet (a live store without
-     pickup whose new courier has no approved proof): the courier proofs still waiting for a check are for that courier
-     now (server/courierProof.ts handOverProofs). Run once the save is answered (kept or refused). */
+     pickup whose new courier has no approved proof): the courier proofs still waiting for a check that were for the
+     courier saved until now, or for none, are for that courier now (server/courierProof.ts handOverProofs). Run once
+     the save is answered (kept or refused). courierBefore: the own courier's phone of the setup as saved before this
+     save, read under the save lock below (undefined until read: then nothing is handed over). */
+  let courierBefore: string | null | undefined;
   const handOver = async () => {
-    if (!setup || !(set.some(([k]) => k === "seen-setup") || refused["seen-setup"]?.result === "not-ready")) return;
+    if (!setup || courierBefore === undefined || !(set.some(([k]) => k === "seen-setup") || refused["seen-setup"]?.result === "not-ready")) return;
     const phone = ownCourierPhone(setup[1] as string);
-    if (phone !== null) await handOverProofs(await db(), a.id, phone).catch((e) => console.error("[documents] hand over", a.id, e));
+    if (phone !== null) await handOverProofs(await db(), a.id, phone, courierBefore).catch((e) => console.error("[documents] hand over", a.id, e));
   };
   const client = await (await db()).connect();
   try {
@@ -303,7 +306,8 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
       const beforeSetup = setupIn(before("seen-setup"));
       /* an approval from before approvals kept their courier is tied to the courier saved until now (or to none when he
          had no own courier saved), so a setup changing to another courier is checked as needing a new proof */
-      if (set.some(([k]) => k === "seen-setup")) await pinLegacyApprovals(client, a.id, ownCourierPhone(before("seen-setup")));
+      courierBefore = ownCourierPhone(before("seen-setup"));
+      if (set.some(([k]) => k === "seen-setup")) await pinLegacyApprovals(client, a.id, courierBefore);
       /* until Diwan approved a proof for the courier a setup names, that courier does not deliver (safeOrder readyToSell) */
       const approvals = await courierApprovals(client, a.id);
       const sellFor = (st: typeof afterSetup) => ({ ...platform, courierApproved: approvedFor(approvals, st?.shipping?.mode === "own" ? st.shipping.phone : null) });
@@ -334,6 +338,9 @@ async function save(req: NextRequest, a: SessionAccount): Promise<NextResponse> 
           return answer({ result: "not-ready", missing, refused }, 409);
         }
       }
+      /* an approval given while a proof had no courier phone is for the courier this kept setup saves (not when it was
+         held back above) */
+      if (set.some(([k]) => k === "seen-setup")) await pinNextApprovals(client, a.id, ownCourierPhone(after("seen-setup")));
     }
     if (online.length) {
       for (const entry of online) {

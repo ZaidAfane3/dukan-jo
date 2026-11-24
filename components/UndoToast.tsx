@@ -138,7 +138,9 @@ export function UndoToast() {
     let frame = 0;
     let shownLeft = -1;
     const tick = (now: number) => {
-      const dt = Math.max(0, now - last);
+      /* no frames come while the tab is hidden: the first one back would count all that time, so one frame never counts
+         more than a moment (the toast goes on where it stopped) */
+      const dt = Math.min(250, Math.max(0, now - last));
       last = now;
       if (!pausedRef.current && !document.hidden) used += dt;
       const part = Math.min(1, used / UNDO_TOAST_MS);
