@@ -33,7 +33,7 @@ export const CAMPAIGNS_PER_DAY = 3;
    subscribers (by email), each address once. A mobile campaign reaches
    buyers only (the newsletter keeps emails). The order filters keep only people who ordered: within the last `days`
    (0: any time) and at least `minOrders` orders (cancelled and refunded orders don't count). Anyone who unsubscribed
-   from the store's campaigns is always left out. */
+   from the store's campaigns is always left out, and anyone who paused them until his pause ends. */
 export type CampaignWho = "all" | "subscribers" | "buyers";
 export type CampaignAudience = { who: CampaignWho; days: number; minOrders: number };
 export const AUDIENCE_DAYS = [0, 30, 90, 365] as const;
@@ -118,6 +118,32 @@ export function campaignProblems(c: CampaignContent, slug: string, sending: bool
     that direction. */
 export const campaignLang = (c: Pick<CampaignContent, "subject" | "heading" | "body">): "ar" | "en" =>
   /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/.test(`${c.subject} ${c.heading} ${c.body}`) ? "ar" : "en";
+
+/* ---------------- the unsubscribe page ----------------
+   The page a campaign email's "Unsubscribe" opens (components/Unsubscribe.tsx): the reader types the address the email
+   came to, then pauses the store's emails for PAUSE_DAYS or unsubscribes from them, optionally saying why. Only counts of
+   the reasons reach the merchant. He can write his own short words for the page, one per language. */
+
+/** How long "pause this store's emails" lasts */
+export const PAUSE_DAYS = 30;
+export const UNSUB_REASONS = ["too-many", "not-relevant", "never-signed-up", "other"] as const;
+export type UnsubReason = (typeof UNSUB_REASONS)[number];
+export const unsubReason = (v: unknown): UnsubReason | null => ((UNSUB_REASONS as readonly unknown[]).includes(v) ? (v as UnsubReason) : null);
+
+/** The most characters of the merchant's words on his unsubscribe page, in each language */
+export const UNSUB_MESSAGE_MAX = 300;
+export type UnsubMessage = { ar: string; en: string };
+/** The page's words where the merchant wrote none (also the placeholder of his box on Marketing > Campaigns) */
+export const UNSUB_MESSAGE_DEFAULT: UnsubMessage = {
+  ar: "يؤسفنا أن نراك تغادر. إن كانت رسائلنا تصلك كثيرًا، يمكنك إيقافها مؤقتًا بدلًا من إلغاء الاشتراك.",
+  en: "We're sorry to see you go. If our emails come too often, you can pause them for a while instead of unsubscribing.",
+};
+/** His words as they are kept: plain text, cleaned like his other texts, never cut (`unsubMessageTooLong` says so) */
+export const cleanUnsubMessage = (v: unknown): UnsubMessage => {
+  const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  return { ar: cleanLines(o.ar, UNSUB_MESSAGE_MAX * ROOM), en: cleanLines(o.en, UNSUB_MESSAGE_MAX * ROOM) };
+};
+export const unsubMessageTooLong = (m: UnsubMessage): ("ar" | "en")[] => (["ar", "en"] as const).filter((l) => m[l].length > UNSUB_MESSAGE_MAX);
 
 /** An SMS message's length: its characters and how many SMS it takes (160 Latin characters in one, 153 per part
     after; 70 in one and 67 per part when it holds Arabic or other characters an SMS can't write in its plain alphabet) */

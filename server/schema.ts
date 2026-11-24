@@ -1176,4 +1176,26 @@ export const DIWAN_SCHEMA = `
     reason     TEXT CHECK (reason IN ('too_many', 'not_relevant', 'never_asked', 'other')),
     at         TIMESTAMPTZ NOT NULL DEFAULT now()
   );
+  /* paused_until: set when the reader chose "pause this store's emails for 30 days" instead (NULL: unsubscribed for
+     good). Until then he is left out like the others; after it he gets the store's campaigns again. Rows kept before
+     this column are unsubscribes for good, as they were. */
+  ALTER TABLE store_unsubscribes ADD COLUMN IF NOT EXISTS paused_until TIMESTAMPTZ;
+  /* store_unsub_reasons: how many times readers gave each reason when they paused or unsubscribed (the optional choice
+     on the unsubscribe page): a count per store and reason only, with nothing of who gave it (no address, no
+     fingerprint, no date). The merchant sees these counts on Marketing > Campaigns. */
+  CREATE TABLE IF NOT EXISTS store_unsub_reasons (
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    reason     TEXT NOT NULL,
+    n          INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, reason)
+  );
+  /* store_unsub_pages: the merchant's own short words on his store's unsubscribe page, one per language (plain text,
+     sealed, components/campaignRules.ts UNSUB_MESSAGE_MAX). Empty: the page's default words. Kept in a table of its own,
+     not in store_data, so the browser's saving of the store's data can never write it without the server's cleaning. */
+  CREATE TABLE IF NOT EXISTS store_unsub_pages (
+    account_id BIGINT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+    message_ar TEXT,
+    message_en TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
 `;
