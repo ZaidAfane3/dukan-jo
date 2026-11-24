@@ -757,7 +757,8 @@ function Gallery({ p, ctx, look }: { p: StoreProduct; ctx: Ctx; look: ProductPag
 
 /* ---------------- "Remind me when it's back": a sold-out product, or a sold-out size of it ----------------
    On the public store the email goes to Dukkan's server for the merchant (POST /api/public/store/<link>/back-in-stock,
-   server/storeSignups.ts), who sees it in Marketing > Customer emails. Nothing is sent to the visitor, and nothing is
+   server/storeSignups.ts), counted for the merchant in Marketing > Customer emails (he never sees the address). Once it is
+   back he presses "Tell them it's back" there and Dukkan emails the visitor once. Nothing is
    kept in his browser. In the merchant's preview, the designer and the tour it answers as on the store and keeps
    nothing. */
 
@@ -773,7 +774,7 @@ const backWords = {
     slow: "Too many tries. Wait a few minutes and try again.",
     closed: "This store isn't taking requests right now.",
     back: "Good news: it's available again. Reload the page to order it.",
-    preview: "This is a preview, so the email was not saved. Emails left on your live store appear in Marketing > Customer emails.",
+    preview: "This is a preview, so the email was not saved. Emails left on your live store are counted in Marketing > Customer emails.",
   },
   ar: {
     button: "ذكّرني عند توفّره",
@@ -786,7 +787,7 @@ const backWords = {
     slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مرة أخرى.",
     closed: "هذا المتجر لا يستقبل الطلبات حاليًا.",
     back: "خبر جيد: المنتج متوفّر من جديد. حدّث الصفحة لتطلبه.",
-    preview: "هذه معاينة، لذلك لم يُحفظ البريد. الإيميلات التي يتركها الزوّار في متجرك المنشور تظهر في التسويق > إيميلات العملاء.",
+    preview: "هذه معاينة، لذلك لم يُحفظ البريد. الإيميلات التي يتركها الزوّار في متجرك المنشور تُحسب في التسويق > إيميلات العملاء.",
   },
 };
 
@@ -3001,7 +3002,7 @@ function Chips({ id, s, ctx }: { id: string; s: Extract<SectionConfig, { type: "
 
 /* ---------------- Newsletter: a dark block with an email field ----------------
    On the public store the email goes to Dukkan's server for the merchant (POST /api/public/store/<link>/newsletter,
-   server/storeSignups.ts), who sees it in Marketing > Customer emails. Nothing is ever kept in the visitor's
+   server/storeSignups.ts), counted for the merchant in Marketing > Customer emails (never the address). Nothing is ever kept in the visitor's
    own browser. In the merchant's preview and the tour the block answers as it would, and keeps nothing. */
 
 /* how long a sign-up may take before the visitor is told it did not go through */
@@ -3013,14 +3014,14 @@ const signupWords = {
     error: "We couldn't sign you up. Check your connection and try again.",
     slow: "Too many tries. Wait a few minutes and try again.",
     closed: "This store isn't taking sign-ups right now.",
-    preview: "This is a preview, so the email was not saved. Emails left on your live store appear in Marketing > Customer emails.",
+    preview: "This is a preview, so the email was not saved. Emails left on your live store are counted in Marketing > Customer emails.",
   },
   ar: {
     sending: "جارٍ الإرسال…",
     error: "تعذّر تسجيل اشتراكك. تأكّد من اتصالك وحاول مرة أخرى.",
     slow: "محاولات كثيرة. انتظر بضع دقائق ثم حاول مرة أخرى.",
     closed: "هذا المتجر لا يستقبل اشتراكات حاليًا.",
-    preview: "هذه معاينة، لذلك لم يُحفظ البريد. الإيميلات التي يتركها الزوّار في متجرك المنشور تظهر في التسويق > إيميلات العملاء.",
+    preview: "هذه معاينة، لذلك لم يُحفظ البريد. الإيميلات التي يتركها الزوّار في متجرك المنشور تُحسب في التسويق > إيميلات العملاء.",
   },
 };
 

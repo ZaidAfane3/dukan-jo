@@ -851,8 +851,11 @@ export const DIWAN_SCHEMA = `
      product_id, size (the sold-out size, '' for the whole product) and product_name (its name then, for when it is
      gone). Only the store's own merchant sees them (Marketing > Customer emails). email: sealed. email_hash: a keyed
      fingerprint of the email for this shop only (the same email in two shops gives two different ones): an email is
-     kept once per shop in the newsletter, and once per product and size for back in stock. Dukkan sends them nothing.
-     They go with the account. */
+     kept once per shop in the newsletter, and once per product and size for back in stock. The merchant sees numbers
+     only, never the addresses (owner decision 2026-11-24). Back in stock: when he says a product is back, Dukkan emails
+     those waiting once (notified_at: when), and the address is then wiped (email ''): the row stays only to be counted
+     ("told so far") and so the same email asking again for the same product is still one row (email_hash). They go
+     with the account. */
   CREATE TABLE IF NOT EXISTS store_signups (
     id           BIGSERIAL PRIMARY KEY,
     account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -871,6 +874,7 @@ export const DIWAN_SCHEMA = `
   CREATE UNIQUE INDEX IF NOT EXISTS store_signups_newsletter ON store_signups (account_id, email_hash) WHERE kind = 'newsletter';
   CREATE UNIQUE INDEX IF NOT EXISTS store_signups_back ON store_signups (account_id, email_hash, product_id, size) WHERE kind = 'back_in_stock';
   CREATE INDEX IF NOT EXISTS store_signups_account ON store_signups (account_id, kind, id DESC);
+  ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
   /* ---------- Diwan: 2-step sign-in by emailed code (server/staffSignin.ts) ----------
      Since 2026-11-22 every staff sign-in asks, after the password, for a 6-digit code sent to the member's email
      (email_codes, refs "sl:" and "sc:"). The authenticator app is gone for staff: staff.totp_on, totp_secret and

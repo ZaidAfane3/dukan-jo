@@ -13,6 +13,7 @@ import { moneyText } from "@/components/moneyText";
    - staffChangeEmail      the Diwan staff routes (app/api/diwan/staff), to the other owners
    - staffSigninCodeEmail, staffEmailApproveEmail, staffEmailCodeEmail, staffEmailChangedEmail   a staff member's own codes (server/staffSignin.ts)
    - cartReminderEmail     server/storeCarts.ts, to a store's customer: the cart he left, when the merchant reminds him
+   - backInStockEmail      server/storeSignups.ts, to a store's customer: the product he asked about is back, when the merchant says so
    - campaignFoot          server/campaigns.ts, the line under a store's campaign email (the rest is the merchant's words)
 
    Notices go out in the language the reader uses Dukkan in (accounts.lang / staff.lang, server/lang.ts): wordsIn. Someone
@@ -465,6 +466,38 @@ export function cartReminderEmail(lang: EmailLang, p: { store: string; count: nu
       "Press the button to go back to your cart and finish your order. Prices and stock may change before you order.\n" +
       "You got this email because you typed it at checkout on this store and didn't finish your order. You'll get at most 3 emails about this cart, and they stop once you order or empty your cart.",
     button,
+  };
+}
+
+/** "It's back": to a store's customer who pressed "Remind me when it's back" on a sold-out product (or a size of it),
+    sent when the store's merchant says it is back (Marketing > Customer emails, server/storeSignups.ts
+    notifyBackInStock), in the language the customer asked in. `url`: the product's page on the store. The store's and
+    the product's names are the merchant's words, each kept apart on one short line (line). `foot`: the line under the
+    email (why it came: it is the one reminder they asked for, nothing more follows). */
+export function backInStockEmail(lang: EmailLang, p: { store: string; product: string; size: string; url: string }): EmailWords & { foot: string } {
+  const store = line(p.store, 80);
+  const product = line(p.product, 80);
+  const size = p.size ? line(p.size, 30) : "";
+  const button = { label: lang === "ar" ? "اطلبه الآن" : "Order it now", url: p.url };
+  if (lang === "ar") {
+    return {
+      subject: `عاد ${product} إلى ${store}`,
+      heading: "المنتج الذي طلبته متوفّر من جديد",
+      text:
+        `${product}${size ? ` (المقاس ${size})` : ""} متوفّر الآن في متجر ${store}.\n` +
+        "اضغط الزر لتفتح صفحته وتطلبه. الكمية محدودة وقد تنفد مرة أخرى.",
+      button,
+      foot: `وصلتك هذه الرسالة من متجر ${store} لأنك طلبت أن نخبرك عند توفّر هذا المنتج. هي رسالة واحدة ولن تصلك غيرها عنه. أُرسلت عبر دكان، ولا يُستقبل الرد عليها.`,
+    };
+  }
+  return {
+    subject: `${product} is back at ${store}`,
+    heading: "The product you asked about is back",
+    text:
+      `${product}${size ? ` (size ${size})` : ""} is available again at ${store}.\n` +
+      "Press the button to open its page and order it. Stock is limited and may run out again.",
+    button,
+    foot: `You got this email from ${store} because you asked to be told when this product is back. It's the only one you'll get about it. Sent through Dukkan; replies aren't read.`,
   };
 }
 
