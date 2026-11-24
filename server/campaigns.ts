@@ -8,7 +8,7 @@ import { savedMobile } from "@/components/phone";
 import { cleanSetup } from "@/components/safeAccount";
 import { visitorEmail } from "@/components/safeOrder";
 import { SITE_HOST } from "@/components/siteAddress";
-import { reserveTry } from "./auth";
+import { countTry, limitReached, reserveTry } from "./auth";
 import { blind, plainText, seal } from "./crypto";
 import { db } from "./db";
 import { emailOn, sendEmail, sendEmailBatch, type Email } from "./email";
@@ -36,9 +36,11 @@ import { campaignFoot, campaignTestSubject } from "./emailWords";
    On every start of the server the worker picks up the campaigns still sending (instrumentation.ts).
 
    Every email: the store's name as the sender and on top, the merchant's words as plain text (escaped by email.ts, a
-   paragraph per line), his button only to a page of his own store, and the line saying why it came with the link that
-   unsubscribes from this store's campaigns (one click, /unsubscribe), plus the List-Unsubscribe headers so mail apps
-   offer their own button (RFC 8058: one POST, no page). Dukkan's staff can stop a campaign that is sending (Diwan >
+   paragraph per line), his button only to a page of his own store, and the line saying why it came with the link to
+   unsubscribe from this store's campaigns (/unsubscribe: the reader types the address the email came to and presses the
+   button), plus a List-Unsubscribe header naming that same page, so mail apps offer their own "Unsubscribe" too. There
+   is no one-click unsubscribe (no List-Unsubscribe-Post): the owner wants every unsubscribe confirmed by the address
+   typed on the page. Dukkan's staff can stop a campaign that is sending (Diwan >
    Campaigns, stopCampaign): the rest is not sent and the merchant is told. Staff see counts, never the recipients. */
 
 /* the most drafts one store keeps */
@@ -72,8 +74,6 @@ const TOKEN = /^(\d{1,18})-([0-9a-f]{64})-([0-9a-f]{32})$/;
 export const unsubToken = (accountId: string, hash: string) => `${accountId}-${hash}-${unsubSig(accountId, hash)}`;
 /** The page a campaign email's "Unsubscribe" opens (app/unsubscribe) */
 export const unsubPage = (token: string, lang: Lang) => `https://${SITE_HOST}/unsubscribe?t=${token}&l=${lang}`;
-/** Where a mail app's own "Unsubscribe" posts (app/api/public/unsubscribe, RFC 8058) */
-export const unsubApi = (token: string) => `https://${SITE_HOST}/api/public/unsubscribe?t=${token}`;
 
 /** The shop and the fingerprint a link names, when its signature is right; else null */
 export function readUnsubToken(t: unknown): { accountId: string; hash: string } | null {
@@ -96,17 +96,40 @@ export async function unsubInfo(t: unknown): Promise<{ store: string; done: bool
   return { store: shop.store, done: rows.length > 0 };
 }
 
-/** Unsubscribes the address a link names from its store's campaigns (or, `undo`, subscribes it again). False when the
-    link is not a real one. Unsubscribing twice is fine. */
-export async function unsubscribe(t: unknown, undo = false): Promise<boolean> {
+/* wrong addresses typed for one link, at most: a link someone else got hold of can't be used to find out, by trying,
+   which address it was sent to */
+const GUESSES = 10;
+const GUESS_MINUTES = 60;
+
+/** Unsubscribes the address a link names from its store's campaigns (or, `undo`, subscribes it again), when `email`,
+    the address the reader typed, is the one the link was sent to (compared by its fingerprint in this store, so spaces
+    and capitals don't matter). "none": the link is not a real one; "mismatch": another address (which one it was sent
+    to is never told); "slow-down": too many wrong addresses for this link. Unsubscribing twice is fine. */
+export async function unsubscribe(t: unknown, email: unknown, undo = false): Promise<"ok" | "none" | "mismatch" | "slow-down"> {
   const k = readUnsubToken(t);
-  if (!k) return false;
+  if (!k) return "none";
+  const guessKey = `unsubscribe-guess:${k.accountId}:${k.hash}`;
+  if (limitReached(guessKey, GUESSES, GUESS_MINUTES)) return "slow-down";
+  const typed = visitorEmail(email);
+  const want = Buffer.from(k.hash);
+  const got = Buffer.from(typed ? contactHash(k.accountId, "email", typed) : "");
+  if (want.length !== got.length || !timingSafeEqual(want, got)) {
+    countTry(guessKey, GUESS_MINUTES);
+    return "mismatch";
+  }
   const pool = await db();
   const { rows } = await pool.query(`SELECT 1 FROM accounts WHERE id = $1`, [k.accountId]);
-  if (!rows.length) return false;
+  if (!rows.length) return "none";
   if (undo) await pool.query(`DELETE FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2`, [k.accountId, k.hash]);
   else await pool.query(`INSERT INTO store_unsubscribes (account_id, contact_hash) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [k.accountId, k.hash]);
-  return true;
+  return "ok";
+}
+
+/** A visitor signed up for the store's newsletter again: an address that had unsubscribed from its campaigns gets them
+    again (server/storeSignups.ts). `email` as visitorEmail gives it, the way peopleOf compares it. */
+export async function resubscribeEmail(accountId: string, email: string): Promise<void> {
+  if (!email) return;
+  await (await db()).query(`DELETE FROM store_unsubscribes WHERE account_id = $1 AND contact_hash = $2`, [accountId, contactHash(accountId, "email", email)]);
 }
 
 /* ---------------- the store ---------------- */
@@ -448,7 +471,8 @@ function emailOf(accountId: string, sender: string, c: CampaignContent, to: stri
     text: c.body,
     ...(c.buttonLabel && c.buttonUrl ? { button: { label: c.buttonLabel, url: c.buttonUrl } } : {}),
     foot: { lang: readerLang, text: foot.text, link: { label: foot.unsubscribe, url: unsubPage(token, readerLang) } },
-    headers: { "List-Unsubscribe": `<${unsubApi(token)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    /* the mail app's own "Unsubscribe" opens the same page (no one-click POST: see the top of this file) */
+    headers: { "List-Unsubscribe": `<${unsubPage(token, readerLang)}>` },
   };
 }
 
@@ -544,32 +568,36 @@ async function work(): Promise<void> {
   }
 }
 
-/* adds to a campaign's counts */
+/* adds to a campaign's counts (endCampaign, inside its transaction) */
 const count = (q: Q, id: string, n: { sent?: number; failed?: number; skipped?: number }) =>
   (n.sent ?? 0) + (n.failed ?? 0) + (n.skipped ?? 0) > 0
     ? q.query(`UPDATE store_campaigns SET sent = sent + $2, failed = failed + $3, skipped = skipped + $4, updated_at = now() WHERE id = $1`, [id, n.sent ?? 0, n.failed ?? 0, n.skipped ?? 0])
     : Promise.resolve();
 
-/* marks recipients of one campaign still in a batch ('sending') with an outcome; their address is not needed any more.
-   Gives how many it really changed: only those count (another server may have noted some of them already). */
-async function mark(q: Q, id: string, hashes: string[], status: "sent" | "failed" | "skipped" | "waiting"): Promise<number> {
-  if (!hashes.length) return 0;
-  const r =
-    status === "waiting"
-      ? await q.query(`UPDATE store_campaign_recipients SET status = 'waiting', batch = NULL, claimed_at = NULL, key_at = NULL WHERE campaign_id = $1 AND contact_hash = ANY($2::text[]) AND status = 'sending'`, [id, hashes])
-      : await q.query(
-          `UPDATE store_campaign_recipients SET status = $3, contact = NULL, sent_at = CASE WHEN $3 = 'sent' THEN now() END WHERE campaign_id = $1 AND contact_hash = ANY($2::text[]) AND status = 'sending'`,
-          [id, hashes, status],
-        );
-  return r.rowCount ?? 0;
-}
+/* puts recipients of one campaign still in a batch ('sending') back in line */
+const unclaim = (q: Q, id: string, hashes: string[]) =>
+  hashes.length
+    ? q.query(`UPDATE store_campaign_recipients SET status = 'waiting', batch = NULL, claimed_at = NULL, key_at = NULL WHERE campaign_id = $1 AND contact_hash = ANY($2::text[]) AND status = 'sending'`, [id, hashes])
+    : Promise.resolve();
 
-/* marks them and counts them */
-const settle = async (q: Q, id: string, hashes: string[], status: "sent" | "failed" | "skipped") => {
-  const n = await mark(q, id, hashes, status);
-  await count(q, id, { [status]: n });
-  return n;
-};
+/* marks recipients of one campaign still in a batch ('sending') with an outcome (their address is not needed any more)
+   and adds them to the campaign's counts, in one statement: a restart can never leave rows marked but not counted, and
+   finishIfDone never sees the one without the other. Gives how many it really changed: only those count (another
+   server may have noted some of them already). */
+async function settle(q: Q, id: string, hashes: string[], status: "sent" | "failed" | "skipped"): Promise<number> {
+  if (!hashes.length) return 0;
+  const { rows } = await q.query(
+    `WITH m AS (
+       UPDATE store_campaign_recipients SET status = $3, contact = NULL, sent_at = CASE WHEN $3 = 'sent' THEN now() END
+        WHERE campaign_id = $1 AND contact_hash = ANY($2::text[]) AND status = 'sending' RETURNING 1
+     ), n AS (SELECT count(*)::int AS n FROM m)
+     UPDATE store_campaigns SET sent = sent + CASE WHEN $3 = 'sent' THEN n.n ELSE 0 END, failed = failed + CASE WHEN $3 = 'failed' THEN n.n ELSE 0 END,
+            skipped = skipped + CASE WHEN $3 = 'skipped' THEN n.n ELSE 0 END, updated_at = now()
+       FROM n WHERE id = $1 AND n.n > 0 RETURNING n.n`,
+    [id, hashes, status],
+  );
+  return Number(rows[0]?.n) || 0;
+}
 
 /** Recipients of a batch nothing of which went out (Resend said so clearly): back in line while the campaign is still
     sending (a new key next time). A campaign stopped or ended meanwhile never sends them: they are skipped and their
@@ -580,7 +608,7 @@ async function giveBack(pool: Pool, id: string, hashes: string[]): Promise<void>
   try {
     await c.query("BEGIN");
     const live = await c.query(`SELECT 1 FROM store_campaigns WHERE id = $1 AND status = 'sending' FOR SHARE`, [id]);
-    if (live.rows.length) await mark(c, id, hashes, "waiting");
+    if (live.rows.length) await unclaim(c, id, hashes);
     else await settle(c, id, hashes, "skipped");
     await c.query("COMMIT");
   } catch (e) {
@@ -693,13 +721,19 @@ async function sendUnderKey(emails: Email[], key: string, maybe: boolean): Promi
    - "keep": it may have gone out and it can't be settled now: it stays in its batch ('sending') under the same key,
      sent again with that key once stale (resumeStale), or skipped if the campaign stopped meanwhile;
    - "back": nothing went out (too many for now, or email turned off): back in line, a new key next time;
-   - "failed": refused after a try that may have gone out: never sent under another key, counted failed;
-   - "refused": refused, and nothing of it ever went out. */
+   - "refused": refused, and nothing of it ever went out. That holds after a try that may have gone out too, for a
+     refusal of the request itself (an address Resend won't take, 400 / 422): under the same key, with the very same
+     request, Resend answers a request it took again with its first answer (a 2xx), so a refusal under that key means
+     it never took one;
+   - "failed": refused after a try that may have gone out, by a refusal that comes before Resend looks at the key (the
+     API key refused, 401 / 403) or one not understood: it says nothing of the earlier try, so it is never sent under
+     another key, and counted failed. */
 function verdictOf(status: number, maybe: boolean): "sent" | "keep" | "back" | "failed" | "refused" {
   if (status >= 200 && status < 300) return "sent";
   if (status === 409) return maybe ? "sent" : "keep";
   if (status === 429 || status === -1 || unclear(status)) return maybe ? "keep" : "back";
-  return maybe ? "failed" : "refused";
+  if (!maybe) return "refused";
+  return status >= 400 && status < 500 && status !== 401 && status !== 403 ? "refused" : "failed";
 }
 
 /** Hands one batch to Resend under its key and notes what became of each reader. `again`: the batch was handed to
@@ -723,7 +757,12 @@ async function deliver(pool: Pool, s: Sending, key: string, rows: { contact_hash
   }
   /* refused, nothing sent (an address Resend won't take makes it refuse the whole batch): each email on its own, so one
      bad address doesn't cost the others. Each gets its own key, kept on its row, so one whose answer is lost is sent
-     again under that same key (resumeStale), never under another. */
+     again under that same key (resumeStale), never under another. A single email refused is simply failed. */
+  if (rows.length === 1) {
+    console.error(`[campaigns] campaign ${s.id}: an email was refused (${status}); counted failed`);
+    await settle(pool, s.id, hashes, "failed");
+    return "idle";
+  }
   const keys = hashes.map((_, i) => `${key}-${i}`);
   await pool.query(
     `UPDATE store_campaign_recipients r SET batch = t.k, claimed_at = now(), key_at = now() FROM unnest($2::text[], $3::text[]) AS t (h, k)
@@ -752,13 +791,13 @@ async function deliver(pool: Pool, s: Sending, key: string, rows: { contact_hash
     if (!own.rowCount) continue;
     const one = await sendUnderKey([emails[i]], keys[i], false);
     const v = verdictOf(one.status, one.maybe);
-    if (v === "sent") sent += await mark(pool, s.id, [hashes[i]], "sent");
+    /* each one counted the moment its outcome is known, so a restart in this loop loses no count */
+    if (v === "sent") sent += await settle(pool, s.id, [hashes[i]], "sent");
     else if (v === "back") later.push(hashes[i]);
-    else if (v === "failed" || v === "refused") failed += await mark(pool, s.id, [hashes[i]], "failed");
+    else if (v === "failed" || v === "refused") failed += await settle(pool, s.id, [hashes[i]], "failed");
     /* "keep": left under its own key for resumeStale */
     await sleep(PACE_MS);
   }
-  await count(pool, s.id, { sent, failed });
   await giveBack(pool, s.id, later);
   console.error(`[campaigns] campaign ${s.id}: a batch was refused (${status}); sent one by one: ${sent} sent, ${failed} failed, ${later.length} for later`);
   return later.length ? "busy" : sent ? "sent" : "idle";
@@ -768,13 +807,14 @@ async function deliver(pool: Pool, s: Sending, key: string, rows: { contact_hash
     their own key, or, once that key is nearly as old as Resend keeps it (key_at, the key's first use: claimed_at moves
     with every try), counted failed */
 async function resumeStale(pool: Pool): Promise<void> {
-  const lost = await pool.query(
-    `UPDATE store_campaign_recipients SET status = 'failed', contact = NULL
-      WHERE status = 'sending' AND COALESCE(key_at, claimed_at) < now() - make_interval(hours => ${KEY_HOURS}) RETURNING campaign_id`,
+  /* marked and counted in one statement, as settle does */
+  await pool.query(
+    `WITH m AS (
+       UPDATE store_campaign_recipients SET status = 'failed', contact = NULL
+        WHERE status = 'sending' AND COALESCE(key_at, claimed_at) < now() - make_interval(hours => ${KEY_HOURS}) RETURNING campaign_id
+     ), per AS (SELECT campaign_id, count(*)::int AS n FROM m GROUP BY campaign_id)
+     UPDATE store_campaigns c SET failed = c.failed + per.n, updated_at = now() FROM per WHERE c.id = per.campaign_id`,
   );
-  const per = new Map<string, number>();
-  for (const r of lost.rows) per.set(String(r.campaign_id), (per.get(String(r.campaign_id)) ?? 0) + 1);
-  for (const [id, n] of per) await count(pool, id, { failed: n });
 
   const stale = await pool.query(
     `SELECT DISTINCT campaign_id, batch FROM store_campaign_recipients

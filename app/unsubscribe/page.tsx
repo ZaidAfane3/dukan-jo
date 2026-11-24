@@ -11,9 +11,10 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/* Where "Unsubscribe" in a store's campaign email leads (server/campaigns.ts unsubPage): /unsubscribe?t=<link>&l=ar|en.
-   It only shows the store's name and one button: nothing changes until it is pressed, so a mail service that opens the
-   links of an email to check them never unsubscribes anyone. */
+/* Where "Unsubscribe" in a store's campaign email leads, and a mail app's own "Unsubscribe" too (server/campaigns.ts
+   unsubPage): /unsubscribe?t=<link>&l=ar|en. It shows the store's name, a field for the address the email came to and
+   one button: nothing changes until the right address is typed and the button pressed, so a mail service that opens
+   the links of an email to check them never unsubscribes anyone. */
 export default async function UnsubscribePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
   const token = typeof sp.t === "string" ? sp.t.slice(0, 200) : "";
