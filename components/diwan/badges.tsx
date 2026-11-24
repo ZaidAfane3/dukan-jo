@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Badge } from "../Badge";
 import { timeoutSignal } from "../timeoutSignal";
 import type { BadgeTab, NavItem } from "./nav";
 import { BACKGROUND } from "./signInAgain";
@@ -87,9 +88,11 @@ export function useBadges(path: string, items: NavItem[]) {
     };
   }, [load]);
 
-  /* opening a page's list clears its number; any other page just asks for the numbers again */
+  /* opening a page's list clears its number; any other page just asks for the numbers again. A layout effect, so the
+     "seen" leaves before the page's own list is asked for (the page's effects run after this one): what arrives while
+     the page loads is then shown in the list and counted as new, never lost between the two */
   const tabHere = items.find((i) => i.badge && i.href === path)?.badge;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (tabHere) seen(tabHere);
     else load();
   }, [path, tabHere, seen, load]);
@@ -97,34 +100,29 @@ export function useBadges(path: string, items: NavItem[]) {
   return { counts, seen };
 }
 
-/** How a number is written: up to 99, then "99+" */
-const shown = (n: number, num: (v: number) => string) => (n > 99 ? `${num(99)}+` : num(n));
-
 /** The words for a number, for screen readers and tooltips: "3 new items", «3 عناصر جديدة» */
 export function useNewWords() {
   const f = useFmt();
   return (n: number) => f.count(n, ["new item", "new items"], { one: "عنصر جديد واحد", two: "عنصران جديدان", few: "عناصر جديدة", many: "عنصرًا جديدًا" });
 }
 
-/** The red circle with how many are new. Its words for screen readers ("3 new items") sit beside the number, which is
-    only drawn; `quiet` leaves them out where the link's own label already says them (the slim sidebar). `corner`: placed
-    on the corner of an icon. */
+/** The red circle with how many are new (the shared Badge, components/Badge.tsx: the same look as the merchant
+    dashboard's, a phone's app-icon badge, "99+" past 99). Its words for screen readers ("3 new items") sit beside the
+    number, which is only drawn; `quiet` leaves them out where the link's own label already says them (the slim sidebar).
+    `corner`: placed on the corner of an icon. */
 export function NewBadge({ n, corner = false, quiet = false }: { n: number | undefined; corner?: boolean; quiet?: boolean }) {
   const t = useT();
   const f = useFmt();
   const words = useNewWords();
   if (!n || n < 1) return null;
   return (
-    <>
-      <span
-        aria-hidden
-        className={`inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none tabular-nums text-white dark:bg-red-500 ${
-          corner ? "absolute -top-1 end-1 ring-2 ring-[#f6f2ea] dark:ring-page" : ""
-        }`}
-      >
-        {shown(n, f.num)}
-      </span>
-      {!quiet && <span className="sr-only">{t(`, ${words(n)}`, `، ${words(n)}`)}</span>}
-    </>
+    <Badge
+      n={n}
+      num={f.num}
+      corner={corner}
+      at="-top-1 end-0.5"
+      ring="ring-[#f6f2ea] dark:ring-page"
+      label={quiet ? null : t(`, ${words(n)}`, `، ${words(n)}`)}
+    />
   );
 }

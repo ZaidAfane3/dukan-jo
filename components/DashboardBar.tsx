@@ -29,6 +29,8 @@ import { ProfileMenu } from "./ProfileMenu";
 import { loadSetup } from "./setup";
 import { TwoStepPrompt } from "./TwoStepPrompt";
 import { UndoToast } from "./UndoToast";
+import { Badge, newWords } from "./Badge";
+import { bellSeen as markBellSeen, countFor, tabOf, useMerchantBadges } from "./merchantBadges";
 
 export type Section = "home" | "pages" | "store" | "orders" | "products" | "marketing" | "reports" | "support" | "settings" | "dukkan";
 
@@ -198,7 +200,19 @@ export function BellPanel({
   );
 }
 
-function NotificationBell() {
+/* the newest notification of this browser's own (kept for the tab only, as they are) the bell's open panel showed */
+const LOCAL_SEEN = "seen-bell-local";
+const readLocalSeen = () => {
+  try {
+    return Number(sessionStorage.getItem(LOCAL_SEEN)) || 0;
+  } catch {
+    return 0;
+  }
+};
+
+/** `seenAt`: the newest notification from the server the open panel showed, on any of his devices (merchantBadges.ts);
+    null until it is known */
+function NotificationBell({ seenAt }: { seenAt: number | null }) {
   const { lang } = usePrefs();
   const tour = useDemo();
   const n = content[lang].notifications;
@@ -249,6 +263,28 @@ function NotificationBell() {
   }, []);
 
   const unread = list.filter((x) => !x.read).length;
+  /* The red number: the unread notifications that came after the panel was last open. Opening it clears the number (the
+     unread ones stay marked in the list until read), and only something newer brings it back. What came from the server
+     is compared with the server's moment (unknown yet: not counted, rather than a number that then drops); this tab's
+     own notices with this tab's. */
+  const [localSeen, setLocalSeen] = useState(0);
+  useEffect(() => setLocalSeen(readLocalSeen()), []);
+  const fresh = list.filter((x) => !x.read && (x.at !== undefined ? seenAt !== null && x.at > seenAt : x.ts > localSeen)).length;
+  /* while the panel is open, what it shows is seen: when it opens, and again when a check brings something new into it */
+  useEffect(() => {
+    if (!open) return;
+    const newest = list.reduce((m, x) => (x.at !== undefined ? Math.max(m, x.at) : m), 0);
+    if (newest) markBellSeen(newest);
+    const newestHere = list.reduce((m, x) => (x.at === undefined ? Math.max(m, x.ts) : m), 0);
+    if (newestHere > readLocalSeen()) {
+      try {
+        sessionStorage.setItem(LOCAL_SEEN, String(newestHere));
+      } catch {
+        /* storage blocked: cleared for this page only */
+      }
+      setLocalSeen(newestHere);
+    }
+  }, [open, list]);
   const shown = list.filter((x) => tab === 0 || NOTIFICATION_TAB[x.kind] === tab);
 
   const router = useRouter();
@@ -297,18 +333,14 @@ function NotificationBell() {
       <button
         type="button"
         data-nav-item
-        aria-label={n.title}
+        aria-label={fresh ? `${n.title}${lang === "ar" ? "، " : ", "}${newWords(fresh, lang)}` : n.title}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className={`group relative grid h-9 w-9 place-items-center rounded-lg border text-fg transition hover:bg-soft ${open ? "border-primary bg-soft" : "border-fg/15"}`}
       >
         {icons.bell}
         <TopTip hide={open}>{n.title}</TopTip>
-        {unread > 0 && (
-          <span className="absolute -end-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[11px] font-bold leading-none text-white">
-            {unread > 9 ? "9+" : unread}
-          </span>
-        )}
+        <Badge n={fresh} corner ring="ring-page" />
       </button>
 
       {open && (
@@ -453,6 +485,12 @@ export function DashboardBar({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  /* the red numbers: what is new on Orders, Abandoned carts and Customer emails since he last opened them, and the bell's
+     moment (merchantBadges.ts). Opening one of those pages clears its number. */
+  const { counts, bellSeen: seenAt, seen } = useMerchantBadges(pathname);
+  const allNew = Object.values(counts).reduce((a, b) => a + (b || 0), 0);
+  const sep = lang === "ar" ? "، " : ", ";
+
   const narrow = collapsed; /* icon-only on large screens */
   const row = "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors";
 
@@ -490,11 +528,24 @@ export function DashboardBar({
             /* the open section in the brand colour with white text (Option 2 of the colour choice), the rest quiet */
             const state = `${isActive ? "bg-bar font-bold text-white dark:bg-primary/[0.3]" : "text-muted hover:bg-soft/60 hover:text-fg active:bg-fg/[0.14]"}`;
 
+            /* its red number: a page's own, or for a menu the sum of its pages', shown on the line while the menu is
+               closed (open, each page carries its own), and on the icon's corner in the slim sidebar. A menu no longer
+               has a dot (it read as "something new"): an arrow says it opens. */
+            const total = e.sub ? e.sub.reduce((sum, x) => sum + countFor(counts, x.href), 0) : countFor(counts, e.href);
             const label = (
               <>
-                {e.icon}
-                <span className={`min-w-0 flex-1 truncate text-start ${narrow ? "lg:hidden" : ""}`}>{e.label}</span>
-                {hasSub && <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full bg-primary ${narrow ? "lg:hidden" : ""}`} />}
+                <span className="relative grid shrink-0 place-items-center">
+                  {e.icon}
+                  {narrow && <Badge n={total} corner ring="ring-page" className="hidden lg:inline-flex" />}
+                </span>
+                {/* slim: the name is not drawn but still read, so the link is "Orders, 3 new" */}
+                <span className={`min-w-0 flex-1 truncate text-start ${narrow ? "lg:sr-only" : ""}`}>{e.label}</span>
+                {!expanded && <Badge n={total} label={total ? sep + newWords(total, lang) : null} className={narrow ? "lg:hidden" : ""} />}
+                {hasSub && (
+                  <svg viewBox="0 0 24 24" aria-hidden className={`h-4 w-4 shrink-0 opacity-50 transition-transform duration-200 ${expanded ? "rotate-180" : ""} ${narrow ? "lg:hidden" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                )}
               </>
             );
 
@@ -525,20 +576,32 @@ export function DashboardBar({
 
                 {expanded && (
                   <ul className="mt-1 space-y-0.5 border-s border-fg/10 ps-3 ms-[1.4rem]">
-                    {e.sub!.map((s) =>
-                      s.href ? (
+                    {e.sub!.map((s) => {
+                      const subNew = countFor(counts, s.href);
+                      return s.href ? (
                         <li key={s.label} className="relative">
                           {pathname === s.href && <span aria-hidden className="absolute -start-[13px] bottom-1.5 top-1.5 w-[3px] rounded-full bg-primary" />}
-                          <Link href={s.href} onClick={() => setMobileOpen(false)} aria-current={pathname === s.href ? "page" : undefined} className={`block rounded-lg px-3 py-2 text-sm transition-colors active:bg-fg/[0.14] ${pathname === s.href ? "bg-primary/[0.14] font-bold text-[rgb(var(--brand-deep))] dark:bg-primary/[0.2] dark:text-primary" : "text-muted hover:bg-fg/[0.05] hover:text-fg"}`}>
-                            {s.label}
+                          <Link
+                            href={s.href}
+                            onClick={() => {
+                              setMobileOpen(false);
+                              /* opening the page you are already on clears its number too */
+                              const t = tabOf(s.href);
+                              if (t && pathname === s.href) seen(t);
+                            }}
+                            aria-current={pathname === s.href ? "page" : undefined}
+                            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors active:bg-fg/[0.14] ${pathname === s.href ? "bg-primary/[0.14] font-bold text-[rgb(var(--brand-deep))] dark:bg-primary/[0.2] dark:text-primary" : "text-muted hover:bg-fg/[0.05] hover:text-fg"}`}
+                          >
+                            <span className="min-w-0 flex-1">{s.label}</span>
+                            <Badge n={subNew} label={subNew ? sep + newWords(subNew, lang) : null} />
                           </Link>
                         </li>
                       ) : (
                         <li key={s.label}>
                           <span aria-disabled="true" title={sb.soon} className="block cursor-not-allowed rounded-lg px-3 py-2 text-sm text-muted/60">{s.label}</span>
                         </li>
-                      ),
-                    )}
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -568,8 +631,10 @@ export function DashboardBar({
       <header className="sticky top-0 z-30 border-b border-fg/10 bg-page/90 backdrop-blur">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 md:flex-nowrap md:gap-4 md:px-10">
           <div className="flex min-w-0 items-center gap-3">
-            <button type="button" onClick={() => setMobileOpen(true)} aria-label={sb.open} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-fg/15 lg:hidden">
+            {/* the menu is hidden behind this button on a small screen: it carries the red number of everything new in it */}
+            <button type="button" onClick={() => setMobileOpen(true)} aria-label={allNew ? sb.open + sep + newWords(allNew, lang) : sb.open} className="relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-fg/15 lg:hidden">
               {icons.menu}
+              <Badge n={allNew} corner ring="ring-page" />
             </button>
             <div className="flex gap-6 overflow-x-auto text-sm font-medium [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {/* a tab the side menu already lists is left out, except the page you are on: the bar always names it */}
@@ -599,7 +664,7 @@ export function DashboardBar({
               {icons.ticket}
               <TopTip>{support.title}</TopTip>
             </Link>
-            <NotificationBell />
+            <NotificationBell seenAt={seenAt} />
             <ProfileMenu />
           </div>
         </div>

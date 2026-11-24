@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Badge } from "../Badge";
 import { brandName, content, type Lang } from "../content";
 import { barIcons, menuEntries, type BellItem, type Section, BellPanel } from "../DashboardBar";
 import { useT } from "./ui";
@@ -157,7 +158,12 @@ function SideMenu({ lang, active, className }: { lang: Lang; active: Section; cl
             <div key={e.key} className={`relative flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium ${on ? "bg-black/[0.07] font-bold text-fg ring-2 ring-primary dark:bg-white/[0.1]" : "text-muted"}`}>
               {e.icon}
               <span className="min-w-0 flex-1 truncate">{e.label}</span>
-              {e.sub && <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+              {/* as the real menu: an arrow on a menu that opens (no dot: it read as "something new") */}
+              {e.sub && (
+                <svg viewBox="0 0 24 24" aria-hidden className="h-4 w-4 shrink-0 opacity-50" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              )}
             </div>
           );
         })}
@@ -195,7 +201,8 @@ export function MockDashboard({ lang, phone, active, tab, bell, drawer = false, 
               {!phone && <span className="grid h-9 w-9 place-items-center rounded-lg border border-fg/15">{barIcons.ticket}</span>}
               <span className={`relative grid h-9 w-9 place-items-center rounded-lg border ${bell?.items ? "border-primary bg-soft" : "border-fg/15"}`}>
                 {barIcons.bell}
-                {unread > 0 && <span className="absolute -end-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[11px] font-bold leading-none text-white">{unread > 9 ? "9+" : unread}</span>}
+                {/* the same red badge as the real bell's */}
+                <Badge n={unread} corner ring="ring-card" />
               </span>
               <span className="grid h-9 w-9 place-items-center rounded-full bg-primary/15 text-sm font-bold text-primary">{lang === "ar" ? "م" : "S"}</span>
             </div>
