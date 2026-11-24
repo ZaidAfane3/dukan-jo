@@ -78,8 +78,12 @@ const eye = (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.500-6 10-6 10 6 10 6-3.500 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.500" /></svg>
 );
 
-/* the picture of a theme with no `shot` (its preview is drawn live): Mada's is the one the landing page shows */
-const SHOT_OF: Record<string, string> = { [MADA_THEME_ID]: "/themes/mada.webp" };
+/* the picture of a theme with no `shot` (its preview is drawn live): Mada's is the one the landing page shows.
+   Looked up when a picture is drawn, never while this file loads: themes.ts and this file import each other (through
+   InfoPages, DashboardBar and MerchantPopup), and a page that loads themes.ts first (Diwan's Payments and store pages,
+   the designer, My themes) reached a table built here before MADA_THEME_ID existed. That stopped the whole page with
+   "Cannot access … before initialization" (Next's "This page couldn't load"). */
+const shotOf = (id: string) => (id === MADA_THEME_ID ? "/themes/mada.webp" : "");
 
 /** The picture a pop-up shows (merchants and Diwan's list alike): the one given, else the chosen theme's own picture of
     its home page. A built-in theme's own picture (/themes/…) counts as "the theme's picture", so a gift first made with
@@ -87,7 +91,7 @@ const SHOT_OF: Record<string, string> = { [MADA_THEME_ID]: "/themes/mada.webp" }
 export function popupPicture(slots: SlotValues): string {
   const given = valueOf(slots, "image");
   const theme = findTheme(valueOf(slots, "theme"));
-  const own = theme ? theme.shot || SHOT_OF[theme.id] || "" : "";
+  const own = theme ? theme.shot || shotOf(theme.id) : "";
   return (given && !given.startsWith("/themes/") ? given : own) || given || "";
 }
 
