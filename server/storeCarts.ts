@@ -20,7 +20,8 @@ import { catalogOf, findShop, isOpen } from "./storeOrders";
    is kept: the lines, priced here from the store's own products (never the browser's prices), the contact (sealed), the
    name he typed (sealed) and the language he shopped in. Nothing about the visitor's address, city or note.
 
-   - A cart with no change for CART_IDLE_MINUTES counts as abandoned: the merchant sees it and may remind him.
+   - A cart with no change for CART_IDLE_MINUTES counts as abandoned: the merchant sees it and may remind him. It
+     still does when he comes back to it later (abandoned_at), so an order then counts as recovered.
    - Placing an order ends it (cartsRecovered, from server/storeOrders.ts in the order's own transaction): the cart of
      the checkout's key, and any open cart in this store with the same email or mobile, are marked recovered.
    - Emptying the basket (or clearing both email and mobile) deletes the open cart.
@@ -83,17 +84,33 @@ export type CartSaveResult =
   | { status: 200; body: { result: "ok" } }
   | { status: 400; body: { result: "invalid" } }
   | { status: 404; body: { result: "none" } }
-  | { status: 409; body: { result: "closed" } };
+  /* ended: this key's cart was already ended by an order (maybe placed on another device, from a reminder's link):
+     nothing was kept, and the browser starts a new key for this basket. bought: the basket sent is the one the order
+     ended (not sent again until it changes) */
+  | { status: 409; body: { result: "closed" } | { result: "ended"; bought: boolean } };
+
+/* the same products, sizes and quantities (names, prices and pictures may have changed since). Compared with the basket
+   as priced now and as sent: the order just placed may have taken the stock that cut a quantity */
+function sameLines(stored: unknown, items: { id?: unknown; qty?: unknown; size?: unknown }[]): boolean {
+  const fp = (list: { id?: unknown; qty?: unknown; size?: unknown }[]) =>
+    JSON.stringify(list.map((it) => [Number(it.id), Number(it.qty), typeof it.size === "string" ? it.size : ""]).sort());
+  return Array.isArray(stored) && stored.length > 0 && fp(stored.filter(isObj)) === fp(items);
+}
 
 /** A visitor's basket, from the public store: { key, lines: [{ id, qty, size? }], email?, phone?, name?, lang }. Kept
     when it has something the store sells and a valid email or mobile; an empty basket, or one with neither, deletes
-    the open cart of that key. A cart already ended by an order is never changed again (the browser starts a new key). */
+    the open cart of that key. email or phone left out (or null): the cart keeps the one it has (he is still typing
+    it); sent empty or invalid: it is cleared. A cart already ended by an order is never changed again: "ended", and the
+    browser starts a new key. */
 export async function saveStoreCart(slug: unknown, body: Record<string, unknown>): Promise<CartSaveResult> {
   const key = typeof body.key === "string" && KEY.test(body.key) ? body.key : null;
   const lines = Array.isArray(body.lines) ? body.lines : null;
   if (!key || !lines || lines.length > ORDER_LIMITS.lines) return { status: 400, body: { result: "invalid" } };
-  const email = visitorEmail(body.email);
-  const mobile = jordanMobile(typeof body.phone === "string" ? body.phone.trim() : "");
+  /* what the save says of each contact: kept as it is (left out), or set to this ("" clears it) */
+  const keepEmail = body.email === undefined || body.email === null;
+  const keepPhone = body.phone === undefined || body.phone === null;
+  const email = keepEmail ? "" : visitorEmail(body.email);
+  const mobile = keepPhone ? "" : jordanMobile(typeof body.phone === "string" ? body.phone.trim() : "");
   const phone = mobile ? `+962${mobile}` : "";
   const name = cleanText(body.name, ORDER_LIMITS.name).replace(/\s+/g, " ").trim();
   const lang = body.lang === "en" ? "en" : "ar";
@@ -109,7 +126,8 @@ export async function saveStoreCart(slug: unknown, body: Record<string, unknown>
     await pool.query(`DELETE FROM store_carts WHERE account_id = $1 AND key_hash = $2 AND recovered_at IS NULL`, [id, kh]);
     return { status: 200 as const, body: { result: "ok" as const } };
   };
-  if (!lines.length || (!email && !phone)) return drop();
+  /* both contacts cleared (one still being typed keeps what the cart has: checked after the save below) */
+  if (!lines.length || (!email && !phone && !keepEmail && !keepPhone)) return drop();
 
   /* priced from the store's saved products, as an order is (server/storeOrders.ts): what it sells now, at its prices */
   const saved = await pool.query(`SELECT value FROM store_data WHERE account_id = $1 AND key = 'seen-products'`, [id]);
@@ -122,20 +140,43 @@ export async function saveStoreCart(slug: unknown, body: Record<string, unknown>
     id, kh, email ? seal(email) : null, email ? emailHash(id, email) : null, phone ? seal(phone) : null, phone ? phoneHash(id, phone) : null,
     name ? seal(name) : null, lang, JSON.stringify(plainDeep(items)), priced.subtotal,
   ];
-  /* its own open cart first (always, even at the store's ceiling); a new one only under the ceiling */
+  /* its own open cart first (always, even at the store's ceiling); a new one only under the ceiling. A contact left
+     out keeps the cart's own. Saved again after an hour with no change (he came back to it): it was abandoned, and
+     abandoned_at keeps that, so it stays in the merchant's list (and counts as recovered if he orders now) although
+     its last change is new. */
   const changed = await pool.query(
-    `UPDATE store_carts SET email = $3, email_hash = $4, phone = $5, phone_hash = $6, name = $7, lang = $8, items = $9::jsonb, subtotal = $10, updated_at = now()
-      WHERE account_id = $1 AND key_hash = $2 AND recovered_at IS NULL`,
-    values,
+    `UPDATE store_carts SET email = CASE WHEN $11::boolean THEN email ELSE $3 END, email_hash = CASE WHEN $11::boolean THEN email_hash ELSE $4 END,
+            phone = CASE WHEN $12::boolean THEN phone ELSE $5 END, phone_hash = CASE WHEN $12::boolean THEN phone_hash ELSE $6 END,
+            name = $7, lang = $8, items = $9::jsonb, subtotal = $10,
+            abandoned_at = COALESCE(abandoned_at, CASE WHEN updated_at < now() - make_interval(mins => ${CART_IDLE_MINUTES}) THEN now() END),
+            updated_at = now()
+      WHERE account_id = $1 AND key_hash = $2 AND recovered_at IS NULL
+      RETURNING email IS NULL AND phone IS NULL AS bare`,
+    [...values, keepEmail, keepPhone],
   );
-  if (!changed.rowCount)
-    await pool.query(
-      `INSERT INTO store_carts (account_id, key_hash, email, email_hash, phone, phone_hash, name, lang, items, subtotal)
-         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10
-          WHERE (SELECT count(*) FROM store_carts WHERE account_id = $1) < ${CARTS_MAX}
-       ON CONFLICT (account_id, key_hash) DO NOTHING`,
-      values,
-    );
+  /* the one contact it had was cleared while the other is still being typed: nothing left to reach him by */
+  if (changed.rows[0]?.bare) return drop();
+  if (!changed.rowCount) {
+    /* a new cart needs a contact given now */
+    const added = email || phone
+      ? await pool.query(
+          `INSERT INTO store_carts (account_id, key_hash, email, email_hash, phone, phone_hash, name, lang, items, subtotal)
+             SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10
+              WHERE (SELECT count(*) FROM store_carts WHERE account_id = $1) < ${CARTS_MAX}
+           ON CONFLICT (account_id, key_hash) DO NOTHING`,
+          values,
+        )
+      : null;
+    /* not kept because this key's cart was ended by an order (from another device, say): the browser starts a new
+       key, else every later basket of this browser would be lost for as long as that cart is kept */
+    if (!added?.rowCount) {
+      const ended = await pool.query(`SELECT items FROM store_carts WHERE account_id = $1 AND key_hash = $2 AND recovered_at IS NOT NULL`, [id, kh]);
+      /* bought: the basket sent is the one that cart held when the order ended it (an order on another device with the
+         same email or mobile ends this one too). The browser then keeps it as sent under its new key, and sends again
+         only once the basket or contact changes, so the products bought don't come back as an abandoned cart */
+      if (ended.rowCount) return { status: 409, body: { result: "ended", bought: sameLines(ended.rows[0].items, items) || sameLines(ended.rows[0].items, lines.filter(isObj)) } };
+    }
+  }
   return { status: 200, body: { result: "ok" } };
 }
 
@@ -151,7 +192,9 @@ export async function cartFromLink(slug: unknown, link: unknown): Promise<{ stat
   const got = Buffer.from(m[2]);
   if (want.length !== got.length || !timingSafeEqual(want, got)) return { status: 404, body: { result: "none" } };
   if (!isOpen(shop)) return { status: 409, body: { result: "closed" } };
-  const { rows } = await pool.query(`SELECT items FROM store_carts WHERE id = $1 AND account_id = $2`, [m[1], shop.account_id]);
+  /* a cart already ended by an order is not filled again: an old reminder opened after he bought it would put the
+     same products back in his basket (and start a new cart of things he has) */
+  const { rows } = await pool.query(`SELECT items FROM store_carts WHERE id = $1 AND account_id = $2 AND recovered_at IS NULL`, [m[1], shop.account_id]);
   if (!rows[0]) return { status: 404, body: { result: "none" } };
   const lines = (Array.isArray(rows[0].items) ? rows[0].items : []).filter(isObj).map((it: Record<string, unknown>) => ({
     id: Number(it.id),
@@ -204,8 +247,9 @@ export type CartRow = {
   order: number | null;
 };
 
-/* a cart was abandoned: reminded, or left an hour with no change (still open, or ordered only after that hour) */
-const ABANDONED = `(reminders > 0 OR (recovered_at IS NULL AND updated_at < now() - make_interval(mins => ${CART_IDLE_MINUTES}))
+/* a cart was abandoned: reminded, left an hour with no change and then saved again (abandoned_at: he came back to
+   it), or left an hour with no change (still open, or ordered only after that hour) */
+const ABANDONED = `(reminders > 0 OR abandoned_at IS NOT NULL OR (recovered_at IS NULL AND updated_at < now() - make_interval(mins => ${CART_IDLE_MINUTES}))
                    OR recovered_at >= updated_at + make_interval(mins => ${CART_IDLE_MINUTES}))`;
 /* the start of a range of the page (reports.ranges): the last 7 days, the last 30 days, this month (Jordan time) */
 const SINCE = `CASE $2::int WHEN 0 THEN now() - interval '7 days' WHEN 1 THEN now() - interval '30 days'
@@ -213,12 +257,24 @@ const SINCE = `CASE $2::int WHEN 0 THEN now() - interval '7 days' WHEN 1 THEN no
 
 /** The store's abandoned carts with their last change in the range (0, 1 or 2, as above), newest first, a page of
     LIST_PAGE at a time (`before`: where the page before ended, the `next` it gave; null for the first page), and for
-    all of them in the range: how many, the share recovered by an order and their average value. */
-export async function listStoreCarts(accountId: string, range: number, before: string | null = null): Promise<{ carts: CartRow[]; next: string | null; count: number; recovered: number; average: number }> {
+    all of them in the range: how many, the share recovered by an order and their average value. The home page and
+    Reports read the rest of the sums: the carts still open (no order yet) and what is in them, how many were
+    recovered, and the reminders sent. */
+export async function listStoreCarts(
+  accountId: string,
+  range: number,
+  before: string | null = null,
+): Promise<{ carts: CartRow[]; next: string | null; count: number; recovered: number; average: number; open: number; openValue: number; recoveredCarts: number; remindersSent: number }> {
   const pool = await db();
   const r = range === 1 || range === 2 ? range : 0;
   const where = `account_id = $1 AND updated_at >= ${SINCE} AND jsonb_array_length(items) > 0 AND ${ABANDONED}`;
-  const sums = await pool.query(`SELECT count(*)::int AS n, count(recovered_at)::int AS back, COALESCE(avg(subtotal), 0) AS avg FROM store_carts WHERE ${where}`, [accountId, r]);
+  const sums = await pool.query(
+    `SELECT count(*)::int AS n, count(recovered_at)::int AS back, COALESCE(avg(subtotal), 0) AS avg,
+            count(*) FILTER (WHERE recovered_at IS NULL)::int AS open, COALESCE(sum(subtotal) FILTER (WHERE recovered_at IS NULL), 0) AS open_value,
+            COALESCE(sum(reminders), 0)::int AS sent
+       FROM store_carts WHERE ${where}`,
+    [accountId, r],
+  );
   /* a cursor (time and id) rather than an offset, so a cart that changed meanwhile never shows twice or pushes one out */
   const cut = before ? CURSOR.exec(before) : null;
   const { rows } = await pool.query(
@@ -263,7 +319,17 @@ export async function listStoreCarts(accountId: string, range: number, before: s
   });
   const s = sums.rows[0] ?? {};
   const count = Number(s.n) || 0;
-  return { carts, next, count, recovered: count ? Math.round((Number(s.back) / count) * 1000) / 10 : 0, average: Math.round(Number(s.avg) * 1000) / 1000 };
+  return {
+    carts,
+    next,
+    count,
+    recovered: count ? Math.round((Number(s.back) / count) * 1000) / 10 : 0,
+    average: Math.round(Number(s.avg) * 1000) / 1000,
+    open: Number(s.open) || 0,
+    openValue: Math.round(Number(s.open_value) * 1000) / 1000,
+    recoveredCarts: Number(s.back) || 0,
+    remindersSent: Number(s.sent) || 0,
+  };
 }
 
 /* ---------------- a reminder ---------------- */

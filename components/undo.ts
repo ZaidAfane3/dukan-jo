@@ -18,6 +18,9 @@ export type UndoOffer = {
   undo: () => boolean | void | "offline" | Promise<boolean | void | "offline">;
   /** the page that made it, to drop its undos when that page closes */
   scope: string;
+  /** called once when its toast goes away without an undo (countdown over, closed, replaced by a newer one, or its
+      page closed): the change is final now (a proof upload is sent to Dukkan then) */
+  onSettle?: () => void;
 };
 
 type Entry = UndoOffer & { id: number; at: number };
@@ -35,6 +38,17 @@ let stack: Entry[] = [];
 let state: State = { toast: null, note: null };
 let seq = 0;
 let running = false;
+const settled = new Set<number>();
+/** its toast went without an undo: runs its onSettle once */
+const settle = (e: Entry | null | undefined) => {
+  if (!e?.onSettle || settled.has(e.id)) return;
+  settled.add(e.id);
+  try {
+    e.onSettle();
+  } catch {
+    /* the page's own concern */
+  }
+};
 const listeners = new Set<() => void>();
 
 const emit = (next: Partial<State>) => {
@@ -47,12 +61,18 @@ const fresh = () => {
   return stack;
 };
 
-/** Offers to undo a change just made. A new one takes the toast's place; the earlier ones can still be undone with Ctrl+Z. */
-export function offerUndo(o: UndoOffer): void {
+/** Offers to undo a change just made. A new one takes the toast's place; the earlier ones can still be undone with Ctrl+Z.
+    Answers its id (for undoShowing and hideUndo). */
+export function offerUndo(o: UndoOffer): number {
   const e: Entry = { ...o, id: ++seq, at: Date.now() };
   stack = [...fresh(), e].slice(-UNDO_KEEP);
+  settle(state.toast);
   emit({ toast: e, note: null });
+  return e.id;
 }
+
+/** Whether the toast of this offer still shows (its countdown not over, not closed, not undone or replaced) */
+export const undoShowing = (id: number): boolean => state.toast?.id === id;
 
 /** Undoes the newest change still kept (or the one with this id). */
 export async function runUndo(id?: number): Promise<boolean> {
@@ -61,6 +81,8 @@ export async function runUndo(id?: number): Promise<boolean> {
   const e = id === undefined ? list[list.length - 1] : list.find((x) => x.id === id);
   if (!e) return false;
   running = true;
+  /* an undo started: it never settles, unless it could not undo (below) */
+  if (e.onSettle) settled.add(e.id);
   stack = stack.filter((x) => x.id !== e.id);
   let out: boolean | void | "offline" = false;
   try {
@@ -71,6 +93,11 @@ export async function runUndo(id?: number): Promise<boolean> {
     running = false;
   }
   const ok = out !== false && out !== "offline";
+  /* nothing (or not all) was taken back: what is left is final */
+  if (!ok && e.onSettle) {
+    settled.delete(e.id);
+    settle(e);
+  }
   /* the server could not be reached: nothing changed, so it is said so and Ctrl+Z can try it again. A change it could
      not undo for any other reason (it changed since) can't be undone later either. */
   if (out === "offline") stack = [...stack, e].slice(-UNDO_KEEP);
@@ -81,6 +108,7 @@ export async function runUndo(id?: number): Promise<boolean> {
 /** Hides the toast; the change can still be undone with Ctrl+Z for a while. */
 export function hideUndo(id?: number): void {
   if (!state.toast || (id !== undefined && state.toast.id !== id)) return;
+  settle(state.toast);
   emit({ toast: null });
 }
 
@@ -94,7 +122,10 @@ export const canUndo = () => fresh().length > 0;
 /** A page that closes drops its undos (and its toast): only that page could put its list back. */
 export function dropUndos(scope: string): void {
   stack = stack.filter((e) => e.scope !== scope);
-  if (state.toast?.scope === scope) emit({ toast: null });
+  if (state.toast?.scope === scope) {
+    settle(state.toast);
+    emit({ toast: null });
+  }
 }
 
 const subscribe = (l: () => void) => {

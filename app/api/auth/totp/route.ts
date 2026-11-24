@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import type { PoolClient } from "pg";
 import { latin } from "@/components/digits";
 import { answer, finishPendingSession, guarded, noteLogin, noteSigninPlace, pendingAccount, readJson, sameOrigin, tooMany, visitorIp } from "@/server/auth";
 import { checkCodeFor, sendCodeEmail, verifyLang } from "@/server/emailVerify";
@@ -75,19 +76,28 @@ export const POST = guarded(async (req: NextRequest) => {
   } else {
     /* its own answer: the page's "slow-down" talks about sending codes, which has nothing to do with this wait */
     if (blocked(a.id, req)) return answer({ result: "recovery-wait" }, 429);
-    if (!(await useRecoveryCode(a.id, typed))) {
+  }
+  const recovery = !/^\d{6}$/.test(six);
+  const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone }, totpOn: true });
+  /* a recovery code is used up in the same step as the sign-in completes, so a sign-in that can't complete (it ended
+     meanwhile) leaves the code unused */
+  let codeRight = null as boolean | null;
+  const spend = recovery ? async (c: PoolClient) => (codeRight = await useRecoveryCode(a.id, typed, c)) : undefined;
+  if (!(await finishPendingSession(res, req, spend))) {
+    if (codeRight === false) {
       noteWrong(a.id, req);
       return answer({ result: "wrong" }, 401);
     }
+    /* the waiting sign-in ended meanwhile (another device signed in, it ran out): sign in again */
+    return answer({ result: "gone" }, 401);
+  }
+  if (recovery) {
     wrong.delete(visitorKey(a.id, req));
     logMerchant(a.id, "twostep.recovery-used");
   }
-  const res = answer({ result: "ok", account: { email: a.email, name: a.name, phone: a.phone }, totpOn: true });
-  /* the waiting sign-in ended meanwhile (another device signed in, it ran out): sign in again */
-  if (!(await finishPendingSession(res, req))) return answer({ result: "gone" }, 401);
   await noteLogin(a.id, req);
   await noteSigninPlace(req, `m:${a.id}`);
-  logMerchant(a.id, "signin", { twoStep: true, recovery: !/^\d{6}$/.test(six) });
+  logMerchant(a.id, "signin", { twoStep: true, recovery });
   touchShop(a.id);
   return res;
 });

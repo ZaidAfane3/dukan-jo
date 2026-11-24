@@ -14,10 +14,14 @@ export const POST = documentsRoute(async (_req, me, ctx) => {
   const back = await inTransaction(async (c) => {
     /* one change at a time per account, as an upload, so a restore and an upload can't both slip under a limit */
     await c.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [me.id]);
+    /* FOR UPDATE: the removed files' clean-up (server/documents.ts purgeRemovedFiles) clears a file in its own
+       statement; locking the row makes it wait for this restore (after which the row is no longer removed), or, when it
+       got there first, this read sees the file already gone */
     const { rows } = await c.query(
       `SELECT id, kind, bytes, status FROM documents
         WHERE public_id = $1 AND account_id = $2 AND kind = ANY($3::text[]) AND removed_at IS NOT NULL
-          AND removed_at > now() - make_interval(mins => $4) AND data IS NOT NULL`,
+          AND removed_at > now() - make_interval(mins => $4) AND data IS NOT NULL
+        FOR UPDATE`,
       [id, me.id, MERCHANT_KINDS, RESTORE_MINUTES],
     );
     const doc = rows[0];
@@ -35,11 +39,15 @@ export const POST = documentsRoute(async (_req, me, ctx) => {
       if (n.kind_n >= PER_PARTNER || n.all_n >= PER_ACCOUNT) return "too-many" as const;
       if (Number(n.used) + Number(doc.bytes ?? 0) > ACCOUNT_BYTES) return "too-big" as const;
     }
+    /* the file and the restore window are checked again where the row changes, so a proof never comes back without
+       its file */
     const upd = await c.query(
-      `UPDATE documents SET removed_at = NULL WHERE id = $1
-       RETURNING id, public_id, kind, name, partner, partner_kind, status, note, mime, bytes, data IS NOT NULL AS has_file, created_at, rejection_seen, seq`,
-      [doc.id],
+      `UPDATE documents SET removed_at = NULL
+        WHERE id = $1 AND data IS NOT NULL AND removed_at > now() - make_interval(mins => $2)
+       RETURNING id, public_id, kind, name, partner, partner_kind, status, note, mime, bytes, data IS NOT NULL AS has_file, created_at, rejection_seen, seq, approved_phone`,
+      [doc.id, RESTORE_MINUTES],
     );
+    if (!upd.rows[0]) return "none" as const;
     return upd.rows[0] as Record<string, unknown>;
   });
   if (back === "none") return answer({ result: "none" }, 404);

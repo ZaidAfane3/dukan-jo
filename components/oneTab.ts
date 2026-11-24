@@ -145,9 +145,15 @@ function storageWorks(): boolean {
 }
 
 /* A signed-in merchant's own page (not the public store, sign-in, the tour, Diwan, the suspended page, the home page) */
+/** The store as visitors see it (/store) and the design preview (/preview): they only show his store */
+const previewPage = () => window.location.pathname === "/store" || window.location.pathname === "/preview";
+
 function merchantPage(): boolean {
   const p = window.location.pathname;
   if (isStaffPage(p, window.location.search) || isStoreAddress(p)) return false;
+  /* the store as visitors see it (/store, "See what visitors see") and the design preview (/preview) only show, they
+     never change his data: they open in a tab of their own next to the dashboard, without asking it to step aside */
+  if (previewPage()) return false;
   return p !== "/" && p !== SUSPENDED_PATH && !p.startsWith("/signup") && !p.startsWith("/demo");
 }
 
@@ -187,6 +193,8 @@ export const tabTaking = () => taking;
    slowed in the background may have lost it to another tab meanwhile, and then stops at once (it sends nothing: the
    tab that took over sends what the account's outbox has) */
 gateSaves(() => {
+  /* a preview beside the dashboard never sends the account's saves: that stays the dashboard tab's job */
+  if (typeof window !== "undefined" && previewPage()) return false;
   if (tabState() === "inactive") return false;
   if (state !== "active" || handing) return true;
   const l = readLease();

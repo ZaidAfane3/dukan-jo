@@ -322,7 +322,8 @@ export function Designer() {
     };
   }, []);
   /* whether the store can sell (safeOrder readyToSell): the first save, which opens the store, waits until it can */
-  const sell = useSellReady({ designSaving: true });
+  /* his own courier counts once Dukkan approved its proof, as the server checks it (useSellReady proof) */
+  const sell = useSellReady({ designSaving: true, proof: true });
   /* In the platform tour the designer can be opened and looked at, but nothing in it can be changed or uploaded */
   const [readOnly, setReadOnly] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -1303,7 +1304,7 @@ export function Designer() {
       {/* the first save opens the store: until it can sell, the save waits and this says what is missing */}
       {notReadyToOpen && (
         <div className="shrink-0 border-b border-fg/10 bg-card px-3 py-2 sm:px-4">
-          <SellNeeds lang={lang} missing={sell.missing} className="!py-2" />
+          <SellNeeds lang={lang} missing={sell.missing} why={sell.why} className="!py-2" />
         </div>
       )}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

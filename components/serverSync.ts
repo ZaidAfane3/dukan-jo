@@ -398,6 +398,12 @@ export const pictureSavesHeld = () => holds > 0;
 export const SAVE_REFUSED = "dukkan-save-refused";
 const refused = (why: string) => window.dispatchEvent(new CustomEvent(SAVE_REFUSED, { detail: why }));
 
+/** What the server said was missing the last time it refused a save as "not-ready" (app/api/store PUT: `missing`, and
+    `why`: components/sellWhy.ts), read by SaveNotice.tsx when SAVE_REFUSED says "not-ready", to name exactly what this
+    store is missing. Raw as the server sent it: the reader cleans it (sellWhy.ts cleanWhy). */
+let notReadyReason: { missing: unknown; why: unknown } = { missing: null, why: null };
+export const lastNotReady = () => notReadyReason;
+
 /** Fired on window when the server did not keep a theme put on the store because it is a paid one this store has not
     bought (app/api/store PUT "theme-not-bought"); detail is the theme's id. The page also fires it when it stops such a
     change itself before saving anything (the designer, My themes). SaveNotice.tsx says so, with a way to buy it. */
@@ -472,8 +478,8 @@ const WAIT_OVER = 7_000_000;
 type Stale = { value: string | null; v: string };
 /* a key the server did not keep while it kept the rest: a paid theme put on the store without a purchase
    (app/api/store PUT), with the server's copy of the key to put back */
-type Held = { result?: string; theme?: string; value?: string | null };
-type Reply = { status: number; result: string; rewritten?: Record<string, string>; versions?: Record<string, string>; stale?: Record<string, Stale>; refused?: Record<string, Held> } | null;
+type Held = { result?: string; theme?: string; value?: string | null; missing?: unknown; why?: unknown };
+type Reply = { status: number; result: string; rewritten?: Record<string, string>; versions?: Record<string, string>; stale?: Record<string, Stale>; refused?: Record<string, Held>; missing?: unknown; why?: unknown } | null;
 
 /* ---------------- the lists' versions (listMerge.ts) ----------------
    Per account, for each list of LIST_KEYS: the version of the server's copy this browser's copy goes on from, and the
@@ -583,6 +589,40 @@ function mergeStale(who: string | null, k: string, sent: string, theirs: Stale):
   return true;
 }
 
+/* A key put back from the outbox, as it was before its picture data was sent as files (picturesOutOf, in sendBatch):
+   { out: what went, src: the copy with the picture data }. The server kept the lost save's pictures from the data
+   itself, and the browser may have made each picture smaller before sending it, so the two files differ: takeTheirs
+   compares the server's copy with the data. Only the keys being sent; cleared once answered. */
+const withPictureData = new Map<string, { out: string; src: string }>();
+
+/** True when `theirs` is `mine` with some picture data (data:image/...) replaced by file addresses (/media/<id>), and
+    nothing else different. Only the places that held picture data may differ, so another device's change of a picture
+    already kept as a file, or of anything else, is never taken for this one. */
+function sameButFiles(mine: string, theirs: string): boolean {
+  if (!mine.includes("data:image/")) return false;
+  let a: unknown;
+  let b: unknown;
+  try {
+    a = JSON.parse(mine);
+    b = JSON.parse(theirs);
+  } catch {
+    return false;
+  }
+  const same = (x: unknown, y: unknown, depth: number): boolean => {
+    if (depth > 40) return false;
+    if (typeof x === "string" && typeof y === "string") return x === y || (x.startsWith("data:image/") && /^\/media\/[A-Za-z0-9_-]{24}$/.test(y));
+    if (Array.isArray(x)) return Array.isArray(y) && x.length === y.length && x.every((v, i) => same(v, y[i], depth + 1));
+    if (x && typeof x === "object") {
+      if (!y || typeof y !== "object" || Array.isArray(y)) return false;
+      const kx = Object.keys(x);
+      const ky = Object.keys(y);
+      return kx.length === ky.length && kx.every((k) => Object.hasOwn(y, k) && same((x as Record<string, unknown>)[k], (y as Record<string, unknown>)[k], depth + 1));
+    }
+    return x === y;
+  };
+  return same(a, b, 0);
+}
+
 /* A key that is not a list (VERSION_KEYS), put back from the outbox, that another device saved after this browser's
    copy was made: the server keeps its newer copy and this browser takes it (a design sent is kept as the designer's
    draft first), and the page says some changes were not saved. False as for mergeStale: it stays in the outbox. */
@@ -590,6 +630,18 @@ function takeTheirs(who: string | null, k: string, sent: string, theirs: Stale):
   const owner = follow(who);
   if (!owner || signedInAs() !== owner || halted) return false;
   writeBases(owner, { [k]: { v: theirs.v, m: {} } });
+  /* the server already has exactly this copy: it is this browser's own save (sent as the tab closed, kept, its answer
+     lost), not another device's. Saved: it goes on from the server's version, and nothing is said */
+  if (theirs.value === sent) return true;
+  /* the same, but that save went with its picture data inside (sent as the tab closed, when they are not sent first)
+     and the server kept each picture as a file: equal once every picture data of this copy is matched with a file
+     address at the same place. This browser takes the server's copy (the files), and nothing is said. */
+  const before = withPictureData.get(k);
+  withPictureData.delete(k);
+  if (typeof theirs.value === "string" && sameButFiles(before && before.out === sent ? before.src : sent, theirs.value)) {
+    replaceAccountValue(k, theirs.value, sent);
+    return true;
+  }
   if (k === DESIGN_KEY && accountValue(k) === sent) keepRefusedDesign(sent);
   if (restoreAccountValue(k, typeof theirs.value === "string" ? theirs.value : null, sent)) showAgain(k);
   refused("stale");
@@ -627,8 +679,8 @@ async function request(set: Record<string, string>, remove: string[], owner: str
     /* a save with no answer in 90 s counts as not sent (it stays in the outbox and goes again), so one that hangs never
        holds up every save after it; 90 s leaves room for a big save on a slow line, under Cloudflare's 100 s */
     const r = await fetch("/api/store", { method: "PUT", headers: { "Content-Type": "application/json", [CLIENT_HEADER]: "1", ...accountHeader(me) }, body, keepalive, credentials: "same-origin", signal: timeoutSignal(90_000) });
-    const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown; versions?: unknown; stale?: unknown; refused?: unknown };
-    return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten: asObject(j.rewritten), versions: asObject(j.versions), stale: asObject(j.stale), refused: asObject(j.refused) };
+    const j = ((await r.json().catch(() => null)) ?? {}) as { result?: string; rewritten?: unknown; versions?: unknown; stale?: unknown; refused?: unknown; missing?: unknown; why?: unknown };
+    return { status: r.status, result: j.result ?? (r.ok ? "ok" : "refused"), rewritten: asObject(j.rewritten), versions: asObject(j.versions), stale: asObject(j.stale), refused: asObject(j.refused), missing: j.missing, why: j.why };
   } catch {
     /* offline or the server is restarting */
     return null;
@@ -675,6 +727,7 @@ function takeBackRefused(held: Record<string, Held> | undefined, sent: Record<st
   for (const [k, h] of Object.entries(held ?? {})) {
     if (h && h.result === "not-ready") {
       notReady = true;
+      notReadyReason = { missing: h.missing, why: h.why };
       /* not in `set`: a removal the server did not keep */
       const mine = typeof sent[k] === "string" ? sent[k] : null;
       const theirs = typeof h.value === "string" ? h.value : null;
@@ -700,13 +753,24 @@ function takeBackRefused(held: Record<string, Held> | undefined, sent: Record<st
    goes again. Left as it was, the refused link would stay in his saved setup, and every later save of the setup would be
    refused for it (testing S-3). */
 const SETUP = "seen-setup";
+function slugOf(v: string): string {
+  try {
+    const s = JSON.parse(v) as { slug?: unknown } | null;
+    return s && typeof s.slug === "string" ? s.slug : "";
+  } catch {
+    return "";
+  }
+}
 async function takeBackSlug(owner: string | null, mine: string) {
   const theirs = await serverValue(SETUP);
   if (theirs === undefined || halted || signedInAs() !== follow(owner)) return;
   try {
     const setup = JSON.parse(mine) as Record<string, unknown>;
     const server = theirs === null ? null : (JSON.parse(theirs) as Record<string, unknown> | null);
-    const slug = server && typeof server.slug === "string" ? server.slug : "";
+    let slug = server && typeof server.slug === "string" ? server.slug : "";
+    /* the server's setup names the refused link too: it lost that link to another store that took it at the same moment
+       (server/shops.ts syncShop, from before that took it out of the setup). No link then: his pages ask for a new one */
+    if (typeof setup?.slug === "string" && slug.toLowerCase() === setup.slug.toLowerCase()) slug = "";
     if (!setup || typeof setup !== "object" || setup.slug === slug) return;
     const back = JSON.stringify({ ...setup, slug });
     if (!replaceAccountValue(SETUP, back, mine)) return;
@@ -749,7 +813,17 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
       /* the server took again from the products or coupons what the store sold online since this copy: the pages
          showing them take the kept list, so their next save goes on from it */
       if (ONLINE_KEYS.includes(k)) showAgain(k);
+      /* his orders, where one he just added got another number (a store order took its number first: app/api/store):
+         the Orders page shows the kept list */
+      else if (k === "seen-orders") showAgain(k);
+      /* his setup without the store link another store took in the same second (app/api/store, server/shops.ts
+         dropSetupSlug): his pages stop showing that link and ask for a new one */
+      else if (k === SETUP && slugOf(v) !== slugOf(sent[k])) {
+        showAgain(k);
+        window.dispatchEvent(new Event(SETUP));
+      }
     }
+    for (const k of Object.keys(sent)) withPictureData.delete(k);
     /* a paid theme he has not bought was put on the store: those keys were not kept. This browser takes the server's copy
        back (the store stays on the theme it had), unless the page changed the key again since, and the page says why
        (SaveNotice.tsx, with a way to the theme store) */
@@ -759,6 +833,7 @@ function outcome(r: Reply, sent: Record<string, string>, owner: string | null = 
   /* not kept at all because the store is not ready to sell: the keys come back as the server has them (its answer
      names them in "refused", as above), the design is kept as the designer's draft, and the page says why */
   if (r.status === 409 && r.result === "not-ready") {
+    notReadyReason = { missing: r.missing, why: r.why };
     takeBackRefused(r.refused, sent, true);
     return "stop";
   }
@@ -816,6 +891,8 @@ async function sendBatch(batch: Map<string, string | null>, n: number, owner: st
         if (v === null || !holdsPictures(k, v) || !stillOwner()) continue;
         const next = await picturesOutOf(k, v).catch(() => v);
         if (next === v || !stillOwner()) continue;
+        /* a change left in the outbox: kept with its picture data until answered (takeTheirs) */
+        if (replay.has(k) && VERSION_KEYS.has(k)) withPictureData.set(k, { out: next, src: v });
         replaceAccountValue(k, next, v);
         batch.set(k, next);
       }
@@ -1017,6 +1094,25 @@ export async function saveNow(key: string, before: string): Promise<boolean> {
   const real = await serverValue(key);
   if (value !== null && !halted && signedInAs() === owner) replaceAccountValue(key, real ?? before, value);
   return false;
+}
+
+/** Sends one small key of the signed-in account straight to the server from a page that never sends the account's
+    saves (the store as visitors see it, /store: oneTab.ts gate), and puts `value` in this browser only once the server
+    kept it: until then this browser (and the dashboard tab beside it, which reads the same storage) goes on showing what
+    the server has. The server checks it as any save (app/api/store PUT: "not-ready" with what is missing, a suspended
+    store...), and a refusal is said as for any save (SaveNotice.tsx). Only this key goes: the account's other changes
+    stay the dashboard tab's to send. True when the server kept it. */
+export async function saveFromPreview(key: string, value: string): Promise<boolean> {
+  const owner = signedInAs();
+  if (!owner || halted) return false;
+  const before = accountValue(key);
+  const set = { [key]: value };
+  const r = await put(set, [], owner);
+  if (halted || signedInAs() !== owner) return false;
+  if (outcome(r, set, owner) !== "ok" || !r || r.refused?.[key]) return false;
+  /* the browser's storage event tells the dashboard tab (Dashboard.tsx reads the switch again) */
+  restoreAccountValue(key, value, before);
+  return true;
 }
 
 /** The server's copy of one key, put in this browser when it has none (nothing is sent back), with its version for the

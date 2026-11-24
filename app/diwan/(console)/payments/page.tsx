@@ -182,9 +182,28 @@ export default function PaymentsPage() {
         }
       />
 
+      {/* the tabs (everything, the payments staff marked, the themes bought) at the start of the row, the search and the
+          filters at its end, on one line (FilterBar, as on Diwan's other lists); the method is one of the filters, and the
+          "How stores paid" cards below pick it too */}
       <FilterBar
-        count={(from ? 1 : 0) + (to ? 1 : 0)}
-        onClear={() => (setFrom(""), setTo(""))}
+        tabs={
+          <div role="tablist" aria-label={t("Kind of payment", "نوع الدفعة")} className="flex flex-wrap gap-2">
+            {TABS.map((x) => (
+              <button
+                key={x || "all"}
+                type="button"
+                role="tab"
+                aria-selected={tab === x}
+                onClick={() => setTab(x)}
+                className={`inline-flex items-center rounded-full px-3.5 py-1.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${tab === x ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
+              >
+                {x === "" ? t("All", "الكل") : x === "store" ? t("Store payments", "دفعات المتاجر") : THEME_CHECKOUT_CHARGES ? t("Theme purchases", "شراء الثيمات") : t("Themes chosen (not charged)", "الثيمات المختارة (دون تحصيل)")}
+              </button>
+            ))}
+          </div>
+        }
+        count={(method ? 1 : 0) + (from ? 1 : 0) + (to ? 1 : 0)}
+        onClear={() => setList({ method: "", from: "", to: "" })}
         search={
           <input
             type="search"
@@ -197,7 +216,17 @@ export default function PaymentsPage() {
           />
         }
       >
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-muted">{t("Method", "الطريقة")}</span>
+            <Select
+              label={t("Method", "الطريقة")}
+              value={method}
+              onChange={pickMethod}
+              className="w-full"
+              options={[{ value: "", label: t("Every method", "كل الطرق") }, ...METHODS.map((m) => ({ value: m, label: methodText(t, m) }))]}
+            />
+          </label>
           <label className="block text-sm">
             <span className="mb-1 block text-muted">{t("Paid from", "مدفوعة من")}</span>
             <input type="date" value={from} onChange={(e) => (setFrom(e.target.value))} className={field} />
@@ -262,47 +291,24 @@ export default function PaymentsPage() {
             )}
 
             <section className="space-y-3">
-              {/* the tabs: everything, the payments staff marked, the themes bought */}
-              <div role="tablist" aria-label={t("Kind of payment", "نوع الدفعة")} className="flex flex-wrap gap-2 border-b border-fg/10">
-                {TABS.map((x) => {
-                  const on = tab === x;
-                  return (
-                    <button
-                      key={x || "all"}
-                      type="button"
-                      role="tab"
-                      aria-selected={on}
-                      onClick={() => setTab(x)}
-                      className={`-mb-px border-b-2 px-3 pb-2.5 pt-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                        on ? "border-primary text-fg" : "border-transparent text-muted hover:text-fg"
-                      }`}
-                    >
-                      {x === "" ? t("All", "الكل") : x === "store" ? t("Store payments", "دفعات المتاجر") : THEME_CHECKOUT_CHARGES ? t("Theme purchases", "شراء الثيمات") : t("Themes chosen (not charged)", "الثيمات المختارة (دون تحصيل)")}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Select
-                  label={t("Method", "الطريقة")}
-                  value={method}
-                  onChange={pickMethod}
-                  options={[{ value: "", label: t("Every method", "كل الطرق") }, ...METHODS.map((m) => ({ value: m, label: methodText(t, m) }))]}
-                />
-                <p className="text-sm text-muted">
-                  {(tab !== "themes" || d.paid > 0) && (
-                    <>
-                      {f.count(d.paid, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} · {t("total", "المجموع")} <b className="text-fg">{f.jod(d.total)}</b>
-                    </>
-                  )}
-                  {d.count > d.paid && (
-                    <>
-                      {tab !== "themes" || d.paid > 0 ? " · " : ""}
-                      {f.count(d.count - d.paid, ["theme chosen, not charged", "themes chosen, not charged"], { one: "ثيم واحد مختار، دون تحصيل", two: "ثيمان مختاران، دون تحصيل", few: "ثيمات مختارة، دون تحصيل", many: "ثيمًا مختارًا، دون تحصيل" })}
-                    </>
-                  )}
-                </p>
-              </div>
+              {/* how many and how much, on the end side above the table (shown only when there is something to say) */}
+              {(tab !== "themes" || d.paid > 0 || d.count > d.paid) && (
+                <div className="flex justify-end">
+                  <p className="text-sm text-muted">
+                    {(tab !== "themes" || d.paid > 0) && (
+                      <>
+                        {f.count(d.paid, ["payment", "payments"], { one: "دفعة واحدة", two: "دفعتان", few: "دفعات", many: "دفعة" })} · {t("total", "المجموع")} <b className="text-fg">{f.jod(d.total)}</b>
+                      </>
+                    )}
+                    {d.count > d.paid && (
+                      <>
+                        {tab !== "themes" || d.paid > 0 ? " · " : ""}
+                        {f.count(d.count - d.paid, ["theme chosen, not charged", "themes chosen, not charged"], { one: "ثيم واحد مختار، دون تحصيل", two: "ثيمان مختاران، دون تحصيل", few: "ثيمات مختارة، دون تحصيل", many: "ثيمًا مختارًا، دون تحصيل" })}
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
               {tab === "themes" ? (
                 /* a theme bought: which theme, by which store, for how much, and how it was paid at the theme store's checkout */
                 <DataTable

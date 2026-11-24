@@ -68,7 +68,6 @@ export type Content = {
     errWrongPassword: string;
     errTooMany: string;
     errSignupMany: string;
-    terms: { before: string; terms: string; and: string; privacy: string };
     side: { kicker: string; heading: string; panelTitle: string; caption: string };
   };
   onboarding: {
@@ -167,6 +166,7 @@ export type Content = {
       proofBusy: string;
       proofWaiting: string;
       proofApproved: string;
+      proofApprovedOther: string;
       proofRejected: string;
       remove: string;
       previewHint: string;
@@ -263,6 +263,8 @@ export type Content = {
     latestSample: { name: string; total: string; status: string }[];
     cartsTitle: string;
     cartsCount: string;
+    /** a signed-in store's figure: only the carts no order has ended yet (Marketing and Reports count them all) */
+    cartsStillOpen: string;
     cartsLost: string;
     cartsLink: string;
   };
@@ -400,6 +402,7 @@ export type Content = {
       /* an order took a product down to his low-stock number ({left} still there), or took its last piece */
       lowStock: string;
       outOfStock: string;
+      campaignStopped: string;
       /* he turned it off himself in Settings */
       twoStepOffSelf: string;
       statusWords: Record<string, string>;
@@ -560,12 +563,6 @@ export const content: Record<Lang, Content> = {
       errWrongPassword: "The email, number or password is not right. Try again.",
       errTooMany: "Too many wrong tries. Wait 15 minutes and try again.",
       errSignupMany: "Too many sign-up tries from this connection in the last hour. Wait an hour and try again.",
-      terms: {
-        before: "By creating an account, you agree to Dukkan's ",
-        terms: "Terms of Service",
-        and: " and ",
-        privacy: "Privacy Policy",
-      },
       side: {
         kicker: "Getting started is the easy part",
         heading: "We'll guide you from signup to your first sale",
@@ -672,8 +669,9 @@ export const content: Record<Lang, Content> = {
         proofFull: "Your account has no room for more files. Remove one first.",
         proofSlow: "Too many tries in a short time. Wait a few minutes, then add the file again.",
         proofBusy: "Dukkan can't take new files right now. Try again later.",
-        proofWaiting: "Waiting for the team to check",
+        proofWaiting: "Waiting for the Dukkan team's review",
         proofApproved: "Approved",
+        proofApprovedOther: "Approved for another partner. Send a new proof for this one.",
         proofRejected: "Not accepted",
         remove: "Remove",
         previewHint: "This is how your shipping partner will look in your account",
@@ -757,7 +755,7 @@ export const content: Record<Lang, Content> = {
       soon: "This report is coming soon in this prototype.",
       currency: "JOD",
       abandoned: {
-        cards: ["Abandoned carts", "Potential lost revenue", "Recovery rate after reminders", "Most products added to abandoned carts"],
+        cards: ["Abandoned carts", "Potential lost revenue", "Recovery rate", "Most products added to abandoned carts"],
         rows: ["Carts recovered", "Reminders sent"],
         empty: "No abandoned carts yet",
       },
@@ -814,8 +812,8 @@ export const content: Record<Lang, Content> = {
         abandoned: { title: "Abandoned carts", desc: "Carts where a customer added products but left without completing the order, in the selected period." },
         lostRevenue: { title: "Potential lost revenue", desc: "The total value of the items left in abandoned carts. These are sales you can still win back." },
         recovery: {
-          title: "Recovery rate after reminders",
-          desc: "The share of abandoned carts that turned into orders after a reminder was sent.",
+          title: "Recovery rate",
+          desc: "The share of abandoned carts that later turned into orders, whether a reminder was sent or not.",
           formula: ["Recovery rate", "=", "Recovered carts", "÷", "Abandoned carts", "×", "100"],
         },
         topProducts: { title: "Most added to abandoned carts", desc: "The products that most often sit in abandoned carts. Start with these when you send reminders or offers." },
@@ -857,11 +855,12 @@ export const content: Record<Lang, Content> = {
       ],
       cartsTitle: "Abandoned carts",
       cartsCount: "Abandoned carts",
+      cartsStillOpen: "Still open",
       cartsLost: "Potential lost revenue",
       cartsLink: "View the full report",
     },
     marketing: {
-      menu: ["Abandoned carts", "Coupons", "Repurchase reminders", "Free delivery", "Customer emails"],
+      menu: ["Abandoned carts", "Coupons", "Campaigns", "Repurchase reminders", "Free delivery", "Customer emails"],
       tabs: ["Abandoned carts", "Automatic reminders"],
       title: "Abandoned carts at a glance",
       sub: "Follow the key abandoned-cart numbers and how many you win back over the selected period.",
@@ -1001,6 +1000,7 @@ export const content: Record<Lang, Content> = {
         twoStepOff: "Dukkan's team turned off 2-step sign-in on your account. You can turn it on again in Settings. If you did not ask for this, change your password now.",
         lowStock: "“{name}” is almost out of stock: {left} left",
         outOfStock: "“{name}” has run out. Customers can't order it until you add more.",
+        campaignStopped: "Dukkan stopped your campaign “{subject}” while it was sending. Customers it hadn't reached yet won't get it. Contact support to know why.",
         twoStepOffSelf: "2-step sign-in was turned off on your account in Settings. You can turn it on again there. If this wasn't you, change your password now.",
         statusWords: { approved: "approved", rejected: "not accepted", waiting: "waiting" },
         sep: ": ",
@@ -1155,12 +1155,6 @@ export const content: Record<Lang, Content> = {
       errWrongPassword: "البريد أو الرقم أو كلمة المرور غير صحيحة. حاول مرة أخرى.",
       errTooMany: "محاولات خاطئة كثيرة. انتظر 15 دقيقة ثم حاول مرة أخرى.",
       errSignupMany: "محاولات تسجيل كثيرة من هذا الاتصال خلال الساعة الأخيرة. انتظر ساعة ثم حاول مرة أخرى.",
-      terms: {
-        before: "بإنشائك حسابًا، فإنك توافق على ",
-        terms: "شروط الاستخدام",
-        and: " و",
-        privacy: "سياسة الخصوصية",
-      },
       side: {
         kicker: "البداية أسهل مما تتخيل",
         heading: "نرافقك من التسجيل حتى أول عملية بيع",
@@ -1267,8 +1261,9 @@ export const content: Record<Lang, Content> = {
         proofFull: "لا توجد مساحة لملفات أخرى في حسابك. احذف ملفًا أولًا.",
         proofSlow: "محاولات كثيرة في وقت قصير. انتظر بضع دقائق ثم أضف الملف مرة أخرى.",
         proofBusy: "لا تستطيع دكان استقبال ملفات جديدة الآن. حاول لاحقًا.",
-        proofWaiting: "بانتظار مراجعة الفريق",
+        proofWaiting: "بانتظار مراجعة فريق دكان",
         proofApproved: "مقبول",
+        proofApprovedOther: "مقبول لجهة توصيل أخرى. أرسل إثباتًا جديدًا لهذه الجهة.",
         proofRejected: "غير مقبول",
         remove: "إزالة",
         previewHint: "هكذا سيظهر شريك الشحن في حسابك",
@@ -1350,7 +1345,7 @@ export const content: Record<Lang, Content> = {
       soon: "هذا التقرير قادم قريبًا في هذا النموذج الأولي.",
       currency: "د.أ",
       abandoned: {
-        cards: ["عدد السلات المتروكة", "الدخل المحتمل فقدانه من السلات المتروكة", "نسبة السلات المستردة بعد التذكير", "أكثر المنتجات إضافة للسلات المتروكة"],
+        cards: ["عدد السلات المتروكة", "الدخل المحتمل فقدانه من السلات المتروكة", "نسبة الاسترداد", "أكثر المنتجات إضافة للسلات المتروكة"],
         rows: ["سلات تم استردادها", "تذكيرات تم إرسالها"],
         empty: "لا توجد سلات متروكة بعد",
       },
@@ -1407,8 +1402,8 @@ export const content: Record<Lang, Content> = {
         abandoned: { title: "عدد السلات المتروكة", desc: "السلات التي أضاف فيها العميل منتجات ثم غادر دون إتمام الطلب، خلال الفترة المحددة." },
         lostRevenue: { title: "الدخل المحتمل فقدانه", desc: "القيمة الإجمالية للمنتجات المتروكة في السلات. هذه مبيعات ما زال بإمكانك استعادتها." },
         recovery: {
-          title: "نسبة السلات المستردة بعد التذكير",
-          desc: "نسبة السلات المتروكة التي تحولت إلى طلبات بعد إرسال تذكير.",
+          title: "نسبة الاسترداد",
+          desc: "نسبة السلات المتروكة التي تحولت لاحقاً إلى طلبات، سواء أُرسل لها تذكير أم لا.",
           formula: ["نسبة الاسترداد", "=", "السلات المستردة", "÷", "السلات المتروكة", "×", "100"],
         },
         topProducts: { title: "أكثر المنتجات إضافة للسلات المتروكة", desc: "المنتجات التي تبقى في السلات المتروكة أكثر من غيرها. ابدأ بها عند إرسال التذكيرات أو العروض." },
@@ -1450,11 +1445,12 @@ export const content: Record<Lang, Content> = {
       ],
       cartsTitle: "السلات المتروكة",
       cartsCount: "عدد السلات المتروكة",
+      cartsStillOpen: "ما زالت مفتوحة",
       cartsLost: "الدخل المحتمل فقدانه",
       cartsLink: "عرض التقرير الكامل",
     },
     marketing: {
-      menu: ["السلات المتروكة", "الكوبونات", "تذكيرات إعادة الشراء", "التوصيل المجاني", "إيميلات العملاء"],
+      menu: ["السلات المتروكة", "الكوبونات", "حملات تسويقية", "تذكيرات إعادة الشراء", "التوصيل المجاني", "إيميلات العملاء"],
       tabs: ["السلات المتروكة", "التذكيرات التلقائية"],
       title: "نظرة سريعة على أداء السلات المتروكة",
       sub: "تتبّع أهم مؤشرات السلات المتروكة ومعدل استعادتها خلال الفترة المحددة.",
@@ -1594,6 +1590,7 @@ export const content: Record<Lang, Content> = {
         twoStepOff: "أوقف فريق دكان التحقق بخطوتين في حسابك. يمكنك تشغيله من جديد من الإعدادات. إذا لم تطلب هذا، فغيّر كلمة المرور الآن.",
         lowStock: "قاربت كمية «{name}» على النفاد: بقي {left}",
         outOfStock: "نفدت كمية «{name}». لن يستطيع العملاء طلبه حتى تضيف كمية جديدة.",
+        campaignStopped: "أوقف دكان حملتك «{subject}» أثناء إرسالها. لن تصل إلى العملاء الذين لم تصلهم بعد. تواصل مع الدعم لمعرفة السبب.",
         twoStepOffSelf: "أُوقف التحقق بخطوتين في حسابك من الإعدادات. يمكنك تشغيله من جديد من هناك. إذا لم تكن أنت، فغيّر كلمة المرور الآن.",
         statusWords: { approved: "مقبول", rejected: "غير مقبول", waiting: "بالانتظار" },
         sep: ": ",

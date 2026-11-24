@@ -219,7 +219,7 @@ export function ProfileMenu() {
             </div>
           </div>
 
-          {/* Open, or under maintenance (Dukkan's own page for visitors). Not in the tour, whose store is made up. */}
+          {/* Live or not live (visitors then see Dukkan's own "back soon" page). Not in the tour, whose store is made up. */}
           <div className="border-t border-fg/10">
             <StoreStatus lang={lang} disabled={tour} disabledTitle={demoOffText(lang)} onLink={go} />
           </div>

@@ -14,7 +14,8 @@ import { ShareMenu } from "./ShareMenu";
 import { CityGone, OwnCities, PaysPicker, payWords } from "./Delivery";
 import { pushNotification } from "./notifications";
 import { SeenShipLogo, SeenShipMark } from "./SeenShip";
-import { loadSetup, saveSetup, setupProductNow, syncSetupProduct } from "./setup";
+import { loadSetup, saveSetup, SETUP_KEY, setupProductNow, syncSetupProduct } from "./setup";
+import { SAVE_REFUSED } from "./serverSync";
 import { Tilt } from "./ui";
 import { latin } from "./digits";
 import { isJordanMobile, jordanMobile, savedMobile, shownMobile, typedPhone } from "./phone";
@@ -1338,7 +1339,7 @@ function ShippingStep({ store, onSave }: StepProps) {
   const onFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = "";
-    void addProofs(picked, { name: cleanLine(name, ACCOUNT_LIMITS.shipName), kind });
+    void addProofs(picked, { name: cleanLine(name, ACCOUNT_LIMITS.shipName), kind, phone });
   };
 
   const pickupBox = (
@@ -1611,7 +1612,7 @@ function ShippingStep({ store, onSave }: StepProps) {
           <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
           {error && <p role="alert" className="mt-1 text-xs text-rose-600">{error}</p>}
 
-          <ProofRows proofs={proofs} s={s} onRemove={(f) => void removeProof(f)} />
+          <ProofRows proofs={proofs} s={s} phone={phone} onRemove={(f) => void removeProof(f)} />
           <p className="mt-3 text-xs text-muted">{proofsSent ? s.serverNote : s.localNote}</p>
         </div>
 
@@ -1683,7 +1684,7 @@ function LiveMoment({ slug, name, chosen }: { slug: string; name: string; chosen
   const { lang } = usePrefs();
   const t = liveWords[lang];
   const pays = orderPays(storePays(usePublicSettings()), chosen);
-  const sell = useSellReady();
+  const sell = useSellReady({ proof: true });
   const [copied, setCopied] = useState(false);
   /* signed in, the store is at its own address; otherwise it opens as customers would see it (as the profile menu does) */
   const [href, setHref] = useState("/store");
@@ -1707,7 +1708,7 @@ function LiveMoment({ slug, name, chosen }: { slug: string; name: string; chosen
     const missing = liveMissing(sell.missing, live && sell.shipDefault);
     return (
       <div className="mt-8 space-y-3">
-        {missing.length > 0 && <SellNeeds lang={lang} missing={missing} title={live ? sellWords[lang].liveNotReady : undefined} />}
+        {missing.length > 0 && <SellNeeds lang={lang} missing={missing} why={sell.why} title={live ? sellWords[lang].liveNotReady : undefined} />}
         {live && sell.shipDefault && <ShipDefaultNote lang={lang} />}
       </div>
     );
@@ -1747,32 +1748,55 @@ export function Onboarding() {
 
   usePageTitle(`${brandName(lang)} | ${view === null ? c.title : c.tasks[view].title}`);
 
-  /* Pick up where he left off: restore saved answers and progress for this session. */
+  /* Pick up where he left off: restore saved answers and progress for this session. Read again when the server did not
+     keep a save (serverSync.ts: a refused link is taken back, a setup the store can't sell with comes back as the server
+     has it): this page sends its whole setup with every step, so going on from its own older copy would send the refused
+     part again with each one. */
   const [restored, setRestored] = useState(false);
+  const viewNow = useRef(view);
   useEffect(() => {
-    const s = loadSetup();
-    if (s && Array.isArray(s.done) && s.done.length === TOTAL_TASKS) {
-      setStore((prev) => ({
-        ...prev,
-        name: s.name,
-        description: s.description,
-        color: s.color,
-        phone: s.phone,
-        whatsapp: s.whatsapp ?? null,
-        slug: s.slug,
-        product: s.product ? { ...s.product, image: s.product.image ?? null } : null,
-        pickup: s.pickup === true,
-        logoData: s.logo ?? "",
-        logo: s.logo ? { url: s.logo, name: "logo", size: "" } : null,
-        shipping: s.shipping ? { ...s.shipping, mode: s.shipping.mode ?? "own", city: s.shipping.city ?? "", address: s.shipping.address ?? "", proofs: [] } : null,
-        /* none saved: an older store, every way Dukkan has on */
-        pays: s.pays,
-      }));
-      setDone(s.done);
-      /* Someone who has already started sees their task list, not the first step. */
-      if (s.done.some(Boolean)) setView(null);
-    }
+    viewNow.current = view;
+  }, [view]);
+  useEffect(() => {
+    const read = (first: boolean) => {
+      const s = loadSetup();
+      if (s && Array.isArray(s.done) && s.done.length === TOTAL_TASKS) {
+        setStore((prev) => ({
+          ...prev,
+          name: s.name,
+          description: s.description,
+          color: s.color,
+          phone: s.phone,
+          whatsapp: s.whatsapp ?? null,
+          slug: s.slug,
+          product: s.product ? { ...s.product, image: s.product.image ?? null } : null,
+          pickup: s.pickup === true,
+          logoData: s.logo ?? "",
+          logo: s.logo ? { url: s.logo, name: "logo", size: "" } : null,
+          /* the courier proofs are not in the saved setup: the ones he picked stay */
+          shipping: s.shipping ? { ...s.shipping, mode: s.shipping.mode ?? "own", city: s.shipping.city ?? "", address: s.shipping.address ?? "", proofs: prev.shipping?.proofs ?? [] } : null,
+          /* none saved: an older store, every way Dukkan has on */
+          pays: s.pays,
+        }));
+        setDone(s.done);
+        /* the link step done but no link (it was refused, or another store took it at the same moment): that step opens
+           to ask for a new one, on his way in or from the task list (never over a step he is filling in) */
+        const noLink = s.done[2] === true && !s.slug;
+        if (noLink && (first || viewNow.current === null)) setView(2);
+        /* Someone who has already started sees their task list, not the first step. */
+        else if (first && s.done.some(Boolean)) setView(null);
+      }
+    };
+    read(true);
     setRestored(true);
+    const again = () => read(false);
+    const changed = (e: StorageEvent) => e.key === SETUP_KEY && again();
+    window.addEventListener(SAVE_REFUSED, again);
+    window.addEventListener("storage", changed);
+    return () => {
+      window.removeEventListener(SAVE_REFUSED, again);
+      window.removeEventListener("storage", changed);
+    };
   }, []);
 
   useEffect(() => {

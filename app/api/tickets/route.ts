@@ -6,6 +6,7 @@ import { cleanLine, cleanLines, visibleLength } from "@/components/safe";
 import { ACCOUNT_LIMITS, TICKET_MIN } from "@/components/safeAccount";
 import { onceByKey } from "@/server/onceKey";
 import { logMerchant } from "@/server/merchantLog";
+import { ticketChanged } from "@/server/ticketEvents";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,8 @@ export const POST = merchantRoute(async (req, me) => {
     });
     if (typeof number === "string") return pictureRoomAnswer(number);
     logMerchant(me.id, "ticket.opened", { number });
+    /* Diwan's red numbers count it at once (server/ticketEvents.ts) */
+    await ticketChanged(number, me.id, "merchant");
     return answer({ result: "ok", number });
   });
 });

@@ -4,6 +4,7 @@ import { staffPasswordProblem } from "@/components/diwan/staffRules";
 import { answer, hashPassword, readJson } from "@/server/auth";
 import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
+import { freshCodeMail } from "@/server/email";
 import { endCodes } from "@/server/emailVerify";
 import { audit, staffRoute } from "@/server/staff";
 import { tellOtherStaff } from "@/server/staffNotice";
@@ -104,6 +105,9 @@ export const PATCH = staffRoute("staff", async (req: NextRequest, me, { params }
       await endCodes(emailChangeRef(id), true);
       target = { id, name: String(s.name ?? ""), email: newEmail };
     } else {
+      /* a new password: the sign-in codes asked for with the old one (by whoever had it) no longer stop the member from
+         getting one, as a merchant's new password does (server/emailVerify.ts freshSignInCodes) */
+      if (action === "password" && s.email) freshCodeMail(String(s.email), "staff-login");
       meta.email = s.email;
       target = { id, name: String(s.name ?? ""), email: String(s.email ?? "") };
     }

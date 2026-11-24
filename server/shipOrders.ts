@@ -137,8 +137,9 @@ export const SHIP_NOTE_MAX = 300;
 
 /** Marks one Dukkan Ship order: "delivered" (the merchant's order becomes delivered too), "failed" (not delivered:
     `note` says why, 1 to 300 letters) or "waiting" (undoes a mark: a delivered order goes back to shipping). An order
-    the merchant cancelled or refunded is not marked. The merchant's bell hears of a delivered or failed one. */
-export async function markShipOrder(req: NextRequest, me: Staff, id: string, body: Record<string, unknown>): Promise<"ok" | "none" | "invalid" | "cancelled"> {
+    the merchant cancelled or refunded is not marked, nor a big order still waiting for him to review it ("review"). The
+    merchant's bell hears of a delivered or failed one. */
+export async function markShipOrder(req: NextRequest, me: Staff, id: string, body: Record<string, unknown>): Promise<"ok" | "none" | "invalid" | "cancelled" | "review"> {
   if (!/^\d{1,18}$/.test(id)) return "none";
   const state = body.state;
   if (state !== "delivered" && state !== "failed" && state !== "waiting") return "invalid";
@@ -162,6 +163,12 @@ export async function markShipOrder(req: NextRequest, me: Staff, id: string, bod
     if (o.status === "cancelled" || o.status === "refunded") {
       await c.query("ROLLBACK");
       return "cancelled";
+    }
+    /* a big order the merchant has not reviewed yet isn't Dukkan's to deliver (it is kept off the To deliver tab): a mark
+       from the All tab or a search would mark it paid, take its stock and tell him before he accepted it */
+    if (o.status === "review") {
+      await c.query("ROLLBACK");
+      return "review";
     }
     /* the merchant's own status follows: delivered when Dukkan delivered it; back to shipping when a delivery Dukkan had
        marked is undone or changed to "not delivered" (so a cash order no longer reads as paid either: paidSet) */

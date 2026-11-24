@@ -27,7 +27,10 @@ const copy = {
     channels: ["Email", "SMS"],
     none: "No discount",
     emptyTitle: "No reminders yet",
-    emptyHint: "Create a reminder and Dukkan sends it by itself when a customer leaves a cart.",
+    emptyHint: "Dukkan will send these by itself when a customer leaves a cart, by email or SMS.",
+    /* nothing sends these reminders yet (abandoned carts have their own email reminder, sent by hand from the list) */
+    soon: "Coming soon",
+    soonNote: "Automatic reminders are coming soon: Dukkan doesn't send them yet. Reminders you already made stay saved here.",
     noMatch: "No reminders match your search",
     formTitle: "New reminder",
     name: "Reminder name",
@@ -63,7 +66,9 @@ const copy = {
     channels: ["البريد الإلكتروني", "رسالة نصية"],
     none: "بدون خصم",
     emptyTitle: "لا توجد تذكيرات بعد",
-    emptyHint: "أنشئ تذكيرًا وستُرسله دكان تلقائيًا عندما يترك العميل سلته.",
+    emptyHint: "سيُرسل دكان هذه التذكيرات تلقائيًا عندما يترك العميل سلته، بالبريد الإلكتروني أو برسالة نصية.",
+    soon: "قريبًا",
+    soonNote: "التذكيرات التلقائية قريبًا: لا يُرسلها دكان بعد. التذكيرات التي أنشأتها تبقى محفوظة هنا.",
     noMatch: "لا توجد تذكيرات مطابقة لبحثك",
     formTitle: "تذكير جديد",
     name: "اسم التذكير",
@@ -96,13 +101,15 @@ const repurchase = {
   en: {
     title: "Repurchase reminders",
     cols: ["Reminder name", "Send after delivery", "Channel", "Discount", "Actions"],
-    emptyHint: "Create a reminder and Dukkan sends it by itself to customers some time after their order is delivered.",
+    emptyHint: "Dukkan will send these by itself to customers some time after their order is delivered.",
+    soonNote: "Repurchase reminders are coming soon: Dukkan doesn't send them yet. Reminders you already made stay saved here.",
     after: "Send after the order was delivered by",
   },
   ar: {
     title: "تذكيرات إعادة الشراء",
     cols: ["اسم التذكير", "الإرسال بعد التسليم", "قناة الإرسال", "الخصم", "إجراءات"],
-    emptyHint: "أنشئ تذكيرًا وستُرسله دكان تلقائيًا للعملاء بعد فترة من تسليم طلبهم.",
+    emptyHint: "سيُرسل دكان هذه التذكيرات تلقائيًا للعملاء بعد فترة من تسليم طلبهم.",
+    soonNote: "تذكيرات إعادة الشراء قريبًا: لا يُرسلها دكان بعد. التذكيرات التي أنشأتها تبقى محفوظة هنا.",
     after: "أرسل بعد تسليم الطلب بمدة",
   },
 };
@@ -244,7 +251,16 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
 
       <main data-lang-fade className="mx-auto max-w-[1720px] space-y-5 px-5 py-8 md:px-10">
         <section className={`${card} p-5 sm:p-7`}>
-          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-lg font-extrabold">{c.title}</h1><button type="button" onClick={() => setCreating(true)} className="shrink-0 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-onink transition hover:bg-deep"> + {c.newReminder} </button></div>
+          {/* Nothing sends these reminders yet (owner's decision, 23 Nov 2026): the page says "Coming soon" and no new one
+              can be made. The ones a merchant already saved stay as they are, and he can still pause or delete them. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="flex flex-wrap items-center gap-2 text-lg font-extrabold">
+              {c.title}
+              <span className="rounded-full bg-primary/[0.12] px-2.5 py-0.5 text-xs font-bold text-primary">{c.soon}</span>
+            </h1>
+            <button type="button" disabled title={c.soon} className="shrink-0 cursor-not-allowed rounded-lg bg-fg/10 px-4 py-2 text-sm font-semibold text-muted"> + {c.newReminder} </button>
+          </div>
+          <p className="mt-2 max-w-2xl text-sm text-muted">{c.soonNote}</p>
 
           <div className="relative mt-5">
             <svg viewBox="0 0 24 24" className="pointer-events-none absolute start-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
@@ -299,8 +315,8 @@ export function Reminders({ kind = "abandoned" }: { kind?: "abandoned" | "repurc
                 <p className="font-bold">{list.length === 0 ? c.emptyTitle : c.noMatch}</p>
                 {list.length === 0 && <p className="mx-auto mt-1 max-w-sm text-sm text-muted">{c.emptyHint}</p>}
                 {list.length === 0 && (
-                  <button type="button" onClick={() => setCreating(true)} className="mt-5 rounded-xl border border-primary/60 px-5 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white">
-                    {c.newReminder}
+                  <button type="button" disabled title={c.soon} className="mt-5 cursor-not-allowed rounded-xl border border-fg/15 px-5 py-2.5 text-sm font-semibold text-muted">
+                    {c.newReminder} ({c.soon})
                   </button>
                 )}
               </div>

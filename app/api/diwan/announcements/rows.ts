@@ -12,10 +12,11 @@ export const ANNOUNCEMENT_ENDED = `(a.ends_at IS NOT NULL AND a.ends_at <= now()
 export const announcementRowsSql = (where = "") =>
   `SELECT a.*, st.name AS by,
           CASE WHEN a.starts_at > now() THEN 'scheduled' WHEN ${ANNOUNCEMENT_ENDED} THEN 'ended' ELSE 'live' END AS status,
-          /* who pressed "End now": the column, or for one ended before it existed, the activity log's line for it */
+          /* who pressed "End now": the column, or for one ended before it existed, the activity log's line for it (after its
+             last "Start again" when it had one: restart keeps starts_at, so an "End now" from before that is not this run's) */
           COALESCE(eb.name, (SELECT s2.name FROM audit_log l JOIN staff s2 ON s2.id = l.staff_id
                               WHERE a.ended_by IS NULL AND a.ended_at IS NULL AND l.action = 'announcement.end'
-                                AND l.target_type = 'announcement' AND l.target_id = a.id::text AND l.at >= a.starts_at
+                                AND l.target_type = 'announcement' AND l.target_id = a.id::text AND l.at >= COALESCE(a.restarted_at, a.starts_at)
                               ORDER BY l.at DESC LIMIT 1)) AS ended_by_name,
           (SELECT count(*)::int FROM notification_reads r JOIN notifications n ON n.id = r.notification_id
             WHERE n.announcement_id = a.id AND n.account_id IS NULL) AS reads,

@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { content } from "./content";
 import { merchantCall, onServer } from "./merchantApi";
 import { checkImage, cleanFileName, imageRules, uploadProblemText } from "./safe";
-import { arCount, dropUndos, offerUndo } from "./undo";
+import { arCount, dropUndos, hideUndo, offerUndo, undoShowing } from "./undo";
+import { jordanMobile } from "./phone";
+import { refreshProofs } from "./proofStatus";
 
 /* Proof for the merchant's own delivery partner (the setup's shipping step and the Delivery page). For a signed-in
    merchant every file is sent to Dukkan's server as soon as it is picked (app/api/documents), lands in Diwan's Documents
@@ -30,11 +32,13 @@ const undoWords = {
 };
 
 export type ProofStatus = "waiting" | "approved" | "rejected";
-/* url: a picture to show (the server's file route, or a picture still only in this browser); null for a PDF */
-export type ProofFile = { id: string; name: string; size: string; url: string | null; status?: ProofStatus; note?: string };
+/* url: a picture to show (the server's file route, or a picture still only in this browser); null for a PDF.
+   approvedPhone: an approved proof's courier, by phone (server/courierProof.ts); null for an approval from before that
+   was kept, which counts for any courier */
+export type ProofFile = { id: string; name: string; size: string; url: string | null; status?: ProofStatus; note?: string; approvedPhone?: string | null };
 
 type Words = (typeof content)["en"]["onboarding"]["shipping"];
-type ServerDoc = { id: string; kind: string; name: string; status: ProofStatus; note: string; mime: string | null; bytes: number; hasFile: boolean };
+type ServerDoc = { id: string; kind: string; name: string; status: ProofStatus; note: string; mime: string | null; bytes: number; hasFile: boolean; approvedPhone?: string | null };
 
 /* A file's size in the units its limit is said in: "5 MB" is 5,000,000 bytes (components/safe.ts MB), so a 4.9 MB
    file never shows as "4.7 MB" next to a limit it nearly reaches, nor a refused one as "4.8 MB" */
@@ -53,8 +57,61 @@ const fromServer = (d: ServerDoc): ProofFile => ({
   url: d.hasFile && d.mime?.startsWith("image/") ? `/api/documents/${d.id}/file` : null,
   status: d.status,
   note: d.note,
+  approvedPhone: d.approvedPhone ?? null,
 });
+
+/** Whether a proof is approved for the courier with this phone: an approval is for the courier it was given for, so
+    another courier (another phone) needs a new proof; the name alone may change. Without a phone (a page that doesn't
+    know it, or one not typed yet) any approval counts. */
+export function approvedForPhone(f: ProofFile, phone?: string): boolean {
+  if (f.status !== "approved") return false;
+  const key = (p: string) => jordanMobile(p) || p.replace(/\D/g, "");
+  if (!f.approvedPhone || !key(phone ?? "")) return true;
+  return key(f.approvedPhone) === key(phone ?? "");
+}
 const serverId = (f: ProofFile) => (f.id.startsWith("doc-") ? f.id.slice(4) : null);
+
+/** how often a page whose Undo toast still shows tells the server to keep its new proofs back: well inside the server's
+    hold (server/courierProof.ts HOLD_MINUTES), even in a background tab, which the browser lets run a timer about once a
+    minute */
+const HOLD_EVERY_MS = 30_000;
+
+/* While the toast for these just-uploaded proofs still counts (it stops while the mouse is on it or the tab is hidden,
+   so it can last longer than the server's hold), the server is asked to keep them back a while longer
+   (app/api/documents/send "hold"), so a proof that can still be undone never reaches Diwan first. Asked again as soon as
+   the tab shows again. When the server says one already went (the page could not ask in time, or the longest hold is
+   over), the toast closes: Undo is not offered for a proof staff may be checking. Stops once the toast is gone; the
+   proofs are sent then (onSettle), or by the server once the last hold is over if the page closed. */
+function keepHeld(toastId: number, ids: string[]) {
+  let timer = 0;
+  /* asks again when the server said the first of them reaches its longest hold (its `left`) */
+  let atCap = 0;
+  const stop = () => {
+    window.clearInterval(timer);
+    window.clearTimeout(atCap);
+    document.removeEventListener("visibilitychange", onShow);
+  };
+  const ask = async () => {
+    if (!undoShowing(toastId)) return stop();
+    const r = await merchantCall("/api/documents/send", "POST", { ids, hold: true });
+    if (!undoShowing(toastId)) return stop();
+    if (r && r.status === 200 && Array.isArray(r.data.held) && r.data.held.length < ids.length) {
+      stop();
+      hideUndo(toastId);
+      return;
+    }
+    const left = r && r.status === 200 ? Number(r.data.left) : NaN;
+    if (Number.isFinite(left) && left >= 0 && left * 1000 < HOLD_EVERY_MS) {
+      window.clearTimeout(atCap);
+      atCap = window.setTimeout(() => void ask(), left * 1000 + 1_000);
+    }
+  };
+  const onShow = () => {
+    if (!document.hidden) void ask();
+  };
+  timer = window.setInterval(() => void ask(), HOLD_EVERY_MS);
+  document.addEventListener("visibilitychange", onShow);
+}
 
 /* the file as base64, without the "data:...;base64," in front */
 const toBase64 = (file: Blob) =>
@@ -129,7 +186,7 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
 
   /** Checks and adds the picked files: images or PDF only (read from their bytes), 5 MB each, 5 in play (rejected ones
       don't count) */
-  const add = async (picked: File[], partner: { name: string; kind: number }) => {
+  const add = async (picked: File[], partner: { name: string; kind: number; phone?: string }) => {
     if (!ready) return;
     let message = "";
     setBusy(true);
@@ -154,7 +211,7 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
           continue;
         }
         /* the type its bytes are, not the one its name gives (a PNG named .jpg is still a good PNG) */
-        const r = await merchantCall("/api/documents", "POST", { kind: "courier_proof", data, type: PROOF_MIME[check.kind] ?? "", name: file.name, partner: partner.name, partnerKind: partner.kind });
+        const r = await merchantCall("/api/documents", "POST", { kind: "courier_proof", data, type: PROOF_MIME[check.kind] ?? "", name: file.name, partner: partner.name, partnerKind: partner.kind, partnerPhone: partner.phone ?? "" });
         if (!r || r.status !== 200 || !r.data.document) {
           message = r ? refusal(r.status, r.data.result, s) : s.proofFailed;
           /* a full list, too many tries or a full Dukkan won't change on the next file */
@@ -181,9 +238,12 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
     setBusy(false);
     setError(message);
     if (!added.length) return;
-    /* an Undo takes the files just added out again (from the server too), unless one of them is already gone */
-    offerUndo({
+    /* an Undo takes the files just added out again (from the server too), unless one of them is already gone. Until its
+       countdown ends they are held back; then they go to Dukkan (app/api/documents/send) */
+    const sendIds = added.map(serverId).filter((x): x is string => !!x);
+    const toastId = offerUndo({
       scope: "proofs",
+      onSettle: sendIds.length ? () => void merchantCall("/api/documents/send", "POST", { ids: sendIds }) : undefined,
       label: (l) => undoWords[l].added(added.length, added[0].name),
       undo: async () => {
         if (!added.every((f) => current.current.some((x) => x.id === f.id))) return false;
@@ -200,6 +260,7 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
         return true;
       },
     });
+    if (sendIds.length) keepHeld(toastId, sendIds);
   };
 
   /** Removes one file (from the server too, when it is there) */
@@ -238,6 +299,11 @@ export function usePartnerProofs(initial: ProofFile[], s: Words, lang: "en" | "a
     });
   };
 
+  /* a file sent, removed or put back: the rest of the page (the top bar's proof mark, the live switch) reads them again */
+  useEffect(() => {
+    if (sends && ready) void refreshProofs();
+  }, [proofs, sends, ready]);
+
   /** The page saved the list it holds: its in-browser pictures must outlive this step */
   const keep = () => {
     kept.current = new Set(proofs.flatMap((f) => (f.url?.startsWith("blob:") ? [f.url] : [])));
@@ -253,11 +319,13 @@ export function syncProofPartner(name: string, kind: number) {
   void merchantCall("/api/documents", "PUT", { partner: name, partnerKind: kind });
 }
 
-/** The team's answer on one file, under its name */
-export function ProofStatusLine({ f, s }: { f: ProofFile; s: Words }) {
+/** The team's answer on one file, under its name. `phone`: the courier on the page now; an approval for another one
+    says so */
+export function ProofStatusLine({ f, s, phone }: { f: ProofFile; s: Words; phone?: string }) {
   if (!f.status) return null;
-  const text = f.status === "approved" ? s.proofApproved : f.status === "rejected" ? s.proofRejected : s.proofWaiting;
-  const tone = f.status === "approved" ? "text-emerald-700 dark:text-emerald-300" : f.status === "rejected" ? "text-rose-600" : "text-amber-700 dark:text-amber-300";
+  const other = f.status === "approved" && !approvedForPhone(f, phone);
+  const text = other ? s.proofApprovedOther : f.status === "approved" ? s.proofApproved : f.status === "rejected" ? s.proofRejected : s.proofWaiting;
+  const tone = other ? "text-muted" : f.status === "approved" ? "text-emerald-700 dark:text-emerald-300" : f.status === "rejected" ? "text-rose-600" : "text-amber-700 dark:text-amber-300";
   return (
     <p className={`text-xs font-semibold ${tone}`}>
       {text}
@@ -267,7 +335,7 @@ export function ProofStatusLine({ f, s }: { f: ProofFile; s: Words }) {
 }
 
 /** The files, each with its picture (or a PDF mark), name, size, the team's answer and a Remove button */
-export function ProofRows({ proofs, s, onRemove }: { proofs: ProofFile[]; s: Words; onRemove: (f: ProofFile) => void }) {
+export function ProofRows({ proofs, s, onRemove, phone }: { proofs: ProofFile[]; s: Words; onRemove: (f: ProofFile) => void; phone?: string }) {
   if (!proofs.length) return null;
   return (
     <ul className="mt-4 space-y-2">
@@ -282,7 +350,7 @@ export function ProofRows({ proofs, s, onRemove }: { proofs: ProofFile[]; s: Wor
           <div className="min-w-0 flex-1 text-sm">
             <p className="truncate font-semibold">{f.name}</p>
             <p dir="ltr" className="text-start text-xs text-muted">{f.size}</p>
-            <ProofStatusLine f={f} s={s} />
+            <ProofStatusLine f={f} s={s} phone={phone} />
           </div>
           <button type="button" onClick={() => onRemove(f)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/10">
             {s.remove}

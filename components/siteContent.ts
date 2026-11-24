@@ -11,6 +11,12 @@ export type Bi = { en: string; ar: string };
 /** A link: its words in both languages and where it goes. An empty `href` hides the link instead of a dead "#". */
 export type SiteLink = { label: Bi; href: string };
 
+/** A link's address that stands for Dukkan support's email as staff set it in Diwan (Platform settings > Support
+    contact): the page puts in the address there is now (platformPublic.ts supportLinks), so a change in Diwan reaches
+    these links too, and with no email set the link is left out like any link with no address */
+export const SUPPORT_EMAIL = "support:email";
+export const withSupport = (href: string, mailto: string) => (href === SUPPORT_EMAIL ? mailto : href);
+
 /* The pictures each industry, feature and social link can have. They are drawn in code (components/Sections.tsx), and each
    item below picks one by name. */
 export const INDUSTRY_ICONS = ["fashion", "perfume", "jewelry", "digital", "electronics", "beauty", "home", "store"] as const;
@@ -86,7 +92,7 @@ export const SITE_DEFAULTS: SiteContent = {
   nav: {
     links: [link("Solutions", "الحلول", "#solutions"), link("Industries", "القطاعات", "#industries"), link("Themes", "الثيمات", "#design")],
     resources: bi("Resources", "الموارد"),
-    resourceLinks: [link("Help center", "مركز المساعدة", ""), link("FAQ", "الأسئلة الشائعة", ""), link("Contact us", "تواصل معنا", "mailto:hello@dukkan.store")],
+    resourceLinks: [link("Help center", "مركز المساعدة", ""), link("FAQ", "الأسئلة الشائعة", ""), link("Contact us", "تواصل معنا", SUPPORT_EMAIL)],
     login: link("Log in", "تسجيل دخول", "/signup?tab=login"),
     start: link("Start free", "ابدأ مجانًا", "/signup"),
   },
@@ -264,7 +270,7 @@ export const SITE_DEFAULTS: SiteContent = {
     tagline: bi("Smart commerce for Jordan and beyond.", "تجارة ذكية للأردن وما بعده."),
     columns: [
       { title: bi("About Dukkan", "عن دكان"), links: [link("Join the Dukkan team", "انضم لفريق دكان", ""), link("Terms of use", "شروط الاستخدام", ""), link("Privacy policy", "سياسة الخصوصية", "")] },
-      { title: bi("Resources", "الموارد"), links: [link("Help center", "مركز المساعدة", ""), link("FAQ", "الأسئلة الشائعة", ""), link("Contact us", "تواصل معنا", "mailto:hello@dukkan.store")] },
+      { title: bi("Resources", "الموارد"), links: [link("Help center", "مركز المساعدة", ""), link("FAQ", "الأسئلة الشائعة", ""), link("Contact us", "تواصل معنا", SUPPORT_EMAIL)] },
     ],
     industriesTitle: bi("Industries", "القطاعات"),
     availableIn: bi("Available in:", "متاح في:"),

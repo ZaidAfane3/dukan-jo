@@ -30,11 +30,56 @@ function unreadable(pathname: string): boolean {
   }
 }
 
+/* The page for such an address: no React page can be given for it (Next can't read the address to route it), so it is
+   a small page of its own, drawn like the site's "page not found" (components/StoreNotice.tsx MissingPage) with the same
+   colours, light or dark as the device is set, in Arabic then English (the visitor's language isn't known here). Nothing
+   from the address is written into it. */
+const BAD_LINK_PAGE = `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>رابط غير صالح · دكان — Link not valid · Dukkan</title>
+<style>
+  :root { color-scheme: light dark; --page: #f8f5ef; --fg: #141414; --muted: #606064; --primary: #b85c17; --on-primary: #fff; --line: rgba(20, 20, 20, 0.12); }
+  @media (prefers-color-scheme: dark) { :root { --page: #1b120c; --fg: #f7ede3; --muted: #c0ac99; --primary: #f0964f; --on-primary: #1b120c; --line: rgba(247, 237, 227, 0.15); } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 64px 20px; background: var(--page); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; }
+  main { width: 100%; max-width: 36rem; }
+  .code { margin: 0; font-size: 72px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; color: var(--primary); }
+  section { margin-top: 40px; }
+  section + section { margin-top: 32px; padding-top: 32px; border-top: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; opacity: 0.85; }
+  p { margin: 16px 0 0; line-height: 1.6; color: var(--muted); }
+  a { display: inline-flex; align-items: center; min-height: 44px; margin-top: 24px; padding: 0 24px; border-radius: 999px; background: var(--primary); color: var(--on-primary); font-size: 14px; font-weight: 700; text-decoration: none; }
+  a:hover { opacity: 0.9; }
+  a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+</style>
+</head>
+<body>
+<main>
+  <p class="code">400</p>
+  <section>
+    <h1>هذا الرابط غير صالح</h1>
+    <p>فيه رموز لا يمكن قراءتها. تحقّق من الرابط، أو ابدأ من الصفحة الرئيسية.</p>
+    <a href="/">الصفحة الرئيسية لدكان</a>
+  </section>
+  <section lang="en" dir="ltr">
+    <h1>This link is not valid</h1>
+    <p>It has characters that can't be read. Check the link, or start from the home page.</p>
+    <a href="/">Dukkan's home page</a>
+  </section>
+</main>
+</body>
+</html>
+`;
+
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
   if (unreadable(path)) {
     if (/^\/api\//.test(path)) return NextResponse.json({ result: "invalid" }, { status: 400 });
-    return new NextResponse("هذا الرابط غير صالح.\nThis link is not valid.\n", { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    return new NextResponse(BAD_LINK_PAGE, { status: 400, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   }
   if (path.startsWith("/diwan/")) {
     const headers = new Headers(req.headers);

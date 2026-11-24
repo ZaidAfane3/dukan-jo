@@ -2,6 +2,7 @@ import type { Lang } from "./content";
 import { demoSeed } from "./demoData";
 import { demoActive, isOwnCopy } from "./demoSandbox";
 import { merchantCall, onServer } from "./merchantApi";
+import { accountHeader, lostSession } from "./serverSync";
 import { FREE_THEME_IDS } from "./platformDefaults";
 import { refreshPublicSettings } from "./platformPublic";
 import { THEME_PRICES } from "./themePrices";
@@ -401,13 +402,23 @@ export function markThemeInUse(id: string): boolean {
 
 /** Adds the theme to the merchant's themes (prototype: no payment is taken). `method`: the way he chose to pay (one Diwan
     has on; the server checks it again). */
-export async function buyTheme(t: ThemeInfo, method?: string): Promise<{ ok: true; state: ThemeState } | { ok: false; why: "method-off" | "failed" }> {
+export async function buyTheme(t: ThemeInfo, method?: string): Promise<{ ok: true; state: ThemeState } | { ok: false; why: "method-off" | "failed" | "other-account" } | { ok: false; why: "price-changed"; price: number }> {
   /* a signed-in account asks Dukkan first (/api/themes/purchase takes the price from the theme store's list on the server and
-     checks the way to pay is still open); the theme is saved as theirs only when the server took it */
+     checks the way to pay is still open); the theme is saved as theirs only when the server took it. It sends the price the
+     checkout shows, so he is never charged one he did not see, and names the account the page is for. */
   if (onServer()) {
-    const r = await merchantCall("/api/themes/purchase", "POST", { themeId: t.id, method });
+    const r = await merchantCall("/api/themes/purchase", "POST", { themeId: t.id, method, price: t.price }, accountHeader());
     if (!r || r.status >= 300) {
-      const why = r?.data?.result === "method-off" ? "method-off" : "failed";
+      const result = r?.data?.result;
+      /* the price changed since the page got the list (staff set it in Diwan): the checkout shows the new one */
+      if (result === "price-changed" && typeof r?.data?.price === "number") return { ok: false, why: "price-changed", price: r.data.price };
+      /* the browser's session is now another account's (signed in from another tab): this tab stops and leaves, as a
+         refused save does (serverSync.ts) */
+      if (r?.status === 409 && result === "other-account") {
+        lostSession();
+        return { ok: false, why: "other-account" };
+      }
+      const why = result === "method-off" ? "method-off" : "failed";
       /* the way to pay was switched off since the page last asked: get the current ones so the checkout shows them */
       if (why === "method-off") void refreshPublicSettings(true);
       return { ok: false, why };

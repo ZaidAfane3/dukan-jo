@@ -33,8 +33,8 @@ export const PUT = staffRoute("announce", async (req, staff, ctx) => {
 
 /** Ends an announcement now: { end: true }. The row stays (Diwan's "Past" list), with when and by whom.
     Or starts an ended one again: { restart: true, endsAt } (endsAt: a new end, or null for none). It goes out again
-    from now, so it is at the top of the bell; the shops that already read or closed it keep their read, so they are not
-    told again. Answers "ok", "bad" (with field "endsAt"), "none" (not found, or not in a state for that). */
+    from now, so it is at the top of the bell (restarted_at); the shops that already read or closed it keep their read,
+    so they are not told again. Answers "ok", "bad" (with field "endsAt"), "none" (not found, or not in a state for that). */
 export const PATCH = staffRoute("announce", async (req, staff, ctx) => {
   const id = idOf(ctx.params.id);
   const body = await readJson(req, 500);
@@ -44,9 +44,11 @@ export const PATCH = staffRoute("announce", async (req, staff, ctx) => {
   if (body.restart === true) {
     const endsAt = cleanWhen(body.endsAt);
     if (endsAt === undefined || (endsAt && endsAt <= new Date())) return answer({ result: "bad", field: "endsAt" }, 400);
-    /* only one that has ended: a live or scheduled one is changed with Edit */
+    /* only one that has ended: a live or scheduled one is changed with Edit. Its start stays (as a pop-up's does), so
+       "new stores" still reaches the stores it already reached, made since it first went out; the bell dates it from
+       restarted_at instead, so it is at the top again */
     const { rows } = await pool.query(
-      `UPDATE announcements n SET starts_at = now(), ends_at = $2, ended_at = NULL, ended_by = NULL
+      `UPDATE announcements n SET starts_at = LEAST(n.starts_at, now()), restarted_at = now(), ends_at = $2, ended_at = NULL, ended_by = NULL
          FROM announcements o
         WHERE n.id = $1 AND o.id = n.id AND n.ends_at IS NOT NULL AND n.ends_at <= now()
         RETURNING n.title_en, o.starts_at AS was_start, o.ends_at AS was_end`,

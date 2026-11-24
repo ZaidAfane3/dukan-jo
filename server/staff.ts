@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { answer, guarded, sameOrigin, secureCookies, tooManyFor, visitorIp } from "./auth";
 import { db } from "./db";
 import { cookieLang } from "./lang";
+import { releaseHeldProofs } from "./courierProof";
 
 /* Diwan's staff: their sign-in, roles and the activity log. Staff accounts are separate from merchant accounts: their
    own table, their own cookie (dukkan-diwan, SameSite=Strict), 12 hours at most and 60 minutes idle. A session is made
@@ -16,7 +17,8 @@ export type Staff = { id: string; email: string; name: string; role: Role };
 
 export const STAFF_COOKIE = "dukkan-diwan";
 const HOURS = 12;
-const IDLE_MIN = 60;
+/** minutes without use after which a staff session counts as ended (staffFromToken) */
+export const IDLE_MIN = 60;
 const tokenHash = (t: string) => createHash("sha256").update(t).digest("hex");
 export const ipOf = (req: NextRequest) => visitorIp(req);
 
@@ -115,9 +117,13 @@ function devOwner(): Promise<Staff & { verified: boolean }> {
   return gDev.diwanDevOwner;
 }
 
-/* a load the page made by itself sends X-Diwan-Background: 1 (components/diwan/signInAgain.tsx BACKGROUND) */
+/* a load the page made by itself sends X-Diwan-Background: 1 (components/diwan/signInAgain.tsx BACKGROUND). A live
+   ticket stream (server/ticketEvents.ts) can't send headers of its own, so asking for one (Accept: text/event-stream,
+   which the browser sends by itself) counts as a background load too. */
 export const currentStaff = (req: NextRequest) =>
-  staffFromToken(req.cookies.get(STAFF_COOKIE)?.value, { touch: req.headers.get("x-diwan-background") !== "1" });
+  staffFromToken(req.cookies.get(STAFF_COOKIE)?.value, {
+    touch: req.headers.get("x-diwan-background") !== "1" && !(req.headers.get("accept") ?? "").includes("text/event-stream"),
+  });
 
 /* ---------------- routes ---------------- */
 
@@ -133,6 +139,8 @@ export function staffRoute(perm: Perm | null, fn: (req: NextRequest, staff: Staf
       if (perm && !can(s, perm)) return answer({ result: "not-allowed" }, 403);
       /* a ceiling per staff member for every console route, far above what the pages ask for */
       if (tooManyFor(`diwan:${s.id}`, 900, 10)) return answer({ result: "slow-down" }, 429);
+      /* proofs whose merchant closed the page during the Undo countdown reach the Documents queue and its count */
+      await releaseHeldProofs();
       return fn(r, s, { params: (await ctx?.params) ?? {} });
     })(req);
 }

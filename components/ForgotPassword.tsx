@@ -40,6 +40,8 @@ const words = {
     other: "Use another email or number",
     wrongCode: "That code isn't right. Check it and try again.",
     expired: "This code has expired. Ask for a new one.",
+    /* the answer to the code was lost on the way: the code may have worked then, and works only once */
+    codeSpent: "We couldn't confirm your last try, and this code can't be used again. Ask for a new code.",
     tooManyTries: "Too many wrong tries for this code. Ask for a new one.",
     slowDown: "Too many requests. Wait a few minutes and try again.",
     noSender: "Resetting by code isn't available yet. Contact Dukkan support.",
@@ -83,6 +85,7 @@ const words = {
     other: "استخدم بريدًا أو رقمًا آخر",
     wrongCode: "الرمز غير صحيح. تحقّق منه وحاول مرة أخرى.",
     expired: "انتهت صلاحية هذا الرمز. اطلب رمزًا جديدًا.",
+    codeSpent: "لم نتمكن من تأكيد محاولتك الأخيرة، ولا يمكن استخدام هذا الرمز مرة أخرى. اطلب رمزًا جديدًا.",
     tooManyTries: "محاولات خاطئة كثيرة لهذا الرمز. اطلب رمزًا جديدًا.",
     slowDown: "طلبات كثيرة. انتظر بضع دقائق ثم حاول مرة أخرى.",
     noSender: "إعادة التعيين برمز غير متاحة بعد. تواصل مع دعم دكان.",
@@ -190,6 +193,8 @@ export function ForgotPassword({
   /* the answer to a try of the new password never came: the server may have kept it, so a later "expired" (its token
      already used) does not mean it failed */
   const lostAnswer = useRef(false);
+  /* the same for the code: the server may have taken it (a code works once), so a later "expired" means "ask again" */
+  const lostCode = useRef(false);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
@@ -222,6 +227,7 @@ export function ForgotPassword({
       setViaEmail(r.via === "email");
       setResendAt(Date.now() + RESEND_SECONDS * 1000);
       setNow(Date.now());
+      lostCode.current = false;
       return true;
     }
     /* not about the field: the support box below says it, with the ways to reach support */
@@ -264,6 +270,7 @@ export function ForgotPassword({
     }
     /* no answer (the connection dropped): the code he typed stays, to send again as it is */
     if (!r) {
+      lostCode.current = true;
       setError(w.noAnswer);
       document.getElementById("fp-code")?.focus();
       return;
@@ -271,7 +278,9 @@ export function ForgotPassword({
     setCode("");
     /* a dead code: a new one can be asked for at once */
     if (r?.result === "expired" || r?.result === "too-many") setResendAt(0);
-    setError(r?.result === "wrong" ? w.wrongCode : r?.result === "expired" ? w.expired : r?.result === "too-many" ? w.tooManyTries : errorFor(r?.result));
+    const expired = lostCode.current ? w.codeSpent : w.expired;
+    lostCode.current = false;
+    setError(r?.result === "wrong" ? w.wrongCode : r?.result === "expired" ? expired : r?.result === "too-many" ? w.tooManyTries : errorFor(r?.result));
     document.getElementById("fp-code")?.focus();
   };
 

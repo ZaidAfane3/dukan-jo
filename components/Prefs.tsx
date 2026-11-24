@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { flushSync } from "react-dom";
 
 import type { Lang } from "./content";
+import { UP } from "./loadFailKeys";
 export type { Lang };
 type Theme = "light" | "dark";
 
@@ -50,7 +51,9 @@ export const dict: Record<Lang, Copy> = { en, ar };
 type Ctx = {
   lang: Lang;
   theme: Theme;
-  setLang: (l: Lang) => void;
+  /** quiet: shows the page in a language without keeping it as the visitor's choice (no saving, no animation), for a
+      page that opens in a language of its own, e.g. the language of the email a link came from (app/unsubscribe/dukkan) */
+  setLang: (l: Lang, o?: { quiet?: boolean }) => void;
   toggleTheme: () => void;
   t: Copy;
 };
@@ -109,12 +112,17 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
     if (savedLang === "ar" || savedLang === "en") setLangState(savedLang);
     setTheme(safeGet("seen-theme") === "dark" ? "dark" : "light");
     delete document.documentElement.dataset.boot;
+    /* the page's code is running: a file that fails from now on is left to the pages' error pages (components/loadFailScript.ts) */
+    (window as unknown as Record<string, unknown>)[UP] = true;
   }, []);
+
+  /* the language a page showed quietly (setLang's quiet): never written into the cookie, as it isn't the visitor's choice */
+  const quietLang = useRef<Lang | null>(null);
 
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
-    langCookie(lang);
+    if (quietLang.current !== lang) langCookie(lang);
   }, [lang]);
 
   useEffect(() => {
@@ -128,8 +136,16 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
      scenes, the bar spreads out toward the new reading side, and the text
      then settles in block by block, top to bottom, so it never pops in all
      at once. */
-  const setLang = useCallback((l: Lang) => {
+  const setLang = useCallback((l: Lang, o?: { quiet?: boolean }) => {
     if (switching.current) return;
+    if (o?.quiet) {
+      quietLang.current = l;
+      document.documentElement.lang = l;
+      document.documentElement.dir = l === "ar" ? "rtl" : "ltr";
+      setLangState(l);
+      return;
+    }
+    quietLang.current = null;
     safeSet("seen-lang", l);
     langCookie(l);
     saveLang(l);

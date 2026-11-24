@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { jordanMobile } from "../phone";
 import { visitorEmail } from "../safeOrder";
 
@@ -11,7 +11,10 @@ import { visitorEmail } from "../safeOrder";
    The basket is sent a few seconds after each change, or at once when he leaves or hides the page (its lines, his
    email, mobile and name, and the language he shops in), under a random key this browser keeps for this store; never
    a price: the server prices it from the store's own products. Emptying the basket (or clearing both email and mobile) deletes it there. Placing the order
-   sends the key with the order, so the server marks this cart recovered, and the next basket gets a new key. */
+   sends the key with the order, so the server marks this cart recovered, and the next basket gets a new key. If the
+   server says this key's cart was already ended by an order (placed on another device, from a reminder's link), the
+   browser takes a new key too and sends the basket again under it, unless it is the very basket that order ended (it
+   was bought): that one is sent again only once the basket or the contact changes. */
 
 /* a basket's key in this browser, per store, and whether the server holds an open cart for it now */
 const keyStore = (slug: string) => `dukkan-cart-key:${slug.trim().toLowerCase()}`;
@@ -29,11 +32,13 @@ function freshKey(): string {
 }
 
 /* storage turned off (private mode): the key lives as long as the page */
-const memory = new Map<string, { key: string; kept: boolean }>();
-function readKey(slug: string): { key: string; kept: boolean } {
+/* bought: the basket and contact the server said an order ended (see useServerCart), not sent under this key */
+type KeyRecord = { key: string; kept: boolean; bought?: string };
+const memory = new Map<string, KeyRecord>();
+function readKey(slug: string): KeyRecord {
   try {
-    const v = JSON.parse(localStorage.getItem(keyStore(slug)) ?? "null") as { key?: unknown; kept?: unknown } | null;
-    if (v && typeof v.key === "string" && KEY.test(v.key)) return { key: v.key, kept: v.kept === true };
+    const v = JSON.parse(localStorage.getItem(keyStore(slug)) ?? "null") as { key?: unknown; kept?: unknown; bought?: unknown } | null;
+    if (v && typeof v.key === "string" && KEY.test(v.key)) return { key: v.key, kept: v.kept === true, ...(typeof v.bought === "string" && v.bought ? { bought: v.bought } : {}) };
   } catch {
     /* a damaged entry or no storage: a new key below */
   }
@@ -43,7 +48,7 @@ function readKey(slug: string): { key: string; kept: boolean } {
   writeKey(slug, made);
   return made;
 }
-function writeKey(slug: string, v: { key: string; kept: boolean }) {
+function writeKey(slug: string, v: KeyRecord) {
   memory.set(slug, v);
   try {
     localStorage.setItem(keyStore(slug), JSON.stringify(v));
@@ -62,6 +67,8 @@ export type CartLine = { id: number; qty: number; size?: string };
 export function useServerCart(slug: string | undefined, lines: CartLine[], who: { email: string; phone: string; name: string }, lang: "ar" | "en", hold: boolean): { restart: () => void } {
   /* what was last kept for which key, so the same basket is not sent again */
   const sent = useRef("");
+  /* a new key was taken because the server ended the old one's cart: the basket is sent again under it */
+  const [round, setRound] = useState(0);
   /* the send waiting for its few seconds: sent at once when he leaves the page or hides it (below) */
   const pending = useRef<(() => void) | null>(null);
   const linesFp = JSON.stringify(lines);
@@ -69,18 +76,31 @@ export function useServerCart(slug: string | undefined, lines: CartLine[], who: 
   const mobile = jordanMobile(who.phone.trim());
   const name = who.name.replace(/\s+/g, " ").trim();
   const cleared = !who.email.trim() && !who.phone.trim();
+  /* what a save says of each contact: the valid one, "" when the field is empty (cleared), or left out while it is
+     half typed, so the server keeps the one the cart has rather than losing it */
+  const emailSent = email || (who.email.trim() ? undefined : "");
+  const phoneSent = mobile ? `0${mobile}` : who.phone.trim() ? undefined : "";
 
   useEffect(() => {
     if (!slug || hold) return;
     const k = readKey(slug);
     const list = JSON.parse(linesFp) as CartLine[];
-    const keep = list.length > 0 && (!!email || !!mobile);
+    /* a valid email or mobile, or a cart already kept whose contact is being typed again (the server keeps its own) */
+    const keep = list.length > 0 && (!!email || !!mobile || (k.kept && !cleared));
     /* nothing to keep: the open cart goes only when the basket was emptied or both contacts cleared (an email half
        typed again keeps it as it was) */
     if (!keep && !(k.kept && (list.length === 0 || cleared))) return;
-    const body = keep ? { key: k.key, lines: list, email, phone: mobile ? `0${mobile}` : "", name, lang } : { key: k.key, lines: [] };
+    const body = keep ? { key: k.key, lines: list, email: emailSent, phone: phoneSent, name, lang } : { key: k.key, lines: [] };
     const fp = JSON.stringify(body);
     if (sent.current === fp) return;
+    /* the basket and contact an order ended (bought, maybe on another device): not sent again under the new key, or it
+       would be listed as abandoned an hour later and could be reminded of. Kept with the key (also across a reload),
+       forgotten at the first change. */
+    const what = JSON.stringify([list, emailSent, phoneSent]);
+    if (k.bought) {
+      if (k.bought === what) return;
+      writeKey(slug, { key: k.key, kept: k.kept });
+    }
     let timer = 0;
     const send = () => {
       window.clearTimeout(timer);
@@ -93,8 +113,19 @@ export function useServerCart(slug: string | undefined, lines: CartLine[], who: 
         /* a send started as the page goes away (see below) is finished by the browser after it has gone */
         keepalive: true,
       })
-        .then((r) => {
-          if (!r.ok) return;
+        .then(async (r) => {
+          if (!r.ok) {
+            const j = (await r.json().catch(() => null)) as { result?: unknown } | null;
+            /* this key's cart was ended by an order elsewhere: a new key (unless one was taken meanwhile), sent again */
+            if (j?.result === "ended" && readKey(slug).key === k.key) {
+              sent.current = "";
+              /* the basket that order ended: kept as sent, nothing new opened for what he bought */
+              const wasBought = (j as { bought?: unknown }).bought === true && keep;
+              writeKey(slug, { key: freshKey(), kept: false, ...(wasBought ? { bought: what } : {}) });
+              if (!wasBought) setRound((n) => n + 1);
+            }
+            return;
+          }
           sent.current = fp;
           /* the key may have changed meanwhile (an order was placed): only this key's record is updated */
           if (readKey(slug).key === k.key) writeKey(slug, { key: k.key, kept: keep });
@@ -109,7 +140,7 @@ export function useServerCart(slug: string | undefined, lines: CartLine[], who: 
       window.clearTimeout(timer);
       if (pending.current === send) pending.current = null;
     };
-  }, [slug, hold, linesFp, email, mobile, name, lang, cleared]);
+  }, [slug, hold, linesFp, email, mobile, emailSent, phoneSent, name, lang, cleared, round]);
 
   /* He closes the tab, goes to another site or hides the page (a phone switching apps) within those few seconds: the
      change waiting is sent now, so the last thing he did (an email just typed, a product just taken out) is what the

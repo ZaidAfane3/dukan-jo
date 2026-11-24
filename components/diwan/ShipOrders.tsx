@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { askConfirm, Dialog } from "./dialogs";
-import { area, Badge, Btn, card, Empty, field, Loaded, LoadMore, refusedWords, send, useFmt, useMore, useT, type Tone } from "./ui";
+import { area, Badge, Btn, card, Empty, field, ListBar, Loaded, LoadMore, refusedWords, send, useFmt, useMore, useT, type Tone } from "./ui";
 
 /* Dukkan Ship's orders: every customer order of a store that delivers with Dukkan Ship, for Dukkan's staff to pick up
    at the store and deliver. Staff mark each one delivered or not delivered (with the reason). Marking it delivered
@@ -97,40 +97,45 @@ export function ShipOrders() {
 
   return (
     <section>
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-base font-bold">{t("Orders to pick up and deliver", "طلبات للاستلام والتوصيل")}</h2>
-          <p className="mt-0.5 text-sm text-muted">
-            {counts
-              ? t(`${f.num(counts.waiting)} ${counts.waiting === 1 ? "order" : "orders"} to deliver. Newest first.`, `${f.num(counts.waiting)} طلب بانتظار التوصيل. الأحدث أولًا.`)
-              : t("Newest first.", "الأحدث أولًا.")}
-          </p>
-        </div>
-        <input
-          type="search"
-          aria-label={t("Search by store name or link, or order number", "ابحث باسم المتجر أو رابطه، أو برقم الطلب")}
-          placeholder={t("Store or order number", "المتجر أو رقم الطلب")}
-          className={`${field} w-full sm:w-72`}
-          value={typed}
-          onChange={(x) => setTyped(x.target.value)}
-        />
+      <div className="mb-3">
+        <h2 className="text-base font-bold">{t("Orders to pick up and deliver", "طلبات للاستلام والتوصيل")}</h2>
+        <p className="mt-0.5 text-sm text-muted">
+          {counts
+            ? t(`${f.num(counts.waiting)} ${counts.waiting === 1 ? "order" : "orders"} to deliver. Newest first.`, `${f.num(counts.waiting)} طلب بانتظار التوصيل. الأحدث أولًا.`)
+            : t("Newest first.", "الأحدث أولًا.")}
+        </p>
       </div>
 
-      {/* only the words on the tabs: the owner wants no numbers beside tabs in Diwan */}
-      <div role="tablist" aria-label={t("Delivery state", "حالة التوصيل")} className="mb-4 flex flex-wrap gap-2">
-        {TABS.map((k) => (
-          <button
-            key={k}
-            type="button"
-            role="tab"
-            aria-selected={tab === k}
-            onClick={() => (setTab(k), setOpen(null))}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === k ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
-          >
-            {t(STATE[k].en, STATE[k].ar)}
-          </button>
-        ))}
-      </div>
+      {/* one row: the delivery tabs at the start, the search at the end (ListBar). Only the words on the tabs: the owner
+          wants no numbers beside tabs in Diwan */}
+      <ListBar
+        tabs={
+          <div role="tablist" aria-label={t("Delivery state", "حالة التوصيل")} className="flex flex-wrap gap-2">
+            {TABS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={tab === k}
+                onClick={() => (setTab(k), setOpen(null))}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${tab === k ? "bg-primary text-white" : "bg-card ring-1 ring-fg/10 hover:bg-soft"}`}
+              >
+                {t(STATE[k].en, STATE[k].ar)}
+              </button>
+            ))}
+          </div>
+        }
+        filters={
+          <input
+            type="search"
+            aria-label={t("Search by store name or link, or order number", "ابحث باسم المتجر أو رابطه، أو برقم الطلب")}
+            placeholder={t("Store or order number", "المتجر أو رقم الطلب")}
+            className={`${field} w-full sm:w-72`}
+            value={typed}
+            onChange={(x) => setTyped(x.target.value)}
+          />
+        }
+      />
 
       {done && <p role="status" className="mb-3 rounded-xl bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-800 ring-1 ring-emerald-500/25 dark:text-emerald-300">{done}</p>}
 
@@ -328,6 +333,7 @@ function useWhy() {
   return (r: { ok: boolean; status: number; data: any }) => {
     if (r.ok) return null;
     const res = r.data?.result;
+    if (res === "review") return t("Not saved: the store hasn't reviewed this big order yet.", "لم يُحفظ: لم يراجع المتجر هذا الطلب الكبير بعد.");
     if (res === "cancelled" || r.status === 409) return t("Not saved: the store cancelled or refunded this order.", "لم يُحفظ: ألغى المتجر هذا الطلب أو استرجعه.");
     if (res === "none" || r.status === 404) return t("Not saved: this order is no longer there.", "لم يُحفظ: هذا الطلب لم يعد موجودًا.");
     const refused = refusedWords(t, r);
@@ -345,6 +351,8 @@ function Actions({ o, onChanged, onStale }: { o: ShipOrder; onChanged: (words: s
   const [err, setErr] = useState("");
   const [failing, setFailing] = useState(false);
   const locked = stopped(o);
+  /* a big order the merchant has not reviewed yet: the server refuses any mark until he accepts it */
+  const inReview = o.status === "review";
 
   /* one change; a 404 or 409 means the list is out of date, so it is loaded again too */
   const mark = async (state: ShipState, note?: string): Promise<string | null> => {
@@ -393,6 +401,8 @@ function Actions({ o, onChanged, onStale }: { o: ShipOrder; onChanged: (words: s
     <div className="mt-4">
       {locked ? (
         <p className="text-sm text-muted">{t("The store cancelled or refunded this order, so it can't be marked.", "ألغى المتجر هذا الطلب أو استرجعه، فلا يمكن تعليمه.")}</p>
+      ) : inReview ? (
+        <p className="text-sm text-muted">{t("The store hasn't reviewed this big order yet, so it can't be marked.", "لم يراجع المتجر هذا الطلب الكبير بعد، فلا يمكن تعليمه.")}</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           {o.ship.state !== "delivered" && <Btn onClick={delivered} disabled={busy}>{t("Mark delivered", "تم التوصيل")}</Btn>}

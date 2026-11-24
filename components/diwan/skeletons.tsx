@@ -10,6 +10,7 @@ import { Bone, card, SkelBlock, SkelCards, SkelChat, SkelFigures, SkelForm, Skel
 
 /* ---------- tables ---------- */
 export const ActivitySkeleton = () => <SkelTable cols={5} rows={10} />;
+export const CampaignsSkeleton = () => <SkelTable cols={7} />;
 export const TicketsSkeleton = () => <SkelTable cols={7} />;
 export const ShopsSkeleton = () => <SkelTable cols={7} dense />;
 export const StaffSkeleton = () => <SkelTable cols={6} rows={5} />;

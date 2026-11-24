@@ -37,14 +37,16 @@ export type MerchantAction =
   /* with Dukkan */
   | "theme.bought"
   | "ticket.opened"
-  | "document.sent";
+  | "document.sent"
+  /* his store's customers: a marketing campaign started (server/campaigns.ts), with how many it goes to */
+  | "campaign.sent";
 
 export const MERCHANT_ACTIONS: readonly MerchantAction[] = [
   "signup", "signin", "signout", "password.change", "password.reset", "email.change-asked", "email.change", "phone.change", "profile.change",
   "twostep.on", "twostep.off", "twostep.recovery-used",
   "store.setup-step", "store.setup-done", "store.live", "store.offline", "store.paused", "store.resumed", "store.name", "store.link",
   "store.theme", "store.delivery", "store.first-product", "store.first-order",
-  "theme.bought", "ticket.opened", "document.sent",
+  "theme.bought", "ticket.opened", "document.sent", "campaign.sent",
 ];
 
 export type MerchantMeta = Record<string, string | number | boolean | null>;

@@ -4,7 +4,7 @@ import { money, PRODUCT_MAX } from "@/components/records";
 import { cleanLine, cleanLines, safeStoredImage, SLUG_RULE } from "@/components/safe";
 import { cleanSetup } from "@/components/safeAccount";
 import { checkoutShipMode } from "@/components/safeOrder";
-import { sanitizeDesign, sanitizePages } from "@/components/safeDesign";
+import { safePicture, sanitizeDesign, sanitizePages } from "@/components/safeDesign";
 import { defaultConfig, type PageRef } from "@/components/storefront/config";
 import { stripPaidLooks, withLookOf } from "@/components/themeLooks";
 import { db } from "./db";
@@ -105,8 +105,8 @@ export async function publicStore(slug: string): Promise<PublicStore | null> {
     },
     /* asked only for a store that is open and has a design of its own */
     () => themeOwner(pool, shop.account_id),
-    /* asked only for an open store that delivers with its own courier */
-    () => courierApproved(pool, shop.account_id),
+    /* asked only for an open store that delivers with its own courier: approved for that courier (its phone) */
+    (phone) => courierApproved(pool, shop.account_id, phone),
   );
 }
 
@@ -117,7 +117,7 @@ export async function shapePublicStore(
   data: Map<string, string>,
   starter: () => Promise<unknown>,
   owner?: () => Promise<(themeId: string) => boolean>,
-  courierOk?: () => Promise<boolean>,
+  courierOk?: (phone: string) => Promise<boolean>,
 ): Promise<PublicStore> {
   if (shop.status === "suspended") return { status: "unavailable" };
   const setup = cleanSetup(parse(data.get("seen-setup")));
@@ -127,8 +127,17 @@ export async function shapePublicStore(
 
   if (!shop.published) return { status: "soon", name: storeName };
   if (shop.paused) {
+    /* the logo his open store and his own preview of the paused page show (resolveLogo, app/store/StorePreview.tsx): the
+       designer's choice of logo, read from his saved design and nothing else of it. "auto" is the setup logo, a picture
+       of his own is that picture (cleaned like every picture of a design), a letter or a sample mark is no picture (the
+       page draws the first letter on the store colour). */
+    const saved = parse(data.get("seen-storefront"));
+    const id = isObj(saved) ? saved.identity : null;
+    const lg = isObj(id) && isObj(id.logo) ? id.logo : null;
+    const kind = lg && typeof lg.kind === "string" ? lg.kind : "auto";
+    const pausedLogo = kind === "image" ? safeStoredImage(safePicture(lg?.image) ?? "") : kind === "letter" || kind === "sample" ? "" : logo;
     /* always Dukkan's own "under maintenance" words: a message an older version let the merchant write is not shown */
-    return { status: "paused", name: storeName, logo, color, message: { en: "", ar: "" } };
+    return { status: "paused", name: storeName, logo: pausedLogo, color, message: { en: "", ar: "" } };
   }
 
   const publicSetup: PublicSetup = {
@@ -144,7 +153,7 @@ export async function shapePublicStore(
        then, pickup on or off (safeOrder checkoutShipMode): the checkout offers what the server will accept for its orders */
     /* his own courier is offered only once Dukkan's team approved its proof (server/courierProof.ts): until then no
        delivery choice is sent, so the checkout offers pickup only (when he allows it), as the server accepts */
-    shipping: setup?.shipping?.mode === "own" && courierOk && !(await courierOk())
+    shipping: setup?.shipping?.mode === "own" && courierOk && !(await courierOk(setup.shipping.phone))
       ? null
       : setup?.shipping
       ? { mode: setup.shipping.mode, ...(setup.shipping.fee !== undefined ? { fee: setup.shipping.fee } : {}), ...(setup.shipping.cities ? { cities: setup.shipping.cities } : {}) }

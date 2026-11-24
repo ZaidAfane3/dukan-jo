@@ -51,11 +51,14 @@ async function call<T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", b
 }
 
 export const fetchTickets = () => call<{ tickets: ServerTicket[] }>("/api/tickets");
-export const fetchThread = (n: number) => call<{ ticket: Thread }>(`/api/tickets/${n}`);
+/* `seen`: opening it marked a reply of Dukkan as read just now (the bell asks for its list again) */
+export const fetchThread = (n: number) => call<{ ticket: Thread; seen?: boolean }>(`/api/tickets/${n}`);
 /* The same ticket sent twice (a double click, a retry after a lost answer) carries the same key, made from what it says,
    so the server keeps one (server/onceKey.ts) */
 function ticketKey(t: { subject: string; category: number; message: string; pictures: string[]; kind?: string; where?: string }): string {
-  const text = JSON.stringify([t.subject, t.category, t.message, t.kind ?? "", t.where ?? "", t.pictures.length, t.pictures.map((p) => p.length)]);
+  return hashKey(JSON.stringify([t.subject, t.category, t.message, t.kind ?? "", t.where ?? "", t.pictures.length, t.pictures.map((p) => p.length)]));
+}
+function hashKey(text: string): string {
   let a = 0x811c9dc5;
   let b = 0x01000193;
   for (let i = 0; i < text.length; i++) {
@@ -68,7 +71,19 @@ function ticketKey(t: { subject: string; category: number; message: string; pict
    rarely is: the caller keeps a draft for that) */
 export const createTicket = (t: { subject: string; category: number; message: string; pictures: string[]; kind?: "support" | "bug" | "idea"; where?: string }, opts: { leaving?: boolean } = {}) =>
   call<{ number: number }>("/api/tickets", "POST", { ...t, requestKey: ticketKey(t) }, { keepalive: opts.leaving });
-export const replyTicket = (n: number, message: string, pictures: string[]) => call<{ status: MerchantStatus }>(`/api/tickets/${n}/reply`, "POST", { message, pictures });
+/* opts.leaving: as for createTicket; a reply sent as the tab closes (its Undo time cut short) must still reach Dukkan */
+/* opts.attempt: made once for the reply being written (kept with its draft, new after it went), so the same reply sent
+   again (a retry after a lost answer, or its draft brought back after a reload that still sent it) is kept once by the
+   server (server/onceKey.ts), while the same words sent again later ("ok", "thanks") are a new message */
+export const replyTicket = (n: number, message: string, pictures: string[], opts: { leaving?: boolean; attempt?: string } = {}) =>
+  call<{ status: MerchantStatus }>(
+    `/api/tickets/${n}/reply`,
+    "POST",
+    { message, pictures, requestKey: opts.attempt ? hashKey(JSON.stringify([opts.attempt, n, message, pictures.length, pictures.map((p) => p.length)])) : undefined },
+    { keepalive: opts.leaving },
+  );
+/** A fresh attempt id for replyTicket */
+export const newAttempt = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 export const setTicketOpen = (n: number, open: boolean) => call<{ status: MerchantStatus }>(`/api/tickets/${n}`, "PATCH", { action: open ? "reopen" : "close" });
 export const pictureUrl = (n: number, id: string) => `/api/tickets/${n}/pictures/${id}`;
 

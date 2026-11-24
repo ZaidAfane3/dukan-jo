@@ -13,7 +13,7 @@ import { loadSetup, saveSetup, type SavedSetup } from "./setup";
 import { typedMoney } from "./records";
 import { cleanMoney } from "./safe";
 import { ACCOUNT_LIMITS } from "./safeAccount";
-import { MAX_PROOFS, ProofRows, proofsInPlay, syncProofPartner, usePartnerProofs } from "./partnerProofs";
+import { approvedForPhone, MAX_PROOFS, ProofRows, proofsInPlay, syncProofPartner, usePartnerProofs } from "./partnerProofs";
 import { dropUndos, offerUndo, valueUndo } from "./undo";
 import type { Lang } from "./content";
 import { usePageTitle } from "./pageTitle";
@@ -30,8 +30,8 @@ const field =
 const bad = "!border-rose-500 focus:!ring-rose-500/25";
 
 const words = {
-  en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "Customers can't order delivery until you choose how you deliver.", fee: "Delivery fee per order (JOD)", feeHint: "What customers pay for delivery at checkout. Write 0 if delivery is free.", feeEmpty: "Enter the delivery fee. Write 0 if delivery is free.", feeBad: "Enter an amount from 0 to {max} JOD, with up to 3 decimals.", waiting: "Customers can't choose delivery with your own shipping yet: the Dukkan team must first approve a proof for this partner (below). Until then your checkout offers pickup only, if you turn it on below." },
-  ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل.", fee: "رسوم التوصيل لكل طلب (د.أ)", feeHint: "ما يدفعه العميل للتوصيل عند إتمام الطلب. اكتب 0 إن كان التوصيل مجانيًا.", feeEmpty: "اكتب رسوم التوصيل. اكتب 0 إن كان التوصيل مجانيًا.", feeBad: "اكتب مبلغًا من 0 إلى {max} د.أ، بثلاث خانات عشرية على الأكثر.", waiting: "لا يستطيع العملاء اختيار التوصيل بطريقة شحنك الخاصة بعد: يجب أن يوافق فريق دكان أولًا على إثبات لهذه الجهة (في الأسفل). حتى ذلك الحين يعرض متجرك عند الطلب الاستلام من المتجر فقط، إن فعّلته في الأسفل." },
+  en: { title: "Delivery options", sub: "Change how your orders reach customers. Your choice here is what customers and your team see.", save: "Save changes", saved: "Saved", notSet: "Customers can't order delivery until you choose how you deliver.", fee: "Delivery fee per order (JOD)", feeHint: "What customers pay for delivery at checkout. Write 0 if delivery is free.", feeEmpty: "Enter the delivery fee. Write 0 if delivery is free.", feeBad: "Enter an amount from 0 to {max} JOD, with up to 3 decimals.", waiting: "Customers can't choose delivery with your own shipping yet: the Dukkan team must first approve a proof for this partner (below). Until then your checkout offers pickup only, if you turn it on below.", newPartner: "An approval is for the partner it was sent for. If you change to another partner or their phone number, send a new proof: your own shipping waits until the Dukkan team approves it." },
+  ar: { title: "خيارات التوصيل", sub: "غيّر طريقة وصول طلباتك إلى عملائك. ما تختاره هنا هو ما يراه عملاؤك وفريقك.", save: "حفظ التغييرات", saved: "تم الحفظ", notSet: "لا يستطيع العملاء طلب التوصيل حتى تختار طريقة التوصيل.", fee: "رسوم التوصيل لكل طلب (د.أ)", feeHint: "ما يدفعه العميل للتوصيل عند إتمام الطلب. اكتب 0 إن كان التوصيل مجانيًا.", feeEmpty: "اكتب رسوم التوصيل. اكتب 0 إن كان التوصيل مجانيًا.", feeBad: "اكتب مبلغًا من 0 إلى {max} د.أ، بثلاث خانات عشرية على الأكثر.", waiting: "لا يستطيع العملاء اختيار التوصيل بطريقة شحنك الخاصة بعد: يجب أن يوافق فريق دكان أولًا على إثبات لهذه الجهة (في الأسفل). حتى ذلك الحين يعرض متجرك عند الطلب الاستلام من المتجر فقط، إن فعّلته في الأسفل.", newPartner: "الموافقة تخص الجهة التي أُرسل الإثبات لها. إن غيّرت جهة التوصيل أو رقم هاتفها فأرسل إثباتًا جديدًا: يبقى شحنك الخاص متوقفًا حتى يوافق عليه فريق دكان." },
 };
 
 
@@ -137,10 +137,12 @@ export function Delivery() {
     setReady(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  /* a link to the Ways to pay card (/delivery#ways-to-pay, from a "not ready to sell" list): the card shows once the setup
-     is read, so the page scrolls to it then */
+  /* a link to the Ways to pay card (/delivery#ways-to-pay, from a "not ready to sell" list) or to his own courier's
+     proofs (#courier-proof, from that list or the top bar's proof mark): they show once the setup is read, so the page
+     scrolls to them then */
   useEffect(() => {
-    if (ready && window.location.hash === "#ways-to-pay") document.getElementById("ways-to-pay")?.scrollIntoView({ block: "start" });
+    const hash = ready ? window.location.hash : "";
+    if (hash === "#ways-to-pay" || hash === "#courier-proof") document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
   }, [ready]);
   /* only this page can put the options back in its form: its undo goes when it closes */
   useEffect(() => () => dropUndos("delivery"), []);
@@ -289,8 +291,9 @@ export function Delivery() {
 
           {mode === "own" && (
             <div className="space-y-4">
-              {/* his own shipping is offered to customers only once Dukkan's team approved a proof for it (server/courierProof.ts) */}
-              {proof.sends && proof.ready && !proof.proofs.some((f) => f.status === "approved") && (
+              {/* his own shipping is offered to customers only once Dukkan's team approved a proof for it (server/courierProof.ts):
+                  for this courier, by its phone as typed here (an approval for an earlier courier doesn't count) */}
+              {proof.sends && proof.ready && !proof.proofs.some((f) => approvedForPhone(f, phone)) && (
                 <p role="status" className="rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-900 dark:text-amber-200">{w.waiting}</p>
               )}
               <div>
@@ -319,9 +322,10 @@ export function Delivery() {
                 <p id="d-fee-note" className={`mt-1.5 text-xs ${errors.fee ? "text-rose-600" : "text-muted"}`}>{errors.fee ?? w.feeHint}</p>
               </div>
               <OwnCities lang={lang} id="d-cities" value={cities} onChange={(v) => { setCities(v); setErrors((x) => ({ ...x, cities: undefined })); }} error={errors.cities} />
-              <div>
+              <div id="courier-proof" className="scroll-mt-24">
                 <p className="mb-1 text-sm font-semibold">{s.proofLabel}</p>
-                <p className="mb-3 text-xs text-muted">{s.proofHint}</p>
+                <p className="mb-1 text-xs text-muted">{s.proofHint}</p>
+                <p className="mb-3 text-xs text-muted">{w.newPartner}</p>
                 <input
                   ref={fileInput}
                   type="file"
@@ -330,7 +334,7 @@ export function Delivery() {
                   onChange={(e) => {
                     const picked = Array.from(e.target.files ?? []);
                     e.target.value = "";
-                    void proof.add(picked, { name: cleanLine(name, ACCOUNT_LIMITS.shipName), kind });
+                    void proof.add(picked, { name: cleanLine(name, ACCOUNT_LIMITS.shipName), kind, phone });
                   }}
                   className="hidden"
                 />
@@ -341,7 +345,7 @@ export function Delivery() {
                 </button>
                 <p className="mt-2 text-xs text-muted">{s.proofLimit}</p>
                 {proof.error && <p role="alert" className="mt-1 text-xs text-rose-600">{proof.error}</p>}
-                <ProofRows proofs={proof.proofs} s={s} onRemove={(f) => void proof.remove(f)} />
+                <ProofRows proofs={proof.proofs} s={s} phone={phone} onRemove={(f) => void proof.remove(f)} />
                 <p className="mt-3 text-xs text-muted">{proof.sends ? s.serverNote : s.localNote}</p>
               </div>
             </div>

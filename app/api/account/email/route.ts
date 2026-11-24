@@ -3,7 +3,7 @@ import { latin } from "@/components/digits";
 import { answer, currentAccount, guarded, readJson, sameOrigin, tooManyFor } from "@/server/auth";
 import { emailKey, seal } from "@/server/crypto";
 import { db } from "@/server/db";
-import { checkCodeFor, codeRouteBusy, endCodes, pendingEmailChange, sendCodeEmail, verifyLang } from "@/server/emailVerify";
+import { checkCodeFor, codeRouteBusy, endCodes, pendingEmailChange, sendCodeEmail, sendRefused, verifyLang } from "@/server/emailVerify";
 import { logMerchant } from "@/server/merchantLog";
 import { useRecoveryCode } from "@/server/recovery";
 import { approveOldStep, emailTaken, newRef, noticeOldEmail, oldRef, pendingOldStep, sendOldStep, sentState } from "../emailSteps";
@@ -69,6 +69,11 @@ export const POST = guarded(async (req: NextRequest) => {
        for meanwhile (from another tab or device) has a code of its own, so this one answers "expired". */
     const shown = typeof body.email === "string" && body.email.trim() ? body.email.trim() : old.email;
     if (emailKey(shown) !== emailKey(old.email)) return answer({ result: "expired" }, 410);
+    /* checked before the code is used: refused after it (the address taken meanwhile, too many codes sent to it), the
+       approval would be spent, a recovery code with it, and the change dropped with no code on its way */
+    if (await emailTaken(shown, a.id)) return answer({ result: "taken" }, 409);
+    const refused = await sendRefused(req, "change", ref, shown);
+    if (refused) return answer({ result: refused === "locked" ? "locked" : "slow-down" }, 429);
     const typed = latin(body.oldCode).trim();
     const six = typed.replace(/\s+/g, "");
     let email: string;
@@ -83,10 +88,26 @@ export const POST = guarded(async (req: NextRequest) => {
     } else {
       /* a recovery code: a few wrong ones per account, then a wait (they are long, but nobody gets to try them all) */
       if (tooManyFor(`email-change-recovery:${a.id}`, 10, 60)) return answer({ result: "slow-down" }, 429);
-      if (!(await useRecoveryCode(a.id, typed))) return answer({ result: "wrong" }, 400);
-      logMerchant(a.id, "twostep.recovery-used", { for: "email-change" });
-      const approved = await approveOldStep(a.id, shown);
+      /* the code is spent and the approval given in one transaction: an approval that can't be given (another address
+         waits by now) leaves the recovery code unused */
+      const c = await (await db()).connect();
+      let approved: string | null = null;
+      try {
+        await c.query("BEGIN");
+        if (!(await useRecoveryCode(a.id, typed, c))) {
+          await c.query("ROLLBACK");
+          return answer({ result: "wrong" }, 400);
+        }
+        approved = await approveOldStep(a.id, shown, c);
+        await c.query(approved ? "COMMIT" : "ROLLBACK");
+      } catch (e) {
+        await c.query("ROLLBACK").catch(() => {});
+        throw e;
+      } finally {
+        c.release();
+      }
       if (!approved) return answer({ result: "expired" }, 410);
+      logMerchant(a.id, "twostep.recovery-used", { for: "email-change" });
       email = approved;
     }
     if (await emailTaken(email, a.id)) return answer({ result: "taken" }, 409);

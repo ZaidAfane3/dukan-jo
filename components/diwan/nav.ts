@@ -18,7 +18,9 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan/shops", en: "Stores", ar: "المتاجر", perm: "shops.read", group: "stores", badge: "shops" },
   { href: "/diwan/payments", en: "Payments", ar: "المدفوعات", perm: "billing", group: "stores", badge: "payments" },
   { href: "/diwan/ship", en: "Dukkan Ship", ar: "شحن دكان", perm: "settings", group: "stores", badge: "ship" },
-  { href: "/diwan/funnel", en: "Onboarding funnel", ar: "مراحل البدء", perm: "shops.read", group: "stores" },
+  /* the marketing campaigns stores send to their customers: what went out, and a stop for one still sending */
+  { href: "/diwan/campaigns", en: "Store campaigns", ar: "حملات المتاجر", perm: "shops.read", group: "stores" },
+  { href: "/diwan/funnel",en: "Onboarding funnel", ar: "مراحل البدء", perm: "shops.read", group: "stores" },
   { href: "/diwan/tickets", en: "Tickets", ar: "التذاكر", perm: "tickets", group: "support", badge: "tickets" },
   { href: "/diwan/complaints", en: "Store reports", ar: "بلاغات المتاجر", perm: "complaints", group: "support", badge: "complaints" },
   { href: "/diwan/documents", en: "Documents", ar: "المستندات", perm: "documents", group: "support", badge: "documents" },
@@ -27,6 +29,8 @@ export const DIWAN_NAV: NavItem[] = [
   { href: "/diwan/announcements", en: "Announcements", ar: "الإعلانات", perm: "announce", group: "merchants" },
   { href: "/diwan/popups", en: "Pop-ups", ar: "النوافذ المنبثقة", perm: "announce", group: "merchants" },
   { href: "/diwan/pages", en: "Pages", ar: "الصفحات", perm: "announce", group: "merchants" },
+  /* Dukkan's own email campaigns to merchants (server/merchantCampaigns.ts): counts only, never their addresses */
+  { href: "/diwan/merchant-campaigns", en: "Campaigns to merchants", ar: "حملات للتجار", perm: "announce", group: "merchants" },
   /* the theme store: Dukkan's themes and the outside developers' work */
   { href: "/diwan/themes", en: "Themes", ar: "الثيمات", perm: "marketplace", group: "themes" },
   { href: "/diwan/marketplace", en: "Developers", ar: "المطورون", perm: "marketplace", group: "themes" },

@@ -11,6 +11,7 @@ import { onServer } from "./merchantApi";
 import { loadSetup } from "./setup";
 import { storeAddress, storeUrl } from "./siteAddress";
 import { useStoreVisits } from "./storeVisits";
+import { useCartSums } from "./storeCartsSummary";
 import { arCount, dropUndos, offerUndo, snapshot, storageUndo } from "./undo";
 import { sourceNames, type VisitCounts, type VisitStats } from "./visitStats";
 import { STATUS_KEYS, ordersCopy } from "./ordersContent";
@@ -378,7 +379,8 @@ function GenericReport({
 /* ====================================================================
    A real store's reports: the same pages, worked out from its own
    orders and products (storeNumbers.ts). What Dukkan does not count
-   yet (visits, carts left behind, taxes, payment fees) says so.
+   (taxes, payment fees; visits and carts left behind for a store not
+   signed in) says so.
    ==================================================================== */
 
 type StoreData = { orders: CountedOrder[]; products: Product[] };
@@ -390,7 +392,10 @@ const real = {
     loading: "Loading your numbers…",
     noCompare: "No earlier sales to compare with",
     visitsNote: "Visitors are counted for a store that is signed in and open at its link. Your orders, customers and stock are in the other reports.",
-    cartsNote: "Dukkan does not keep the carts customers leave yet, so there is nothing to show here.",
+    cartsNote: "Abandoned carts are kept for a store that is signed in and open at its link.",
+    cartsFailed: "Your abandoned carts couldn't be loaded. Check your connection and try again.",
+    cartsOpen: "Open abandoned carts",
+    cartsReminders: { title: "Reminders sent", desc: "The reminder emails sent to customers about the carts they left." },
     cogsUnknown: (n: number) => `${n === 1 ? "1 sold item has" : `${n} sold items have`} no known cost (no cost on the product, or the product was deleted), so ${n === 1 ? "it is" : "they are"} left out.`,
     profitHigh: "Some sold items have no cost on their product, so the real profit is lower than this.",
     /* the profit counts only the products that have a cost price (storeNumbers.ts salesFigures) */
@@ -443,7 +448,10 @@ const real = {
     loading: "جارٍ تحميل أرقامك…",
     noCompare: "لا توجد مبيعات سابقة للمقارنة",
     visitsNote: "يُحسب الزوار لمتجر مسجّل الدخول ومفتوح على رابطه. طلباتك وعملاؤك ومخزونك في التقارير الأخرى.",
-    cartsNote: "لا يحفظ دكان السلات التي يتركها العملاء بعد، فلا يوجد ما يُعرض هنا.",
+    cartsNote: "تُحفظ السلات المتروكة لمتجر مسجّل الدخول ومفتوح على رابطه.",
+    cartsFailed: "تعذّر تحميل السلات المتروكة. تحقق من الاتصال وحاول مرة أخرى.",
+    cartsOpen: "فتح السلات المتروكة",
+    cartsReminders: { title: "تذكيرات تم إرسالها", desc: "رسائل التذكير التي أُرسلت للعملاء عن السلات التي تركوها." },
     cogsUnknown: (n: number) => `${n === 1 ? "قطعة مباعة واحدة تكلفتها" : `${n} من القطع المباعة تكلفتها`} غير معروفة (لا تكلفة على المنتج، أو حُذف المنتج)، فلم تُحسب.`,
     profitHigh: "بعض القطع المباعة لا تكلفة على منتجها، فالربح الحقيقي أقل من هذا.",
     profitFrom: (n: number, m: number) =>
@@ -857,7 +865,72 @@ function VisitorsReport({ productNames }: { productNames: Map<number, string> })
   );
 }
 
-function RealReport({ section, data, span, prev, busy, refresh, signedIn }: { section: number; data: StoreData; span: Span; prev: Span; busy: Partial<Record<string, boolean>>; refresh: (id: string) => void; signedIn: boolean }) {
+/** A signed-in store's abandoned carts in the range picked (server/storeCarts.ts). The carts themselves, and their
+    reminders, are on Marketing > Abandoned carts, which this links to. */
+function CartsReport({ range }: { range: number }) {
+  const { lang } = usePrefs();
+  const w = real[lang];
+  const r = content[lang].reports;
+  const cur = r.currency;
+  const { sums, failed, reload } = useCartSums(range);
+  const [busy, setBusy] = useState<Partial<Record<string, boolean>>>({});
+  const refresh = (id: string) => {
+    setBusy((b) => ({ ...b, [id]: true }));
+    void reload().finally(() => setBusy((b) => ({ ...b, [id]: false })));
+  };
+  const link = (
+    <a href="/marketing/abandoned-carts" className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+      {w.cartsOpen}
+      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 rtl:rotate-180" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 6 6 6-6 6" /></svg>
+    </a>
+  );
+
+  /* the server did not answer (and there are no numbers from before): says so, with a way to ask again */
+  if (failed && !sums)
+    return (
+      <div role="alert" className="flex flex-col items-center rounded-2xl bg-card p-10 text-center shadow-sm ring-1 ring-fg/10">
+        <p className="max-w-md text-sm text-rose-600 dark:text-rose-400">{w.cartsFailed}</p>
+        <button type="button" onClick={() => refresh("rab")} disabled={!!busy.rab} className="mt-4 rounded-xl border border-fg/15 px-4 py-2 text-sm font-semibold transition hover:bg-soft disabled:opacity-60">
+          {w.retry}
+        </button>
+      </div>
+    );
+  /* still loading: grey blocks stand where the numbers will be, not zeros */
+  if (!sums)
+    return (
+      <div aria-busy="true" className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Placeholder key={i} className="h-60 w-full rounded-2xl" />
+        ))}
+      </div>
+    );
+  if (sums.count === 0)
+    return (
+      <div className="flex flex-col items-center gap-4 rounded-2xl bg-card p-10 text-center shadow-sm ring-1 ring-fg/10">
+        <p className="font-bold">{r.abandoned.empty}</p>
+        {link}
+      </div>
+    );
+  const card = (id: string, info: HelpInfo, body: React.ReactNode) => (
+    <RealCard key={id} id={id} info={info} busy={busy} refresh={refresh}>
+      {body}
+    </RealCard>
+  );
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        {card("rab-count", r.help.abandoned, <Stat><span dir="ltr"><AnimatedNumber value={sums.count} /></span></Stat>)}
+        {/* what is still in the carts no order has ended yet */}
+        {card("rab-lost", r.help.lostRevenue, <Stat tone="text-rose-500"><Money value={sums.openValue} currency={cur} /></Stat>)}
+        {card("rab-rate", r.help.recovery, <Rate value={sums.recovered} tone="text-emerald-600 dark:text-emerald-400" labels={[r.abandoned.rows[0], r.abandoned.cards[0]]} a={sums.recoveredCarts} b={sums.count} />)}
+        {card("rab-sent", w.cartsReminders, <Stat><span dir="ltr"><AnimatedNumber value={sums.remindersSent} /></span></Stat>)}
+      </div>
+      {link}
+    </div>
+  );
+}
+
+function RealReport({ section, range, data, span, prev, busy, refresh, signedIn }: { section: number; range: number; data: StoreData; span: Span; prev: Span; busy: Partial<Record<string, boolean>>; refresh: (id: string) => void; signedIn: boolean }) {
   const { lang } = usePrefs();
   const w = real[lang];
   const r = content[lang].reports;
@@ -871,7 +944,8 @@ function RealReport({ section, data, span, prev, busy, refresh, signedIn }: { se
   );
 
   if (section === 3) return signedIn ? <VisitorsReport productNames={new Map(data.products.map((p) => [p.id, p.name]))} /> : <NotTrackedPanel note={w.visitsNote} />;
-  if (section === 4) return <NotTrackedPanel note={w.cartsNote} />;
+  /* abandoned carts are kept only for a signed-in store (server/storeCarts.ts) */
+  if (section === 4) return signedIn ? <CartsReport range={range} /> : <NotTrackedPanel note={w.cartsNote} />;
 
   if (section === 1) {
     const o = ordersReport(data.orders, span);
@@ -1048,7 +1122,9 @@ export function Reports() {
   }, [reloadOrders]);
 
   /* A real store's sales, and the same days just before to compare with (storeNumbers.ts) */
-  const at = updatedAt ?? new Date();
+  /* a real store's "now" moves on with each read of its orders (every minute), so a page left open past midnight follows
+     into the new day, like the home page */
+  const at = (!sample && data.at) || updatedAt || new Date();
   const span = rangeSpan(range as RangeKind, at);
   const prevSpan = previousSpan(range as RangeKind, at);
   const realNow = sample ? null : salesFigures(data.orders, data.products, span);
@@ -1410,7 +1486,7 @@ export function Reports() {
               </section>
             </>
           ) : !sample ? (
-            <RealReport section={section} data={data} span={span} prev={prevSpan} busy={busy} refresh={refresh} signedIn={signedIn} />
+            <RealReport section={section} range={range} data={data} span={span} prev={prevSpan} busy={busy} refresh={refresh} signedIn={signedIn} />
           ) : section === 4 ? (
             abandonedView
           ) : section === 1 || section === 2 || section === 3 || section === 5 || section === 6 ? (

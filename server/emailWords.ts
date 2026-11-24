@@ -13,10 +13,12 @@ import { moneyText } from "@/components/moneyText";
    - staffChangeEmail      the Diwan staff routes (app/api/diwan/staff), to the other owners
    - staffSigninCodeEmail, staffEmailApproveEmail, staffEmailCodeEmail, staffEmailChangedEmail   a staff member's own codes (server/staffSignin.ts)
    - cartReminderEmail     server/storeCarts.ts, to a store's customer: the cart he left, when the merchant reminds him
+   - backInStockEmail      server/storeSignups.ts, to a store's customer: the product he asked about is back, when the merchant says so
+   - campaignFoot          server/campaigns.ts, the line under a store's campaign email (the rest is the merchant's words)
 
    Notices go out in the language the reader uses Dukkan in (accounts.lang / staff.lang, server/lang.ts): wordsIn. Someone
-   whose language isn't saved yet (they haven't signed in since it was) gets both: bothLangs puts the Arabic first and
-   the English under it (one subject, one heading, one button). Order notices carry only the order's number and total, never the
+   whose language isn't saved yet gets the site's default, Arabic: an email is never in both languages (owner decision
+   2026-11-24). Order notices carry only the order's number and total, never the
    customer's name, phone or address. Nothing here holds a password or a secret. */
 
 export type EmailLang = "ar" | "en";
@@ -61,9 +63,12 @@ export function bothLangs(words: (lang: EmailLang) => EmailWords): EmailWords {
   };
 }
 
-/** One email in the reader's saved language (`lang` as read from the database), or in both while there is none */
-export function wordsIn(lang: unknown, words: (lang: EmailLang) => EmailWords): { lang: EmailLang; words: EmailWords } {
-  return lang === "ar" || lang === "en" ? { lang, words: words(lang) } : { lang: "ar", words: bothLangs(words) };
+/** One email in one language only (owner decision 2026-11-24: never both): the reader's saved language (`lang` as read
+    from the database, the language they use the site in), else `fallback` (the language of the page that caused it, when
+    there is one), else Arabic, the site's default */
+export function wordsIn(lang: unknown, words: (lang: EmailLang) => EmailWords, fallback?: unknown): { lang: EmailLang; words: EmailWords } {
+  const l: EmailLang = lang === "ar" || lang === "en" ? lang : fallback === "en" || fallback === "ar" ? fallback : "ar";
+  return { lang: l, words: words(l) };
 }
 
 /* ---------------- password reset (server/sendCode.ts) ---------------- */
@@ -463,3 +468,53 @@ export function cartReminderEmail(lang: EmailLang, p: { store: string; count: nu
     button,
   };
 }
+
+/** "It's back": to a store's customer who pressed "Remind me when it's back" on a sold-out product (or a size of it),
+    sent when the store's merchant says it is back (Marketing > Customer emails, server/storeSignups.ts
+    notifyBackInStock), in the language the customer asked in. `url`: the product's page on the store. The store's and
+    the product's names are the merchant's words, each kept apart on one short line (line). `foot`: the line under the
+    email (why it came: it is the one reminder they asked for, nothing more follows). */
+export function backInStockEmail(lang: EmailLang, p: { store: string; product: string; size: string; url: string }): EmailWords & { foot: string } {
+  const store = line(p.store, 80);
+  const product = line(p.product, 80);
+  const size = p.size ? line(p.size, 30) : "";
+  const button = { label: lang === "ar" ? "اطلبه الآن" : "Order it now", url: p.url };
+  if (lang === "ar") {
+    return {
+      subject: `عاد ${product} إلى ${store}`,
+      heading: "المنتج الذي طلبته متوفّر من جديد",
+      text:
+        `${product}${size ? ` (المقاس ${size})` : ""} متوفّر الآن في متجر ${store}.\n` +
+        "اضغط الزر لتفتح صفحته وتطلبه. الكمية محدودة وقد تنفد مرة أخرى.",
+      button,
+      foot: `وصلتك هذه الرسالة من متجر ${store} لأنك طلبت أن نخبرك عند توفّر هذا المنتج. هي رسالة واحدة ولن تصلك غيرها عنه. أُرسلت عبر دكان، ولا يُستقبل الرد عليها.`,
+    };
+  }
+  return {
+    subject: `${product} is back at ${store}`,
+    heading: "The product you asked about is back",
+    text:
+      `${product}${size ? ` (size ${size})` : ""} is available again at ${store}.\n` +
+      "Press the button to open its page and order it. Stock is limited and may run out again.",
+    button,
+    foot: `You got this email from ${store} because you asked to be told when this product is back. It's the only one you'll get about it. Sent through Dukkan; replies aren't read.`,
+  };
+}
+
+/** The line under a store's campaign email (server/campaigns.ts), in the reader's language, with the words of its link
+    that stops the store's campaigns. The rest of the email is the merchant's own words. */
+export function campaignFoot(lang: EmailLang, store: string): { text: string; unsubscribe: string } {
+  const s = line(store, 80);
+  return lang === "ar"
+    ? {
+        text: `وصلتك هذه الرسالة من متجر ${s} لأنك طلبت منه أو اشتركت في نشرته البريدية. أُرسلت عبر دكان، ولا يُستقبل الرد عليها.`,
+        unsubscribe: "إلغاء الاشتراك في رسائل هذا المتجر",
+      }
+    : {
+        text: `You got this email from ${s} because you ordered from it or joined its newsletter. Sent with Dukkan; replies to it aren't read.`,
+        unsubscribe: "Unsubscribe from this store's emails",
+      };
+}
+
+/** A campaign's subject on the test the merchant sends himself */
+export const campaignTestSubject = (lang: EmailLang, subject: string) => (lang === "ar" ? `[تجربة] ${subject}` : `[Test] ${subject}`);

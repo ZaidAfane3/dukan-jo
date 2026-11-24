@@ -47,10 +47,21 @@ const nextConfig = {
       /* Dukkan's own pictures (theme screenshots, the demo stores' photos, payment logos, avatars, maps) were sent with
          max-age=0, so every page view asked for each again. Browsers keep them a day now and may use a copy up to a week
          old while they check for a newer one. Not "immutable": saved store designs point at /demo/... without a version,
-         so a file changed in place must still reach visitors. */
+         so a file changed in place must still reach visitors. Files only (a name with an extension): /themes, /themes/mine
+         and /demo are pages too, and "/themes/:path*" gave them this day-long caching as well, so a browser could keep
+         showing a page from before an update that asks for files the update removed ("This page couldn't load"). */
       ...["themes", "demo", "logos", "avatars", "maps"].map((dir) => ({
-        source: `/${dir}/:path*`,
+        source: `/${dir}/:file(.+\\.\\w+)`,
         headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
+      })),
+      /* Pages (and their in-app answers, ?_rsc=) are never kept by a cache in between. Next sends the pages it draws
+         ahead of time (/, /dashboard, /signup, ...) with s-maxage=31536000: a CDN told to cache pages (Cloudflare's
+         "Cache Everything") would then keep each one for a year, past every update, and visitors would get an old page
+         that asks for files the new version no longer has. Pages drawn on each visit already say this; now all do.
+         Not for Next's own files (/_next/), the API, stored pictures (/media/) or any file with an extension. */
+      ...["/", "/:path((?!_next/|api/|media/)[^.]*)"].map((source) => ({
+        source,
+        headers: [{ key: "Cache-Control", value: "private, no-cache, no-store, max-age=0, must-revalidate" }],
       })),
     ];
   },

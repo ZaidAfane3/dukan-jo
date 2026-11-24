@@ -15,7 +15,7 @@ export type LocalKind = "taskDone" | "couponCreated" | "reminderSent" | "ticketC
 /* supportViewed is no longer sent ("Log in as merchant" was removed on 2026-11-16); kept so older messages still read */
 export type ServerKind =
   | "ticketReplied" | "ticketStatus" | "documentStatus" | "shopSuspended" | "shopReactivated"
-  | "paymentReceived" | "supportViewed" | "announcement" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff" | "twoStepOff" | "lowStock" | "outOfStock";
+  | "paymentReceived" | "supportViewed" | "announcement" | "orderPlaced" | "shipDelivered" | "shipFailed" | "shipCityGone" | "payOff" | "twoStepOff" | "lowStock" | "outOfStock" | "campaignStopped";
 export type NotificationKind = LocalKind | ServerKind;
 
 /** Which filter tab a notification belongs to (matches the tab order in content.ts). */
@@ -39,6 +39,7 @@ export const NOTIFICATION_TAB: Record<NotificationKind, 1 | 2 | 3 | 4 | 5> = {
   twoStepOff: 1, /* his 2-step sign-in was turned off (by Dukkan, or by him in Settings) */
   lowStock: 1, /* an order took a product down to his low-stock number */
   outOfStock: 1, /* an order took a product's last piece */
+  campaignStopped: 1, /* Dukkan stopped one of his marketing campaigns */
   supportViewed: 1,
   announcement: 1,
 };
@@ -48,6 +49,9 @@ export type AppNotification = {
   kind: NotificationKind;
   params: Record<string, string>;
   ts: number;
+  /* from the server only: its own time (ms), not held back by this browser's clock as ts is; the bell's red number
+     compares it with the moment its panel last showed (components/merchantBadges.ts bellSeen) */
+  at?: number;
   read: boolean;
 };
 
@@ -66,18 +70,29 @@ function localList(): AppNotification[] {
 
 /* ---------------- from the server ---------------- */
 
-const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "paymentReceived", "supportViewed", "announcement", "orderPlaced", "shipDelivered", "shipFailed", "shipCityGone", "payOff", "twoStepOff", "lowStock", "outOfStock"]);
+const SERVER_KINDS = new Set<string>(["ticketReplied", "ticketStatus", "documentStatus", "shopSuspended", "shopReactivated", "paymentReceived", "supportViewed", "announcement", "orderPlaced", "shipDelivered", "shipFailed", "shipCityGone", "payOff", "twoStepOff", "lowStock", "outOfStock", "campaignStopped"]);
 let serverList: AppNotification[] = [];
 let loading: Promise<void> | null = null;
+/* a request asked for after the one on its way (refreshServerNotifications `again`) */
+let again: Promise<void> | null = null;
 
 /** True when the bell (and Support) talk to the server: a merchant is signed in and the tour is not running */
 export const serverMode = () => typeof window !== "undefined" && !demoActive() && !!signedInAs();
 
 const changed = () => window.dispatchEvent(new Event(EVENT));
 
-/** Fetches the server's part of the list (at most one request at a time). Does nothing in the tour or signed out. */
-export function refreshServerNotifications(): Promise<void> {
+/** Fetches the server's part of the list (at most one request at a time). Does nothing in the tour or signed out.
+    `again`: the server changed the list just now (a ticket's page marked its reply read), so a request already on its
+    way may hold the list from before: one more goes once it is answered. */
+export function refreshServerNotifications(o: { again?: boolean } = {}): Promise<void> {
   if (!serverMode()) return Promise.resolve();
+  if (o.again && loading) {
+    again ??= loading.then(() => {
+      again = null;
+      return refreshServerNotifications();
+    });
+    return again;
+  }
   loading ??= fetch("/api/notifications", { credentials: "same-origin", cache: "no-store" })
     .then(async (r) => {
       /* signed out while the page was open: if Dukkan suspended the store, the merchant is shown why */
@@ -94,6 +109,7 @@ export function refreshServerNotifications(): Promise<void> {
           /* the server dates an announcement from when it reached this store (never before the store joined); a
              clock here behind the server's must not show it "in" the future either */
           ts: Math.min(Number(x.ts) || 0, Date.now()),
+          at: Number(x.ts) || 0,
           read: !!x.read,
         }));
       changed();
@@ -107,7 +123,7 @@ export function refreshServerNotifications(): Promise<void> {
   return loading;
 }
 
-function markServer(body: { ids: string[] } | { all: true }) {
+function markServer(body: { ids: string[] }) {
   fetch("/api/notifications/read", {
     method: "POST",
     credentials: "same-origin",
@@ -120,11 +136,14 @@ function markServer(body: { ids: string[] } | { all: true }) {
 
 /* ---------------- the list ---------------- */
 
-/** Everything the bell shows, newest first */
+/** Everything the bell shows, newest first: the newest 80 notices, and every live announcement however many notices
+    came after it (the server sends them all) */
 export function getNotifications(): AppNotification[] {
   const local = localList();
   if (!serverList.length) return local;
-  return [...local, ...serverList].sort((a, b) => b.ts - a.ts).slice(0, 80);
+  const all = [...local, ...serverList].sort((a, b) => b.ts - a.ts);
+  const notices = all.filter((n) => n.kind !== "announcement").slice(0, 80);
+  return [...all.filter((n) => n.kind === "announcement"), ...notices].sort((a, b) => b.ts - a.ts);
 }
 
 /** The live announcements from the server that are not read yet (the dashboard shows those with a banner) */
@@ -157,9 +176,14 @@ export function markRead(id: string) {
 }
 
 export function markAllRead() {
-  if (serverList.some((n) => !n.read)) {
-    serverList = serverList.map((n) => ({ ...n, read: true }));
-    markServer({ all: true });
+  /* only what the bell has shown is marked: the ids it lists, never "everything on the server", so a notice or an
+     announcement that arrived after the last fetch stays unread until the merchant has seen it */
+  const shown = new Set(getNotifications().map((n) => n.id));
+  const ids = serverList.filter((n) => !n.read && shown.has(n.id)).map((n) => n.id);
+  if (ids.length) {
+    const marked = new Set(ids);
+    serverList = serverList.map((n) => (marked.has(n.id) ? { ...n, read: true } : n));
+    markServer({ ids: ids.map((id) => id.slice(2)) });
   }
   save(localList().map((n) => ({ ...n, read: true })));
 }
@@ -189,6 +213,8 @@ export function notificationLink(item: AppNotification): string | null {
   if (item.kind === "twoStepOff") return "/settings#two-step";
   /* a product running low or out: Products opens it, where he adds stock */
   if ((item.kind === "lowStock" || item.kind === "outOfStock") && /^-?\d+$/.test(item.params.id ?? "")) return `/products?open=${item.params.id}`;
+  /* one of his campaigns was stopped: his campaigns, where it shows as stopped */
+  if (item.kind === "campaignStopped") return "/marketing/campaigns";
   return null;
 }
 
@@ -235,6 +261,8 @@ export function serverNotificationText(item: AppNotification, lang: Lang): strin
       return fill(w.lowStock);
     case "outOfStock":
       return fill(w.outOfStock);
+    case "campaignStopped":
+      return fill(w.campaignStopped);
     default:
       return "";
   }

@@ -73,8 +73,10 @@ export function UndoToast() {
 
   /* Never over the page's main button: the toast shows at the start of the screen's bottom, where a form's Save button
      often is (right after he pressed it). When it would cover that button (the one he just pressed, or a page's submit
-     button) it moves to the other side, and when that side is taken too it sits just above the button. Checked when it
-     shows and while the page scrolls or resizes under it. */
+     button), or a button of a pop-up or dialog open over the page (it is drawn above them, so their own Close or OK
+     stays reachable), or of another note at the bottom (data-undo-avoid), it moves to the other side, and when that
+     side is taken too it sits just above the button. Checked when it shows, while the page scrolls or resizes under it,
+     and when something opens or closes over the page meanwhile (a pop-up during the countdown). */
   const [place, setPlace] = useState<{ side: "start" | "end"; lift: number }>({ side: "start", lift: 0 });
   const placeNow = useRef(place);
   const shown = toast?.id ?? note?.id ?? null;
@@ -84,7 +86,11 @@ export function UndoToast() {
     setPlace(placeNow.current);
     let frame = 0;
     const covered = (r: DOMRect) => {
-      const mains = Array.from(document.querySelectorAll<HTMLElement>('main button[type="submit"], main [data-main-action]'));
+      const mains = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          'main button[type="submit"], main [data-main-action], [data-dukkan-popup] button, [role="dialog"] button, [aria-modal="true"] button, [data-undo-avoid] button',
+        ),
+      );
       const a = document.activeElement;
       if (a instanceof HTMLElement && a.tagName === "BUTTON" && a.closest("main")) mains.push(a);
       return mains.filter((b) => {
@@ -122,7 +128,11 @@ export function UndoToast() {
     check();
     window.addEventListener("scroll", check, { passive: true, capture: true });
     window.addEventListener("resize", check);
+    /* a pop-up, dialog or note opened (or closed) while it shows; at most one check a frame */
+    const watch = new MutationObserver(check);
+    watch.observe(document.body, { childList: true, subtree: true });
     return () => {
+      watch.disconnect();
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", check, { capture: true });
       window.removeEventListener("resize", check);
@@ -138,7 +148,9 @@ export function UndoToast() {
     let frame = 0;
     let shownLeft = -1;
     const tick = (now: number) => {
-      const dt = Math.max(0, now - last);
+      /* no frames come while the tab is hidden: the first one back would count all that time, so one frame never counts
+         more than a moment (the toast goes on where it stopped) */
+      const dt = Math.min(250, Math.max(0, now - last));
       last = now;
       if (!pausedRef.current && !document.hidden) used += dt;
       const part = Math.min(1, used / UNDO_TOAST_MS);
@@ -189,12 +201,15 @@ export function UndoToast() {
   if (!mounted) return null;
 
   return createPortal(
-    /* above the page, its bar and side menu, but under dialogs (z-50): centred on a phone, at the start on a wide screen */
+    /* above the page, its bar and side menu, and above every pop-up, dialog and drawer (Dukkan's pop-ups are z-[100],
+       a theme's preview z-[110]): what he just did can be undone even when one opens during the countdown (it moves off
+       their buttons, see above). Only the other-tab screen (z-[200]), which stops this tab, covers it. Centred on a
+       phone, at the start on a wide screen. */
     <div
       role="status"
       aria-live="polite"
       style={place.lift ? { bottom: place.lift } : undefined}
-      className={`dash pointer-events-none fixed inset-x-0 bottom-4 z-[45] flex px-4 lg:bottom-6 ${place.side === "end" ? "justify-end lg:pe-6" : "justify-center lg:justify-start lg:ps-[calc(var(--side-w)+1.5rem)]"}`}
+      className={`dash pointer-events-none fixed inset-x-0 bottom-4 z-[150] flex px-4 lg:bottom-6 ${place.side === "end" ? "justify-end lg:pe-6" : "justify-center lg:justify-start lg:ps-[calc(var(--side-w)+1.5rem)]"}`}
     >
       {toast ? (
         <div

@@ -86,13 +86,14 @@ export async function passwordAgain(req: NextRequest, me: Staff, password: unkno
   const who = `diwan-again:${me.id}`;
   const here = `diwan-again-ip:${visitorIp(req)}`;
   if (failedTooOften(who, 5) || failedTooOften(here, 10)) return answer({ result: "slow-down" }, 429);
+  /* counted right after the look and before anything is waited for (the database, the check), so tries sent all at
+     once can't all pass the look while the first ones are still waiting; the right password forgets them */
+  noteFailure(who, 15);
+  noteFailure(here, 15);
   const { rows } = await (await db()).query(`SELECT password_hash FROM staff WHERE id = $1 AND active`, [me.id]);
   const hash: unknown = rows[0]?.password_hash;
   /* the local dev owner has no password: no exception for the dev server, as with the legal pages */
   if (typeof hash !== "string" || !hash.startsWith("scrypt$")) return answer({ result: "password", why: "no-password" }, 403);
-  /* counted before the check, so tries sent all at once can't all get past the limit; the right password forgets them */
-  noteFailure(who, 15);
-  noteFailure(here, 15);
   if (password.length > 128 || !(await checkPassword(password, hash))) {
     await audit(req, me.id, "staff.password_again_failed", { type: "staff", id: me.id }, null, { for: what });
     return answer({ result: "password", why: "wrong" }, 403);

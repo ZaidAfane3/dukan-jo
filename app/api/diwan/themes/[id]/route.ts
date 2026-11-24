@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { cleanBi, cleanBiList, cleanColor, cleanPrice, liveProblem, LISTING_LIMITS, NEXT_STATUS, THEME_STATUSES, type ListingRow, type ThemeStatus } from "@/components/themeListing";
 import { answer, readJson } from "@/server/auth";
 import { readListings } from "@/server/catalog";
+import type { PoolClient } from "pg";
 import { db } from "@/server/db";
 import { audit, staffRoute } from "@/server/staff";
 import { plainParams } from "@/server/crypto";
@@ -14,12 +15,40 @@ export const dynamic = "force-dynamic";
    - price (JOD), sort (its place in the store: smaller first), featured
    - demo: the made-up store it is shown with { name, about, color }
    - status: the next step (themeListing.ts NEXT_STATUS). Going live needs a design theme's name, tagline and design.
-   Answers "ok", "invalid", "missing", "step" (not a step it can take from here), "not-ready" with what is missing. */
+   - updatedAt: the theme's "last changed" the form was filled from (Diwan's details form sends its whole form). Two staff
+     editing the same theme: the second save is told it changed meanwhile, 409 "changed" with the theme as it is now, and
+     nothing of it is saved, rather than putting back the first one's changes without anyone seeing it. The row is locked
+     while it is checked and saved (as payments do with their version), so two saves can't both pass the check.
+   Answers "ok" { updatedAt }, "invalid", "missing", "changed", "step" (not a step it can take from here), "not-ready" with what is missing. */
 export const PATCH = staffRoute("marketplace", async (req: NextRequest, me, { params }) => {
   const body = await readJson(req, 40_000);
   if (!body) return answer({ result: "invalid" }, 400);
-  const [cur] = await readListings(`WHERE id = $1`, [params.id], true);
+  const c = await (await db()).connect();
+  try {
+    await c.query("BEGIN");
+    const res = await edit(req, me.id, params.id, body, c);
+    await c.query("COMMIT");
+    return res;
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    c.release();
+  }
+});
+
+/* the "last changed" a row is known by, written the same way the theme list sends it (a date in JSON) */
+const versionOf = (at: unknown) => (at ? new Date(at as string).toISOString() : "");
+
+async function edit(req: NextRequest, staffId: string, id: string, body: Record<string, unknown>, c: PoolClient) {
+  /* nothing else changes the row until this transaction ends (a save from the designer or another staff waits) */
+  await c.query(`SELECT 1 FROM catalog_themes WHERE id = $1 FOR UPDATE`, [id]);
+  const [cur] = await readListings(`WHERE id = $1`, [id], true, c);
   if (!cur) return answer({ result: "missing" }, 404);
+  if ("updatedAt" in body && body.updatedAt !== versionOf(cur.updatedAt)) {
+    const { design: _d, ...row } = cur;
+    return answer({ result: "changed", row }, 409);
+  }
 
   const set: Record<string, unknown> = {};
   const words = { name: LISTING_LIMITS.name, tagline: LISTING_LIMITS.tagline } as const;
@@ -57,22 +86,22 @@ export const PATCH = staffRoute("marketplace", async (req: NextRequest, me, { pa
     }
     if (status !== cur.status) set.status = status;
   }
-  if (!Object.keys(set).length) return answer({ result: "ok" });
+  if (!Object.keys(set).length) return answer({ result: "ok", updatedAt: versionOf(cur.updatedAt) });
 
   const keys = Object.keys(set);
   const json = new Set(["name", "tagline", "about", "features", "tags", "demo"]);
   const sql = keys.map((k, i) => `${k} = $${i + 2}${json.has(k) ? "::jsonb" : ""}`).join(", ");
   const values = keys.map((k) => (json.has(k) ? (set[k] === null ? null : JSON.stringify(set[k])) : set[k]));
-  await (await db()).query(
+  const { rows } = await c.query(
     `UPDATE catalog_themes SET ${sql}, updated_by = $${keys.length + 2}, updated_at = now()
        ${set.status === "live" ? ", released_at = COALESCE(released_at, now())" : ""}
-     WHERE id = $1`,
-    plainParams([params.id, ...values, me.id]),
+     WHERE id = $1 RETURNING updated_at`,
+    plainParams([id, ...values, staffId]),
   );
   const before = Object.fromEntries(keys.map((k) => [k, (cur as Record<string, unknown>)[k] ?? null]));
-  await audit(req, me.id, set.status ? "theme.status" : "theme.edit", { type: "theme", id: params.id }, null, { before, after: set });
-  return answer({ result: "ok" });
-});
+  await audit(req, staffId, set.status ? "theme.status" : "theme.edit", { type: "theme", id }, null, { before, after: set }, c);
+  return answer({ result: "ok", updatedAt: versionOf(rows[0]?.updated_at) });
+}
 
 /** Deletes a design theme that is not in the store and that nobody bought. A theme someone bought is hidden instead, so
     the merchants who have it keep it. Answers "ok", "missing", "not-allowed". */

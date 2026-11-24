@@ -12,15 +12,16 @@ export const onServer = () => !demoActive() && !!signedInAs();
    Cloudflare to give up after about 100 s */
 const CALL_TIMEOUT = 15_000;
 
-/** One call: its status and JSON answer, or null when the server could not be reached (or took longer than 15 s) */
-export async function merchantCall(path: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<{ status: number; data: Record<string, any> } | null> {
+/** One call: its status and JSON answer, or null when the server could not be reached (or took longer than 15 s).
+    `headers`: more to send with it (serverSync.ts accountHeader, for a route that checks the call is for this account). */
+export async function merchantCall(path: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown, headers?: Record<string, string>): Promise<{ status: number; data: Record<string, any> } | null> {
   try {
     const r = await fetch(path, {
       method,
       credentials: "same-origin",
       cache: "no-store",
       signal: timeoutSignal(CALL_TIMEOUT),
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return { status: r.status, data: ((await r.json().catch(() => ({}))) ?? {}) as Record<string, any> };

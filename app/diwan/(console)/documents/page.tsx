@@ -19,7 +19,10 @@ type Status = "waiting" | "approved" | "rejected";
 type Kind = "courier_proof" | "commercial_registration" | "other";
 type Row = {
   id: string; shopId: string; shopName: string; ownerName: string; shopSlug: string | null; storePhone: string; kind: Kind; seq: number; name: string;
-  partner: string; partnerKind: 0 | 1 | null; hasFile: boolean; mime: string | null; bytes: number | null;
+  partner: string; partnerKind: 0 | 1 | null;
+  /* a courier proof's courier phone ("" when none is known); missing from a server from before it was sent */
+  courierPhone?: string;
+  hasFile: boolean; mime: string | null; bytes: number | null;
   status: Status; note: string; reviewer: string | null; createdAt: string;
   /* when the merchant removed it (its file is gone), or null */
   removedAt: string | null;
@@ -75,8 +78,12 @@ export default function DocumentsPage() {
 
       <ShopOnly id={shop} name={s.data?.shopName || (s.data?.documents[0] ? s.data.documents[0].shopName || s.data.documents[0].ownerName : null)} onClear={() => setShop("")} />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {FILTERS.map((x) => (
+      {/* the status chips at the start of the row, the filters at its end (FilterBar) */}
+      <FilterBar
+        count={kind ? 1 : 0}
+        onClear={() => setKind("")}
+        className="mb-4"
+        tabs={FILTERS.map((x) => (
           <button
             key={x}
             aria-pressed={status === x}
@@ -86,8 +93,7 @@ export default function DocumentsPage() {
             {statusName(x)}
           </button>
         ))}
-      </div>
-      <FilterBar count={kind ? 1 : 0} onClear={() => setKind("")} className="mb-4">
+      >
         <select className={`${field} sm:max-w-xs`} value={kind} onChange={(e) => setKind(e.target.value)} aria-label={t("Kind", "النوع")}>
           <option value="">{t("Every kind", "كل الأنواع")}</option>
           {(["courier_proof", "commercial_registration", "other"] as Kind[]).map((k) => (
@@ -187,6 +193,13 @@ function DocCard({ row, statusName, kindName, onDone, onGone }: {
               ) : (
                 <span className="text-muted">{t("Not named yet", "لم يُسمَّ بعد")}</span>
               )}
+            </p>
+          )}
+          {/* the courier the approval is for: an approval only counts for this phone (server/courierProof.ts) */}
+          {row.kind === "courier_proof" && row.courierPhone && (
+            <p className="mt-1 text-sm">
+              <span className="text-muted">{t("Courier phone:", "هاتف المندوب:")} </span>
+              <bdi dir="ltr" className="font-semibold">{row.courierPhone}</bdi>
             </p>
           )}
           <p className="mt-1 text-xs text-muted">

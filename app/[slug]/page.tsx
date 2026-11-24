@@ -25,8 +25,9 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   if (!store) return { title: (await moved(params.slug)) ? "انتقل هذا المتجر · دكان" : "المتجر غير موجود · دكان", robots: { index: false, follow: false } };
   if (store.status !== "open") {
     const name = store.status === "unavailable" ? "" : store.name;
-    /* a store that can't be visited now is kept out of search engines */
-    return { title: name || "Dukkan", robots: { index: false, follow: false } };
+    /* a store that can't be visited now is kept out of search engines; a suspended one gives no name, so its tab says
+       what happened (in Arabic first, then the visitor's language: components/StoreNotice.tsx Notice) */
+    return { title: name || (store.status === "unavailable" ? "هذا المتجر غير متاح · دكان" : "دكان"), robots: { index: false, follow: false } };
   }
   return { title: store.setup.name || "Dukkan", description: store.setup.description.slice(0, 160) || undefined };
 }

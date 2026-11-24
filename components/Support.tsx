@@ -4,14 +4,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { brandName, content, dateLocale, type Lang } from "./content";
 import { DashboardBar } from "./DashboardBar";
-import { pushNotification, serverMode } from "./notifications";
+import { pushNotification, refreshServerNotifications, serverMode } from "./notifications";
 import { usePrefs } from "./Prefs";
 import { cleanLine, cleanLines, imageRules, uploadProblemFor, visibleLength, type FileKind } from "./safe";
 import { hasErrors, RequiredMark, RequiredNote, requiredNote } from "./Required";
 import { ACCOUNT_LIMITS, cleanTickets, ticketKind, TICKET_MIN, TICKET_PICTURES, type Ticket } from "./safeAccount";
 import { pickPicture } from "./designer/image";
 import {
-  createTicket, fetchThread, fetchTickets, pictureUrl, replyTicket, sendable, setTicketOpen,
+  createTicket, fetchThread, fetchTickets, newAttempt, pictureUrl, replyTicket, sendable, setTicketOpen,
   type MerchantStatus, type Sent, type ServerTicket, type Thread,
 } from "./ticketsApi";
 import { usePageTitle } from "./pageTitle";
@@ -22,6 +22,7 @@ import type { MerchantPage } from "./dukkanPages";
 import { replyWithin, usePublicSettings } from "./platformPublic";
 import { leaveUnasked } from "./serverSync";
 import { DRAFTS_MAX, loadDrafts, newDraftId, putDraft, removeDraft, type TicketDraft } from "./ticketDrafts";
+import { useTicketStream } from "./ticketStream";
 
 /* Support tickets. Signed in (and not in the tour), tickets go to Dukkan (app/api/tickets): the list comes from the
    server, a ticket opens as a conversation with Dukkan's replies, and the merchant answers there. In the tour or signed
@@ -1008,8 +1009,11 @@ function HelpArticles() {
    One ticket as a conversation (signed in only)
    ==================================================================== */
 
-/** How often an open conversation asks for new messages (while the tab is in view) */
-const THREAD_REFRESH_MS = 15_000;
+/* The open conversation is live (owner 2026-11-24: like a real chat): a stream from the server says the moment Dukkan
+   writes, and it loads again at once (components/ticketStream.ts). It also checks by itself every THREAD_SLOW_MS while
+   the stream is open, and every THREAD_REFRESH_MS (as before the stream) while it can't be. */
+const THREAD_REFRESH_MS = 3_000;
+const THREAD_SLOW_MS = 30_000;
 
 /* Closing a conversation with a reply written but not sent: asked in the page first */
 const replyLeaveWords: Record<Lang, { ask: string; keep: string; leave: string }> = {
@@ -1041,8 +1045,8 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
   const last = useRef<string | null>(null);
   const atBottom = useRef(true);
 
-  /* Loads the conversation: on opening, after each change, and every few seconds while it is open and the tab is in
-     view (THREAD_REFRESH_MS), so Dukkan's replies show up without closing it. The text being written and its pictures
+  /* Loads the conversation: on opening, after each change, and each time the live stream (or its fallback check) says
+     something changed while it is open and the tab is in view, so Dukkan's replies show up without closing it. The text being written and its pictures
      are never touched. Once the conversation shows, a failed load says nothing and the next one tries again. */
   const load = useCallback(async () => {
     const n = ++asked.current;
@@ -1056,6 +1060,9 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
       /* opening it marks Dukkan's replies as seen: the list and the bell catch up */
       if (mark !== last.current) onChanged();
       last.current = mark;
+      /* a reply marked read by this load: the bell, woken by the same reply, may have read its list just before, and
+         would show it as new for this open ticket until its next minute */
+      if (r.data.seen) void refreshServerNotifications({ again: true });
     } else if (last.current === null) setFailed(r.why === "none" ? "none" : "error");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [number]);
@@ -1065,14 +1072,8 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
     last.current = null;
     atBottom.current = true;
     void load();
-    const inView = () => document.visibilityState === "visible" && void load();
-    const timer = window.setInterval(inView, THREAD_REFRESH_MS);
-    document.addEventListener("visibilitychange", inView);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", inView);
-    };
   }, [load]);
+  useTicketStream(`/api/tickets/${number}/events`, () => void load(), { fastMs: THREAD_REFRESH_MS, slowMs: THREAD_SLOW_MS });
 
   /* follows each new message only while the conversation is scrolled to the bottom: reading higher up is left alone */
   const onScroll = () => {
@@ -1113,20 +1114,34 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
   /* his reply is held for a moment with an Undo, like a new ticket (heldSend.tsx); closing the conversation meanwhile
      sends it at once. Kept as a draft until it went, so one that could not be sent after it was closed comes back here. */
   const draft = `seen-reply-draft-${number}`;
+  /* the reply being written is one attempt (ticketsApi.ts replyTicket): sent again unchanged, the server keeps it once */
+  const attempt = useRef("");
+  /* The draft is looked at once the conversation has loaded: a reply sent as the page reloaded (keepalive) may have
+     reached Dukkan after all, and its draft is then dropped rather than brought back to be sent twice. Only a message of
+     his with the same words written since the draft was kept counts (an earlier "ok" is not this one). */
+  const restored = useRef("");
   useEffect(() => {
+    if ((!t && !failed) || restored.current === draft) return;
+    restored.current = draft;
     const d = takeDraft(draft);
     if (!d || typeof d.text !== "string") return;
+    const words = cleanLines(d.text, ACCOUNT_LIMITS.message);
+    const keptAt = typeof d.at === "number" ? d.at : 0;
+    if (t?.messages.some((m) => m.from === "me" && m.body === words && m.at >= keptAt - 2 * 60_000)) return;
     setText(d.text.slice(0, ACCOUNT_LIMITS.message));
     if (Array.isArray(d.pictures)) setPics(d.pictures.filter((p): p is string => typeof p === "string" && p.startsWith("data:image/")).slice(0, TICKET_PICTURES));
+    if (typeof d.attempt === "string") attempt.current = d.attempt;
     setError(sv.sendFailed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
+  }, [draft, t, failed]);
   const deliver = async () => {
-    /* the account it is sent as, taken now (the answer may come after a sign-out) */
-    const owner = keepDraft(draft, { text, pictures: pics });
+    /* the account it is sent as, taken now (the answer may come after a sign-out). While it goes up the box and the
+       picture buttons are locked (busy), so what is cleared after is exactly what was sent. */
+    if (!attempt.current) attempt.current = newAttempt();
+    const owner = keepDraft(draft, { text, pictures: pics, attempt: attempt.current, at: Date.now() });
     setBusy(true);
     setError("");
-    const r = await replyTicket(number, cleanLines(text, ACCOUNT_LIMITS.message), pics);
+    const r = await replyTicket(number, cleanLines(text, ACCOUNT_LIMITS.message), pics, { leaving: held.leaving.current, attempt: attempt.current });
     setBusy(false);
     if (!r.ok) {
       /* still open: the box keeps his words and says why; closed meanwhile: the draft brings them back next time */
@@ -1134,6 +1149,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
       return setError(r.why === "too-many" ? sv.tooMany : r.why === "pictures-full" ? sv.picturesRoom : r.field === "pictures" ? sv.picturesBad : sv.sendFailed);
     }
     dropDraft(draft, owner);
+    attempt.current = "";
     setText("");
     setPics([]);
     setNote("");
@@ -1268,14 +1284,14 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
           <form onSubmit={send} className="border-t border-fg/10 px-5 py-4">
             {t.status === "closed" && <p className="mb-2 text-xs text-muted">{sv.closedNote}</p>}
             <label htmlFor="t-reply" className="sr-only">{sv.replyLabel}</label>
-            <textarea id="t-reply" value={text} disabled={held.holding} onChange={(e) => setText(e.target.value)} placeholder={sv.replyPh} dir="auto" rows={3} maxLength={1000} className={`${field} resize-none py-3`} />
+            <textarea id="t-reply" value={text} disabled={held.holding || busy} onChange={(e) => setText(e.target.value)} placeholder={sv.replyPh} dir="auto" rows={3} maxLength={1000} className={`${field} resize-none py-3`} />
             {!!pics.length && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {pics.map((p, i) => (
                   <span key={i} className="relative h-14 w-14 overflow-hidden rounded-lg ring-1 ring-fg/15">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={p} alt="" className="h-full w-full object-cover" />
-                    <button type="button" onClick={() => setPics((list) => list.filter((_, j) => j !== i))} aria-label={s.removePicture} title={s.removePicture} className="absolute end-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white transition hover:bg-rose-600">
+                    <button type="button" disabled={held.holding || busy} onClick={() => setPics((list) => list.filter((_, j) => j !== i))} aria-label={s.removePicture} title={s.removePicture} className="absolute end-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white transition hover:bg-rose-600">
                       {xIcon}
                     </button>
                   </span>
@@ -1285,7 +1301,7 @@ function ThreadView({ number, onClose, onChanged }: { number: number; onClose: (
             {note && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{note}</p>}
             {error && <p role="alert" className="mt-1.5 text-xs text-rose-600">{error}</p>}
             <div className="mt-3 flex items-center gap-2">
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={held.holding || pics.length + reading >= TICKET_PICTURES} className="flex h-10 items-center gap-2 rounded-xl border border-fg/20 px-3 text-xs font-semibold transition hover:bg-soft disabled:opacity-40">
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={held.holding || busy || pics.length + reading >= TICKET_PICTURES} className="flex h-10 items-center gap-2 rounded-xl border border-fg/20 px-3 text-xs font-semibold transition hover:bg-soft disabled:opacity-40">
                 {picIcon}
                 {s.addPicture}
                 <span dir="ltr" className="tabular-nums text-muted">{pics.length}/{TICKET_PICTURES}</span>

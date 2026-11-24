@@ -6,7 +6,7 @@ import { usePrefs } from "@/components/Prefs";
 import { StorefrontTheme } from "@/components/storefront/StorefrontTheme";
 import { defaultConfig, type StorefrontConfig } from "@/components/storefront/config";
 import { StoreSkeleton } from "@/components/StoreSkeletons";
-import { loadConfig, loadTemplate, refreshTemplate, TEMPLATE_EVENT } from "@/components/storefront/storage";
+import { loadConfig, loadTemplate, refreshTemplate, storeIsLive, TEMPLATE_EVENT } from "@/components/storefront/storage";
 import { defaultStoreName, loadSetup } from "@/components/setup";
 import { useCatalog } from "@/components/catalog";
 import { composeDesign, findTheme, loadThemeState, previewProducts } from "@/components/themes";
@@ -14,6 +14,7 @@ import { safeStoredImage } from "@/components/safe";
 import type { StoreProduct } from "@/components/storefront/useStoreData";
 import { loadMaintenance } from "@/components/maintenance";
 import { MaintenancePage } from "@/components/MaintenancePage";
+import { OpenStoreButton } from "@/components/StoreStatus";
 import { demoActive } from "@/components/demoSandbox";
 
 const banner = {
@@ -87,9 +88,11 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
     setConfig(original ? defaultConfig : starter ? loadTemplate() ?? defaultConfig : loadConfig());
     /* /store?demo=1 shows the store with sample products, for screenshots. Nothing is saved. */
     setDemo(original || starter || q.get("demo") === "1");
-    /* his own store, not a preview of it: paused, it shows the maintenance page instead */
+    /* his own store, not a preview of it: paused, it shows the maintenance page instead. Only once it is live: visitors of
+       a store that never went live see "coming soon" whether it is paused or not (server/publicStore.ts asks "published"
+       before "paused"), so the maintenance page would not be what they see. */
     const m = loadMaintenance();
-    setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && m.on ? "" : null);
+    setPaused(!preview && !original && !starter && q.get("demo") !== "1" && !demoActive() && storeIsLive() && m.on ? "" : null);
     setReady(true);
   }, [lang, preview, catalog, templateRev]);
 
@@ -115,11 +118,9 @@ export function StorePreview({ preview = false }: { preview?: boolean }) {
   if (!ready) return <StoreSkeleton />;
 
   if (paused !== null) {
-    const setup = loadSetup();
-    const lg = config.identity.logo;
-    /* his own logo picture, or the one from setup; otherwise the first letter on the store color */
-    const logo = safeStoredImage(lg.kind === "image" ? lg.image : lg.kind === "auto" ? setup?.logo : "");
-    return <MaintenancePage lang={lang} name={setup?.name?.trim() || defaultStoreName(lang)} logo={logo} color={setup?.color || "#e67726"} message={paused} owner />;
+    /* the visitors' page as they see it (no logo: Dukkan's maintenance mark), with his bar on top and "Open your store
+       now", which makes it live by the profile menu switch's rules and then shows his store here */
+    return <MaintenancePage lang={lang} name={loadSetup()?.name?.trim() || defaultStoreName(lang)} message={paused} owner ownerAction={<OpenStoreButton lang={lang} onOpened={() => setPaused(null)} />} />;
   }
 
   return (

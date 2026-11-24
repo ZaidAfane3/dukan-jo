@@ -6,7 +6,7 @@ import { content } from "./content";
 import { useDemo } from "./demoSandbox";
 import { latin } from "./digits";
 import { usePrefs } from "./Prefs";
-import { cleanOrder, cleanProduct, couponName, parseList, productCategories, type Coupon, type Order } from "./records";
+import { cleanOrder, cleanProduct, couponName, parseList, phoneDigits, productCategories, type Coupon, type Order } from "./records";
 import { findStoreOrder, loadStoreOrders, readCoupons, readInfoPages, SEARCH_OPEN, useStoreOrders, type SearchPage } from "./searchSources";
 
 /* The groups, in the order they are shown: products, orders, coupons, his own info pages, the dashboard's pages */
@@ -26,7 +26,8 @@ const pages = [
   { href: "/marketing/abandoned-carts", en: "Abandoned carts", ar: "السلات المتروكة", kw: "cart marketing recover سلة تسويق" },
   { href: "/marketing/reminders", en: "Automatic reminders", ar: "التذكيرات التلقائية", kw: "reminder cart email sms تذكير" },
   { href: "/marketing/coupons", en: "Coupons", ar: "الكوبونات", kw: "coupon discount code free shipping marketing خصم كود تسويق" },
-  { href: "/marketing/repurchase", en: "Repurchase reminders", ar: "تذكيرات إعادة الشراء", kw: "repurchase buy again reminder marketing تسويق" },
+  { href: "/marketing/campaigns", en: "Campaigns", ar: "حملات تسويقية", kw: "campaign email newsletter send customers sms whatsapp marketing حملة حملات بريد رسائل إرسال عملاء واتساب تسويق" },
+  { href: "/marketing/repurchase",en: "Repurchase reminders", ar: "تذكيرات إعادة الشراء", kw: "repurchase buy again reminder marketing تسويق" },
   { href: "/marketing/emails", en: "Customer emails", ar: "إيميلات العملاء", kw: "newsletter subscribers email back in stock remind sold out marketing نشرة بريدية مشتركين إيميل تذكير توفر نفدت تسويق" },
   { href: "/reports", en: "Store performance", ar: "أداء المتجر", kw: "reports analytics visits payments sales customers تقارير مدفوعات زيارات" },
   { href: "/store-link", en: "Store link", ar: "رابط المتجر", kw: "link address url domain رابط عنوان المتجر" },
@@ -141,7 +142,8 @@ export function GlobalSearch() {
         id: String(o.id),
         name: String(o.customer ?? ""),
         hay: norm(`${o.customer ?? ""}\n${o.email ?? ""}`),
-        phone: String(o.phone ?? "").replace(/\s/g, ""),
+        /* kept as bare digits (no +962 or leading 0) so a phone is found however it is typed, like on the Orders page */
+        phone: phoneDigits(String(o.phone ?? "")),
       }));
     const products = data.products
       .filter((p) => !p.deletedAt)
@@ -173,7 +175,7 @@ export function GlobalSearch() {
     if (!t) return [];
     const out: Result[] = [];
     const sym = t.startsWith("#") ? t.slice(1) : t;
-    const digits = t.replace(/\s/g, "");
+    const digits = phoneDigits(t);
     const by = (b: { en: string; ar: string }) => b[lang] || b[lang === "ar" ? "en" : "ar"];
 
     index.products.forEach((p) => {
@@ -181,7 +183,7 @@ export function GlobalSearch() {
     });
 
     index.orders.forEach((o) => {
-      if ((sym && o.id.includes(sym)) || o.hay.includes(t) || (digits && o.phone.includes(digits))) {
+      if ((sym && o.id.includes(sym)) || o.hay.includes(t) || (digits.length >= 3 && o.phone.includes(digits))) {
         out.push({ id: `o${o.key}`, group: 1, label: o.name, sub: `#${o.id}`, href: `/orders?open=${o.id}` });
       }
     });

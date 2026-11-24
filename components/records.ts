@@ -291,14 +291,16 @@ export function cleanOrder(x: Record<string, unknown>): Order | null {
   };
 }
 
+/** A phone's digits without the country code or leading 0, so 079…, 79… and +962 79… (in any digits) compare the same */
+export const phoneDigits = (v: string) => latin(v).replace(/\D/g, "").replace(/^(00962|962|0)/, "");
+
 /** The Orders page's search: an order whose number, customer name, phone or email has what was typed. A phone is found
     however it is typed (079…, 79… or +962 79…). The server searches its store orders with this too (server/storeOrders.ts). */
 export function orderMatches(x: { id: number; customer: string; phone: string; email?: string }, query: string): boolean {
   const q = query.trim().toLowerCase().replace(/^#/, "");
   if (!q) return true;
-  const digitsOf = (v: string) => latin(v).replace(/\D/g, "").replace(/^(00962|962|0)/, "");
-  const qd = digitsOf(q);
-  return String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q) || !!x.email?.includes(q) || (qd.length >= 3 && digitsOf(x.phone).includes(qd));
+  const qd = phoneDigits(q);
+  return String(x.id).includes(q) || x.customer.toLowerCase().includes(q) || x.phone.includes(q) || !!x.email?.includes(q) || (qd.length >= 3 && phoneDigits(x.phone).includes(qd));
 }
 
 /** An order's coupon as saved: a valid code and a discount, or nothing */
@@ -337,6 +339,9 @@ export type Coupon = {
      copy of the coupons gets the uses it has not seen added again (mergeUsedOnline) */
   usedOnline?: number;
   active: boolean;
+  /* When it was made (ms), kept when it is edited: two copies of it with the same id are the same coupon saved twice,
+     not two (listMerge.ts sameMaking). Coupons made before it have none. */
+  created?: number;
 };
 
 /** A coupon code: 3 to 16 Latin capital letters and digits. */
@@ -489,6 +494,7 @@ export function cleanCoupon(x: Record<string, unknown>): Coupon | null {
     used: count(x.used),
     ...(count(x.usedOnline) > 0 ? { usedOnline: count(x.usedOnline) } : {}),
     active: x.active !== false,
+    ...(time(x.created, 0) ? { created: time(x.created, 0) } : {}),
   };
 }
 

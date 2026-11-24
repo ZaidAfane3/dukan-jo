@@ -325,8 +325,9 @@ export const DIWAN_SCHEMA = `
      the row stays as a record for staff: a proof staff were checking, or already approved, doesn't vanish from Diwan
      without a trace. The merchant's own pages and limits never count it again. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;
-  /* A courier proof sent while the merchant is still filling in his delivery choice (setup or the Delivery page) is a
-     draft: Diwan doesn't see it until he saves that choice with his own courier (app/api/store PUT). */
+  /* draft: a courier proof Diwan doesn't see yet. Proofs used to be drafts until the merchant saved his delivery choice
+     with his own courier; since 2026-11-24 none is made (app/api/documents POST) and start-up hands the old ones over
+     (below, with sent_at). Kept so old rows and the NOT draft filters stay valid. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS draft BOOLEAN NOT NULL DEFAULT false;
 
   /* ---------- pictures and videos of the stores (product photos, logos, designs, page backgrounds) ---------- */
@@ -347,6 +348,11 @@ export const DIWAN_SCHEMA = `
   );
   CREATE UNIQUE INDEX IF NOT EXISTS media_account_sha ON media (account_id, sha256);
   CREATE INDEX IF NOT EXISTS media_account_created ON media (account_id, created_at);
+  /* unused_since: when the sweep (server/media.ts sweepUnusedMedia) first found no saved page using the file, NULL
+     while one uses it. A file goes only once it was unused that long (UNUSED_DAYS), not just once it is that old: a
+     photo removed and brought back by Undo, or a picture re-used, stays. Files kept before this column start unmarked,
+     so none goes sooner than it would have. */
+  ALTER TABLE media ADD COLUMN IF NOT EXISTS unused_since TIMESTAMPTZ;
 
   /* ---------- messages to merchants ---------- */
   CREATE TABLE IF NOT EXISTS announcements (
@@ -742,6 +748,10 @@ export const DIWAN_SCHEMA = `
   ALTER TABLE announcements ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
   ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
   ALTER TABLE popups ADD COLUMN IF NOT EXISTS ended_by BIGINT REFERENCES staff (id) ON DELETE SET NULL;
+  /* restarted_at: when "Start again" last sent an ended announcement out again. Its start stays as it was (so "new
+     stores" still means the stores made since it first went out); the bell dates it from this instead, so it is at the
+     top again. Null: never started again. */
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS restarted_at TIMESTAMPTZ;
 
   /* ---------- store files: the platform's own, the way their bytes are kept, and files taken down ----------
      A file with no account (account_id NULL) is the platform's: a picture of a theme store design or of the starter
@@ -841,8 +851,11 @@ export const DIWAN_SCHEMA = `
      product_id, size (the sold-out size, '' for the whole product) and product_name (its name then, for when it is
      gone). Only the store's own merchant sees them (Marketing > Customer emails). email: sealed. email_hash: a keyed
      fingerprint of the email for this shop only (the same email in two shops gives two different ones): an email is
-     kept once per shop in the newsletter, and once per product and size for back in stock. Dukkan sends them nothing.
-     They go with the account. */
+     kept once per shop in the newsletter, and once per product and size for back in stock. The merchant sees numbers
+     only, never the addresses (owner decision 2026-11-24). Back in stock: when he says a product is back, Dukkan emails
+     those waiting once (notified_at: when), and the address is then wiped (email ''): the row stays only to be counted
+     ("told so far") and so the same email asking again for the same product is still one row (email_hash). They go
+     with the account. */
   CREATE TABLE IF NOT EXISTS store_signups (
     id           BIGSERIAL PRIMARY KEY,
     account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -861,6 +874,15 @@ export const DIWAN_SCHEMA = `
   CREATE UNIQUE INDEX IF NOT EXISTS store_signups_newsletter ON store_signups (account_id, email_hash) WHERE kind = 'newsletter';
   CREATE UNIQUE INDEX IF NOT EXISTS store_signups_back ON store_signups (account_id, email_hash, product_id, size) WHERE kind = 'back_in_stock';
   CREATE INDEX IF NOT EXISTS store_signups_account ON store_signups (account_id, kind, id DESC);
+  ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
+  /* back in stock, "Tell them it's back" (server/storeSignups.ts notifyBackInStock): a request in a batch being sent has
+     claim_key (the batch's key for the email service), claimed_at (when a process last took it: a stale one is sent
+     again under the same key by sweepBackInStock) and key_at (the key's first use: given up after 23 hours); notified_at
+     stays empty until the email went out, and is set in the same statement that wipes the address. */
+  ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS claim_key TEXT;
+  ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
+  ALTER TABLE store_signups ADD COLUMN IF NOT EXISTS key_at TIMESTAMPTZ;
+  CREATE INDEX IF NOT EXISTS store_signups_claimed ON store_signups (claimed_at) WHERE claim_key IS NOT NULL;
   /* ---------- Diwan: 2-step sign-in by emailed code (server/staffSignin.ts) ----------
      Since 2026-11-22 every staff sign-in asks, after the password, for a 6-digit code sent to the member's email
      (email_codes, refs "sl:" and "sc:"). The authenticator app is gone for staff: staff.totp_on, totp_secret and
@@ -939,15 +961,53 @@ export const DIWAN_SCHEMA = `
     seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (staff_id, tab)
   );
-  /* sent_at: when a document reached Diwan: when it was sent, or for a courier proof sent as a draft, when the merchant
-     saved his delivery choice and it was handed over (app/api/store PUT). Rows from before take the day they were sent. */
+  /* ---------- the merchant dashboard's red numbers (server/merchantBadges.ts) ----------
+     merchant_seen: when the merchant last opened each page that shows one ("orders", "carts", "signups"), or for "bell"
+     the newest notification his bell's open panel showed. What came after it is new to him; opening the page again moves
+     it. Kept here, not in his browser, so his phone and his computer agree. A page he never opened starts from the first
+     time his dashboard asked for the numbers (what was there before isn't new); the bell starts with every unread
+     notification. It goes with the account. */
+  CREATE TABLE IF NOT EXISTS merchant_seen (
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    tab        TEXT NOT NULL,
+    seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (account_id, tab)
+  );
+  /* sent_at: when a document reached Diwan: when it was sent, or for an old courier proof kept as a draft, when it was
+     handed over (a save of his delivery choice, or the start-up below). Rows from before take the day they were sent. */
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
   UPDATE documents SET sent_at = created_at WHERE sent_at IS NULL;
   ALTER TABLE documents ALTER COLUMN sent_at SET DEFAULT now();
+  /* Which courier a courier proof is for, by phone (sealed; server/courierProof.ts): partner_phone is the courier the
+     merchant's delivery choice had when the proof reached Diwan, and follows his courier while the proof waits for a
+     check (as partner does); approved_phone is the one Diwan approved it for, kept from the approval on. A different
+     courier (another phone) needs a new proof (owner decision 2026-11-23). Rows from before have neither: an approval
+     without approved_phone counts for whichever courier he has, so no store loses its delivery with this change. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS partner_phone TEXT;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS approved_phone TEXT;
+  /* A courier proof is kept back only during the Undo countdown after its upload (app/api/documents/send, owner
+     decision 2026-11-24). The drafts left from before (a merchant who uploaded during setup and never saved his
+     delivery choice) go to Diwan now, as sent at this moment, when their file is still there and he didn't remove them.
+     Runs again harmlessly: once handed over no row is a draft.
+     hold_until: until when a just-uploaded proof is kept back for its page (server/courierProof.ts HOLD_MINUTES from
+     the upload, moved on by the page while its Undo toast still counts, app/api/documents/send "hold"). Rows from before
+     have none and wait 2 minutes from their upload, as they did. A proof still within its hold is left for its page. */
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS hold_until TIMESTAMPTZ;
+  UPDATE documents SET draft = false, sent_at = now()
+   WHERE draft AND removed_at IS NULL AND (data IS NOT NULL OR file_key IS NOT NULL)
+     AND COALESCE(hold_until, created_at + interval '2 minutes') < now();
   /* the numbers look only at what came in lately, so each count goes through a short index rather than the whole table */
   CREATE INDEX IF NOT EXISTS documents_waiting_sent ON documents (sent_at) WHERE status = 'waiting' AND NOT draft AND removed_at IS NULL;
   CREATE INDEX IF NOT EXISTS ticket_messages_merchant ON ticket_messages (created_at) WHERE author = 'merchant';
   CREATE INDEX IF NOT EXISTS store_orders_ship_new ON store_orders (created_at) WHERE ship_by = 'dukkan';
+  /* ship_ready_at: when a store order became Dukkan Ship's to deliver: when it was placed, or for a big order that waited
+     for the merchant ("review"), or one brought back from cancelled or refunded, when he moved it on (server/storeOrders.ts
+     setStoreOrderStatus). Diwan's red number beside Dukkan Ship counts from it, so an order confirmed after staff last
+     opened the page is still new to them. Orders from before it was kept take the time they were placed. */
+  ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS ship_ready_at TIMESTAMPTZ;
+  ALTER TABLE store_orders ALTER COLUMN ship_ready_at SET DEFAULT now();
+  UPDATE store_orders SET ship_ready_at = created_at WHERE ship_ready_at IS NULL;
+  CREATE INDEX IF NOT EXISTS store_orders_ship_ready ON store_orders (ship_ready_at) WHERE ship_by = 'dukkan';
   CREATE INDEX IF NOT EXISTS shops_created ON shops (created_at);
   CREATE INDEX IF NOT EXISTS store_reports_created ON store_reports (created_at);
   CREATE INDEX IF NOT EXISTS payments_created ON payments (created_at);
@@ -961,7 +1021,9 @@ export const DIWAN_SCHEMA = `
      fingerprint of the email for this shop only (as store_signups), phone_hash the same for the mobile, so an order
      with that email or mobile marks his carts here as recovered. lang: the language he shopped in (the reminder's language). recovered_at / order_number: the order
      that ended it. reminders / reminded_at: emails sent (at most 3, one a day: storeCarts.ts). A cart with no change
-     for an hour counts as abandoned; carts untouched for 30 days are deleted. They go with the account. */
+     for an hour counts as abandoned; carts untouched for 30 days are deleted. They go with the account.
+     abandoned_at: when a cart left an hour came back to life (he returned and the basket was saved again), so it still
+     counts as abandoned, and as recovered if he then orders; null while it was never left that long. */
   CREATE TABLE IF NOT EXISTS store_carts (
     id           BIGSERIAL PRIMARY KEY,
     account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
@@ -986,4 +1048,165 @@ export const DIWAN_SCHEMA = `
   CREATE INDEX IF NOT EXISTS store_carts_email ON store_carts (account_id, email_hash) WHERE recovered_at IS NULL;
   CREATE INDEX IF NOT EXISTS store_carts_phone ON store_carts (account_id, phone_hash) WHERE recovered_at IS NULL;
   CREATE INDEX IF NOT EXISTS store_carts_updated ON store_carts (updated_at);
+  ALTER TABLE store_carts ADD COLUMN IF NOT EXISTS abandoned_at TIMESTAMPTZ;
+
+  /* ---------- marketing campaigns (server/campaigns.ts, Marketing > Campaigns) ----------
+     store_campaigns: one message a merchant writes once for his store's customers. channel 'email', or 'mobile' (SMS /
+     WhatsApp: written and saved only, until a provider is plugged in). status: 'draft' (being written), 'sending'
+     (started: its recipients are in store_campaign_recipients and go out in batches), 'sent' (all went out, or as many
+     as could), 'failed' (none could: note says why), 'stopped' (Dukkan's staff stopped it from Diwan, stopped_by; or the
+     store was suspended meanwhile, note 'suspended'). subject, heading, body, button_label, button_url: the merchant's
+     words, sealed like the store's other data. audience: who it is for (components/campaignRules.ts cleanAudience).
+     recipients, sent, failed, skipped: counts only (skipped: unsubscribed meanwhile, or never reached because it was
+     stopped). sender: the store's name when it started, the emails' sender (fixed, so a batch sent again is the very same
+     email). started_at counts towards the store's 3 campaigns a day (not one that failed with none sent). They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_campaigns (
+    id           BIGSERIAL PRIMARY KEY,
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    channel      TEXT NOT NULL DEFAULT 'email' CHECK (channel IN ('email', 'mobile')),
+    status       TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'sending', 'sent', 'failed', 'stopped')),
+    subject      TEXT,
+    heading      TEXT,
+    body         TEXT,
+    button_label TEXT,
+    button_url   TEXT,
+    audience     JSONB NOT NULL DEFAULT '{}',
+    recipients   INTEGER NOT NULL DEFAULT 0,
+    sent         INTEGER NOT NULL DEFAULT 0,
+    failed       INTEGER NOT NULL DEFAULT 0,
+    skipped      INTEGER NOT NULL DEFAULT 0,
+    note         TEXT,
+    sender       TEXT,
+    stopped_by   BIGINT REFERENCES staff (id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at   TIMESTAMPTZ,
+    finished_at  TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS store_campaigns_account ON store_campaigns (account_id, id DESC);
+  CREATE INDEX IF NOT EXISTS store_campaigns_started ON store_campaigns (account_id, started_at) WHERE started_at IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS store_campaigns_sending ON store_campaigns (started_at) WHERE status = 'sending';
+  /* store_campaign_recipients: who a started campaign goes to, fixed when it starts, each address (or mobile) once
+     (contact_hash: a keyed fingerprint of it for this shop only). contact: the address itself, sealed, kept only until
+     its message went out (or failed, or was skipped), then emptied: afterwards only the fingerprint and the outcome stay.
+     lang: the reader's language (the newsletter's, else the campaign's). status: 'waiting', 'sending' (in a batch handed
+     to the email service, batch: that batch's key, claimed_at: when it was last handed over, key_at: when its key was
+     first used), 'sent', 'failed', 'skipped'. A batch left in 'sending' by a restart is sent again with the same key,
+     which the email service answers without sending twice, until the key is 23 hours old (key_at; the service keeps a
+     key 24). */
+  CREATE TABLE IF NOT EXISTS store_campaign_recipients (
+    campaign_id  BIGINT NOT NULL REFERENCES store_campaigns (id) ON DELETE CASCADE,
+    contact_hash TEXT NOT NULL,
+    contact      TEXT,
+    lang         TEXT NOT NULL DEFAULT 'ar' CHECK (lang IN ('ar', 'en')),
+    status       TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'sending', 'sent', 'failed', 'skipped')),
+    batch        TEXT,
+    claimed_at   TIMESTAMPTZ,
+    sent_at      TIMESTAMPTZ,
+    PRIMARY KEY (campaign_id, contact_hash)
+  );
+  /* added after the table first shipped: a row from before has none, and its claimed_at stands in (resumeStale) */
+  ALTER TABLE store_campaign_recipients ADD COLUMN IF NOT EXISTS key_at TIMESTAMPTZ;
+  CREATE INDEX IF NOT EXISTS store_campaign_recipients_waiting ON store_campaign_recipients (campaign_id) WHERE status = 'waiting';
+  CREATE INDEX IF NOT EXISTS store_campaign_recipients_sending ON store_campaign_recipients (claimed_at) WHERE status = 'sending';
+  /* store_unsubscribes: the store's customers who asked for no more of its campaigns (the link in each campaign email,
+     or their mail app's own "Unsubscribe"): a keyed fingerprint of the address or mobile for this shop only, never the
+     address. Every later campaign of the store leaves them out. They go with the account. */
+  CREATE TABLE IF NOT EXISTS store_unsubscribes (
+    account_id   BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    contact_hash TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (account_id, contact_hash)
+  );
+
+  /* ---------- Dukkan's campaigns to merchants (server/merchantCampaigns.ts, Diwan > Marketing > Campaigns to merchants) ----------
+     accounts.marketing_off_at: when the merchant stopped Dukkan's marketing emails (the link in each of these emails,
+     /unsubscribe/dukkan); null: on. accounts.marketing_paused_until: he paused them until then (30 days); they come again
+     after it. Every campaign meanwhile leaves him out. His account's own emails (codes, orders, tickets) are not
+     marketing and still come.
+     merchant_campaigns: one email Dukkan's team writes in Arabic and in English for merchants; each gets one of them. status: 'draft', 'sending'
+     (its recipients are fixed in merchant_campaign_recipients and go out in batches), 'sent', 'failed' (none could: note
+     says why), 'stopped' (stopped_by). audience: the filters it was sent with (components/merchantCampaignRules.ts).
+     recipients, sent, failed, skipped: counts only. started_at counts towards the team's campaigns of the day. */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS marketing_off_at TIMESTAMPTZ;
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS marketing_paused_until TIMESTAMPTZ;
+  CREATE TABLE IF NOT EXISTS merchant_campaigns (
+    id              BIGSERIAL PRIMARY KEY,
+    status          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'sending', 'sent', 'failed', 'stopped')),
+    subject_en      TEXT NOT NULL DEFAULT '',
+    subject_ar      TEXT NOT NULL DEFAULT '',
+    heading_en      TEXT NOT NULL DEFAULT '',
+    heading_ar      TEXT NOT NULL DEFAULT '',
+    body_en         TEXT NOT NULL DEFAULT '',
+    body_ar         TEXT NOT NULL DEFAULT '',
+    button_label_en TEXT NOT NULL DEFAULT '',
+    button_label_ar TEXT NOT NULL DEFAULT '',
+    button_url      TEXT NOT NULL DEFAULT '',
+    audience        JSONB NOT NULL DEFAULT '{}',
+    recipients      INTEGER NOT NULL DEFAULT 0,
+    sent            INTEGER NOT NULL DEFAULT 0,
+    failed          INTEGER NOT NULL DEFAULT 0,
+    skipped         INTEGER NOT NULL DEFAULT 0,
+    note            TEXT,
+    created_by      BIGINT REFERENCES staff (id) ON DELETE SET NULL,
+    started_by      BIGINT REFERENCES staff (id) ON DELETE SET NULL,
+    stopped_by      BIGINT REFERENCES staff (id) ON DELETE SET NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at      TIMESTAMPTZ,
+    finished_at     TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS merchant_campaigns_started ON merchant_campaigns (started_at) WHERE started_at IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS merchant_campaigns_sending ON merchant_campaigns (started_at) WHERE status = 'sending';
+  /* merchant_campaign_recipients: the merchants a started campaign goes to, fixed when it starts, each account once.
+     Never their address while waiting: email is a sealed copy of the account's address taken when its batch is handed
+     to the email service (so a batch sent again is the very same request), emptied once its outcome is known. lang: the
+     one language his email is in ('ar' for a merchant who never chose). status and batch as in store_campaign_recipients. */
+  CREATE TABLE IF NOT EXISTS merchant_campaign_recipients (
+    campaign_id BIGINT NOT NULL REFERENCES merchant_campaigns (id) ON DELETE CASCADE,
+    account_id  BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    lang        TEXT NOT NULL DEFAULT 'ar' CHECK (lang IN ('ar', 'en')),
+    email       TEXT,
+    status      TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'sending', 'sent', 'failed', 'skipped')),
+    batch       TEXT,
+    claimed_at  TIMESTAMPTZ,
+    sent_at     TIMESTAMPTZ,
+    PRIMARY KEY (campaign_id, account_id)
+  );
+  CREATE INDEX IF NOT EXISTS merchant_campaign_recipients_waiting ON merchant_campaign_recipients (campaign_id) WHERE status = 'waiting';
+  CREATE INDEX IF NOT EXISTS merchant_campaign_recipients_sending ON merchant_campaign_recipients (claimed_at) WHERE status = 'sending';
+  /* key_at: when the row's key (batch) was first handed to the email service; claimed_at moves with every try, so the
+     key is given up after 23 hours by this one, as in store_campaign_recipients. Rows from before it: NULL (claimed_at counts). */
+  ALTER TABLE merchant_campaign_recipients ADD COLUMN IF NOT EXISTS key_at TIMESTAMPTZ;
+  /* merchant_marketing_reasons: why a merchant last paused ('pause') or stopped ('off') Dukkan's marketing emails, picked
+     on the unsubscribe page (optional; reason NULL: none given). One row per merchant, the latest. Diwan shows counts per
+     reason among the merchants who have them paused or stopped now, never who. */
+  CREATE TABLE IF NOT EXISTS merchant_marketing_reasons (
+    account_id BIGINT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+    action     TEXT NOT NULL CHECK (action IN ('pause', 'off')),
+    reason     TEXT CHECK (reason IN ('too_many', 'not_relevant', 'never_asked', 'other')),
+    at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  /* paused_until: set when the reader chose "pause this store's emails for 30 days" instead (NULL: unsubscribed for
+     good). Until then he is left out like the others; after it he gets the store's campaigns again. Rows kept before
+     this column are unsubscribes for good, as they were. */
+  ALTER TABLE store_unsubscribes ADD COLUMN IF NOT EXISTS paused_until TIMESTAMPTZ;
+  /* store_unsub_reasons: how many times readers gave each reason when they paused or unsubscribed (the optional choice
+     on the unsubscribe page): a count per store and reason only, with nothing of who gave it (no address, no
+     fingerprint, no date). The merchant sees these counts on Marketing > Campaigns. */
+  CREATE TABLE IF NOT EXISTS store_unsub_reasons (
+    account_id BIGINT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    reason     TEXT NOT NULL,
+    n          INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, reason)
+  );
+  /* store_unsub_pages: the merchant's own short words on his store's unsubscribe page, one per language (plain text,
+     sealed, components/campaignRules.ts UNSUB_MESSAGE_MAX). Empty: the page's default words. Kept in a table of its own,
+     not in store_data, so the browser's saving of the store's data can never write it without the server's cleaning. */
+  CREATE TABLE IF NOT EXISTS store_unsub_pages (
+    account_id BIGINT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+    message_ar TEXT,
+    message_en TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
 `;

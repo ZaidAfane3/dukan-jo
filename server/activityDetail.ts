@@ -20,6 +20,8 @@ export type Detail = {
   status?: string; document?: DocumentFacts;
   /* a staff sign-in: with the emailed code, or the password alone on a remembered browser */
   via?: "email" | "remembered";
+  /* a Dukkan Ship mark: the store's order number (its delivery state is the "shipState" change) */
+  order?: string;
 };
 export type ActivityRow = {
   id: string;
@@ -98,6 +100,9 @@ function detailOf(action: string, meta: Record<string, unknown> | null, staffNam
         if (!same(before?.[field], after?.[field])) changes.push({ field, from: str(before?.[field]), to: str(after?.[field]) });
       return { changes, ...(before && after && !same(before.note, after.note) ? { changedFields: ["note"] } : {}) };
     }
+    case "ship.order.mark":
+      /* which order (its number in its store) and its delivery state, from what to what */
+      return { order: str(m.number) ?? undefined, changes: [{ field: "shipState", from: str(m.from), to: str(m.to) }] };
     case "staff.login":
       return m.twoStep === "remembered" ? { via: "remembered" } : m.twoStep === "email" ? { via: "email" } : null;
     case "staff.devices_forgotten":
@@ -115,6 +120,12 @@ function detailOf(action: string, meta: Record<string, unknown> | null, staffNam
     case "staff.reset_2step":
     case "staff.reset_password":
       return targetName ? { member: targetName } : null;
+    case "campaign.stop":
+      return { title, ...(typeof m.left === "number" ? { count: m.left } : {}) };
+    /* how many merchants it was sent to, or how many it never reached once stopped */
+    case "merchant_campaign.send":
+    case "merchant_campaign.stop":
+      return { title, ...(typeof m.count === "number" ? { count: m.count } : {}) };
     case "popup.status":
     case "page.status":
       return { title, changes: [{ field: "status", from: str(m.from), to: str(m.to) }] };
@@ -241,9 +252,13 @@ export async function describeActivity(pool: Pool, rows: any[]): Promise<Activit
 }
 
 /** SQL for the log lines about one store (its account id as `param`): the store itself, its tickets, the reports about
-    it and its documents. Their details can't be searched (they are sealed), so this goes by what each line is about. */
+    it, its documents, Dukkan Ship's marks on its orders and its campaigns staff stopped (the campaign id as written,
+    compared as a number: the stop route writes the id from the address as it came). Their details can't be searched (they are sealed), so this
+    goes by what each line is about. */
 export const aboutShopSql = (alias: string, param: string) => `(
   (${alias}.target_type = 'shop' AND ${alias}.target_id = ${param}::text)
   OR (${alias}.target_type = 'ticket' AND ${alias}.target_id IN (SELECT number::text FROM tickets WHERE account_id = ${param}::bigint))
   OR (${alias}.target_type = 'store_report' AND ${alias}.target_id IN (SELECT id::text FROM store_reports WHERE account_id = ${param}::bigint))
-  OR (${alias}.target_type = 'document' AND ${alias}.target_id IN (SELECT id::text FROM documents WHERE account_id = ${param}::bigint)))`;
+  OR (${alias}.target_type = 'document' AND ${alias}.target_id IN (SELECT id::text FROM documents WHERE account_id = ${param}::bigint))
+  OR (${alias}.target_type = 'store_order' AND ${alias}.target_id IN (SELECT id::text FROM store_orders WHERE account_id = ${param}::bigint AND ship_by = 'dukkan'))
+  OR (${alias}.target_type = 'campaign' AND (CASE WHEN ${alias}.target_id ~ '^[0-9]{1,18}$' THEN ${alias}.target_id::bigint END) IN (SELECT id FROM store_campaigns WHERE account_id = ${param}::bigint)))`;
