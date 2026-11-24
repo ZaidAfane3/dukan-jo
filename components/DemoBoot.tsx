@@ -106,7 +106,7 @@ export function DemoBoot() {
   /* ...and when another tab of the account is the active one, the screen that says so (oneTab.ts) */
   if (!on) return <><SaveNotice /><OtherTabScreen /></>;
   return (
-    <div role="status" className={`demo-pill dash fixed ${inDesigner ? "bottom-20" : "bottom-4"} start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-brand-dark px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2`}>
+    <div role="status" data-undo-avoid className={`demo-pill dash fixed ${inDesigner ? "bottom-20" : "bottom-4"} start-1/2 z-[70] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-2xl bg-brand-dark px-4 py-2.5 text-white shadow-2xl ring-1 ring-white/15 rtl:translate-x-1/2`}>
       <span className={label}>{w.label}</span>
       <div className="flex gap-2">
         <button type="button" onClick={() => endDemo("/signup")} className={create}>{w.create}</button>

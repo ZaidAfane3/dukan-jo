@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
    is on it (server/storeSignups.ts). Body { product: <id>, size?: "<size as listed>" }. From Dukkan's own pages only
    (merchantRoute); a store Dukkan suspended changes and sends nothing (423 "suspended"), like its saves.
      POST    "Tell them it's back": Dukkan emails those waiting (up to 100 a press) that it can be bought again.
-             200 { result: "ok", sent, left, stub? }, 400 "invalid", 404 "none" (gone, or nobody waiting),
+             200 { result: "ok", sent, left, stub? }, 202 { result: "sending", left } (the email service gave no clear
+             answer, or nobody waits but some are in such a batch: finished by the sweep in a few minutes), 400 "invalid",
+             404 "none" (gone, or nobody waiting),
              409 "closed" / "sold-out", 429 "slow-down", 503 "no-sender" / "failed".
      DELETE  clears those still waiting (nobody is emailed): 200 { result: "ok", cleared }, 400 "invalid". */
 

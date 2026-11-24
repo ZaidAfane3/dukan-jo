@@ -177,8 +177,9 @@ export async function newsletterStats(accountId: string): Promise<NewsletterStat
 
 /* ---------------- back in stock: numbers only, and the merchant's two actions ---------------- */
 
-/** One product (and size) people are waiting for: how many are waiting, how many were told it is back so far, and
-    whether it can be bought now (`ready`: shown on the store and in stock, so "Tell them it's back" can go for those
+/** One product (and size) people are waiting for: how many are waiting, how many are in a batch being sent right now
+    (`sending`: handed to the email service, its answer not settled yet, finished by the press or the sweep), how many
+    were told it is back so far, and whether it can be bought now (`ready`: shown on the store and in stock, so "Tell them it's back" can go for those
     waiting). No address,
     no id of a request: the merchant never sees who they are. */
 export type BackInStockGroup = {
@@ -187,7 +188,9 @@ export type BackInStockGroup = {
   product: string;
   /* the size asked for, as it was named then ("" for the whole product) */
   size: string;
+  /* waiting for a press: not told and in no batch */
   waiting: number;
+  sending: number;
   notified: number;
   /* the newest request still waiting, and the last time those waiting were told */
   lastAt: string | null;
@@ -196,7 +199,7 @@ export type BackInStockGroup = {
   gone: boolean;
   ready: boolean;
 };
-export type BackInStockStats = { waiting: number; notified: number; products: number; groups: BackInStockGroup[] };
+export type BackInStockStats = { waiting: number; sending: number; notified: number; products: number; groups: BackInStockGroup[] };
 
 /* the most products (and sizes) listed: far above a real store's sold-out list */
 const GROUPS_MAX = 500;
@@ -213,7 +216,8 @@ export async function backInStockStats(accountId: string): Promise<BackInStockSt
   const pool = await db();
   const { rows } = await pool.query(
     `SELECT product_id, size,
-            count(*) FILTER (WHERE notified_at IS NULL)::int AS waiting,
+            count(*) FILTER (WHERE notified_at IS NULL AND claim_key IS NULL)::int AS waiting,
+            count(*) FILTER (WHERE notified_at IS NULL AND claim_key IS NOT NULL)::int AS sending,
             count(*) FILTER (WHERE notified_at IS NOT NULL)::int AS notified,
             max(created_at) FILTER (WHERE notified_at IS NULL) AS last_at,
             max(notified_at) AS notified_at,
@@ -240,6 +244,7 @@ export async function backInStockStats(accountId: string): Promise<BackInStockSt
       product: (p && !p.deletedAt && cleanLine(p.name, PRODUCT_MAX.name)) || String(r.name ?? ""),
       size,
       waiting,
+      sending: Number(r.sending) || 0,
       notified: Number(r.notified) || 0,
       lastAt: iso(r.last_at),
       notifiedAt: iso(r.notified_at),
@@ -248,13 +253,15 @@ export async function backInStockStats(accountId: string): Promise<BackInStockSt
     };
   });
   const totals = await pool.query(
-    `SELECT count(*) FILTER (WHERE notified_at IS NULL)::int AS waiting, count(*) FILTER (WHERE notified_at IS NOT NULL)::int AS notified,
+    `SELECT count(*) FILTER (WHERE notified_at IS NULL AND claim_key IS NULL)::int AS waiting,
+            count(*) FILTER (WHERE notified_at IS NULL AND claim_key IS NOT NULL)::int AS sending,
+            count(*) FILTER (WHERE notified_at IS NOT NULL)::int AS notified,
             count(DISTINCT product_id) FILTER (WHERE notified_at IS NULL)::int AS products
        FROM store_signups WHERE account_id = $1 AND kind = 'back_in_stock'`,
     [accountId],
   );
   const t = totals.rows[0] ?? {};
-  return { waiting: Number(t.waiting) || 0, notified: Number(t.notified) || 0, products: Number(t.products) || 0, groups };
+  return { waiting: Number(t.waiting) || 0, sending: Number(t.sending) || 0, notified: Number(t.notified) || 0, products: Number(t.products) || 0, groups };
 }
 
 /* the product and size a merchant's action names: { product (its id), size? ("" or missing: the whole product) } */
@@ -288,6 +295,9 @@ const NOTIFY_ADDRESS_DAY = 5;
 
 export type NotifyResult =
   | { status: 200; body: { result: "ok"; sent: number; left: number; stub?: true } }
+  /* the emails may have gone out (the email service gave no clear answer) and are finished by the sweep in a few
+     minutes; or nobody waits for a press but some are in such a batch. Never sent again under another key. */
+  | { status: 202; body: { result: "sending"; left: number } }
   | { status: 400; body: { result: "invalid" } }
   /* the product is gone, or nobody is waiting for it (any more) */
   | { status: 404; body: { result: "none" } }
@@ -434,7 +444,12 @@ export async function notifyBackInStock(accountId: string, body: Record<string, 
     }
     if (!picked.rows.length) {
       await c.query("ROLLBACK");
-      return { status: 404, body: { result: "none" } };
+      /* nobody waits for a press, but some are in a batch still being settled: they are being told, not gone */
+      const inBatch = await pool.query(
+        `SELECT 1 FROM store_signups WHERE account_id = $1 AND kind = 'back_in_stock' AND product_id = $2 AND size = $3 AND notified_at IS NULL AND claim_key IS NOT NULL LIMIT 1`,
+        [accountId, g.id, g.size],
+      );
+      return inBatch.rows.length ? { status: 202, body: { result: "sending", left: 0 } } : { status: 404, body: { result: "none" } };
     }
     if (!emailOn() && go.length) {
       /* development without email: answered as it would be, nothing claimed nor sent */
@@ -477,9 +492,10 @@ export async function notifyBackInStock(accountId: string, body: Record<string, 
       if (status === 429) return { status: 429, body: { result: "slow-down" } };
       return { status: 503, body: { result: status === -1 ? "no-sender" : "failed" } };
     }
-    /* maybe sent: the sweep sends it again under the same key once it is stale */
+    /* maybe sent: the sweep sends it again under the same key once it is stale; the merchant is told they are being
+       sent (not that it failed: pressing again could not reach them, they are in this batch) */
     kickBackInStockLater();
-    return { status: 503, body: { result: "failed" } };
+    return { status: 202, body: { result: "sending", left: await left() } };
   } catch (e) {
     kickBackInStockLater();
     throw e;

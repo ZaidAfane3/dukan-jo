@@ -106,7 +106,7 @@ export function useHeldSend(deliver: () => Promise<void> | void) {
 /** The bar at the bottom while it is held: what is being sent, and Undo */
 export function HeldSendBar({ text, undo, onUndo }: { text: string; undo: string; onUndo: () => void }) {
   return (
-    <div role="status" className="fixed inset-x-0 bottom-6 z-[90] mx-auto flex w-fit max-w-[92vw] items-center gap-4 rounded-full border-2 border-primary bg-transparent px-5 py-3 text-sm font-semibold text-primary backdrop-blur-md">
+    <div role="status" data-undo-avoid className="fixed inset-x-0 bottom-6 z-[90] mx-auto flex w-fit max-w-[92vw] items-center gap-4 rounded-full border-2 border-primary bg-transparent px-5 py-3 text-sm font-semibold text-primary backdrop-blur-md">
       <span>{text}</span>
       <button type="button" onClick={onUndo} className="rounded-full border border-primary px-4 py-1.5 transition hover:bg-primary/10">
         {undo}

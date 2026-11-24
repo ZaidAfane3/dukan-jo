@@ -19,8 +19,10 @@ import { usePrefs } from "./Prefs";
 
 type Kind = "newsletter" | "back_in_stock";
 type Stats = { total: number; thisMonth: number; lastWeek: number; byLang: { ar: number; en: number }; bySource: { home: number; page: number; product: number } };
-type Group = { productId: number; product: string; size: string; waiting: number; notified: number; lastAt: string | null; notifiedAt: string | null; gone: boolean; ready: boolean };
-type BackStats = { waiting: number; notified: number; products: number; groups: Group[] };
+/* waiting: for a press; sending: in a batch handed to the email service whose answer isn't settled yet (finished on the
+   server in a few minutes, never by another press) */
+type Group = { productId: number; product: string; size: string; waiting: number; sending: number; notified: number; lastAt: string | null; notifiedAt: string | null; gone: boolean; ready: boolean };
+type BackStats = { waiting: number; sending: number; notified: number; products: number; groups: Group[] };
 /* what the last press on one row said */
 type Said = { tone: "ok" | "bad"; text: string };
 
@@ -41,7 +43,7 @@ const copy = {
     byLang: "By language",
     bySource: "Where they signed up",
     campaign: "Send them a campaign",
-    cols: { product: "Product", size: "Size", waiting: "Waiting", notified: "Told so far", last: "Latest request", status: "Now", actions: "Actions" },
+    cols: { product: "Product", size: "Size", waiting: "Waiting", sending: "Being sent", notified: "Told so far", last: "Latest request", status: "Now", actions: "Actions" },
     where: { home: "Home page", page: "Info pages", product: "Product pages" },
     langs: { ar: "Arabic", en: "English" },
     allSizes: "Whole product",
@@ -49,6 +51,8 @@ const copy = {
     notify: "Tell them it's back",
     notifying: "Sending…",
     notifyHint: "Available once the product (or size) is in stock and shown on your store.",
+    sendingNow: "We're sending these emails now. It can take a few minutes.",
+    sendingAll: (n: number) => `${n === 1 ? "1 email is" : `${n} emails are`} being sent now. It can take a few minutes, and this page updates by itself.`,
     clear: "Clear list",
     clearAsk: (n: number) => `Remove ${n === 1 ? "this 1 request" : `these ${n} requests`}? Nobody is emailed.`,
     keep: "Keep",
@@ -60,6 +64,7 @@ const copy = {
       closed: "Your store isn't open (not published or paused), so nothing was sent.",
       none: "Nobody is waiting for this any more.",
       "slow-down": "Too many emails for now. Try again later.",
+      failed: "The email service didn't take these emails, so nothing was sent. Try again in a few minutes.",
       "no-sender": "Email isn't set up yet, so nothing was sent.",
       suspended: "Your store is suspended, so nothing can be sent.",
       other: "That didn't work. Check your connection and try again.",
@@ -86,7 +91,7 @@ const copy = {
     byLang: "حسب اللغة",
     bySource: "مكان الاشتراك",
     campaign: "أرسل لهم حملة",
-    cols: { product: "المنتج", size: "المقاس", waiting: "بالانتظار", notified: "أُخبروا", last: "آخر طلب", status: "الآن", actions: "الإجراءات" },
+    cols: { product: "المنتج", size: "المقاس", waiting: "بالانتظار", sending: "قيد الإرسال", notified: "أُخبروا", last: "آخر طلب", status: "الآن", actions: "الإجراءات" },
     where: { home: "الصفحة الرئيسية", page: "الصفحات التعريفية", product: "صفحات المنتجات" },
     langs: { ar: "العربية", en: "الإنجليزية" },
     allSizes: "المنتج كله",
@@ -94,6 +99,8 @@ const copy = {
     notify: "أخبرهم بتوفّره",
     notifying: "جارٍ الإرسال…",
     notifyHint: "يتاح عندما يتوفّر المنتج (أو المقاس) ويكون ظاهرًا في متجرك.",
+    sendingNow: "نرسل هذه الإيميلات الآن. قد يستغرق ذلك بضع دقائق.",
+    sendingAll: (n: number) => `${n === 1 ? "إيميل واحد قيد الإرسال" : n === 2 ? "إيميلان قيد الإرسال" : `${n} إيميلات قيد الإرسال`} الآن. قد يستغرق ذلك بضع دقائق، وتتحدّث هذه الصفحة وحدها.`,
     clear: "مسح القائمة",
     clearAsk: (n: number) => `حذف ${n === 1 ? "هذا الطلب" : n === 2 ? "هذين الطلبين" : `هذه الطلبات (${n})`}؟ لن يُرسل أي إيميل.`,
     keep: "إبقاء",
@@ -105,6 +112,7 @@ const copy = {
       closed: "متجرك غير مفتوح (غير منشور أو متوقف مؤقتًا)، لذلك لم يُرسل شيء.",
       none: "لم يعد أحد بانتظار هذا المنتج.",
       "slow-down": "إيميلات كثيرة الآن. حاول لاحقًا.",
+      failed: "لم تقبل خدمة البريد هذه الإيميلات، لذلك لم يُرسل شيء. حاول مرة أخرى بعد بضع دقائق.",
       "no-sender": "البريد غير مُعدّ بعد، لذلك لم يُرسل شيء.",
       suspended: "متجرك موقوف، لذلك لا يمكن إرسال شيء.",
       other: "لم ينجح ذلك. تأكّد من اتصالك وحاول مرة أخرى.",
@@ -121,7 +129,7 @@ const card = "rounded-2xl bg-card p-5 shadow-sm ring-1 ring-fg/10";
 const KINDS: Kind[] = ["newsletter", "back_in_stock"];
 /* the tour, and a store with no subscribers: the same page with zeros */
 const NO_STATS: Stats = { total: 0, thisMonth: 0, lastWeek: 0, byLang: { ar: 0, en: 0 }, bySource: { home: 0, page: 0, product: 0 } };
-const NO_BACK: BackStats = { waiting: 0, notified: 0, products: 0, groups: [] };
+const NO_BACK: BackStats = { waiting: 0, sending: 0, notified: 0, products: 0, groups: [] };
 
 const dateOf = (iso: string, lang: Lang) =>
   new Intl.DateTimeFormat(dateLocale(lang), { year: "numeric", month: "short", day: "numeric", timeZone: "Asia/Amman" }).format(new Date(iso));
@@ -149,7 +157,8 @@ export function CustomerEmails() {
 
   useEffect(() => setLive(onServer()), []);
 
-  const read = useCallback(async (k: Kind, quiet = false) => {
+  /* gives the back-in-stock numbers it read (null: none, or an older read) */
+  const read = useCallback(async (k: Kind, quiet = false): Promise<BackStats | null> => {
     const n = ++reading.current;
     if (!quiet) {
       setLoading(true);
@@ -157,7 +166,7 @@ export function CustomerEmails() {
       setAsking(null);
     }
     const r = await merchantCall(`/api/store-signups?kind=${k}`, "GET");
-    if (n !== reading.current) return;
+    if (n !== reading.current) return null;
     setLoading(false);
     const ok = r?.status === 200 && r.data.result === "ok" && r.data.stats;
     if (k === "newsletter") {
@@ -166,13 +175,17 @@ export function CustomerEmails() {
         setStats(null);
         setFailed(true);
       }
-      return;
+      return null;
     }
-    if (ok && Array.isArray(r.data.stats.groups)) setBack(r.data.stats as BackStats);
-    else if (!quiet) {
+    if (ok && Array.isArray(r.data.stats.groups)) {
+      setBack(r.data.stats as BackStats);
+      return r.data.stats as BackStats;
+    }
+    if (!quiet) {
       setBack(null);
       setFailed(true);
     }
+    return null;
   }, []);
 
   useEffect(() => {
@@ -184,6 +197,14 @@ export function CustomerEmails() {
 
   const failText = (r: { status: number; data: Record<string, any> } | null) => c.fail[String(r?.data?.result ?? "")] ?? c.fail.other;
 
+  /* while some emails are being sent, the numbers are read again now and then: the server finishes them by itself */
+  const sendingNow = kind === "back_in_stock" && !!live && (back?.sending ?? 0) > 0;
+  useEffect(() => {
+    if (!sendingNow) return;
+    const t = window.setInterval(() => void read("back_in_stock", true), 30_000);
+    return () => window.clearInterval(t);
+  }, [sendingNow, read]);
+
   /* "Tell them it's back": Dukkan emails them; the page reads the numbers again after */
   const notify = async (g: Group) => {
     const k = keyOf(g);
@@ -193,8 +214,14 @@ export function CustomerEmails() {
     const r = await merchantCall(`/api/store-signups/back-in-stock`, "POST", { product: g.productId, size: g.size });
     setBusy(null);
     const ok = r?.status === 200 && r.data.result === "ok";
-    setSaid((x) => ({ ...x, [k]: ok ? { tone: "ok", text: r.data.stub ? c.stub : c.sent(Number(r.data.sent) || 0, Number(r.data.left) || 0) } : { tone: "bad", text: failText(r) } }));
-    void read("back_in_stock", true);
+    /* "sending": the email service gave no clear answer (or nobody waits but some are being sent): the server finishes
+       them in a few minutes, so it is no failure of his and pressing again changes nothing */
+    const sending = r?.data?.result === "sending";
+    const text = (s: Said) => setSaid((x) => ({ ...x, [k]: s }));
+    text(ok ? { tone: "ok", text: r.data.stub ? c.stub : c.sent(Number(r.data.sent) || 0, Number(r.data.left) || 0) } : sending ? { tone: "ok", text: c.sendingNow } : { tone: "bad", text: failText(r) });
+    const fresh = await read("back_in_stock", true);
+    /* no answer in time (the press may still be going on the server): what the numbers say now, not "your connection" */
+    if (!r && (fresh?.groups.find((x) => keyOf(x) === k)?.sending ?? 0) > 0) text({ tone: "ok", text: c.sendingNow });
   };
 
   const clear = async (g: Group) => {
@@ -270,16 +297,18 @@ export function CustomerEmails() {
         [c.backStats.products, s.products],
         [c.backStats.notified, s.notified],
       ])}
+      {s.sending > 0 && <p role="status" className="rounded-xl bg-primary/10 px-4 py-3 text-sm leading-relaxed text-deep dark:text-primary">{c.sendingAll(s.sending)}</p>}
       {s.groups.length === 0 ? (
         live && <p className="rounded-xl border border-dashed border-fg/20 px-4 py-6 text-center text-sm text-muted">{c.empty.back_in_stock}</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-fg/10">
-          <table className="w-full min-w-[760px] border-collapse">
+          <table className="w-full min-w-[860px] border-collapse">
             <thead className="bg-soft/60">
               <tr>
                 <th className={th}>{c.cols.product}</th>
                 <th className={th}>{c.cols.size}</th>
                 <th className={th}>{c.cols.waiting}</th>
+                <th className={th}>{c.cols.sending}</th>
                 <th className={th}>{c.cols.notified}</th>
                 <th className={th}>{c.cols.last}</th>
                 <th className={th}>{c.cols.status}</th>
@@ -289,12 +318,14 @@ export function CustomerEmails() {
             <tbody>
               {s.groups.map((g) => {
                 const k = keyOf(g);
-                const note = said[k];
+                /* "being sent" is dropped once the server finished them (the numbers read again say so) */
+                const note = said[k]?.text === c.sendingNow && g.sending === 0 ? undefined : said[k];
                 return (
                   <tr key={k} className="border-t border-fg/10">
                     <td className={`${td} font-medium`}><bdi>{g.product || `#${g.productId}`}</bdi></td>
                     <td className={td}>{g.size ? <bdi>{g.size}</bdi> : <span className="text-muted">{c.allSizes}</span>}</td>
                     <td className={`${td} font-semibold tabular-nums`}>{num(g.waiting)}</td>
+                    <td className={`${td} tabular-nums ${g.sending ? "font-semibold text-deep dark:text-primary" : "text-muted"}`}>{num(g.sending)}</td>
                     <td className={`${td} tabular-nums text-muted`}>{num(g.notified)}</td>
                     <td className={`${td} whitespace-nowrap text-muted`}>{g.lastAt ? dateOf(g.lastAt, lang) : "—"}</td>
                     <td className={td}>
@@ -322,7 +353,14 @@ export function CustomerEmails() {
                             <button type="button" disabled={!!busy} onClick={() => setAsking(k)} className="h-9 rounded-lg px-3 text-xs font-semibold text-rose-600 transition hover:bg-rose-600/10 disabled:opacity-50">{c.clear}</button>
                           </span>
                         ))}
+                      {/* all of this row's people are in a batch being sent: nothing for a press to do until it settles */}
+                      {g.waiting === 0 && g.sending > 0 && (
+                        <button type="button" disabled title={c.sendingNow} className="h-9 cursor-not-allowed rounded-lg bg-primary px-3 text-xs font-semibold text-white opacity-50">
+                          {c.notify}
+                        </button>
+                      )}
                       {!g.ready && g.waiting > 0 && !g.gone && <p className="mt-1 text-xs text-muted">{c.notifyHint}</p>}
+                      {g.sending > 0 && note?.text !== c.sendingNow && <p className="mt-1 text-xs text-deep dark:text-primary">{c.sendingNow}</p>}
                       {note && <p role={note.tone === "bad" ? "alert" : "status"} className={`mt-1 text-xs ${note.tone === "bad" ? "text-rose-600" : "text-emerald-700 dark:text-emerald-400"}`}>{note.text}</p>}
                     </td>
                   </tr>

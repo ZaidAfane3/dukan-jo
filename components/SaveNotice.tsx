@@ -90,7 +90,7 @@ export function SaveNotice() {
   const w = words[lang];
   const buy = why === "theme-not-bought" ? `/themes${theme ? `?theme=${theme}` : ""}` : null;
   return (
-    <div role="alert" className="fixed inset-x-4 bottom-4 z-[80] mx-auto flex max-w-xl items-start gap-3 rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white shadow-2xl ring-1 ring-white/15">
+    <div role="alert" data-undo-avoid className="fixed inset-x-4 bottom-4 z-[80] mx-auto flex max-w-xl items-start gap-3 rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white shadow-2xl ring-1 ring-white/15">
       <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <circle cx="12" cy="12" r="9" />
         <path d="M12 8v5M12 16.5v.01" />
