@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { flushSync } from "react-dom";
 
 import type { Lang } from "./content";
+import { UP } from "./loadFailKeys";
 export type { Lang };
 type Theme = "light" | "dark";
 
@@ -111,6 +112,8 @@ export function PrefsProvider({ children }: { children: React.ReactNode }) {
     if (savedLang === "ar" || savedLang === "en") setLangState(savedLang);
     setTheme(safeGet("seen-theme") === "dark" ? "dark" : "light");
     delete document.documentElement.dataset.boot;
+    /* the page's code is running: a file that fails from now on is left to the pages' error pages (components/loadFailScript.ts) */
+    (window as unknown as Record<string, unknown>)[UP] = true;
   }, []);
 
   /* the language a page showed quietly (setLang's quiet): never written into the cookie, as it isn't the visitor's choice */

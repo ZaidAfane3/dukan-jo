@@ -3,6 +3,7 @@ import { Almarai, Amiri, Aref_Ruqaa, Baloo_Bhaijaan_2, Cairo, Cormorant_Garamond
 import { BuildTimeLogger } from "@/components/BuildTimeLogger";
 import { DemoBoot, DemoRemount } from "@/components/DemoBoot";
 import { FieldCheck } from "@/components/FieldCheck";
+import { loadFailScript } from "@/components/loadFailScript";
 import { PrefsProvider } from "@/components/Prefs";
 import { SkeletonOverlay } from "@/components/Skeleton";
 import "./globals.css";
@@ -54,6 +55,8 @@ export default function RootLayout({
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: initScript }} />
+        {/* one reload, then Dukkan's error page, when the page's own code or styles fail to arrive on a full load */}
+        <script dangerouslySetInnerHTML={{ __html: loadFailScript }} />
       </head>
       <body className={`${sans.variable} ${elegantLatin.variable} ${elegantArabic.variable} ${cairo.variable} ${tajawal.variable} ${plex.variable} ${ruqaa.variable} ${lemonada.variable} ${baloo.variable} ${messiri.variable} ${almarai.variable} ${kufi.variable}`}>
         <PrefsProvider>

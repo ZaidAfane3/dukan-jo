@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Lang } from "./content";
 import { brandName } from "./content";
+import { AGAIN_AFTER, RELOADED } from "./loadFailKeys";
 import { usePageTitle } from "./pageTitle";
 
 /* What a page shows when it fails while opening, in place of Next's own English-only "This page couldn't load"
@@ -13,16 +14,14 @@ import { usePageTitle } from "./pageTitle";
    old page asks for files the new version no longer has), or the connection dropped the request. Loading the page again
    fixes that, so it is done once, by itself, without asking. Once only: the address and the time are kept in this tab
    (sessionStorage), and a second failure of the same page within a minute shows the page below instead of reloading
-   again and again. Any other error shows the page below straight away. */
+   again and again. Any other error shows the page below straight away. A page opened in full whose code itself failed
+   never gets this far: components/loadFailScript.ts does the same for it, with the same note in the tab. */
 
 const LOAD_FAILED = /ChunkLoadError|Loading (CSS )?chunk|Failed to load chunk|Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Failed to fetch RSC payload|Connection closed/i;
 
 /** A part of the page (its code, its styles, or the server's answer for it) that failed to arrive */
 export const isLoadError = (e: unknown): boolean =>
   e instanceof Error && (e.name === "ChunkLoadError" || LOAD_FAILED.test(`${e.name}: ${e.message}`));
-
-const RELOADED = "dukkan-reloaded";
-const AGAIN_AFTER = 60_000;
 
 /** Loads the page again, unless this same page was already loaded again for this in the last minute. True when it does. */
 function reloadOnce(): boolean {
