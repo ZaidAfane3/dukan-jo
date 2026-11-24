@@ -29,7 +29,8 @@ export const CAMPAIGN_MAX = {
 export const CAMPAIGNS_PER_DAY = 3;
 
 /* ---------------- who gets it ----------------
-   Everyone: the store's buyers and its newsletter subscribers (by email), each address once. A mobile campaign reaches
+   Everyone: the store's buyers (someone with an order that wasn't cancelled or refunded) and its newsletter
+   subscribers (by email), each address once. A mobile campaign reaches
    buyers only (the newsletter keeps emails). The order filters keep only people who ordered: within the last `days`
    (0: any time) and at least `minOrders` orders (cancelled and refunded orders don't count). Anyone who unsubscribed
    from the store's campaigns is always left out. */
